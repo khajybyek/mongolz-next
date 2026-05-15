@@ -1,0 +1,30 @@
+# Railway upload-аас хасах (Cloudflare 100MB лимит).
+# Local Python venv 800MB+ — буюу хэрэггүй.
+
+venv/
+.venv/
+env/
+
+__pycache__/
+*.pyc
+*.pyo
+
+# Local runtime өгөгдөл
+captured_faces/
+recordings/
+revealed_videos/
+alert_screenshots/
+*.db
+*.sqlite
+.mongolz_key
+
+# Local env (Railway UI-аар тохируулна)
+.env
+.env.*
+
+# Git / OS
+.git/
+.idea/
+.vscode/
+.DS_Store
+*.log

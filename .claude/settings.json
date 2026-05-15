@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); SESSION_ID=$(echo \"$INPUT\" | jq -r '.session_id // \"unknown\"'); CWD=$(echo \"$INPUT\" | jq -r '.cwd // \"\"'); PROJECT=/Users/khajybyek/Desktop/DKMA/SCH/3B-26-1/capstone/mongolz-next; if [ -z \"$CWD\" ] || [ \"$CWD\" = \"$PROJECT\" ]; then TIMESTAMP=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S KST'); printf '\\n## Session Update — %s\\n- Trigger: PreCompact (auto)\\n- Session ID: %s\\n' \"$TIMESTAMP\" \"$SESSION_ID\" >> \"$PROJECT/CLAUDE.md\"; fi",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); SESSION_ID=$(echo \"$INPUT\" | jq -r '.session_id // \"unknown\"'); CWD=$(echo \"$INPUT\" | jq -r '.cwd // \"\"'); PROJECT=/Users/khajybyek/Desktop/DKMA/SCH/3B-26-1/capstone/mongolz-next; if [ -z \"$CWD\" ] || [ \"$CWD\" = \"$PROJECT\" ]; then TIMESTAMP=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S KST'); printf '\\n## Session Update — %s\\n- Trigger: PreCompact (manual)\\n- Session ID: %s\\n' \"$TIMESTAMP\" \"$SESSION_ID\" >> \"$PROJECT/CLAUDE.md\"; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); SUMMARY=$(echo \"$INPUT\" | jq -r '.summary // .compactionSummary // \"\"'); CWD=$(echo \"$INPUT\" | jq -r '.cwd // \"\"'); PROJECT=/Users/khajybyek/Desktop/DKMA/SCH/3B-26-1/capstone/mongolz-next; if { [ -z \"$CWD\" ] || [ \"$CWD\" = \"$PROJECT\" ]; } && [ -n \"$SUMMARY\" ]; then TIMESTAMP=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S KST'); printf '\\n### Compaction Summary — %s\\n%s\\n' \"$TIMESTAMP\" \"$SUMMARY\" >> \"$PROJECT/CLAUDE.md\"; fi",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); SUMMARY=$(echo \"$INPUT\" | jq -r '.summary // .compactionSummary // \"\"'); CWD=$(echo \"$INPUT\" | jq -r '.cwd // \"\"'); PROJECT=/Users/khajybyek/Desktop/DKMA/SCH/3B-26-1/capstone/mongolz-next; if { [ -z \"$CWD\" ] || [ \"$CWD\" = \"$PROJECT\" ]; } && [ -n \"$SUMMARY\" ]; then TIMESTAMP=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S KST'); printf '\\n### Compaction Summary — %s\\n%s\\n' \"$TIMESTAMP\" \"$SUMMARY\" >> \"$PROJECT/CLAUDE.md\"; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

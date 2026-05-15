@@ -1,0 +1,94 @@
+import { Trash2, Power } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { Empty } from "@/components/ui/empty";
+import { createClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/lib/supabase/auth";
+import { getT } from "@/lib/i18n/server";
+import { addCameraAction, deleteCameraAction, toggleCameraAction } from "./actions";
+import { cn } from "@/lib/utils";
+import { decryptCameraUrl } from "@/lib/camera-crypto";
+
+export default async function CamerasPage() {
+  await requireAdmin();
+  const { t } = await getT();
+  const supabase = await createClient();
+
+  const { data: rawCameras } = await supabase
+    .from("cameras")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  const cameras = (rawCameras ?? []).map((c) => ({
+    ...c,
+    url: process.env.CAMERA_URL_KEY ? decryptCameraUrl(c.url) : c.url,
+  }));
+
+  return (
+    <>
+      <PageHeader title={t("manage_cameras")} subtitle={t("nav_cameras")} />
+
+      <div className="card mb-6">
+        <form action={addCameraAction} className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <input name="name" placeholder={t("camera_name")} required className="input" />
+          <input name="url" placeholder={t("camera_url")} required className="input md:col-span-2" />
+          <select name="cam_type" defaultValue="rtsp" className="input">
+            <option value="rtsp">RTSP</option>
+            <option value="http">HTTP</option>
+            <option value="usb">USB</option>
+            <option value="webcam">Webcam</option>
+          </select>
+          <button type="submit" className="btn-primary md:col-span-4">
+            {t("add_camera")}
+          </button>
+        </form>
+      </div>
+
+      {!cameras.length ? (
+        <Empty message={t("empty")} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {cameras.map((c) => (
+            <div key={c.id} className="card">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold">{c.name}</span>
+                    <span
+                      className={cn(
+                        "badge",
+                        c.enabled
+                          ? "bg-success/15 text-success"
+                          : "bg-white/5 text-neutral-500"
+                      )}
+                    >
+                      {c.enabled ? "ON" : "OFF"}
+                    </span>
+                    <span className="badge bg-bg-tertiary text-neutral-400">
+                      {c.cam_type.toUpperCase()}
+                    </span>
+                  </div>
+                  <code className="text-xs text-neutral-500 break-all">{c.url}</code>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <form action={toggleCameraAction}>
+                    <input type="hidden" name="id" value={c.id} />
+                    <input type="hidden" name="enabled" value={String(!c.enabled)} />
+                    <button type="submit" className="btn-ghost text-xs p-2" title="Toggle">
+                      <Power className="w-3.5 h-3.5" />
+                    </button>
+                  </form>
+                  <form action={deleteCameraAction}>
+                    <input type="hidden" name="id" value={c.id} />
+                    <button type="submit" className="btn-danger text-xs p-2">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}

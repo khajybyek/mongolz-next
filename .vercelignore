@@ -1,0 +1,39 @@
+# Vercel-руу зөвхөн Next.js-ийг л deploy хийнэ.
+# ML service нь heavy ML dependencies (InsightFace ~400MB, OpenCV, ONNX,
+# MediaPipe гэх мэт)-тэй учраас Lambda-ийн 500MB лимитэд багтахгүй.
+# Тэрийг тусдаа Railway/Modal/Render/Fly.io дээр Docker контейнераар
+# deploy хийнэ үү (`ml-service/Dockerfile` ашиглаж).
+
+# Анхаар: leading "/" — зөвхөн PROJECT ROOT-ын folder-ыг хасна.
+# `supabase/` гэвэл `lib/supabase/` бас хасах болно (.gitignore зарчим).
+/ml-service/
+
+# Top-level supabase/ folder (migrations, functions) — Vercel build-д хэрэггүй,
+# `lib/supabase/` (Next.js client wrappers) хэвээр үлдэнэ.
+/supabase/
+
+# Backup болон log файл
+*.log
+.env.local.backup-*
+
+# Local env файлууд — Vercel өөрөө "Environment Variables" UI-аар тохируулна.
+# Repo-д хадгалбал secret leak-ийн эрсдэлтэй.
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local Python venv (хэрэв байх юм бол)
+**/venv/
+**/__pycache__/
+**/*.pyc
+
+# Local SQLite / DB файл
+*.db
+*.sqlite

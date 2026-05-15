@@ -1,0 +1,173 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
+import { hasFreshReauth } from "@/lib/auth/step-up";
+import { mlEmbed, mlTriggerReveal, MLError } from "@/lib/ml-client";
+import { checkRateLimit, REVEAL_LIMIT } from "@/lib/rate-limit";
+import type { RevealMethod } from "@/lib/database.types";
+
+export async function POST(request: NextRequest) {
+  const auth = await requireAdminApi();
+  if (isAuthErr(auth)) return auth.error;
+  const ctx = auth;
+
+  // Step-up auth шалгах
+  if (!(await hasFreshReauth(ctx.user.id))) {
+    return NextResponse.json(
+      { error: "REAUTH_REQUIRED", message: "Нууц үгээ дахин оруулна уу" },
+      { status: 401 }
+    );
+  }
+
+  // Rate limit: 1 цагт 20 reveal max — нэг админ ч misuse хийхгүй
+  const rl = await checkRateLimit(ctx.user.id, REVEAL_LIMIT);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: rl.message ?? "Хэт олон reveal хүсэлт" },
+      { status: 429, headers: { "Retry-After": String(rl.resetSec) } }
+    );
+  }
+
+  const fd = await request.formData();
+  const recording_id = String(fd.get("recording_id") ?? "");
+  const method = String(fd.get("method") ?? "") as RevealMethod;
+  const threshold = Number(fd.get("threshold") ?? 0.45);
+
+  if (!recording_id || !["upload", "suspect", "detected_face"].includes(method)) {
+    return NextResponse.json({ error: "invalid params" }, { status: 400 });
+  }
+
+  // Recording байгаа эсэхийг шалгах + has_original
+  const supabase = await createClient();
+  const { data: rec } = await supabase
+    .from("recordings")
+    .select("id, has_original, filename")
+    .eq("id", recording_id)
+    .single();
+
+  if (!rec) {
+    return NextResponse.json({ error: "recording not found" }, { status: 404 });
+  }
+  if (!rec.has_original) {
+    return NextResponse.json(
+      { error: "Энэ бичлэгт original үлдээгүй — reveal боломжгүй" },
+      { status: 422 }
+    );
+  }
+
+  // Method-аас хамаарч target embedding(-ууд)-ыг бүрдүүлэх
+  let queryEmbeddingSingle: number[] | null = null;
+  let queryEmbeddingsMulti: number[][] | null = null;
+  let suspect_id: string | null = null;
+  let face_id_single: string | null = null;
+  let face_ids_multi: string[] | null = null;
+  let detail = `recording=${rec.filename}`;
+
+  const svc = createServiceClient();
+
+  if (method === "upload") {
+    const photo = fd.get("photo");
+    if (!(photo instanceof File) || photo.size === 0) {
+      return NextResponse.json({ error: "missing photo" }, { status: 400 });
+    }
+    try {
+      const buffer = Buffer.from(await photo.arrayBuffer());
+      queryEmbeddingSingle = await mlEmbed(buffer);
+    } catch (e) {
+      const msg = e instanceof MLError ? e.message : "ML service хариулсангүй";
+      return NextResponse.json({ error: msg }, { status: 502 });
+    }
+    detail += " · upload";
+  } else if (method === "suspect") {
+    suspect_id = String(fd.get("suspect_id") ?? "");
+    if (!suspect_id) return NextResponse.json({ error: "missing suspect_id" }, { status: 400 });
+    const { data: s } = await svc
+      .from("suspects")
+      .select("name, embedding")
+      .eq("id", suspect_id)
+      .single();
+    if (!s) return NextResponse.json({ error: "suspect not found" }, { status: 404 });
+    queryEmbeddingSingle = s.embedding as unknown as number[];
+    detail += ` · suspect=${s.name}`;
+  } else if (method === "detected_face") {
+    // Шинэ: face_ids[] (олон) — fallback: face_id (нэг)
+    const idsRaw = fd.getAll("face_ids").map((v) => String(v)).filter(Boolean);
+    const single = String(fd.get("face_id") ?? "").trim();
+    const collected = idsRaw.length > 0 ? idsRaw : single ? [single] : [];
+
+    // Дахин давхардуулсныг арилгана + хоосон шалгах
+    const ids = Array.from(new Set(collected));
+    if (ids.length === 0) {
+      return NextResponse.json({ error: "missing face id(s)" }, { status: 400 });
+    }
+
+    // Бүх face-ийн embedding-ийг авах (service-role, RLS bypass)
+    const { data: rows, error: facesErr } = await svc
+      .from("faces")
+      .select("id, filename, embedding")
+      .in("id", ids);
+
+    if (facesErr) {
+      return NextResponse.json({ error: facesErr.message }, { status: 500 });
+    }
+    if (!rows || rows.length === 0) {
+      return NextResponse.json({ error: "face(s) not found" }, { status: 404 });
+    }
+
+    // Embedding-уудыг JSON массив болгож хадгална
+    queryEmbeddingsMulti = rows.map((r) => r.embedding as unknown as number[]);
+
+    if (rows.length === 1) {
+      // Backward-compat: ганц бол хуучин singular талбарыг нөхөж бичнэ
+      face_id_single = rows[0].id;
+      queryEmbeddingSingle = rows[0].embedding as unknown as number[];
+    }
+    face_ids_multi = rows.map((r) => r.id);
+    detail += ` · faces=${rows.length} (${rows.map((r) => r.filename).join(", ").slice(0, 120)})`;
+  }
+
+  // 1. reveal_jobs row үүсгэх
+  const { data: job, error: jobErr } = await svc
+    .from("reveal_jobs")
+    .insert({
+      recording_id,
+      method,
+      suspect_id,
+      face_id: face_id_single,
+      face_ids: face_ids_multi,
+      query_embedding: queryEmbeddingSingle as never,
+      query_embeddings: queryEmbeddingsMulti as never,
+      threshold,
+      requested_by: ctx.user.id,
+      requested_email: ctx.user.email,
+      reauth_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (jobErr || !job) {
+    return NextResponse.json({ error: jobErr?.message ?? "DB insert failed" }, { status: 500 });
+  }
+
+  // 2. Audit
+  await svc.from("audit_log").insert({
+    action: "REVEAL_REQUEST",
+    detail,
+    user_id: ctx.user.id,
+    user_email: ctx.user.email,
+  });
+
+  // 3. Python ML service-руу trigger
+  try {
+    await mlTriggerReveal(job.id);
+  } catch (e) {
+    const msg = e instanceof MLError ? e.message : "ML service хүрсэнгүй";
+    await svc
+      .from("reveal_jobs")
+      .update({ status: "failed", error_message: msg })
+      .eq("id", job.id);
+    return NextResponse.json({ error: msg, job_id: job.id }, { status: 502 });
+  }
+
+  return NextResponse.json({ job_id: job.id, status: "queued" });
+}

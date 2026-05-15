@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  @apply bg-bg text-neutral-200;
+  min-height: 100vh;
+}
+
+body {
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+* {
+  @apply border-white/10;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-white/10 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-white/20;
+}
+
+@layer components {
+  .card {
+    @apply bg-bg-secondary border border-white/5 rounded-xl p-4;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition;
+    /* Mobile touch UX:
+     *  - min-h 44px = Apple HIG recommended touch target
+     *  - touch-manipulation = 300ms tap delay-г арилгана iOS Safari-д
+     *  - active:scale = touch feedback харуулна
+     */
+    min-height: 44px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    cursor: pointer;
+  }
+  .btn:active {
+    transform: scale(0.97);
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-bg hover:bg-accent-hover;
+  }
+  .btn-ghost {
+    @apply btn bg-white/5 text-neutral-200 hover:bg-white/10;
+  }
+  .btn-danger {
+    @apply btn bg-danger/15 text-danger hover:bg-danger/25;
+  }
+  .input {
+    @apply w-full rounded-lg bg-bg-tertiary border border-white/10 px-3 py-2 text-neutral-100
+      placeholder:text-neutral-500 focus:outline-none focus:border-accent/60;
+    /* iOS Safari нь 16px-аас бага fontsize-тай input дээр focus хийхэд
+     * автоматаар zoom хийдэг — энэ нь login form-ыг алдагдуулна.
+     * Mobile дээр заавал 16px (text-base) ашиглана.
+     */
+    font-size: 16px;
+    min-height: 44px;
+  }
+  /* Desktop дээр илүү жижиг харагдах */
+  @media (min-width: 768px) {
+    .input {
+      font-size: 14px;
+    }
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+}

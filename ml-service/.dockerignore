@@ -1,0 +1,44 @@
+# Python virtual environment — Dockerfile дотор pip install хийдэг,
+# local venv-ыг бөөн 800MB upload хийх ХЭРЭГГҮЙ.
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local temp / runtime өгөгдөл
+captured_faces/
+recordings/
+revealed_videos/
+alert_screenshots/
+*.db
+*.sqlite
+*.sqlite3
+.mongolz_key
+
+# Local environment файлууд (Railway-ийн UI-аар тусдаа тохируулна)
+.env
+.env.*
+
+# Git
+.git/
+.gitignore
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.log
+
+# Docker файлууд (build context-д хэрэггүй)
+Dockerfile
+.dockerignore
+
+# Railway/Modal/Render config-ууд (build-д хэрэггүй)
+railway.json
+modal_app.py
