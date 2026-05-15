@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   if (matches.length === 0) return NextResponse.json({ matches: [] });
 
   const ids = matches.map((m) => m.id);
-  const paths = matches.map((m) => m.image_path);
+  const paths = [...new Set(matches.map((m) => m.image_path).filter(Boolean))];
 
   const [metaRes, signedRes] = await Promise.all([
     svc
@@ -48,6 +48,9 @@ export async function POST(request: NextRequest) {
       .in("id", ids),
     svc.storage.from("faces").createSignedUrls(paths, SIGNED_URL_TTL_SEC),
   ]);
+
+  if (metaRes.error) return NextResponse.json({ error: metaRes.error.message }, { status: 500 });
+  if (signedRes.error) return NextResponse.json({ error: signedRes.error.message }, { status: 500 });
 
   const metaById = new Map<string, {
     recording_filename: string | null;
