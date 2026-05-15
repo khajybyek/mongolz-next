@@ -10,7 +10,6 @@ const PUBLIC_PATHS = [
   "/apple-icon",
   "/api/lang", // Login page-аас хэл сольж болохын тулд unauth-аар хүртээмжтэй
   "/monitoring", // Sentry tunnel route — anonymous beacons, no auth required
-  "/api/sentry-test", // TEMP: integration verification endpoint
 ];
 
 type CookieItem = { name: string; value: string; options?: CookieOptions };
