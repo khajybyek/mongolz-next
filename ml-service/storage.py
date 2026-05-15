@@ -7,11 +7,65 @@ from __future__ import annotations
 
 import logging
 import os
+import time as _time
+from collections import deque
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from supabase import Client, create_client
 
 log = logging.getLogger("mongolz-ml.storage")
+
+# In-memory burst trackers (per ML worker). For a single Railway dyno this is
+# sufficient; with horizontal scaling we'd need Redis. Capstone deployment is
+# single-replica so this is fine.
+_BURST_WINDOWS: dict[str, deque[float]] = {}
+_KST = ZoneInfo("Asia/Seoul")
+
+
+def _unix_now() -> float:
+    return _time.time()
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _iso_minutes_ago(seconds: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
+
+
+def _check_burst(rule_id: str, suspect_id: str, camera_id: str | None,
+                 burst_count: int, burst_window_sec: int) -> bool:
+    """Returns True when N events have been seen within the window for this key."""
+    key = f"{rule_id}:{suspect_id}:{camera_id or 'none'}"
+    now = _unix_now()
+    q = _BURST_WINDOWS.setdefault(key, deque())
+    cutoff = now - burst_window_sec
+    while q and q[0] < cutoff:
+        q.popleft()
+    q.append(now)
+    return len(q) >= burst_count
+
+
+def _within_quiet_hours(quiet_from: str, quiet_to: str) -> bool:
+    """quiet_from / quiet_to are 'HH:MM' in KST. Handles wrap-around (23:00–07:00)."""
+    try:
+        fh, fm = map(int, quiet_from.split(":"))
+        th, tm = map(int, quiet_to.split(":"))
+    except Exception:
+        return False
+    now = datetime.now(_KST)
+    now_minutes = now.hour * 60 + now.minute
+    from_minutes = fh * 60 + fm
+    to_minutes = th * 60 + tm
+    if from_minutes == to_minutes:
+        return False
+    if from_minutes < to_minutes:
+        return from_minutes <= now_minutes < to_minutes
+    # Wrap-around window (e.g. 23:00 → 07:00)
+    return now_minutes >= from_minutes or now_minutes < to_minutes
 
 
 class SupabaseStorage:
@@ -76,7 +130,7 @@ class SupabaseStorage:
         )
         return res.data[0]["id"] if res.data else None
 
-    # ── Alert ─────────────────────────────────────────────────
+    # ── Alert (rule-aware) ────────────────────────────────────
     async def insert_alert(
         self,
         suspect_id: str,
@@ -87,8 +141,62 @@ class SupabaseStorage:
         camera_id: str | None,
         camera_name: str | None,
     ):
+        """Insert alert with rule-based filtering + dedup.
+
+        Behaviour:
+        1. If no enabled rules match this (suspect_id, camera_id, similarity)
+           pair → fall back to legacy behaviour (always insert).
+        2. If a rule matches, honour its dedup_window_sec: increment
+           match_count on an existing alert in-window instead of inserting.
+        3. Burst smoothing: if `burst_count > 1`, only insert when N matches
+           have been recorded in `burst_window_sec` (uses a lightweight
+           in-memory pending bucket).
+        4. Quiet hours: skip alerting entirely while within window.
+        """
         if not self.client:
             return
+
+        rule = await self._select_alert_rule(suspect_id, camera_id, similarity)
+
+        if rule and rule.get("quiet_from") and rule.get("quiet_to"):
+            if _within_quiet_hours(rule["quiet_from"], rule["quiet_to"]):
+                return
+
+        if rule and rule.get("burst_count", 1) > 1:
+            if not _check_burst(
+                rule["id"],
+                suspect_id,
+                camera_id,
+                int(rule["burst_count"]),
+                int(rule["burst_window_sec"]),
+            ):
+                return
+
+        dedup_key = None
+        dedup_window = int(rule["dedup_window_sec"]) if rule else 0
+        if dedup_window > 0:
+            bucket = int(_unix_now() // dedup_window)
+            dedup_key = f"{suspect_id}:{camera_id or 'none'}:{bucket}"
+            cutoff = _iso_minutes_ago(seconds=dedup_window)
+            existing = (
+                self.client.table("alerts")
+                .select("id, match_count")
+                .eq("dedup_key", dedup_key)
+                .gte("created_at", cutoff)
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                row = existing.data[0]
+                self.client.table("alerts").update(
+                    {
+                        "match_count": int(row.get("match_count") or 1) + 1,
+                        "last_seen_at": _iso_now(),
+                        "similarity": max(similarity, float(row.get("similarity") or 0)),
+                    }
+                ).eq("id", row["id"]).execute()
+                return
+
         self.client.table("alerts").insert(
             {
                 "suspect_id": suspect_id,
@@ -98,8 +206,52 @@ class SupabaseStorage:
                 "screenshot_path": screenshot_path,
                 "camera_id": camera_id,
                 "camera_name": camera_name or "Unknown",
+                "rule_id": rule["id"] if rule else None,
+                "dedup_key": dedup_key,
+                "match_count": 1,
+                "last_seen_at": _iso_now(),
             }
         ).execute()
+
+    async def _select_alert_rule(
+        self,
+        suspect_id: str,
+        camera_id: str | None,
+        similarity: float,
+    ) -> dict | None:
+        """Pick the most specific enabled rule matching this event."""
+        if not self.client:
+            return None
+        # Order: suspect+camera specific > suspect-only > camera-only > global
+        try:
+            res = (
+                self.client.table("alert_rules")
+                .select(
+                    "id, name, suspect_id, camera_id, min_similarity, "
+                    "dedup_window_sec, burst_count, burst_window_sec, "
+                    "quiet_from, quiet_to"
+                )
+                .eq("enabled", True)
+                .lte("min_similarity", similarity)
+                .execute()
+            )
+        except Exception:
+            return None
+
+        candidates = []
+        for r in res.data or []:
+            sm = r.get("suspect_id")
+            cm = r.get("camera_id")
+            if sm and sm != suspect_id:
+                continue
+            if cm and cm != camera_id:
+                continue
+            specificity = (1 if sm else 0) + (1 if cm else 0)
+            candidates.append((specificity, r))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda x: -x[0])
+        return candidates[0][1]
 
     # ── Recording: ID-тай буцаах (faces-руу back-link хийхэд) ──
     async def insert_recording_returning_id(

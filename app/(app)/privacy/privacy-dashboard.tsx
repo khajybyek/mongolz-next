@@ -61,7 +61,7 @@ export function PrivacyDashboard() {
       </div>
 
       {results.length > 0 && (
-        <div className="card overflow-hidden p-0">
+        <div className="card overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-bg-tertiary/50">
               <tr className="text-xs uppercase tracking-wide text-neutral-400">

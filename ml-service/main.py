@@ -35,6 +35,7 @@ try:
 except ImportError:
     pass
 
+import cv2
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,6 +48,8 @@ from storage import SupabaseStorage
 from crypto_utils import init_master_key, self_test as crypto_self_test
 from dp_embeddings import DPConfig, add_dp_noise, estimate_matching_accuracy, sweep_epsilon
 from zk_reveal import full_protocol_demo as zk_demo
+from anti_spoof import detect_spoof
+from embedding_fusion import FrameEmbedding, fuse_weighted_mean, fuse_median, cosine_similarity
 from telemetry import init_telemetry
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -571,6 +574,78 @@ async def eval_system_endpoint():
     }
 
 
+@app.post("/eval/bench", dependencies=[Depends(require_token)])
+async def eval_bench_endpoint(iterations: int = 10):
+    """
+    Run a microbenchmark on detect + embed using a synthetic image.
+    Returns per-step latency stats (mean/p50/p95/p99) and effective FPS.
+    """
+    import time
+    iterations = max(1, min(iterations, 100))
+    if not face_engine:
+        raise HTTPException(503, "engine not ready")
+
+    # Encode synthetic image to JPEG so engine API (image_bytes) is satisfied.
+    rng = np.random.default_rng(42)
+    img = rng.integers(0, 256, size=(480, 640, 3), dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", img)
+    if not ok:
+        raise HTTPException(500, "failed to encode synthetic image")
+    img_bytes = encoded.tobytes()
+
+    detect_times: list[float] = []
+    embed_times: list[float] = []
+    total_times: list[float] = []
+
+    # Warmup
+    try:
+        face_engine.detect_all(img_bytes)
+    except Exception:
+        pass
+
+    for _ in range(iterations):
+        t0 = time.perf_counter()
+        faces = face_engine.detect_all(img_bytes)
+        t1 = time.perf_counter()
+        detect_times.append((t1 - t0) * 1000)
+
+        # Embed the synthetic image as a whole to measure embedding latency.
+        t2 = time.perf_counter()
+        face_engine.embed_single(img_bytes)
+        t3 = time.perf_counter()
+        embed_times.append((t3 - t2) * 1000)
+
+        # detect_count is informational; suppress lint about unused variable.
+        del faces
+
+        total_times.append((time.perf_counter() - t0) * 1000)
+
+    def stats(arr: list[float]) -> dict:
+        if not arr:
+            return {"n": 0}
+        s = sorted(arr)
+        n = len(s)
+        return {
+            "n": n,
+            "mean_ms": round(sum(s) / n, 2),
+            "p50_ms": round(s[n // 2], 2),
+            "p95_ms": round(s[min(n - 1, int(n * 0.95))], 2),
+            "p99_ms": round(s[min(n - 1, int(n * 0.99))], 2),
+            "min_ms": round(s[0], 2),
+            "max_ms": round(s[-1], 2),
+        }
+
+    return {
+        "iterations": iterations,
+        "input_resolution": "640x480",
+        "detection": stats(detect_times),
+        "embedding": stats(embed_times),
+        "end_to_end": stats(total_times),
+        "effective_fps": round(1000.0 / max(sum(total_times) / len(total_times), 1e-6), 2),
+        "engine": face_engine.info(),
+    }
+
+
 
 # ── Differential Privacy ──────────────────────────────────────
 class DPRequest(BaseModel):
@@ -656,6 +731,96 @@ async def zk_simulate(
 
     results["total"] = n_trials
     return results
+
+
+# ── Backup verification ───────────────────────────────────────
+class VerifyBlobRequest(BaseModel):
+    recording_id: str = Field(..., min_length=1, max_length=64)
+    storage_path: str = Field(..., min_length=1, max_length=512)
+
+
+@app.post("/reveal/verify-blob", dependencies=[Depends(require_token)])
+async def verify_blob_endpoint(req: VerifyBlobRequest):
+    """Backup verification: attempt decrypt without revealing plaintext."""
+    if not storage or not storage.client:
+        raise HTTPException(503, "storage not initialized")
+    try:
+        blob = storage.client.storage.from_("recordings").download(req.storage_path)
+        if not blob or len(blob) < 32:
+            return {"ok": False, "reason": "empty or truncated blob"}
+
+        from crypto_utils import decrypt_bytes
+        try:
+            decoded = decrypt_bytes(blob, req.recording_id)
+            return {"ok": True, "bytes_decoded": len(decoded)}
+        except Exception as e:
+            return {"ok": False, "reason": f"decrypt failed: {type(e).__name__}: {e}"}
+    except Exception as e:
+        return {"ok": False, "reason": f"download failed: {e}"}
+
+
+# ── Multi-frame embedding fusion ──────────────────────────────
+class FuseEmbedding(BaseModel):
+    embedding: list[float] = Field(..., min_length=512, max_length=512)
+    quality: float = Field(1.0, ge=0, le=1)
+
+
+class FuseRequest(BaseModel):
+    frames: list[FuseEmbedding] = Field(..., min_length=1, max_length=64)
+    strategy: str = Field("weighted_mean", description="weighted_mean | median")
+
+
+@app.post("/embedding/fuse", dependencies=[Depends(require_token)])
+async def fuse_embeddings_endpoint(req: FuseRequest):
+    items = [
+        FrameEmbedding(embedding=np.array(f.embedding, dtype=np.float64), quality=f.quality)
+        for f in req.frames
+    ]
+    if req.strategy == "median":
+        fused = fuse_median(items)
+    else:
+        fused = fuse_weighted_mean(items)
+    if fused is None:
+        raise HTTPException(400, "no valid frames after filtering")
+
+    # Convenience: pairwise similarity to the first frame for diagnostics.
+    base = items[0].embedding
+    return {
+        "embedding": fused.tolist(),
+        "strategy": req.strategy,
+        "frame_count": len(items),
+        "similarity_to_first": round(cosine_similarity(fused, base), 4),
+    }
+
+
+# ── Anti-Spoofing ─────────────────────────────────────────────
+@app.post("/anti-spoof", dependencies=[Depends(require_token)])
+async def anti_spoof_endpoint(file: UploadFile = File(...)):
+    """
+    Heuristic liveness check on an uploaded face image. Returns spoof_score in
+    [0, 1] (higher = more likely a printed-photo / phone-screen replay attack).
+    """
+    data = await file.read()
+    if len(data) == 0:
+        raise HTTPException(400, "empty file")
+    arr = np.frombuffer(data, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(400, "invalid image")
+
+    if face_engine is not None:
+        faces = face_engine.detect_all(data)
+        if faces:
+            x1, y1, x2, y2 = (int(v) for v in faces[0]["bbox"])
+            h, w = img.shape[:2]
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w, x2), min(h, y2)
+            roi = img[y1:y2, x1:x2]
+            if roi.size > 0:
+                img = roi
+
+    result = detect_spoof(img)
+    return result.to_dict()
 
 
 if __name__ == "__main__":

@@ -19,6 +19,11 @@ import {
   Menu,
   X,
   BookOpen,
+  UserCog,
+  BellRing,
+  Webhook,
+  GraduationCap,
+  Gauge,
   type LucideIcon,
 } from "lucide-react";
 import { MongolzLogo } from "./logo";
@@ -41,11 +46,16 @@ const NAV: NavItem[] = [
   { href: "/search", icon: Search, labelKey: "nav_search" },
   { href: "/suspects", icon: UserSearch, labelKey: "nav_suspects", adminOnly: true },
   { href: "/alerts", icon: Bell, labelKey: "nav_alerts", adminOnly: true },
+  { href: "/alert-rules", icon: BellRing, labelKey: "nav_alert_rules", adminOnly: true },
   { href: "/analytics", icon: BarChart3, labelKey: "nav_analytics" },
   { href: "/ai", icon: Sparkles, labelKey: "nav_ai", adminOnly: true },
   { href: "/faces", icon: Users, labelKey: "nav_faces", adminOnly: true },
   { href: "/cameras", icon: Cctv, labelKey: "nav_cameras", adminOnly: true },
   { href: "/audit", icon: ScrollText, labelKey: "nav_audit", adminOnly: true },
+  { href: "/users", icon: UserCog, labelKey: "nav_users", adminOnly: true },
+  { href: "/webhooks", icon: Webhook, labelKey: "nav_webhooks", adminOnly: true },
+  { href: "/active-learning", icon: GraduationCap, labelKey: "nav_active_learning", adminOnly: true },
+  { href: "/benchmarks", icon: Gauge, labelKey: "nav_benchmarks", adminOnly: true },
   { href: "/docs", icon: BookOpen, labelKey: "nav_docs", adminOnly: true },
   { href: "/settings", icon: Settings, labelKey: "nav_settings" },
 ];

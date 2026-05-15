@@ -11,6 +11,7 @@ export interface Profile {
   role: UserRole;
   totp_secret: string | null;
   totp_enabled: boolean;
+  totp_recovery_codes: string[];
   created_at: string;
   updated_at: string;
 }

@@ -10,6 +10,9 @@ const PUBLIC_PATHS = [
   "/apple-icon",
   "/api/lang", // Login page-аас хэл сольж болохын тулд unauth-аар хүртээмжтэй
   "/monitoring", // Sentry tunnel route — anonymous beacons, no auth required
+  "/manifest.webmanifest", // PWA manifest — installable without login
+  "/api/csp-report", // CSP report-uri — browser beacons, no auth
+  "/api/uptime", // External uptime monitors hit this without auth
 ];
 
 type CookieItem = { name: string; value: string; options?: CookieOptions };

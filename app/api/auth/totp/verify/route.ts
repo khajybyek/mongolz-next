@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { verifyTOTP } from "@/lib/totp";
+import { generateRecoveryCodes } from "@/lib/totp-recovery";
 
 export async function POST(request: NextRequest) {
   const auth = await requireUserApi();
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
   const svc = createServiceClient();
   const { data: profile } = await svc
     .from("profiles")
-    .select("totp_secret, totp_enabled")
+    .select("totp_secret, totp_enabled, totp_recovery_codes")
     .eq("id", ctx.user.id)
     .single();
 
@@ -33,19 +34,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Код буруу. Дахин оролд." }, { status: 401 });
   }
 
-  // Verify амжилттай — TOTP идэвхжүүлнэ
+  let recovery: string[] | null = null;
+
   if (!profile.totp_enabled) {
+    // First-time enable — generate one-time recovery codes
+    const gen = generateRecoveryCodes();
+    recovery = gen.plaintext;
+
     await svc
       .from("profiles")
-      .update({ totp_enabled: true })
+      .update({ totp_enabled: true, totp_recovery_codes: gen.hashes })
       .eq("id", ctx.user.id);
 
     await svc.from("audit_log").insert({
       action: "TOTP_ENABLED",
+      detail: `Recovery codes generated (${gen.hashes.length})`,
       user_id: ctx.user.id,
       user_email: ctx.user.email,
     });
   }
 
-  return NextResponse.json({ ok: true, enabled: true });
+  return NextResponse.json({
+    ok: true,
+    enabled: true,
+    recovery_codes: recovery,
+  });
 }

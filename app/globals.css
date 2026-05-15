@@ -34,6 +34,24 @@ body {
   @apply bg-white/20;
 }
 
+/* A11y: visible keyboard-focus ring everywhere (Tailwind disables outlines by default). */
+:focus-visible {
+  outline: 2px solid theme(colors.accent.DEFAULT);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Respect prefers-reduced-motion: kill non-essential animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
 @layer components {
   .card {
     @apply bg-bg-secondary border border-white/5 rounded-xl p-4;

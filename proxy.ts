@@ -46,11 +46,20 @@ function buildCsp(nonce: string, isDev: boolean): string {
     `base-uri 'self'`,
     `form-action 'self'`,
     `object-src 'none'`,
+    // CSP violation-уудыг /api/csp-report-руу post, тэрнээс Sentry-руу forward
+    `report-uri /api/csp-report`,
+    `report-to csp-endpoint`,
     // upgrade-insecure-requests хасав — HTTP IP webcam-уудыг автоматаар HTTPS-руу
     // upgrade хийгээд тасрах вэ гэдгийг сэргийлнэ. Бусад asset-уудыг HTTPS-аар
     // өөрсдөө явуулна.
   ].join("; ");
 }
+
+const REPORT_TO_HEADER = JSON.stringify({
+  group: "csp-endpoint",
+  max_age: 10886400,
+  endpoints: [{ url: "/api/csp-report" }],
+});
 
 export async function proxy(request: NextRequest) {
   const nonce = generateNonce();
@@ -63,6 +72,7 @@ export async function proxy(request: NextRequest) {
   const isRedirect = baseRes.status >= 300 && baseRes.status < 400;
   if (isRedirect) {
     baseRes.headers.set("Content-Security-Policy", buildCsp(nonce, isDev));
+    baseRes.headers.set("Report-To", REPORT_TO_HEADER);
     return baseRes;
   }
 
@@ -80,8 +90,9 @@ export async function proxy(request: NextRequest) {
     response.cookies.set(c);
   }
 
-  // CSP header
+  // CSP + reporting headers
   response.headers.set("Content-Security-Policy", buildCsp(nonce, isDev));
+  response.headers.set("Report-To", REPORT_TO_HEADER);
   return response;
 }
 

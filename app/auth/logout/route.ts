@@ -21,6 +21,12 @@ export async function POST(request: NextRequest) {
   }
 
   await supabase.auth.signOut();
+  try {
+    const { clearSessionPin } = await import("@/lib/auth/session-pin");
+    await clearSessionPin();
+  } catch {
+    // ignore
+  }
   return NextResponse.redirect(new URL("/login", request.url), { status: 303 });
 }
 

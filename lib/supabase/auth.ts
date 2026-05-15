@@ -36,6 +36,20 @@ export async function requireUser(): Promise<AuthCtx> {
     redirect("/login?error=no-profile");
   }
 
+  // Session pinning — verify IP/16 + UA fingerprint matches login binding.
+  // Soft-enforce: only reject if a pin cookie EXISTS but doesn't match (cookie
+  // theft signal). Missing cookie is OK for back-compat with existing sessions.
+  try {
+    const { checkSessionPin } = await import("@/lib/auth/session-pin");
+    const pin = await checkSessionPin(user.id);
+    if (!pin.ok && pin.reason !== "no-cookie" && pin.reason !== "no-secret") {
+      await supabase.auth.signOut();
+      redirect(`/login?error=${encodeURIComponent("session-pin-" + pin.reason)}`);
+    }
+  } catch {
+    // Defense-in-depth — never block legitimate users due to pin internals.
+  }
+
   return {
     user: { id: user.id, email: user.email! },
     profile,

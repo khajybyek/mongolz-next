@@ -11,7 +11,13 @@
     "typecheck": "find .next/types .next/dev/types -name '* 2.ts' -delete 2>/dev/null || true; next typegen && tsc --noEmit --incremental false",
     "create-user": "tsx scripts/create-admin.ts",
     "create-admin": "ROLE=admin tsx scripts/create-admin.ts",
-    "create-viewer": "ROLE=viewer tsx scripts/create-admin.ts"
+    "create-viewer": "ROLE=viewer tsx scripts/create-admin.ts",
+    "demo:seed": "tsx scripts/demo-seed.ts",
+    "demo:wipe": "tsx scripts/demo-seed.ts --wipe",
+    "deploy:prod": "vercel deploy --prod --yes",
+    "deploy:staging": "vercel deploy --yes",
+    "backup:verify": "tsx scripts/verify-backups.ts",
+    "rotate:keys": "tsx scripts/rotate-keys.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",

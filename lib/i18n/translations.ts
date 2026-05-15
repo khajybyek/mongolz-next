@@ -26,6 +26,11 @@ export const T = {
   nav_cameras: { mn: "Камер удирдах", en: "Cameras", kr: "카메라" },
   nav_settings: { mn: "Тохиргоо", en: "Settings", kr: "설정" },
   nav_docs: { mn: "Баримтжуулалт", en: "Docs", kr: "문서" },
+  nav_users: { mn: "Хэрэглэгчид", en: "Users", kr: "사용자" },
+  nav_alert_rules: { mn: "Дүрэм", en: "Alert Rules", kr: "알림 규칙" },
+  nav_webhooks: { mn: "Webhook", en: "Webhooks", kr: "웹훅" },
+  nav_active_learning: { mn: "Active Learning", en: "Active Learning", kr: "학습 피드백" },
+  nav_benchmarks: { mn: "Гүйцэтгэл", en: "Benchmarks", kr: "성능" },
 
   // ── Login ──
   login_title: { mn: "Нэвтрэх", en: "Sign In", kr: "로그인" },

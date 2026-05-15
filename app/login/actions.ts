@@ -112,6 +112,16 @@ export async function signInAction(formData: FormData) {
     // audit фэйл болсон ч login алдаа болгохгүй
   }
 
+  // Bind session pin (IP/16 + UA fingerprint) so stolen cookie replays fail.
+  if (signInData.user) {
+    try {
+      const { bindSessionPin } = await import("@/lib/auth/session-pin");
+      await bindSessionPin(signInData.user.id);
+    } catch {
+      // Pinning is defense-in-depth; never block login on bind failure.
+    }
+  }
+
   revalidatePath("/", "layout");
   const safeNext = sanitizeNextPath(next);
   redirect(safeNext as never);
