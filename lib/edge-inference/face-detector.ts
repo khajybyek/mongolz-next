@@ -60,58 +60,69 @@ export function getBackend(): InferenceBackend {
   return state.backend;
 }
 
+// UltraFace-RFB-320 expects a 320 x 240 (W x H) image in NCHW float32.
+// Outputs: scores [1, N, 2]  (background, face) and boxes [1, N, 4] in normalized [0,1].
+const INPUT_W = 320;
+const INPUT_H = 240;
+
 export async function detectFaces(
   imageData: ImageData,
   confidenceThreshold = 0.5,
 ): Promise<DetectedFace[]> {
   if (!state.session) throw new Error("Detector not initialized");
 
-  const { width, height } = imageData;
-  const inputSize = 320;
+  const { width: imgW, height: imgH } = imageData;
 
-  const canvas = new OffscreenCanvas(inputSize, inputSize);
+  const canvas = new OffscreenCanvas(INPUT_W, INPUT_H);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Failed to acquire 2d context");
 
   const bitmap = await createImageBitmap(imageData);
   try {
-    ctx.drawImage(bitmap, 0, 0, inputSize, inputSize);
+    ctx.drawImage(bitmap, 0, 0, INPUT_W, INPUT_H);
   } finally {
     bitmap.close();
   }
-  const resized = ctx.getImageData(0, 0, inputSize, inputSize);
+  const resized = ctx.getImageData(0, 0, INPUT_W, INPUT_H);
 
-  const float32Data = new Float32Array(3 * inputSize * inputSize);
-  const mean = [127, 127, 127];
-  for (let i = 0; i < inputSize * inputSize; i++) {
-    float32Data[i] = (resized.data[i * 4] - mean[0]) / 128;
-    float32Data[inputSize * inputSize + i] = (resized.data[i * 4 + 1] - mean[1]) / 128;
-    float32Data[2 * inputSize * inputSize + i] = (resized.data[i * 4 + 2] - mean[2]) / 128;
+  const planeSize = INPUT_W * INPUT_H;
+  const float32Data = new Float32Array(3 * planeSize);
+  // UltraFace normalization: (px - 127) / 128
+  for (let i = 0; i < planeSize; i++) {
+    float32Data[i] = (resized.data[i * 4] - 127) / 128;
+    float32Data[planeSize + i] = (resized.data[i * 4 + 1] - 127) / 128;
+    float32Data[2 * planeSize + i] = (resized.data[i * 4 + 2] - 127) / 128;
   }
 
-  const inputTensor = new ort.Tensor("float32", float32Data, [1, 3, inputSize, inputSize]);
-  const results = await state.session.run({ input: inputTensor });
+  const inputName = state.session.inputNames[0] ?? "input";
+  const inputTensor = new ort.Tensor("float32", float32Data, [1, 3, INPUT_H, INPUT_W]);
+  const results = await state.session.run({ [inputName]: inputTensor });
+
+  // Find scores (last dim=2) and boxes (last dim=4) by tensor shape, not index order.
+  let scoresTensor: ort.Tensor | undefined;
+  let boxesTensor: ort.Tensor | undefined;
+  for (const key of Object.keys(results)) {
+    const t = results[key];
+    const lastDim = t.dims[t.dims.length - 1];
+    if (lastDim === 2) scoresTensor = t;
+    else if (lastDim === 4) boxesTensor = t;
+  }
+  if (!scoresTensor || !boxesTensor) return [];
+
+  const scores = scoresTensor.data as Float32Array;
+  const boxes = boxesTensor.data as Float32Array;
+  const numBoxes = scores.length / 2;
 
   const faces: DetectedFace[] = [];
-  const outputNames = Object.keys(results);
-
-  if (outputNames.length >= 2) {
-    const scores = results[outputNames[0]].data as Float32Array;
-    const boxes = results[outputNames[1]].data as Float32Array;
-
-    const scaleX = width / inputSize;
-    const scaleY = height / inputSize;
-
-    for (let i = 0; i < scores.length / 2; i++) {
-      const confidence = scores[i * 2 + 1];
-      if (confidence > confidenceThreshold) {
-        const x1 = Math.round(boxes[i * 4] * scaleX);
-        const y1 = Math.round(boxes[i * 4 + 1] * scaleY);
-        const x2 = Math.round(boxes[i * 4 + 2] * scaleX);
-        const y2 = Math.round(boxes[i * 4 + 3] * scaleY);
-        faces.push({ bbox: [x1, y1, x2, y2], confidence: Number(confidence) });
-      }
-    }
+  for (let i = 0; i < numBoxes; i++) {
+    const confidence = scores[i * 2 + 1];
+    if (confidence < confidenceThreshold) continue;
+    // Boxes are normalized [0,1]; scale to source image dims.
+    const x1 = Math.round(boxes[i * 4] * imgW);
+    const y1 = Math.round(boxes[i * 4 + 1] * imgH);
+    const x2 = Math.round(boxes[i * 4 + 2] * imgW);
+    const y2 = Math.round(boxes[i * 4 + 3] * imgH);
+    faces.push({ bbox: [x1, y1, x2, y2], confidence: Number(confidence) });
   }
 
   return nms(faces, 0.4);

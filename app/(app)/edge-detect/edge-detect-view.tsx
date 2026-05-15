@@ -24,40 +24,61 @@ export function EdgeDetectView() {
     [init],
   );
 
+  const [inferenceError, setInferenceError] = useState<string | null>(null);
+
   const handleFileUpload = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file || !ready) return;
 
       setProcessing(true);
+      setInferenceError(null);
+      setFaces([]);
+
       const img = new Image();
-      img.onload = async () => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext("2d")!;
-        ctx.drawImage(img, 0, 0);
-        setImageLoaded(true);
+      const objectUrl = URL.createObjectURL(file);
 
-        const imageData = ctx.getImageData(0, 0, img.width, img.height);
-        const detectedFaces = await detect(imageData);
-        setFaces(detectedFaces);
-
-        ctx.drawImage(img, 0, 0);
-        for (const face of detectedFaces) {
-          const [x1, y1, x2, y2] = face.bbox;
-          ctx.strokeStyle = "#3b82f6";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-
-          ctx.fillStyle = "rgba(59, 130, 246, 0.7)";
-          ctx.font = "12px monospace";
-          ctx.fillText(`${(face.confidence * 100).toFixed(1)}%`, x1, y1 - 4);
-        }
+      img.onerror = () => {
+        setInferenceError("Failed to load image file");
         setProcessing(false);
+        URL.revokeObjectURL(objectUrl);
       };
-      img.src = URL.createObjectURL(file);
+
+      img.onload = async () => {
+        try {
+          const canvas = canvasRef.current;
+          if (!canvas) throw new Error("Canvas not available");
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) throw new Error("2D context not available");
+          ctx.drawImage(img, 0, 0);
+          setImageLoaded(true);
+
+          const imageData = ctx.getImageData(0, 0, img.width, img.height);
+          const detectedFaces = await detect(imageData);
+          setFaces(detectedFaces);
+
+          ctx.drawImage(img, 0, 0);
+          for (const face of detectedFaces) {
+            const [x1, y1, x2, y2] = face.bbox;
+            ctx.strokeStyle = "#3b82f6";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+            ctx.fillStyle = "rgba(59, 130, 246, 0.9)";
+            ctx.font = "14px monospace";
+            ctx.fillText(`${(face.confidence * 100).toFixed(1)}%`, x1, y1 - 4);
+          }
+        } catch (err) {
+          setInferenceError(err instanceof Error ? err.message : "Inference failed");
+        } finally {
+          setProcessing(false);
+          URL.revokeObjectURL(objectUrl);
+        }
+      };
+
+      img.src = objectUrl;
     },
     [ready, detect],
   );
@@ -146,6 +167,12 @@ export function EdgeDetectView() {
             <div className="flex items-center gap-2 text-xs text-neutral-400">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
               Running inference...
+            </div>
+          )}
+
+          {inferenceError && !processing && (
+            <div className="text-xs text-danger bg-danger/10 rounded-md px-3 py-2">
+              {inferenceError}
             </div>
           )}
 
