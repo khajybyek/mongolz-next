@@ -6,6 +6,11 @@ import { headers } from "next/headers";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { checkLoginRateLimit } from "@/lib/rate-limit";
 import { verifyTOTP } from "@/lib/totp";
+import {
+  setPreTotpCookie,
+  readPreTotpCookie,
+  clearPreTotpCookie,
+} from "@/lib/auth/pre-totp";
 
 /** Хэрэглэгчийн IP-ийг (Vercel-аас ирсэн x-forwarded-for header)-аас авах */
 async function getClientIp(): Promise<string | null> {
@@ -19,10 +24,36 @@ async function getClientIp(): Promise<string | null> {
   }
 }
 
+function sanitizeNextPath(raw: string): string {
+  if (!raw) return "/dashboard";
+  try {
+    const decoded = decodeURIComponent(raw);
+    if (
+      !decoded.startsWith("/") ||
+      decoded.startsWith("//") ||
+      decoded.startsWith("/\\") ||
+      decoded.includes("://")
+    ) {
+      return "/dashboard";
+    }
+    return decoded;
+  } catch {
+    return "/dashboard";
+  }
+}
+
+/**
+ * STEP 1 — Validate email + password.
+ *
+ * If TOTP is enabled for the user, signs them OUT immediately, sets a 2-minute
+ * pre-TOTP cookie and redirects to `/login?step=totp`. The TOTP step needs no
+ * password re-entry because the cookie carries the user_id under HMAC.
+ *
+ * If TOTP is NOT enabled, login completes here.
+ */
 export async function signInAction(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
-  const totpCode = String(formData.get("totp_code") ?? "");
   const next = String(formData.get("next") ?? "/dashboard");
 
   if (!email || !password) {
@@ -34,7 +65,6 @@ export async function signInAction(formData: FormData) {
   // Rate limit шалгах (5 fail/email/15min, 10 fail/IP/15min)
   const rl = await checkLoginRateLimit({ ip, email });
   if (!rl.ok) {
-    // Audit-аас үлдээх — хязгаарт хүрсэн оролдлого
     try {
       const svc = createServiceClient();
       await svc.from("audit_log").insert({
@@ -51,8 +81,6 @@ export async function signInAction(formData: FormData) {
   const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
-    // ВАЖНО: Generic error message — "email буруу" эсвэл "password буруу"
-    // гэж ялгахгүй (user enumeration attack-аас сэргийлнэ).
     try {
       const svc = createServiceClient();
       await svc.from("audit_log").insert({
@@ -74,7 +102,7 @@ export async function signInAction(formData: FormData) {
 
   const { data: profile } = await svc
     .from("profiles")
-    .select("id, totp_enabled, totp_secret")
+    .select("id, role, totp_enabled, totp_secret")
     .eq("id", user.id)
     .single();
 
@@ -83,64 +111,131 @@ export async function signInAction(formData: FormData) {
     return redirect("/login?error=Invalid+credentials");
   }
 
+  // ─── If TOTP is enabled, force step 2 ───
   if (profile.totp_enabled) {
-    const ok = profile.totp_secret && verifyTOTP(profile.totp_secret, totpCode);
-    if (!ok) {
-      await supabase.auth.signOut();
-      try {
-        await svc.from("audit_log").insert({
-          action: "TOTP_LOGIN_FAILED",
-          detail: "2FA code missing or invalid",
-          user_id: user.id,
-          user_email: email,
-          ip,
-        });
-      } catch {}
-      return redirect("/login?error=Invalid+2FA+code");
-    }
+    // Sign user out so they cannot navigate the app until TOTP is verified.
+    await supabase.auth.signOut();
+    await setPreTotpCookie(user.id);
+    const safeNext = sanitizeNextPath(next);
+    return redirect(`/login?step=totp&next=${encodeURIComponent(safeNext)}`);
   }
 
-  // Audit log — password + required TOTP амжилттай болсны дараа л login гэж бүртгэнэ.
+  // ─── No TOTP — finish login here ───
   try {
     await svc.from("audit_log").insert({
       action: "LOGIN",
-      detail: `Email: ${email}`,
+      detail: `Email: ${email} (no TOTP)`,
       user_email: email,
       ip,
     });
-  } catch {
-    // audit фэйл болсон ч login алдаа болгохгүй
-  }
+  } catch {}
 
-  // Bind session pin (IP/16 + UA fingerprint) so stolen cookie replays fail.
-  if (signInData.user) {
-    try {
-      const { bindSessionPin } = await import("@/lib/auth/session-pin");
-      await bindSessionPin(signInData.user.id);
-    } catch {
-      // Pinning is defense-in-depth; never block login on bind failure.
-    }
-  }
+  try {
+    const { bindSessionPin } = await import("@/lib/auth/session-pin");
+    await bindSessionPin(user.id);
+  } catch {}
 
   revalidatePath("/", "layout");
-  const safeNext = sanitizeNextPath(next);
-  redirect(safeNext as never);
+  redirect(sanitizeNextPath(next) as never);
 }
 
-function sanitizeNextPath(raw: string): string {
-  if (!raw) return "/dashboard";
-  try {
-    const decoded = decodeURIComponent(raw);
-    if (
-      !decoded.startsWith("/") ||
-      decoded.startsWith("//") ||
-      decoded.startsWith("/\\") ||
-      decoded.includes("://")
-    ) {
-      return "/dashboard";
-    }
-    return decoded;
-  } catch {
-    return "/dashboard";
+/**
+ * STEP 2 — Verify TOTP. Uses the pre-TOTP cookie to know which user is
+ * mid-flow, then signs them in via Supabase service-role admin → magiclink
+ * exchange. Cookie is cleared on success or expiry.
+ *
+ * Implementation note: we don't have the password at step 2. Instead of
+ * re-validating it, we trust the pre-TOTP cookie (HMAC-signed, 2-min TTL)
+ * and use generateLink + verifyOtp to mint a Supabase session.
+ */
+export async function verifyTotpAction(formData: FormData) {
+  const totpCode = String(formData.get("totp_code") ?? "").trim();
+  const next = String(formData.get("next") ?? "/dashboard");
+  const ip = await getClientIp();
+
+  if (!/^\d{6}$/.test(totpCode)) {
+    return redirect(`/login?step=totp&error=Invalid+code+format&next=${encodeURIComponent(next)}`);
   }
+
+  const pre = await readPreTotpCookie();
+  if (!pre.ok) {
+    await clearPreTotpCookie();
+    const reasonMsg = pre.reason === "expired"
+      ? "Code session expired — sign in again"
+      : "Sign in again";
+    return redirect(`/login?error=${encodeURIComponent(reasonMsg)}`);
+  }
+
+  const svc = createServiceClient();
+  const { data: profile } = await svc
+    .from("profiles")
+    .select("id, email, totp_enabled, totp_secret")
+    .eq("id", pre.userId)
+    .single();
+
+  if (!profile || !profile.totp_enabled || !profile.totp_secret) {
+    await clearPreTotpCookie();
+    return redirect("/login?error=Invalid+credentials");
+  }
+
+  const ok = verifyTOTP(profile.totp_secret, totpCode);
+  if (!ok) {
+    try {
+      await svc.from("audit_log").insert({
+        action: "TOTP_LOGIN_FAILED",
+        detail: "2FA code invalid",
+        user_id: profile.id,
+        user_email: profile.email,
+        ip,
+      });
+    } catch {}
+    return redirect(`/login?step=totp&error=Invalid+2FA+code&next=${encodeURIComponent(next)}`);
+  }
+
+  // ─── TOTP good — mint a real Supabase session via magiclink exchange ───
+  const linkRes = await svc.auth.admin.generateLink({
+    type: "magiclink",
+    email: profile.email!,
+  });
+
+  if (linkRes.error || !linkRes.data.properties?.hashed_token) {
+    await clearPreTotpCookie();
+    return redirect("/login?error=Could+not+complete+sign-in");
+  }
+
+  const supabase = await createClient();
+  const verify = await supabase.auth.verifyOtp({
+    type: "magiclink",
+    token_hash: linkRes.data.properties.hashed_token,
+  });
+
+  if (verify.error) {
+    await clearPreTotpCookie();
+    return redirect("/login?error=Could+not+complete+sign-in");
+  }
+
+  await clearPreTotpCookie();
+
+  try {
+    await svc.from("audit_log").insert({
+      action: "LOGIN",
+      detail: `Email: ${profile.email} (TOTP verified)`,
+      user_email: profile.email,
+      ip,
+    });
+  } catch {}
+
+  try {
+    const { bindSessionPin } = await import("@/lib/auth/session-pin");
+    await bindSessionPin(profile.id);
+  } catch {}
+
+  revalidatePath("/", "layout");
+  redirect(sanitizeNextPath(next) as never);
+}
+
+/** Abort the TOTP step and go back to email/password. */
+export async function cancelTotpAction() {
+  await clearPreTotpCookie();
+  redirect("/login");
 }

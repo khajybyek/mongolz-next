@@ -57,7 +57,7 @@ const NAV: NavItem[] = [
   { href: "/active-learning", icon: GraduationCap, labelKey: "nav_active_learning", adminOnly: true },
   { href: "/benchmarks", icon: Gauge, labelKey: "nav_benchmarks", adminOnly: true },
   { href: "/docs", icon: BookOpen, labelKey: "nav_docs", adminOnly: true },
-  { href: "/settings", icon: Settings, labelKey: "nav_settings" },
+  { href: "/settings", icon: Settings, labelKey: "nav_settings", adminOnly: true },
 ];
 
 interface SidebarProps {

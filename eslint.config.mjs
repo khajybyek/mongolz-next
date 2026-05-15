@@ -10,6 +10,7 @@ export default tseslint.config(
       "ml-service/**",
       "supabase/functions/**",
       "scripts/**",
+      "thesis/**",       // Standalone Node generators (docx/pptx) — use require()
       "next-env.d.ts",
       "*.config.*",
     ],

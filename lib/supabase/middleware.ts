@@ -58,5 +58,42 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Admin TOTP enforcement: if signed-in admin has no TOTP, force them onto
+  // /settings until they complete setup. Viewers are unaffected.
+  //
+  // Only triggers on top-level page navigations — API/asset requests skip the
+  // profile lookup to keep middleware fast.
+  if (user && !isPublic) {
+    const TOTP_EXEMPT_PREFIXES = [
+      "/settings",
+      "/api/",          // all API routes — auth helpers handle their own checks
+      "/auth/",         // auth callback / logout
+      "/_next",
+      "/monitoring",
+    ];
+    const isExempt = TOTP_EXEMPT_PREFIXES.some(
+      (p) => path === p || path.startsWith(p)
+    );
+
+    if (!isExempt) {
+      try {
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("role, totp_enabled")
+          .eq("id", user.id)
+          .single();
+
+        if (prof?.role === "admin" && !prof.totp_enabled) {
+          const url = request.nextUrl.clone();
+          url.pathname = "/settings";
+          url.search = "?force_totp=1";
+          return NextResponse.redirect(url);
+        }
+      } catch {
+        // Defense-in-depth — never block legitimate requests on a profile read failure.
+      }
+    }
+  }
+
   return response;
 }
