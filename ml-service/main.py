@@ -94,7 +94,17 @@ async def lifespan(app: FastAPI):
     await camera_manager.stop_all()
 
 
-app = FastAPI(title="MONGOLZ ML Service", version="1.0.0", lifespan=lifespan)
+# Production-д OpenAPI schema + Swagger UI disable хийнэ — attacker-д endpoint enumeration хийх боломж олгохгүй.
+# Local dev-д ALLOW_API_DOCS=1 тохируулсан тохиолдолд л идэвхтэй.
+_DOCS_ENABLED = os.getenv("ALLOW_API_DOCS") == "1"
+app = FastAPI(
+    title="MONGOLZ ML Service",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
+)
 
 app.add_middleware(
     CORSMiddleware,
