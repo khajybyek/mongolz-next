@@ -11,13 +11,19 @@ interface DetectorState {
   session: ort.InferenceSession | null;
   backend: InferenceBackend;
   initPromise: Promise<InferenceBackend> | null;
+  modelUrl: string | null;
 }
 
 const state: DetectorState = {
   session: null,
   backend: "wasm",
   initPromise: null,
+  modelUrl: null,
 };
+
+async function createSession(modelUrl: string, backend: InferenceBackend): Promise<ort.InferenceSession> {
+  return ort.InferenceSession.create(modelUrl, { executionProviders: [backend] });
+}
 
 export async function initDetector(
   modelUrl: string,
@@ -26,6 +32,7 @@ export async function initDetector(
   if (state.session) return state.backend;
   if (state.initPromise) return state.initPromise;
 
+  state.modelUrl = modelUrl;
   state.initPromise = (async () => {
     try {
       const backendToTry: InferenceBackend[] =
@@ -33,9 +40,7 @@ export async function initDetector(
 
       for (const backend of backendToTry) {
         try {
-          state.session = await ort.InferenceSession.create(modelUrl, {
-            executionProviders: [backend],
-          });
+          state.session = await createSession(modelUrl, backend);
           state.backend = backend;
           return backend;
         } catch {
@@ -50,6 +55,22 @@ export async function initDetector(
   })();
 
   return state.initPromise;
+}
+
+async function fallbackToWasm(): Promise<void> {
+  if (state.backend === "wasm" || !state.modelUrl) return;
+  if (state.session) {
+    try { await state.session.release(); } catch { /* ignore */ }
+    state.session = null;
+  }
+  state.session = await createSession(state.modelUrl, "wasm");
+  state.backend = "wasm";
+}
+
+function isKernelError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes("kernel") || msg.includes("webgpu") || msg.includes("output[");
 }
 
 export function isReady(): boolean {
@@ -94,9 +115,21 @@ export async function detectFaces(
     float32Data[2 * planeSize + i] = (resized.data[i * 4 + 2] - 127) / 128;
   }
 
-  const inputName = state.session.inputNames[0] ?? "input";
   const inputTensor = new ort.Tensor("float32", float32Data, [1, 3, INPUT_H, INPUT_W]);
-  const results = await state.session.run({ [inputName]: inputTensor });
+  let results: ort.InferenceSession.OnnxValueMapType;
+  try {
+    const inputName = state.session.inputNames[0] ?? "input";
+    results = await state.session.run({ [inputName]: inputTensor });
+  } catch (err) {
+    if (state.backend === "webgpu" && isKernelError(err) && state.modelUrl) {
+      console.warn("[face-detector] WebGPU kernel failed, falling back to WASM:", err);
+      await fallbackToWasm();
+      const inputName = state.session.inputNames[0] ?? "input";
+      results = await state.session.run({ [inputName]: inputTensor });
+    } else {
+      throw err;
+    }
+  }
 
   // Find scores (last dim=2) and boxes (last dim=4) by tensor shape, not index order.
   let scoresTensor: ort.Tensor | undefined;

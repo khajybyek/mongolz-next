@@ -65,7 +65,12 @@ export function useEdgeDetector(modelUrl = "/models/face_detect.onnx") {
     if (!detectorRef.current) throw new Error("Not initialized");
     const start = performance.now();
     const faces = await detectorRef.current.detectFaces(imageData, threshold);
-    setState((s) => ({ ...s, lastInferenceMs: Math.round(performance.now() - start) }));
+    const activeBackend = detectorRef.current.getBackend();
+    setState((s) => ({
+      ...s,
+      backend: activeBackend,
+      lastInferenceMs: Math.round(performance.now() - start),
+    }));
     return faces;
   }, []);
 
