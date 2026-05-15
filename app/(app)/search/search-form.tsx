@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Loader2 } from "lucide-react";
+import { Search, Loader2, ImageOff, Video, Camera, Clock } from "lucide-react";
+import { formatDate } from "@/lib/utils";
 
 interface Match {
   id: string;
@@ -9,6 +10,9 @@ interface Match {
   image_path: string;
   detected_at: string;
   similarity: number;
+  image_url: string | null;
+  recording_filename: string | null;
+  camera_name: string | null;
 }
 
 export function SearchForm() {
@@ -65,16 +69,53 @@ export function SearchForm() {
           <h2 className="text-sm uppercase tracking-wide text-neutral-400 mb-3">
             {matches.length ? `${matches.length} тааралт олдлоо` : "Тааралт олдсонгүй"}
           </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {matches.map((m) => (
-              <div key={m.id} className="card p-2">
-                <div className="aspect-square bg-bg-tertiary rounded mb-2" />
-                <div className="text-xs font-medium truncate">{m.filename}</div>
-                <div className="text-[10px] text-neutral-500">
-                  {Math.round(m.similarity * 100)}%
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {matches.map((m) => {
+              const pct = Math.round(m.similarity * 100);
+              const pctColor = pct >= 70 ? "text-success" : pct >= 50 ? "text-warning" : "text-neutral-400";
+              return (
+                <div key={m.id} className="card p-2 space-y-2">
+                  <div className="aspect-square bg-bg-tertiary rounded overflow-hidden relative">
+                    {m.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={m.image_url}
+                        alt={m.filename}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <ImageOff className="w-6 h-6 text-neutral-600" />
+                      </div>
+                    )}
+                    <div className={`absolute top-1 right-1 px-1.5 py-0.5 rounded bg-black/60 text-xs font-mono ${pctColor}`}>
+                      {pct}%
+                    </div>
+                  </div>
+                  <div className="space-y-1 text-[11px] text-neutral-400">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3 h-3 shrink-0" />
+                      <span className="truncate">{formatDate(m.detected_at)}</span>
+                    </div>
+                    {m.camera_name && (
+                      <div className="flex items-center gap-1.5">
+                        <Camera className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{m.camera_name}</span>
+                      </div>
+                    )}
+                    {m.recording_filename && (
+                      <div className="flex items-center gap-1.5">
+                        <Video className="w-3 h-3 shrink-0" />
+                        <span className="truncate" title={m.recording_filename}>
+                          {m.recording_filename}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

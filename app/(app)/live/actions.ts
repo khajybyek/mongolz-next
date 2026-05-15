@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin, requireUser } from "@/lib/supabase/auth";
 import { mlStartCamera, mlStopCamera } from "@/lib/ml-client";
-import { decryptCameraUrl } from "@/lib/camera-crypto";
+import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { issueStreamTicket } from "@/lib/stream-ticket";
 
 export async function startCameraAction(cameraId: string) {
@@ -16,7 +16,7 @@ export async function startCameraAction(cameraId: string) {
     .single();
 
   if (!cam) throw new Error("Камер олдсонгүй");
-  const plainUrl = process.env.CAMERA_URL_KEY ? decryptCameraUrl(cam.url) : cam.url;
+  const plainUrl = unwrapCameraUrlForRuntime(cam.url);
   await mlStartCamera(cam.id, plainUrl);
 }
 

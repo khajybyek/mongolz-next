@@ -6,7 +6,15 @@ import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { addCameraAction, deleteCameraAction, toggleCameraAction } from "./actions";
 import { cn } from "@/lib/utils";
-import { decryptCameraUrl } from "@/lib/camera-crypto";
+import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
+
+function displayCameraUrl(stored: string): string {
+  try {
+    return unwrapCameraUrlForRuntime(stored);
+  } catch {
+    return "URL unavailable";
+  }
+}
 
 export default async function CamerasPage() {
   await requireAdmin();
@@ -20,7 +28,7 @@ export default async function CamerasPage() {
 
   const cameras = (rawCameras ?? []).map((c) => ({
     ...c,
-    url: process.env.CAMERA_URL_KEY ? decryptCameraUrl(c.url) : c.url,
+    url: displayCameraUrl(c.url),
   }));
 
   return (

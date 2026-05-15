@@ -11,6 +11,7 @@ import {
   decryptCameraUrl,
   isEncrypted,
   protectCameraUrlForStorage,
+  unwrapCameraUrlForRuntime,
 } from "@/lib/camera-crypto";
 
 describe("camera-crypto", () => {
@@ -89,5 +90,25 @@ describe("camera-crypto", () => {
         process.env.ALLOW_PLAINTEXT_CAMERA_URLS = oldAllow;
       }
     }
+  });
+
+  it("does not unwrap plaintext URLs at runtime without explicit local opt-in", () => {
+    const oldAllow = process.env.ALLOW_PLAINTEXT_CAMERA_URLS;
+    delete process.env.ALLOW_PLAINTEXT_CAMERA_URLS;
+
+    try {
+      expect(() => unwrapCameraUrlForRuntime(url)).toThrow("PLAINTEXT_CAMERA_URL_NOT_ALLOWED");
+    } finally {
+      if (oldAllow === undefined) {
+        delete process.env.ALLOW_PLAINTEXT_CAMERA_URLS;
+      } else {
+        process.env.ALLOW_PLAINTEXT_CAMERA_URLS = oldAllow;
+      }
+    }
+  });
+
+  it("unwraps encrypted URLs at runtime", () => {
+    const encrypted = encryptCameraUrl(url);
+    expect(unwrapCameraUrlForRuntime(encrypted)).toBe(url);
   });
 });

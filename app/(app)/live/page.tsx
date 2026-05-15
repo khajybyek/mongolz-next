@@ -3,7 +3,15 @@ import { LiveCameraView } from "./live-view";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
-import { decryptCameraUrl } from "@/lib/camera-crypto";
+import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
+
+function safeCameraUrl(stored: string): string | null {
+  try {
+    return unwrapCameraUrlForRuntime(stored);
+  } catch {
+    return null;
+  }
+}
 
 export default async function LivePage() {
   const { profile } = await requireUser();
@@ -19,9 +27,7 @@ export default async function LivePage() {
 
   const cameras = (rawCameras ?? []).map((c) => ({
     ...c,
-    url: isAdmin
-      ? (process.env.CAMERA_URL_KEY ? decryptCameraUrl(c.url) : c.url)
-      : null,
+    url: isAdmin ? safeCameraUrl(c.url) : null,
   }));
 
   return (

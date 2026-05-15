@@ -21,6 +21,12 @@ export function protectCameraUrlForStorage(plaintext: string): string {
   throw new Error("CAMERA_URL_KEY env not set");
 }
 
+export function unwrapCameraUrlForRuntime(stored: string): string {
+  if (stored.startsWith(PREFIX)) return decryptCameraUrl(stored);
+  if (allowPlaintextCameraUrls()) return stored;
+  throw new Error("PLAINTEXT_CAMERA_URL_NOT_ALLOWED");
+}
+
 export function encryptCameraUrl(plaintext: string): string {
   const key = getKey();
   const iv = randomBytes(12);
