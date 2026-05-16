@@ -19,6 +19,7 @@ export default async function PlaybackDetailPage({
   const { id } = await params;
   const { profile } = await requireUser();
   const supabase = await createClient();
+  const isAdmin = profile.role === "admin";
 
   const { data: rec } = await supabase
     .from("recordings")
@@ -36,7 +37,8 @@ export default async function PlaybackDetailPage({
     .createSignedUrl(rec.storage_path, 60 * 30);
   const blurredUrl = signed?.signedUrl ?? null;
 
-  // Тухайн бичлэгт detect хийгдсэн нүүрнүүд + bbox + time_in_video_sec
+  // Face metadata — admin only. Viewer-д face илрүүлэлтийн өгөгдөл харагдахгүй
+  // (RLS-ийн нэг хэсэг — privacy-preserving design).
   type FaceRow = {
     id: string;
     filename: string;
@@ -45,18 +47,22 @@ export default async function PlaybackDetailPage({
     time_in_video_sec: number | null;
     bbox: { x: number; y: number; w: number; h: number } | null;
   };
-  const { data: facesRaw } = await supabase.rpc("faces_in_recording", { rec_id: id });
+  const { data: facesRaw } = isAdmin
+    ? await supabase.rpc("faces_in_recording", { rec_id: id })
+    : { data: null };
   const facesInRec = (facesRaw ?? []) as FaceRow[];
 
-  // Face crop signed URL-уудыг batch
-  const facesWithSigned = await Promise.all(
-    facesInRec.map(async (f) => {
-      const { data } = await supabase.storage
-        .from("faces")
-        .createSignedUrl(f.image_path, 60 * 30);
-      return { ...f, signed: data?.signedUrl ?? null };
-    })
-  );
+  // Face crop signed URL-уудыг batch (admin л)
+  const facesWithSigned = isAdmin
+    ? await Promise.all(
+        facesInRec.map(async (f) => {
+          const { data } = await supabase.storage
+            .from("faces")
+            .createSignedUrl(f.image_path, 60 * 30);
+          return { ...f, signed: data?.signedUrl ?? null };
+        })
+      )
+    : [];
 
   // Бүх илэрсэн нүүрд detected_at-аар sorted дугаар (#1..#N) өгнө —
   // playback-ын overlay болон reveal modal хоёр ижил дугаартай байна.
@@ -87,7 +93,7 @@ export default async function PlaybackDetailPage({
   }));
 
   // Suspects (admin л харах)
-  const { data: suspects } = profile.role === "admin"
+  const { data: suspects } = isAdmin
     ? await supabase.from("suspects").select("id, name, image_path").order("name")
     : { data: null };
 
@@ -110,7 +116,7 @@ export default async function PlaybackDetailPage({
               faces={overlayFaces}
               suspects={suspects ?? []}
               detectedFaces={detectedFaces}
-              isAdmin={profile.role === "admin"}
+              isAdmin={isAdmin}
             />
           ) : (
             <div className="card aspect-video bg-black flex items-center justify-center text-neutral-500 text-sm">
@@ -141,44 +147,66 @@ export default async function PlaybackDetailPage({
             </Row>
           </div>
 
-          <div className="card space-y-2">
-            <h3 className="text-xs uppercase tracking-wide text-neutral-400 mb-2">
-              Илрүүлсэн нүүр ({detectedFaces.length})
-            </h3>
-            {detectedFaces.length === 0 ? (
-              <p className="text-xs text-neutral-500 py-4 text-center">
-                Энэ бичлэгт нүүр илрүүлэгдээгүй байна.
-                <br />
-                <span className="text-neutral-600">
-                  (Шинэ recording-ууд автоматаар bbox-той хадгалагдана)
-                </span>
-              </p>
-            ) : (
-              <div className="grid grid-cols-4 gap-1.5 max-h-60 overflow-y-auto">
-                {detectedFaces.map((f) => (
-                  <div
-                    key={f.id}
-                    className="relative aspect-square rounded overflow-hidden bg-bg-tertiary"
-                    title={`#${f.display_no} · ${f.filename}`}
-                  >
-                    {f.signed ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={f.signed}
-                        alt={f.filename}
-                        className="absolute inset-0 w-full h-full object-cover"
-                      />
-                    ) : null}
-                    <span className="absolute top-0.5 left-0.5 text-[10px] font-bold leading-none px-1 py-0.5 rounded bg-black/70 text-accent">
-                      #{f.display_no}
-                    </span>
-                  </div>
-                ))}
+          {isAdmin ? (
+            <div className="card space-y-2">
+              <h3 className="text-xs uppercase tracking-wide text-neutral-400 mb-2">
+                Илрүүлсэн нүүр ({detectedFaces.length})
+              </h3>
+              {detectedFaces.length === 0 ? (
+                <p className="text-xs text-neutral-500 py-4 text-center">
+                  Энэ бичлэгт нүүр илрүүлэгдээгүй байна.
+                  <br />
+                  <span className="text-neutral-600">
+                    (Шинэ recording-ууд автоматаар bbox-той хадгалагдана)
+                  </span>
+                </p>
+              ) : (
+                <div className="grid grid-cols-4 gap-1.5 max-h-60 overflow-y-auto">
+                  {detectedFaces.map((f) => (
+                    <div
+                      key={f.id}
+                      className="relative aspect-square rounded overflow-hidden bg-bg-tertiary"
+                      title={`#${f.display_no} · ${f.filename}`}
+                    >
+                      {f.signed ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={f.signed}
+                          alt={f.filename}
+                          className="absolute inset-0 w-full h-full object-cover"
+                        />
+                      ) : null}
+                      <span className="absolute top-0.5 left-0.5 text-[10px] font-bold leading-none px-1 py-0.5 rounded bg-black/70 text-accent">
+                        #{f.display_no}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="card border border-warning/30 bg-warning/5">
+              <div className="flex items-start gap-2.5">
+                <Lock className="w-4 h-4 text-warning mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-warning">
+                    Admin-only
+                  </h3>
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    Нүүр илрүүлэлтийн жагсаалт, bbox координат, илэрсэн цаг гэх мэт
+                    мэдрэмтгий өгөгдөл нь зөвхөн <b className="text-neutral-200">Admin</b> эрхтэй
+                    хэрэглэгчид харагдана.
+                  </p>
+                  <p className="text-[10px] text-neutral-500 leading-relaxed pt-1 border-t border-white/5 mt-2">
+                    Privacy-preserving design — Viewer role-д зөвхөн mask
+                    хийгдсэн бичлэгийг тоглуулна.
+                  </p>
+                </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
-          {profile.role === "admin" && !rec.has_original && (
+          {isAdmin && !rec.has_original && (
             <div className="card text-xs text-neutral-500 leading-relaxed">
               Энэ бичлэгт original хадгалагдаагүй учир Reveal боломжгүй.
             </div>
