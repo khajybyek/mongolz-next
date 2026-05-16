@@ -12,6 +12,12 @@
 # `lib/supabase/` (Next.js client wrappers) хэвээр үлдэнэ.
 /supabase/
 
+# Thesis / defense materials — никаких build-д хэрэгцээгүй .docx/.pptx
+/thesis/
+
+# Docs (RUNBOOK + DEMO_SCRIPT markdown) — build-д хэрэгцээгүй
+/docs/
+
 # Backup болон log файл
 *.log
 .env.local.backup-*
