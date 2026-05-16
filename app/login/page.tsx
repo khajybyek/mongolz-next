@@ -104,7 +104,6 @@ export default async function LoginPage({
                 autoCapitalize="none"
                 required
                 className="input"
-                placeholder="khajybyek or you@example.com"
               />
             </div>
 
