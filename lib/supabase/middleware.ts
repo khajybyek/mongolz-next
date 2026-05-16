@@ -60,24 +60,26 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Admin TOTP enforcement: if signed-in admin has no TOTP, force them onto
-  // /settings until they complete setup. Viewers are unaffected.
+  // Role-based gating + admin TOTP enforcement.
   //
-  // Only triggers on top-level page navigations — API/asset requests skip the
+  // 1. Admin без TOTP   → /settings?force_totp=1
+  // 2. Auditor — зөвхөн /audit + /api/audit/* + /auth/logout + /settings (own data export)
+  //    Бусад руу ороход /audit руу redirect.
+  //
+  // Triggers only on top-level page navigations — API/asset requests skip the
   // profile lookup to keep middleware fast.
   if (user && !isPublic) {
-    const TOTP_EXEMPT_PREFIXES = [
-      "/settings",
+    const EXEMPT_PREFIXES = [
       "/api/",          // all API routes — auth helpers handle their own checks
       "/auth/",         // auth callback / logout
       "/_next",
       "/monitoring",
     ];
-    const isExempt = TOTP_EXEMPT_PREFIXES.some(
+    const isApiOrAsset = EXEMPT_PREFIXES.some(
       (p) => path === p || path.startsWith(p)
     );
 
-    if (!isExempt) {
+    if (!isApiOrAsset) {
       try {
         const { data: prof } = await supabase
           .from("profiles")
@@ -85,11 +87,23 @@ export async function updateSession(request: NextRequest) {
           .eq("id", user.id)
           .single();
 
-        if (prof?.role === "admin" && !prof.totp_enabled) {
+        // Admin TOTP enforcement
+        if (prof?.role === "admin" && !prof.totp_enabled && path !== "/settings") {
           const url = request.nextUrl.clone();
           url.pathname = "/settings";
           url.search = "?force_totp=1";
           return NextResponse.redirect(url);
+        }
+
+        // Auditor allow-list: zövhön /audit + /audit/*. Бусад page-ийг /audit руу redirect.
+        if (prof?.role === "auditor") {
+          const allowed = path === "/audit" || path.startsWith("/audit/");
+          if (!allowed) {
+            const url = request.nextUrl.clone();
+            url.pathname = "/audit";
+            url.search = "";
+            return NextResponse.redirect(url);
+          }
         }
       } catch {
         // Defense-in-depth — never block legitimate requests on a profile read failure.

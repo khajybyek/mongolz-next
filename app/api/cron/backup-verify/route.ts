@@ -16,7 +16,10 @@ const SAMPLE_SIZE = 5;
 
 function authorized(req: NextRequest): boolean {
   const sec = process.env.CRON_SECRET ?? process.env.MONITORING_CRON_SECRET;
-  if (!sec) return true; // dev/staging
+  // In production we MUST have a secret; otherwise refuse fail-closed.
+  if (!sec) {
+    return process.env.VERCEL_ENV !== "production" && process.env.NODE_ENV !== "production";
+  }
   const got = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   return got === sec;
 }

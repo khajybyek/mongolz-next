@@ -17,8 +17,10 @@ import { createServiceClient } from "@/lib/supabase/server";
 const FAILURE_ACTIONS = ["LOGIN_FAILED", "TOTP_LOGIN_FAILED", "LOGIN_BLOCKED"];
 
 function authorized(req: NextRequest): boolean {
-  const sec = process.env.MONITORING_CRON_SECRET;
-  if (!sec) return true; // unset → open (dev/staging); set in prod
+  const sec = process.env.MONITORING_CRON_SECRET ?? process.env.CRON_SECRET;
+  if (!sec) {
+    return process.env.VERCEL_ENV !== "production" && process.env.NODE_ENV !== "production";
+  }
   const got = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   return got === sec;
 }
