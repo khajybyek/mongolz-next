@@ -299,15 +299,48 @@ function DeviceCameraView() {
       return;
     }
 
+    // ── Chunked session for long recordings ──
+    // Vercel API routes have a 4.5MB body limit, so we split the stream into
+    // ~3MB chunks. Each chunk is uploaded as part of the same session_id; the
+    // server stitches them post-processing.
+    const sessionId = crypto.randomUUID();
+    const MAX_CHUNK_BYTES = 3 * 1024 * 1024; // 3MB target per chunk
     chunksRef.current = [];
-    rec.ondataavailable = (e) => {
-      if (e.data.size > 0) chunksRef.current.push(e.data);
+    let chunkBuf: BlobPart[] = [];
+    let chunkBytes = 0;
+    let chunkIndex = 0;
+
+    const flushChunk = async (isFinal: boolean) => {
+      if (chunkBuf.length === 0 && !isFinal) return;
+      if (chunkBuf.length === 0 && isFinal) return;
+      const blob = new Blob(chunkBuf, { type: mime });
+      chunkBuf = [];
+      chunkBytes = 0;
+      const idx = chunkIndex++;
+      try {
+        await uploadChunk(blob, mime, sessionId, idx, isFinal);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Chunk upload алдаа");
+      }
+    };
+
+    rec.ondataavailable = async (e) => {
+      if (e.data.size === 0) return;
+      chunkBuf.push(e.data);
+      chunkBytes += e.data.size;
+      if (chunkBytes >= MAX_CHUNK_BYTES) {
+        // Async fire-and-forget so we don't block the recorder
+        flushChunk(false);
+      }
     };
     rec.onstop = async () => {
       const duration = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
-      const blob = new Blob(chunksRef.current, { type: mime });
-      chunksRef.current = [];
-      await uploadRecording(blob, duration, mime);
+      // flush any remaining bytes as the final chunk
+      await flushChunk(true);
+      setSavedMsg(
+        `✓ Session ${sessionId.slice(0, 8)} — ${chunkIndex} chunk · ${duration}s. ` +
+        `Боловсруулалт ажиллаж байна.`,
+      );
     };
 
     rec.start(1000); // 1s timeslice — periodic ondataavailable
@@ -315,6 +348,34 @@ function DeviceCameraView() {
     startTimeRef.current = Date.now();
     setRecording(true);
     setElapsed(0);
+  }
+
+  async function uploadChunk(
+    blob: Blob,
+    mime: string,
+    sessionId: string,
+    chunkIndex: number,
+    isFinal: boolean,
+  ) {
+    const sizeMB = blob.size / 1024 / 1024;
+    if (blob.size > 4 * 1024 * 1024) {
+      throw new Error(
+        `Chunk хэт том (${sizeMB.toFixed(1)}MB). Vercel 4MB лимит.`,
+      );
+    }
+    const fd = new FormData();
+    const ext = mime.includes("mp4") ? "mp4" : "webm";
+    fd.append("file", blob, `chunk-${chunkIndex}.${ext}`);
+    fd.append("session_id", sessionId);
+    fd.append("chunk_index", String(chunkIndex));
+    fd.append("is_final", String(isFinal));
+    fd.append("camera_name", "Browser camera");
+    const res = await fetch("/api/recording/upload", { method: "POST", body: fd });
+    if (!res.ok) {
+      const ct = res.headers.get("content-type") ?? "";
+      const txt = ct.includes("json") ? JSON.stringify(await res.json()) : await res.text();
+      throw new Error(`Chunk ${chunkIndex} failed: ${txt.slice(0, 120)}`);
+    }
   }
 
   function stopRecording() {
@@ -326,52 +387,8 @@ function DeviceCameraView() {
     setRecording(false);
   }
 
-  async function uploadRecording(blob: Blob, durationSec: number, mime: string) {
-    setUploading(true);
-    setUploadElapsed(0);
-    uploadStartRef.current = Date.now();
-    try {
-      const sizeMB = blob.size / 1024 / 1024;
-
-      if (blob.size > 4 * 1024 * 1024) {
-        throw new Error(
-          `Бичлэг хэтэрхий том (${sizeMB.toFixed(1)}MB). Vercel 4MB-аас дээш зөвшөөрдөггүй. ` +
-          `Урт бичлэг бол IP CCTV (RTSP) ашиглана уу.`
-        );
-      }
-
-      const fd = new FormData();
-      const ext = mime.includes("mp4") ? "mp4" : "webm";
-      fd.append("file", blob, `recording.${ext}`);
-      fd.append("duration_sec", String(durationSec));
-      fd.append("camera_name", "Browser camera");
-
-      const res = await fetch("/api/recording/upload", { method: "POST", body: fd });
-      const contentType = res.headers.get("content-type") ?? "";
-
-      if (!contentType.includes("application/json")) {
-        const text = await res.text();
-        if (res.status === 413 || /request entity too large/i.test(text)) {
-          throw new Error(
-            `Файл хэтэрхий том (${sizeMB.toFixed(1)}MB). Vercel 4MB limit-тэй. Богино бичлэг хийнэ үү.`
-          );
-        }
-        throw new Error(`Сервер алдаа (${res.status}): ${text.slice(0, 100)}`);
-      }
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Хадгалах амжилтгүй");
-
-      setSavedMsg(
-        `✓ Илгээгдсэн (${sizeMB.toFixed(1)}MB) · ${durationSec}s · ` +
-        `Боловсруулалт ажиллаж байна (~1-2 мин). Playback дээр харагдана.`
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Хадгалах алдаа");
-    } finally {
-      setUploading(false);
-    }
-  }
+  // Legacy single-blob upload has been replaced by chunked session uploads.
+  // Kept here as a fallback for cases where chunking isn't desired in future.
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">

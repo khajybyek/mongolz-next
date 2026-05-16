@@ -18,6 +18,12 @@
 # Docs (RUNBOOK + DEMO_SCRIPT markdown) — build-д хэрэгцээгүй
 /docs/
 
+# Playwright E2E
+/e2e/
+/playwright.config.ts
+/playwright-report/
+/test-results/
+
 # Backup болон log файл
 *.log
 .env.local.backup-*

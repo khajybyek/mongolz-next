@@ -11,6 +11,13 @@ export async function POST(request: NextRequest) {
   const fd = await request.formData();
   const file = fd.get("file");
   const cameraName = String(fd.get("camera_name") ?? "Browser camera");
+  // Chunked-session metadata (optional)
+  const sessionId = fd.get("session_id");
+  const chunkIndexRaw = fd.get("chunk_index");
+  const isFinalRaw = fd.get("is_final");
+  const isChunk = typeof sessionId === "string" && sessionId.length > 0;
+  const chunkIndex = isChunk ? Number(chunkIndexRaw ?? 0) : null;
+  const isFinal = String(isFinalRaw ?? "false") === "true";
 
   if (!(file instanceof File) || file.size === 0) {
     return NextResponse.json({ error: "missing file" }, { status: 400 });
@@ -45,6 +52,11 @@ export async function POST(request: NextRequest) {
   const mlForm = new FormData();
   mlForm.append("file", file, file.name || "recording");
   if (cameraName) mlForm.append("camera_name", cameraName);
+  if (isChunk) {
+    mlForm.append("session_id", String(sessionId));
+    mlForm.append("chunk_index", String(chunkIndex));
+    mlForm.append("is_final", String(isFinal));
+  }
 
   try {
     const headers: Record<string, string> = {};
@@ -69,6 +81,9 @@ export async function POST(request: NextRequest) {
       recording_id: data.recording_id,
       camera_id: data.camera_id,
       size_mb: data.size_mb,
+      session_id: isChunk ? sessionId : undefined,
+      chunk_index: chunkIndex,
+      is_final: isFinal,
     });
   } catch (e) {
     return NextResponse.json(

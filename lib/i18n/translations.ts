@@ -507,6 +507,38 @@ export const T = {
   col_similarity: { mn: "Тааралцал", en: "Similarity", kr: "유사도" },
   col_actions: { mn: "Үйлдэл", en: "Actions", kr: "작업" },
   col_total: { mn: "Нийт", en: "Total", kr: "전체" },
+  open_menu: { mn: "Цэс нээх", en: "Open menu", kr: "메뉴 열기" },
+  close_menu: { mn: "Цэс хаах", en: "Close menu", kr: "메뉴 닫기" },
+
+  // ── Backup page ──
+  nav_backup: { mn: "Backup", en: "Backup", kr: "백업" },
+  backup_title: { mn: "Backup & Restore", en: "Backup & Restore", kr: "백업 및 복원" },
+  backup_subtitle: {
+    mn: "DB rows + storage manifest ZIP-аар татах. Admin-only.",
+    en: "Download DB rows + storage manifest as ZIP. Admin-only.",
+    kr: "DB rows + 스토리지 매니페스트 ZIP 다운로드. 관리자 전용.",
+  },
+  backup_download: { mn: "Backup татах (ZIP)", en: "Download backup (ZIP)", kr: "백업 다운로드 (ZIP)" },
+  backup_warning: {
+    mn: "⚠ Blob bytes ZIP-д ороогүй — зөвхөн manifest. AES-256-GCM encrypted recordings нь Supabase Storage point-in-time backup-аар хадгалагдана.",
+    en: "⚠ Blob bytes are NOT included — only manifests. AES-256-GCM encrypted recordings are preserved via Supabase Storage point-in-time backup.",
+    kr: "⚠ Blob 바이트는 포함되지 않음 — 매니페스트만 포함됩니다. AES-256-GCM 암호화 녹화는 Supabase Storage point-in-time 백업으로 보존됩니다.",
+  },
+
+  // ── Live RTC ──
+  nav_live_rtc: { mn: "Live (WebRTC)", en: "Live (WebRTC)", kr: "라이브 (WebRTC)" },
+  live_rtc_title: { mn: "Live WebRTC", en: "Live WebRTC", kr: "라이브 WebRTC" },
+  live_rtc_subtitle: {
+    mn: "Camera → Publisher → Subscriber sub-100ms loopback. HLS-аас 30-50× бага latency.",
+    en: "Camera → Publisher → Subscriber sub-100ms loopback. 30-50× lower latency than HLS.",
+    kr: "카메라 → 게시자 → 구독자 sub-100ms 루프백. HLS보다 30-50배 낮은 지연 시간.",
+  },
+  live_rtc_status: { mn: "ICE state", en: "ICE state", kr: "ICE 상태" },
+  live_rtc_latency: { mn: "RTT", en: "RTT", kr: "RTT" },
+  live_rtc_jitter: { mn: "Jitter", en: "Jitter", kr: "지터" },
+  live_rtc_fps: { mn: "FPS", en: "FPS", kr: "FPS" },
+  live_rtc_bitrate: { mn: "Bitrate", en: "Bitrate", kr: "비트레이트" },
+  live_rtc_packets_lost: { mn: "Алдсан пакет", en: "Packets lost", kr: "패킷 손실" },
 } as const;
 
 export type TranslationKey = keyof typeof T;

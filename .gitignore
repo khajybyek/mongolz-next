@@ -40,3 +40,5 @@ supabase/.temp
 CLAUDE.md
 
 thesis/
+
+.claude/

@@ -11,6 +11,8 @@ export default tseslint.config(
       "supabase/functions/**",
       "scripts/**",
       "thesis/**",       // Standalone Node generators (docx/pptx) — use require()
+      "e2e/**",          // Playwright E2E specs — separate tsconfig
+      "playwright.config.ts",
       "next-env.d.ts",
       "*.config.*",
     ],

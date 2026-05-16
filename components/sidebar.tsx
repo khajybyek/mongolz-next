@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   CalendarClock,
   Database,
+  Archive,
   type LucideIcon,
 } from "lucide-react";
 import { MongolzLogo } from "./logo";
@@ -46,6 +47,7 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: "/dashboard", icon: LayoutDashboard, labelKey: "nav_dashboard" },
   { href: "/live", icon: Video, labelKey: "nav_live" },
+  { href: "/live-rtc", icon: Video, labelKey: "nav_live_rtc", adminOnly: true },
   { href: "/playback", icon: PlayCircle, labelKey: "nav_playback" },
   { href: "/search", icon: Search, labelKey: "nav_search" },
   { href: "/suspects", icon: UserSearch, labelKey: "nav_suspects", adminOnly: true },
@@ -64,6 +66,7 @@ const NAV: NavItem[] = [
   { href: "/active-learning", icon: GraduationCap, labelKey: "nav_active_learning", adminOnly: true },
   { href: "/benchmarks", icon: Gauge, labelKey: "nav_benchmarks", adminOnly: true },
   { href: "/db-monitor", icon: Database, labelKey: "nav_db_monitor", adminOnly: true },
+  { href: "/backup", icon: Archive, labelKey: "nav_backup", adminOnly: true },
   { href: "/docs", icon: BookOpen, labelKey: "nav_docs", adminOnly: true },
   { href: "/settings", icon: Settings, labelKey: "nav_settings", adminOnly: true },
 ];
@@ -183,7 +186,7 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
-          aria-label="Цэс нээх"
+          aria-label={t("open_menu", lang)}
           className="w-10 h-10 inline-flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 transition"
         >
           <Menu className="w-5 h-5" />
@@ -201,7 +204,7 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
             <button
               type="button"
               onClick={() => setMobileOpen(false)}
-              aria-label="Цэс хаах"
+              aria-label={t("close_menu", lang)}
               className="absolute top-3 right-3 w-9 h-9 inline-flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 transition z-10"
             >
               <X className="w-5 h-5" />
