@@ -209,7 +209,7 @@ supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
 | AI Analysis | Ollama llama3.2 (local) | **Claude Opus 4.7** (Edge Function) |
 | Live stream | OpenCV+FFmpeg pipe | FFmpeg HLS → hls.js |
 | **Reveal** | Manual page navigation | **Click on blurred face in playback** ⭐ |
-| Telegram alert | requests sync | (TODO) Edge Function async |
+| Telegram alert | requests sync | Edge Function via `pg_net` async trigger |
 | Хэл | mn/en/kr | mn/en/kr (75+ key) |
 
 ---
@@ -230,27 +230,34 @@ supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
 
 ---
 
-## ⚠️ Хийгдээгүй / TODO
+## ✅ Хэрэгжүүлсэн полиш (2026-05)
 
-- [ ] Telegram alert (Edge Function async background)
-- [ ] All-faces clustering (DBSCAN cosine — `clusters` table бэлэн)
-- [ ] Backup/restore page (Supabase DB export expose)
-- [ ] Recording chunking (урт session-уудыг хуваах)
-- [ ] WebRTC live (HLS-аас бага latency хүсвэл)
-- [ ] Mobile-friendly responsive sidebar
-- [ ] E2E tests (Playwright)
+- [x] Telegram alert — `pg_net` async DB trigger → Edge Function
+- [x] All-faces clustering — DBSCAN cosine, `faces.cluster_id` + `/clusters` UI
+- [x] Backup/restore — `/backup` admin page + `/api/admin/backup` JSZip (12 tables)
+- [x] Recording chunking — 3MB session chunks, `session_id` + `chunk_index`
+- [x] WebRTC live — `/live-rtc` loopback RTCPeerConnection + RTT/jitter/FPS stats
+- [x] Mobile-friendly sidebar — drawer, body-scroll lock, i18n aria
+- [x] E2E tests — Playwright (`e2e/public.spec.ts` + `e2e/i18n.spec.ts`)
 
 ---
 
 ## 👥 Default credentials
 
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | `admin@mongolz.local` | `Mongolz!` |
-| Viewer | `viewer@mongolz.local` | `viewer123` |
+| Username | Email | Role |
+|----------|-------|------|
+| `khajybyek` | `khajybyek@gmail.com` | Admin (primary) |
+| `admin` | `admin@mongolz.local` | Admin (backup) |
+| `viewer` | `viewer@mongolz.local` | Viewer |
+| `auditor` | `auditor@mongolz.local` | Auditor (audit log only) |
 
-> Production-д **зайлшгүй солих**. `npm run create-user ROLE=admin USER_EMAIL=... USER_PASSWORD=...` ашигла.
+Login form accepts either username OR email. Username-only inputs resolve to
+the underlying email via the `email_for_username()` RPC. Admin accounts have
+TOTP-2FA enabled — step 2 prompt appears after password.
+
+> Production-д **зайлшгүй солих**. `npm run create-admin` / `create-viewer` /
+> `create-auditor` ашигла.
 
 ---
 
-**~6,055 мөр код · 11 хуудас · 3 microservice · pgvector + step-up auth + click-to-reveal**
+**Multi-authority masking + 4-eyes reveal + audit hash-chain · 33 page · 3 microservice · pgvector + step-up auth + WebRTC**
