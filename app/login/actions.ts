@@ -52,12 +52,32 @@ function sanitizeNextPath(raw: string): string {
  * If TOTP is NOT enabled, login completes here.
  */
 export async function signInAction(formData: FormData) {
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const rawIdentifier = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const next = String(formData.get("next") ?? "/dashboard");
 
-  if (!email || !password) {
+  if (!rawIdentifier || !password) {
     return redirect("/login?error=Invalid+credentials");
+  }
+
+  // Username support: if the input has no '@', resolve it to the underlying
+  // email via public.email_for_username (SECURITY DEFINER RPC, anon-callable).
+  let email = rawIdentifier;
+  if (!rawIdentifier.includes("@")) {
+    try {
+      const lookupSvc = createServiceClient();
+      const { data: resolved } = await lookupSvc.rpc("email_for_username", {
+        p_username: rawIdentifier,
+      });
+      if (typeof resolved === "string" && resolved.length > 0) {
+        email = resolved.toLowerCase();
+      } else {
+        // Username not found — fail same as bad password (no enumeration)
+        return redirect("/login?error=Invalid+credentials");
+      }
+    } catch {
+      return redirect("/login?error=Invalid+credentials");
+    }
   }
 
   const ip = await getClientIp();

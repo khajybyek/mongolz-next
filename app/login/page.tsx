@@ -98,10 +98,13 @@ export default async function LoginPage({
               </label>
               <input
                 name="email"
-                type="email"
-                autoComplete="email"
+                type="text"
+                inputMode="email"
+                autoComplete="username"
+                autoCapitalize="none"
                 required
                 className="input"
+                placeholder="khajybyek or you@example.com"
               />
             </div>
 

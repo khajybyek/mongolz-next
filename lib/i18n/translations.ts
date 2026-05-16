@@ -38,7 +38,7 @@ export const T = {
 
   // ── Login ──
   login_title: { mn: "Нэвтрэх", en: "Sign In", kr: "로그인" },
-  login_email: { mn: "И-мэйл", en: "Email", kr: "이메일" },
+  login_email: { mn: "Имэйл эсвэл хэрэглэгчийн нэр", en: "Email or username", kr: "이메일 또는 사용자명" },
   login_pass: { mn: "Нууц үг", en: "Password", kr: "비밀번호" },
   login_btn: { mn: "Нэвтрэх", en: "Sign In", kr: "로그인" },
   login_error: {
