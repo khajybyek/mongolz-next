@@ -13,6 +13,8 @@ const PUBLIC_PATHS = [
   "/manifest.webmanifest", // PWA manifest — installable without login
   "/api/csp-report", // CSP report-uri — browser beacons, no auth
   "/api/uptime", // External uptime monitors hit this without auth
+  "/api/cron", // Vercel Cron endpoints (their own bearer auth)
+  "/api/monitoring", // Cron-style monitoring endpoints
 ];
 
 type CookieItem = { name: string; value: string; options?: CookieOptions };
