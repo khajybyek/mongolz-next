@@ -171,8 +171,9 @@ supabase start                       # ~5 min on first run
 
 # 3. Frontend
 npm install
-npm run create-admin     # admin@mongolz.local / Mongolz!
-npm run create-viewer    # viewer@mongolz.local / viewer123
+npm run create-admin     # default seed: admin@mongolz.local (set USER_PASSWORD env)
+npm run create-viewer    # default seed: viewer@mongolz.local (set USER_PASSWORD env)
+npm run create-auditor   # default seed: auditor@mongolz.local (set USER_PASSWORD env)
 npm run dev              # → http://localhost:3000
 
 # 4. Python ML service (RTSP recording-д л шаардана)
