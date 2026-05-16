@@ -3,6 +3,7 @@ import { Empty } from "@/components/ui/empty";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/utils";
+import { getT } from "@/lib/i18n/server";
 import { UsersTable } from "./users-table";
 import { CreateUserForm } from "./create-user-form";
 
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function UsersPage() {
   const ctx = await requireAdmin();
+  const { t } = await getT();
   const svc = createServiceClient();
 
   const { data: profiles } = await svc
@@ -20,14 +22,14 @@ export default async function UsersPage() {
   return (
     <>
       <PageHeader
-        title="Хэрэглэгчийн удирдлага"
-        subtitle={`${profiles?.length ?? 0} нийт хэрэглэгч`}
+        title={t("users_title")}
+        subtitle={`${profiles?.length ?? 0} ${t("users_subtitle")}`}
       />
 
       <CreateUserForm />
 
       {!profiles?.length ? (
-        <Empty message="Хэрэглэгч байхгүй байна" />
+        <Empty message={t("empty")} />
       ) : (
         <UsersTable
           users={profiles.map((p) => ({

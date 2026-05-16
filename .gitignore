@@ -38,3 +38,5 @@ supabase/.temp
 .vercel
 **/.vercel/
 CLAUDE.md
+
+thesis/

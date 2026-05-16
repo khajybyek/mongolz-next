@@ -38,9 +38,9 @@ loadEnv();
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const ROLE = (process.env.ROLE ?? "admin") as "admin" | "viewer";
-if (ROLE !== "admin" && ROLE !== "viewer") {
-  console.error("❌ ROLE нь 'admin' эсвэл 'viewer' байх ёстой");
+const ROLE = (process.env.ROLE ?? "admin") as "admin" | "viewer" | "auditor";
+if (ROLE !== "admin" && ROLE !== "viewer" && ROLE !== "auditor") {
+  console.error("❌ ROLE нь 'admin' | 'viewer' | 'auditor' байх ёстой");
   process.exit(1);
 }
 
@@ -48,6 +48,7 @@ if (ROLE !== "admin" && ROLE !== "viewer") {
 const DEFAULTS = {
   admin: { email: "admin@mongolz.local", password: "Mongolz!", name: "Admin" },
   viewer: { email: "viewer@mongolz.local", password: "viewer123", name: "Viewer" },
+  auditor: { email: "auditor@mongolz.local", password: "auditor123", name: "Auditor" },
 }[ROLE];
 
 const USER_EMAIL = process.env.USER_EMAIL ?? process.env.ADMIN_EMAIL ?? DEFAULTS.email;

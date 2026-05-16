@@ -4,6 +4,7 @@ import { ArrowLeft, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { getT } from "@/lib/i18n/server";
 import {
   grantCameraPermissionAction,
   revokeCameraPermissionAction,
@@ -26,6 +27,7 @@ export default async function CameraPermissionsPage({
   params: Promise<{ id: string }>;
 }) {
   await requireAdmin();
+  const { t } = await getT();
   const { id } = await params;
 
   const svc = createServiceClient();
@@ -36,7 +38,6 @@ export default async function CameraPermissionsPage({
     .single();
   if (!camera) notFound();
 
-  // Permission rows + denormalised user email/role
   const { data: perms } = await svc
     .from("camera_permissions")
     .select("id, user_id, permission, created_at")
@@ -58,7 +59,6 @@ export default async function CameraPermissionsPage({
     });
   }
 
-  // Non-admin users for grant dropdown
   const { data: candidates } = await svc
     .from("profiles")
     .select("id, email, role")
@@ -72,12 +72,12 @@ export default async function CameraPermissionsPage({
         className="text-sm text-neutral-400 hover:text-neutral-100 inline-flex items-center gap-1.5 mb-3"
       >
         <ArrowLeft className="w-4 h-4" />
-        Камер
+        {t("nav_cameras")}
       </Link>
 
       <PageHeader
-        title={`Эрх — ${camera.name}`}
-        subtitle="Хэн ямар камерт хандах эрхтэйг тодорхой хязгаарлах. Хоосон бол бүх viewer/auditor хандана."
+        title={`${t("permissions_title_prefix")} ${camera.name}`}
+        subtitle={t("permissions_subtitle")}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 mt-4">
@@ -86,10 +86,10 @@ export default async function CameraPermissionsPage({
             <table className="w-full text-sm">
               <thead className="bg-bg-tertiary/50">
                 <tr className="text-xs uppercase tracking-wide text-neutral-400">
-                  <th className="px-4 py-2.5 text-left">Имэйл</th>
-                  <th className="px-4 py-2.5 text-left">Role</th>
-                  <th className="px-4 py-2.5 text-left">Permission</th>
-                  <th className="px-4 py-2.5 text-right">Үйлдэл</th>
+                  <th className="px-4 py-2.5 text-left">{t("perm_col_email")}</th>
+                  <th className="px-4 py-2.5 text-left">{t("perm_col_role")}</th>
+                  <th className="px-4 py-2.5 text-left">{t("perm_col_permission")}</th>
+                  <th className="px-4 py-2.5 text-right">{t("col_actions")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -99,7 +99,7 @@ export default async function CameraPermissionsPage({
                       colSpan={4}
                       className="px-4 py-6 text-center text-xs text-neutral-500"
                     >
-                      Хязгаарлалт байхгүй — бүх viewer/auditor хандана.
+                      {t("perm_empty")}
                     </td>
                   </tr>
                 ) : (
@@ -129,7 +129,7 @@ export default async function CameraPermissionsPage({
                           <button
                             type="submit"
                             className="p-1.5 rounded hover:bg-danger/15 text-neutral-400 hover:text-danger"
-                            title="Эрх цуцлах"
+                            title={t("delete")}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -145,10 +145,10 @@ export default async function CameraPermissionsPage({
 
         <div className="space-y-4">
           <form action={grantCameraPermissionAction} className="card space-y-3">
-            <h3 className="text-sm font-semibold">Эрх олгох</h3>
+            <h3 className="text-sm font-semibold">{t("perm_grant_title")}</h3>
             <input type="hidden" name="camera_id" value={camera.id} />
             <select name="user_id" required className="input text-sm">
-              <option value="">— Хэрэглэгч сонгох —</option>
+              <option value="">{t("perm_pick_user")}</option>
               {(candidates ?? []).map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.email} ({u.role})
@@ -156,23 +156,13 @@ export default async function CameraPermissionsPage({
               ))}
             </select>
             <select name="permission" defaultValue="view" className="input text-sm">
-              <option value="view">View — playback харах</option>
-              <option value="operate">Operate — start/stop recording</option>
+              <option value="view">{t("perm_view")}</option>
+              <option value="operate">{t("perm_operate")}</option>
             </select>
             <button type="submit" className="btn-primary w-full text-sm">
-              Олгох
+              {t("perm_grant")}
             </button>
-            <p className="text-[10px] text-neutral-500 leading-relaxed">
-              Эрх олгох → энэ камер allow-list горимд орно. Зөвхөн жагсаалтад
-              байгаа хэрэглэгчид + admin л хандана.
-            </p>
           </form>
-
-          <div className="card text-xs text-neutral-500 leading-relaxed">
-            💡 <b className="text-neutral-300">Тэмдэглэл</b> — RLS нь cameras +
-            recordings table дээр идэвхтэй. Хүчтэй xотор зөвхөн жагсаалттай
-            хэрэглэгчид playback URL signed хийж чадна.
-          </div>
         </div>
       </div>
     </>

@@ -91,6 +91,16 @@ export default async function AuditPage({
         currentFrom={params.from ?? ""}
         currentTo={params.to ?? ""}
         currentLimit={String(limit)}
+        labels={{
+          q: t("audit_filter_q"),
+          user: t("audit_filter_user") + " (email)",
+          allActions: "— " + t("audit_filter_action") + " —",
+          rows: t("col_actions") === "Actions" ? "rows" : (t("col_actions") === "작업" ? "행" : "ширхэг"),
+          from: t("audit_filter_from"),
+          to: t("audit_filter_to"),
+          filter: t("filter"),
+          clear: t("reset"),
+        }}
       />
 
       {!logs?.length ? (
@@ -100,11 +110,11 @@ export default async function AuditPage({
           <table className="w-full text-sm">
             <thead className="bg-bg-tertiary/50">
               <tr className="text-xs uppercase tracking-wide text-neutral-400">
-                <th className="px-4 py-2.5 text-left">Үйлдэл</th>
-                <th className="px-4 py-2.5 text-left">Дэлгэрэнгүй</th>
-                <th className="px-4 py-2.5 text-left">Хэрэглэгч</th>
-                <th className="px-4 py-2.5 text-left">IP</th>
-                <th className="px-4 py-2.5 text-left">Цаг</th>
+                <th className="px-4 py-2.5 text-left">{t("audit_col_action")}</th>
+                <th className="px-4 py-2.5 text-left">{t("audit_col_detail")}</th>
+                <th className="px-4 py-2.5 text-left">{t("audit_col_user")}</th>
+                <th className="px-4 py-2.5 text-left">{t("audit_col_ip")}</th>
+                <th className="px-4 py-2.5 text-left">{t("audit_col_when")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">

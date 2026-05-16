@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/utils";
+import { getT } from "@/lib/i18n/server";
 import { updateRetentionAction, runSweepAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ const LABELS: Record<string, { mn: string; warn?: boolean }> = {
 
 export default async function RetentionPage() {
   await requireAdmin();
+  const { t } = await getT();
   const svc = createServiceClient();
   const { data } = await svc
     .from("retention_policies")
@@ -36,15 +38,12 @@ export default async function RetentionPage() {
 
   return (
     <>
-      <PageHeader
-        title="Хадгалах хугацааны бодлого"
-        subtitle="Resource бүрд хэдэн хоног хадгалахыг тохируулна. Cron өдөр бүр устгана."
-      />
+      <PageHeader title={t("retention_title")} subtitle={t("retention_subtitle")} />
 
       <form action={runSweepAction} className="mt-3 mb-6">
         <button type="submit" className="btn-secondary text-sm">
           <RefreshCw className="w-3.5 h-3.5" />
-          Гар sweep ажиллуулах
+          {t("run_sweep")}
         </button>
       </form>
 
@@ -73,7 +72,7 @@ export default async function RetentionPage() {
 
               <div>
                 <label className="text-[10px] uppercase tracking-wide text-neutral-400 mb-1 block">
-                  Retention (хоног)
+                  {t("retention_days")}
                 </label>
                 <input
                   type="number"
@@ -94,18 +93,18 @@ export default async function RetentionPage() {
                   value="true"
                   className="w-4 h-4 rounded border-white/20 bg-bg-tertiary"
                 />
-                Идэвхтэй (cron устгана)
+                {t("active")}
               </label>
 
               {p.last_swept_at && (
                 <div className="flex items-center gap-1.5 text-[10px] text-neutral-500 border-t border-white/5 pt-2">
                   <Calendar className="w-3 h-3" />
-                  Сүүлийн sweep: {formatDate(p.last_swept_at)} ({p.last_swept_rows ?? 0} мөр)
+                  {t("last_swept")}: {formatDate(p.last_swept_at)} ({p.last_swept_rows ?? 0})
                 </div>
               )}
 
               <button type="submit" className="btn-primary w-full text-sm">
-                Хадгалах
+                {t("save")}
               </button>
             </form>
           );

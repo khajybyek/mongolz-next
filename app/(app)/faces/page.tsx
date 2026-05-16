@@ -43,7 +43,7 @@ export default async function FacesPage() {
 
   return (
     <>
-      <PageHeader title={t("nav_faces")} subtitle={`${rows.length} царай`} />
+      <PageHeader title={t("faces_title")} subtitle={`${rows.length} · ${t("faces_subtitle")}`} />
 
       {!rows.length ? (
         <Empty message={t("empty")} />

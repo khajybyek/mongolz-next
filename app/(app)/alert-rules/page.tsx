@@ -2,6 +2,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
+import { getT } from "@/lib/i18n/server";
 import { RuleForm } from "./rule-form";
 import { RulesTable } from "./rules-table";
 
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AlertRulesPage() {
   await requireAdmin();
+  const { t } = await getT();
   const supabase = await createClient();
 
   const [rulesRes, suspectsRes, camerasRes] = await Promise.all([
@@ -32,8 +34,8 @@ export default async function AlertRulesPage() {
   return (
     <>
       <PageHeader
-        title="Alert Rules"
-        subtitle={`${rules.length} дүрэм · dedup + custom thresholds`}
+        title={t("alert_rules_title")}
+        subtitle={`${rules.length} · ${t("alert_rules_subtitle")}`}
       />
 
       <RuleForm

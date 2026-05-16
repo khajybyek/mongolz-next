@@ -4,6 +4,7 @@ import { ArrowLeft, Lock, Calendar, Camera as CamIcon, Clock, ShieldCheck } from
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { formatDate } from "@/lib/utils";
+import { getT } from "@/lib/i18n/server";
 import { PlaybackPlayer } from "./playback-player";
 
 // Cache хийхгүй — faces background processing-аар нэмэгддэг тул хэзээ нээгдсэн
@@ -18,6 +19,7 @@ export default async function PlaybackDetailPage({
 }) {
   const { id } = await params;
   const { profile } = await requireUser();
+  const { t } = await getT();
   const supabase = await createClient();
   const isAdmin = profile.role === "admin";
 
@@ -104,7 +106,7 @@ export default async function PlaybackDetailPage({
         className="text-sm text-neutral-400 hover:text-neutral-100 inline-flex items-center gap-1.5 mb-4"
       >
         <ArrowLeft className="w-4 h-4" />
-        Playback
+        {t("playback_back")}
       </Link>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
@@ -120,7 +122,7 @@ export default async function PlaybackDetailPage({
             />
           ) : (
             <div className="card aspect-video bg-black flex items-center justify-center text-neutral-500 text-sm">
-              Бичлэг олдсонгүй
+              {t("playback_no_recording")}
             </div>
           )}
         </div>
@@ -128,21 +130,21 @@ export default async function PlaybackDetailPage({
         <div className="space-y-4">
           <div className="card space-y-2">
             <h3 className="text-xs uppercase tracking-wide text-neutral-400 mb-2">
-              Бичлэгийн мэдээлэл
+              {t("rec_info")}
             </h3>
-            <Row icon={Calendar} label="Эхэлсэн">{formatDate(rec.started_at)}</Row>
-            <Row icon={Clock} label="Үргэлжлэх">
+            <Row icon={Calendar} label={t("rec_started")}>{formatDate(rec.started_at)}</Row>
+            <Row icon={Clock} label={t("rec_duration")}>
               {rec.duration_sec ? `${rec.duration_sec}s` : "—"}
             </Row>
-            <Row icon={CamIcon} label="Камер">{rec.camera_name ?? "—"}</Row>
-            <Row icon={Lock} label="Encrypted">
-              {rec.encrypted ? "Тийм (Storage RLS)" : "Үгүй"}
+            <Row icon={CamIcon} label={t("rec_camera")}>{rec.camera_name ?? "—"}</Row>
+            <Row icon={Lock} label={t("rec_encrypted")}>
+              {rec.encrypted ? t("rec_encrypted_yes") : t("rec_encrypted_no")}
             </Row>
-            <Row icon={ShieldCheck} label="Original">
+            <Row icon={ShieldCheck} label={t("rec_original")}>
               {rec.has_original ? (
-                <span className="text-success">Хадгалагдсан · Reveal боломжтой</span>
+                <span className="text-success">{t("rec_original_kept")}</span>
               ) : (
-                <span className="text-neutral-500">Алга — reveal боломжгүй</span>
+                <span className="text-neutral-500">{t("rec_original_missing")}</span>
               )}
             </Row>
           </div>
@@ -150,14 +152,14 @@ export default async function PlaybackDetailPage({
           {isAdmin ? (
             <div className="card space-y-2">
               <h3 className="text-xs uppercase tracking-wide text-neutral-400 mb-2">
-                Илрүүлсэн нүүр ({detectedFaces.length})
+                {t("detected_faces_count")} ({detectedFaces.length})
               </h3>
               {detectedFaces.length === 0 ? (
                 <p className="text-xs text-neutral-500 py-4 text-center">
-                  Энэ бичлэгт нүүр илрүүлэгдээгүй байна.
+                  {t("detected_faces_empty")}
                   <br />
                   <span className="text-neutral-600">
-                    (Шинэ recording-ууд автоматаар bbox-той хадгалагдана)
+                    {t("detected_faces_hint")}
                   </span>
                 </p>
               ) : (
@@ -190,16 +192,13 @@ export default async function PlaybackDetailPage({
                 <Lock className="w-4 h-4 text-warning mt-0.5 shrink-0" />
                 <div className="space-y-1">
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-warning">
-                    Admin-only
+                    {t("admin_only_label")}
                   </h3>
                   <p className="text-xs text-neutral-400 leading-relaxed">
-                    Нүүр илрүүлэлтийн жагсаалт, bbox координат, илэрсэн цаг гэх мэт
-                    мэдрэмтгий өгөгдөл нь зөвхөн <b className="text-neutral-200">Admin</b> эрхтэй
-                    хэрэглэгчид харагдана.
+                    {t("face_data_admin_only")}
                   </p>
                   <p className="text-[10px] text-neutral-500 leading-relaxed pt-1 border-t border-white/5 mt-2">
-                    Privacy-preserving design — Viewer role-д зөвхөн mask
-                    хийгдсэн бичлэгийг тоглуулна.
+                    {t("privacy_design_note")}
                   </p>
                 </div>
               </div>
@@ -208,7 +207,7 @@ export default async function PlaybackDetailPage({
 
           {isAdmin && !rec.has_original && (
             <div className="card text-xs text-neutral-500 leading-relaxed">
-              Энэ бичлэгт original хадгалагдаагүй учир Reveal боломжгүй.
+              {t("reveal_not_possible")}
             </div>
           )}
         </div>

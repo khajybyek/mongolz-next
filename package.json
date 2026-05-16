@@ -12,6 +12,7 @@
     "create-user": "tsx scripts/create-admin.ts",
     "create-admin": "ROLE=admin tsx scripts/create-admin.ts",
     "create-viewer": "ROLE=viewer tsx scripts/create-admin.ts",
+    "create-auditor": "ROLE=auditor tsx scripts/create-admin.ts",
     "demo:seed": "tsx scripts/demo-seed.ts",
     "demo:wipe": "tsx scripts/demo-seed.ts --wipe",
     "deploy:prod": "vercel deploy --prod --yes",

@@ -20,11 +20,22 @@ interface Alert {
   created_at: string;
 }
 
-interface Props {
-  seed: Alert[];
+interface LiveAlertsLabels {
+  channel: string;
+  connected: string;
+  connecting: string;
+  totalIn60m: string;
+  topSuspects: string;
+  topCameras: string;
+  recentTitle: string;
 }
 
-export function LiveAlertsView({ seed }: Props) {
+interface Props {
+  seed: Alert[];
+  labels: LiveAlertsLabels;
+}
+
+export function LiveAlertsView({ seed, labels }: Props) {
   const [alerts, setAlerts] = useState<Alert[]>(seed);
   const [connected, setConnected] = useState(false);
 
@@ -103,13 +114,13 @@ export function LiveAlertsView({ seed }: Props) {
       {/* Connection status */}
       <div className="flex items-center justify-between">
         <div className="text-xs text-neutral-400">
-          Realtime channel:{" "}
+          {labels.channel}:{" "}
           <span className={connected ? "text-success" : "text-warning"}>
-            {connected ? "● Холбогдсон" : "○ Холбогдож байна…"}
+            {connected ? `● ${labels.connected}` : `○ ${labels.connecting}`}
           </span>
         </div>
         <div className="text-xs text-neutral-400">
-          Нийт (60 мин дотор): <b className="text-neutral-100">{alerts.length}</b>
+          {labels.totalIn60m}: <b className="text-neutral-100">{alerts.length}</b>
         </div>
       </div>
 
@@ -139,7 +150,7 @@ export function LiveAlertsView({ seed }: Props) {
       {/* Two-column summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="card">
-          <h3 className="text-sm font-semibold mb-3">Топ сэжигтэн</h3>
+          <h3 className="text-sm font-semibold mb-3">{labels.topSuspects}</h3>
           {bySuspect.length === 0 ? (
             <p className="text-xs text-neutral-500 py-6 text-center">Идэвхгүй</p>
           ) : (
@@ -154,7 +165,7 @@ export function LiveAlertsView({ seed }: Props) {
           )}
         </div>
         <div className="card">
-          <h3 className="text-sm font-semibold mb-3">Топ камер</h3>
+          <h3 className="text-sm font-semibold mb-3">{labels.topCameras}</h3>
           {byCamera.length === 0 ? (
             <p className="text-xs text-neutral-500 py-6 text-center">Идэвхгүй</p>
           ) : (
@@ -173,7 +184,7 @@ export function LiveAlertsView({ seed }: Props) {
       {/* Recent stream */}
       <div className="card p-0">
         <div className="px-4 py-2.5 border-b border-white/5 text-sm font-semibold">
-          Сүүлийн alerts (live)
+          {labels.recentTitle}
         </div>
         <div className="max-h-80 overflow-y-auto">
           {alerts.length === 0 ? (

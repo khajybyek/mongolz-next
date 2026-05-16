@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
 
@@ -14,16 +15,14 @@ interface SlowQuery {
 
 export default async function DbMonitorPage() {
   await requireAdmin();
+  const { t } = await getT();
   const svc = createServiceClient();
   const { data } = await svc.rpc("top_slow_queries", { p_limit: 30 });
   const rows = (data ?? []) as SlowQuery[];
 
   return (
     <>
-      <PageHeader
-        title="DB Performance"
-        subtitle="pg_stat_statements — top-30 query (sorted by mean execution time)"
-      />
+      <PageHeader title={t("db_monitor_title")} subtitle={t("db_monitor_subtitle")} />
 
       <div className="card p-0 mt-4 overflow-x-auto">
         <table className="w-full text-sm">

@@ -3,6 +3,7 @@ import { Empty } from "@/components/ui/empty";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/utils";
+import { getT } from "@/lib/i18n/server";
 import { WebhookForm } from "./webhook-form";
 import { WebhooksTable } from "./webhooks-table";
 
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function WebhooksPage() {
   await requireAdmin();
+  const { t } = await getT();
   const supabase = await createClient();
 
   const { data: hooks } = await supabase
@@ -20,14 +22,14 @@ export default async function WebhooksPage() {
   return (
     <>
       <PageHeader
-        title="Webhooks"
-        subtitle={`${hooks?.length ?? 0} integration · Slack / Discord / generic`}
+        title={t("webhooks_title")}
+        subtitle={`${hooks?.length ?? 0} · Slack / Discord / generic`}
       />
 
       <WebhookForm />
 
       {!hooks?.length ? (
-        <Empty message="Хараахан webhook байхгүй" />
+        <Empty message={t("empty")} />
       ) : (
         <WebhooksTable
           hooks={hooks.map((h) => ({

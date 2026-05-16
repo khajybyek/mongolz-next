@@ -37,10 +37,10 @@ export default async function AlertsPage() {
           <table className="w-full text-sm">
             <thead className="bg-bg-tertiary/50">
               <tr className="text-xs uppercase tracking-wide text-neutral-400">
-                <th className="px-4 py-2.5 text-left">Сэжигтэн</th>
-                <th className="px-4 py-2.5 text-left">Камер</th>
-                <th className="px-4 py-2.5 text-left">Таарц</th>
-                <th className="px-4 py-2.5 text-left">Цаг</th>
+                <th className="px-4 py-2.5 text-left">{t("col_suspect")}</th>
+                <th className="px-4 py-2.5 text-left">{t("col_camera")}</th>
+                <th className="px-4 py-2.5 text-left">{t("col_similarity")}</th>
+                <th className="px-4 py-2.5 text-left">{t("col_when")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">

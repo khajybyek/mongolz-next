@@ -13,13 +13,24 @@ interface Alert {
   created_at: string;
 }
 
+interface RealtimeAlertsLabels {
+  matchLabel: string;       // "Тааралцал" / "Match" / "일치율"
+  seeAll: string;            // "Бүх alert харах →"
+  dismiss: string;           // "Хаах"
+}
+
 /**
- * Бодит цагт alerts table-ыг subscribe хийж тохиолдох бүр toast +
- * browser notification харуулна.
- *
- * Зөвхөн admin role-д ашиглагдана (RLS-ээс selective л SELECT өгсөн).
+ * Realtime alerts toast — admin only.
  */
-export function RealtimeAlerts() {
+export function RealtimeAlerts({
+  labels = {
+    matchLabel: "Match",
+    seeAll: "See all alerts →",
+    dismiss: "Close",
+  },
+}: {
+  labels?: RealtimeAlertsLabels;
+} = {}) {
   const [toasts, setToasts] = useState<Alert[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const notifPermissionRef = useRef<NotificationPermission>("default");
@@ -58,7 +69,7 @@ export function RealtimeAlerts() {
           if (notifPermissionRef.current === "granted") {
             try {
               new Notification(`🚨 Alert: ${a.suspect_name}`, {
-                body: `Тааралцал ${(a.similarity * 100).toFixed(1)}% · ${
+                body: `${labels.matchLabel} ${(a.similarity * 100).toFixed(1)}% · ${
                   a.camera_name ?? "Unknown"
                 }`,
                 icon: "/icon.png",
@@ -116,13 +127,13 @@ export function RealtimeAlerts() {
                 className="text-[11px] text-accent hover:underline mt-1 inline-flex items-center gap-1"
               >
                 <Bell className="w-3 h-3" />
-                Бүх alert харах →
+                {labels.seeAll}
               </a>
             </div>
             <button
               onClick={() => dismiss(a.id)}
               className="text-neutral-500 hover:text-neutral-200 shrink-0"
-              aria-label="Хаах"
+              aria-label={labels.dismiss}
             >
               <X className="w-4 h-4" />
             </button>

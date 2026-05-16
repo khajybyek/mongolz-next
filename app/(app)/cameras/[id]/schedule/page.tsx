@@ -4,6 +4,7 @@ import { ArrowLeft, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { getServerLang, getT } from "@/lib/i18n/server";
 import {
   addScheduleAction,
   deleteScheduleAction,
@@ -22,13 +23,25 @@ interface ScheduleRow {
   created_at: string;
 }
 
-const WEEKDAY_NAMES_MN = ["Ня", "Да", "Мя", "Лх", "Пү", "Ба", "Бя"];
+const WEEKDAY_NAMES: Record<string, string[]> = {
+  mn: ["Ня", "Да", "Мя", "Лх", "Пү", "Ба", "Бя"],
+  en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  kr: ["일", "월", "화", "수", "목", "금", "토"],
+};
 
-function weekdaysLabel(mask: number): string {
-  if (mask === 127) return "Өдөр бүр";
+const EVERY_DAY: Record<string, string> = {
+  mn: "Өдөр бүр",
+  en: "Every day",
+  kr: "매일",
+};
+
+function weekdaysLabel(mask: number, lang: string): string {
+  const names = WEEKDAY_NAMES[lang] ?? WEEKDAY_NAMES.mn!;
+  const every = EVERY_DAY[lang] ?? EVERY_DAY.mn!;
+  if (mask === 127) return every;
   const parts: string[] = [];
   for (let i = 0; i < 7; i++) {
-    if (mask & (1 << i)) parts.push(WEEKDAY_NAMES_MN[i]!);
+    if (mask & (1 << i)) parts.push(names[i]!);
   }
   return parts.join(", ");
 }
@@ -39,6 +52,8 @@ export default async function CameraSchedulePage({
   params: Promise<{ id: string }>;
 }) {
   await requireAdmin();
+  const { t } = await getT();
+  const lang = await getServerLang();
   const { id } = await params;
 
   const svc = createServiceClient();
@@ -70,24 +85,24 @@ export default async function CameraSchedulePage({
         className="text-sm text-neutral-400 hover:text-neutral-100 inline-flex items-center gap-1.5 mb-3"
       >
         <ArrowLeft className="w-4 h-4" />
-        Камер
+        {t("nav_cameras")}
       </Link>
 
       <PageHeader
-        title={`Хуваарь — ${camera.name}`}
-        subtitle="Цаг тус бүрд masked / revealed горимыг сонгох. Хоосон бол default → 24/7 mask."
+        title={`${t("schedule_title_prefix")} ${camera.name}`}
+        subtitle={t("schedule_subtitle")}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 mt-4">
         <div className="space-y-4">
           {/* Add new schedule */}
           <form action={addScheduleAction} className="card space-y-3">
-            <h3 className="text-sm font-semibold">Шинэ window нэмэх</h3>
+            <h3 className="text-sm font-semibold">{t("schedule_new_window")}</h3>
             <input type="hidden" name="camera_id" value={camera.id} />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               <select name="window_mode" defaultValue="revealed" className="input text-sm">
-                <option value="revealed">Илрэх (revealed)</option>
-                <option value="masked">Мaскгүй (masked)</option>
+                <option value="revealed">{t("schedule_mode_revealed")}</option>
+                <option value="masked">{t("schedule_mode_masked")}</option>
               </select>
               <input
                 name="starts_at"
@@ -119,16 +134,15 @@ export default async function CameraSchedulePage({
             </div>
             <input
               name="note"
-              placeholder="Тэмдэглэл (optional) — ажлын цаг гэх мэт"
+              placeholder={t("schedule_note_placeholder")}
               maxLength={200}
               className="input text-sm"
             />
             <p className="text-[10px] text-neutral-500 leading-relaxed">
-              Жишээ: 127 = өдөр бүр · 62 = Да-Ба ажлын өдрүүд · 65 = Ня+Бя амралт ·
-              Дотор нь нийлүүлсэн bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64.
+              {t("schedule_weekdays_hint")}
             </p>
             <button type="submit" className="btn-primary w-full">
-              Window нэмэх
+              {t("schedule_add_window")}
             </button>
           </form>
 
@@ -137,18 +151,18 @@ export default async function CameraSchedulePage({
             <table className="w-full text-sm">
               <thead className="bg-bg-tertiary/50">
                 <tr className="text-xs uppercase tracking-wide text-neutral-400">
-                  <th className="px-4 py-2.5 text-left">Горим</th>
-                  <th className="px-4 py-2.5 text-left">Цаг</th>
-                  <th className="px-4 py-2.5 text-left">Өдрүүд</th>
-                  <th className="px-4 py-2.5 text-left">Тэмдэглэл</th>
-                  <th className="px-4 py-2.5 text-right">Үйлдэл</th>
+                  <th className="px-4 py-2.5 text-left">{t("schedule_col_mode")}</th>
+                  <th className="px-4 py-2.5 text-left">{t("schedule_col_time")}</th>
+                  <th className="px-4 py-2.5 text-left">{t("schedule_col_weekdays")}</th>
+                  <th className="px-4 py-2.5 text-left">{t("schedule_col_note")}</th>
+                  <th className="px-4 py-2.5 text-right">{t("schedule_col_action")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {rows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-4 py-6 text-center text-xs text-neutral-500">
-                      Window бүртгэгдээгүй — default ({camera.mask_default}) ажиллаж байна.
+                      {t("schedule_empty")} ({camera.mask_default})
                     </td>
                   </tr>
                 ) : (
@@ -169,7 +183,7 @@ export default async function CameraSchedulePage({
                         {r.starts_at.slice(0, 5)} – {r.ends_at.slice(0, 5)}
                       </td>
                       <td className="px-4 py-2.5 text-xs text-neutral-400">
-                        {weekdaysLabel(r.weekdays)}
+                        {weekdaysLabel(r.weekdays, lang)}
                       </td>
                       <td className="px-4 py-2.5 text-xs text-neutral-500">
                         {r.note ?? "—"}
@@ -181,7 +195,7 @@ export default async function CameraSchedulePage({
                           <button
                             type="submit"
                             className="p-1.5 rounded hover:bg-danger/15 text-neutral-400 hover:text-danger"
-                            title="Устгах"
+                            title={t("delete")}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -199,7 +213,7 @@ export default async function CameraSchedulePage({
         <div className="space-y-4">
           <div className="card">
             <h3 className="text-xs uppercase tracking-wide text-neutral-400 mb-2">
-              Одоогийн төлөв
+              {t("schedule_current_state")}
             </h3>
             <div
               className={`text-2xl font-bold ${
@@ -209,13 +223,13 @@ export default async function CameraSchedulePage({
               {nowMode ?? "masked"}
             </div>
             <p className="text-[10px] text-neutral-500 mt-1">
-              Asia/Seoul цагаар одоо. Шинэ recording-д энэ горим хэрэглэгдэнэ.
+              {t("schedule_current_hint")}
             </p>
           </div>
 
           <form action={setMaskDefaultAction} className="card space-y-2">
             <h3 className="text-xs uppercase tracking-wide text-neutral-400">
-              Default горим (window-аас гадуур)
+              {t("schedule_default_mode")}
             </h3>
             <input type="hidden" name="camera_id" value={camera.id} />
             <select
@@ -223,15 +237,14 @@ export default async function CameraSchedulePage({
               defaultValue={camera.mask_default}
               className="input text-sm"
             >
-              <option value="masked">Masked (24/7 maskingtei — recommended)</option>
-              <option value="revealed">Revealed (window-уудаас зөвхөн masked үед)</option>
+              <option value="masked">{t("schedule_default_masked")}</option>
+              <option value="revealed">{t("schedule_default_revealed")}</option>
             </select>
             <button type="submit" className="btn-secondary w-full text-sm">
-              Хадгалах
+              {t("save")}
             </button>
             <p className="text-[10px] text-neutral-500 leading-relaxed">
-              ⚠️ &quot;Revealed&quot; default нь privacy-preserving шаардлагыг сулруулна.
-              Зөвхөн хатуу хяналттай ажлын талбарт.
+              {t("schedule_default_warning")}
             </p>
           </form>
         </div>

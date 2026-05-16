@@ -4,6 +4,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Search, X, Filter } from "lucide-react";
 
+interface Labels {
+  q: string;
+  user: string;
+  allActions: string;
+  rows: string;
+  from: string;
+  to: string;
+  filter: string;
+  clear: string;
+}
+
 interface Props {
   actions: string[];
   currentAction: string;
@@ -12,6 +23,7 @@ interface Props {
   currentFrom: string;
   currentTo: string;
   currentLimit: string;
+  labels: Labels;
 }
 
 export function AuditFilters({
@@ -22,6 +34,7 @@ export function AuditFilters({
   currentFrom,
   currentTo,
   currentLimit,
+  labels,
 }: Props) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -61,7 +74,7 @@ export function AuditFilters({
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-3 text-neutral-500" />
           <input
             type="text"
-            placeholder="Detail хайх..."
+            placeholder={labels.q}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="input pl-8 text-sm"
@@ -69,7 +82,7 @@ export function AuditFilters({
         </div>
         <input
           type="text"
-          placeholder="Хэрэглэгчийн имэйл"
+          placeholder={labels.user}
           value={user}
           onChange={(e) => setUser(e.target.value)}
           className="input text-sm"
@@ -79,7 +92,7 @@ export function AuditFilters({
           onChange={(e) => setAction(e.target.value)}
           className="input text-sm"
         >
-          <option value="">— Бүх үйлдэл —</option>
+          <option value="">{labels.allActions}</option>
           {actions.map((a) => (
             <option key={a} value={a}>{a}</option>
           ))}
@@ -89,16 +102,16 @@ export function AuditFilters({
           onChange={(e) => setLimit(e.target.value)}
           className="input text-sm"
         >
-          <option value="100">100 ширхэг</option>
-          <option value="500">500 ширхэг</option>
-          <option value="1000">1000 ширхэг</option>
-          <option value="2000">2000 ширхэг</option>
+          <option value="100">100 {labels.rows}</option>
+          <option value="500">500 {labels.rows}</option>
+          <option value="1000">1000 {labels.rows}</option>
+          <option value="2000">2000 {labels.rows}</option>
         </select>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 items-end">
         <div>
-          <label className="text-[10px] uppercase tracking-wide text-neutral-500 block mb-1">Эхлэх огноо</label>
+          <label className="text-[10px] uppercase tracking-wide text-neutral-500 block mb-1">{labels.from}</label>
           <input
             type="datetime-local"
             value={from}
@@ -107,7 +120,7 @@ export function AuditFilters({
           />
         </div>
         <div>
-          <label className="text-[10px] uppercase tracking-wide text-neutral-500 block mb-1">Дуусах огноо</label>
+          <label className="text-[10px] uppercase tracking-wide text-neutral-500 block mb-1">{labels.to}</label>
           <input
             type="datetime-local"
             value={to}
@@ -121,7 +134,7 @@ export function AuditFilters({
           className="btn-primary text-sm flex items-center gap-2"
         >
           <Filter className="w-3.5 h-3.5" />
-          Шүүх
+          {labels.filter}
         </button>
         {hasFilters && (
           <button
@@ -130,7 +143,7 @@ export function AuditFilters({
             className="btn-ghost text-sm flex items-center gap-2"
           >
             <X className="w-3.5 h-3.5" />
-            Цэвэрлэх
+            {labels.clear}
           </button>
         )}
       </div>

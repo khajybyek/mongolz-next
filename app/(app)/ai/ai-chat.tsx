@@ -10,7 +10,25 @@ interface Message {
   content: string;
 }
 
-export function AIChat() {
+export interface AIChatLabels {
+  summary: string;
+  anomaly: string;
+  chat: string;
+  placeholder: string;
+  running: string;
+  run: string;
+  chatPlaceholder: string;
+  send: string;
+  errorGeneric: string;
+}
+
+export function AIChat({
+  labels,
+  lang,
+}: {
+  labels: AIChatLabels;
+  lang?: string;
+}) {
   const [mode, setMode] = useState<Mode>("summary");
   const [history, setHistory] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -32,11 +50,12 @@ export function AIChat() {
     try {
       const res = await fetch("/api/ai", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(lang ? { "Accept-Language": lang } : {}) },
         body: JSON.stringify({
           mode,
           question: mode === "chat" ? input : undefined,
           history: mode === "chat" ? history : undefined,
+          lang,
         }),
       });
 
@@ -44,7 +63,7 @@ export function AIChat() {
       const data = await res.json();
       setHistory([...newHistory, { role: "assistant", content: data.text }]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Алдаа");
+      setError(e instanceof Error ? e.message : labels.errorGeneric);
     } finally {
       setLoading(false);
     }
@@ -54,9 +73,9 @@ export function AIChat() {
     <div className="space-y-4">
       <div className="card flex items-center gap-2">
         {[
-          { mode: "summary" as Mode, icon: BarChart, label: "Үнэлгээ" },
-          { mode: "anomaly" as Mode, icon: AlertTriangle, label: "Аномали" },
-          { mode: "chat" as Mode, icon: MessageSquare, label: "Чат" },
+          { mode: "summary" as Mode, icon: BarChart, label: labels.summary },
+          { mode: "anomaly" as Mode, icon: AlertTriangle, label: labels.anomaly },
+          { mode: "chat" as Mode, icon: MessageSquare, label: labels.chat },
         ].map((m) => {
           const Icon = m.icon;
           return (
@@ -78,7 +97,7 @@ export function AIChat() {
         {history.length === 0 && (
           <div className="text-center py-12 text-neutral-500 text-sm">
             <Sparkles className="w-8 h-8 mx-auto mb-2 text-accent/50" />
-            "Үнэлгээ" эсвэл "Аномали"-г сонгож шинжилгээ эхлүүл
+            {labels.placeholder}
           </div>
         )}
 
@@ -98,7 +117,7 @@ export function AIChat() {
         {loading && (
           <div className="flex items-center gap-2 text-neutral-400 text-sm">
             <Loader2 className="w-4 h-4 animate-spin" />
-            Claude хариулж байна...
+            {labels.running}
           </div>
         )}
 
@@ -120,18 +139,18 @@ export function AIChat() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Аюулгүй байдлын талаар асуу..."
+            placeholder={labels.chatPlaceholder}
             disabled={loading}
             className="input flex-1"
           />
           <button type="submit" disabled={!input.trim() || loading} className="btn-primary">
-            Илгээх
+            {labels.send}
           </button>
         </form>
       ) : (
         <button onClick={send} disabled={loading} className="btn-primary w-full">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-          Шинжилгээ ажиллуулах
+          {labels.run}
         </button>
       )}
     </div>

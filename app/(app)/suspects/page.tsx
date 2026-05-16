@@ -51,7 +51,7 @@ export default async function SuspectsPage() {
           </button>
         </form>
         <p className="text-xs text-neutral-500 mt-2">
-          Зураг upload-ийн дараа Python ML service ArcFace embedding тооцоолж DB-д хадгална.
+          ArcFace embedding · ML service
         </p>
       </div>
 

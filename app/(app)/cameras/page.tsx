@@ -83,9 +83,9 @@ export default async function CamerasPage() {
                     {c.consent_required && (
                       <span
                         className="badge bg-warning/15 text-warning"
-                        title="Хүлээн зөвшөөрөл шаардлагатай — байршилд тэмдэг тавь"
+                        title={t("consent_badge")}
                       >
-                        Consent
+                        {t("consent_badge")}
                       </span>
                     )}
                   </div>
@@ -101,9 +101,7 @@ export default async function CamerasPage() {
                       type="submit"
                       className="text-[10px] uppercase tracking-wide text-neutral-500 hover:text-warning transition"
                     >
-                      {c.consent_required
-                        ? "✓ Consent ON — даран унтраах"
-                        : "○ Consent off — идэвхжүүлэх"}
+                      {c.consent_required ? t("consent_on") : t("consent_off")}
                     </button>
                   </form>
                 </div>
@@ -111,14 +109,14 @@ export default async function CamerasPage() {
                   <Link
                     href={`/cameras/${c.id}/schedule` as never}
                     className="btn-ghost text-xs p-2"
-                    title="Masking schedule"
+                    title={t("schedule")}
                   >
                     <Clock className="w-3.5 h-3.5" />
                   </Link>
                   <Link
                     href={`/cameras/${c.id}/permissions` as never}
                     className="btn-ghost text-xs p-2"
-                    title="Хандах эрх"
+                    title={t("permissions")}
                   >
                     <Users className="w-3.5 h-3.5" />
                   </Link>

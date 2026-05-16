@@ -3,6 +3,7 @@ import { Empty } from "@/components/ui/empty";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatDate, pct } from "@/lib/utils";
+import { getT } from "@/lib/i18n/server";
 import { LabelButtons } from "./label-buttons";
 import { ThresholdsCard } from "./thresholds-card";
 
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ActiveLearningPage() {
   await requireAdmin();
+  const { t } = await getT();
   const supabase = await createClient();
 
   const { data: alerts } = await supabase
@@ -28,15 +30,15 @@ export default async function ActiveLearningPage() {
   return (
     <>
       <PageHeader
-        title="Active Learning"
-        subtitle={`${stats.pending} шошголоогүй · ${stats.tp} TP · ${stats.fp} FP`}
+        title={t("active_learning_title")}
+        subtitle={`${stats.pending} ${t("label_unknown")} · ${stats.tp} ${t("label_tp")} · ${stats.fp} ${t("label_fp")}`}
       />
 
       <ThresholdsCard />
 
       <div className="card mb-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-neutral-500">Нийт</div>
+          <div className="text-[10px] uppercase tracking-wide text-neutral-500">{t("col_total") || "Total"}</div>
           <div className="text-xl font-bold">{stats.total}</div>
         </div>
         <div>

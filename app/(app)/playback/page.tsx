@@ -55,7 +55,7 @@ export default async function PlaybackPage() {
           {[...grouped.entries()].map(([day, items]) => (
             <div key={day}>
               <h2 className="text-xs uppercase tracking-wide text-neutral-400 mb-3">
-                {day} · {items?.length ?? 0} бичлэг
+                {day} · {items?.length ?? 0}
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {items?.map((r) => {
@@ -82,12 +82,12 @@ export default async function PlaybackPage() {
                           <span>{r.size_bytes ? `${Math.round(r.size_bytes / 1024 / 1024)}MB` : "—"}</span>
                           <span>·</span>
                           <span className={fc > 0 ? "text-accent" : "text-neutral-600"}>
-                            {fc} нүүр
+                            {fc} · {t("faces_label")}
                           </span>
                           {!r.has_original && (
                             <>
                               <span>·</span>
-                              <span className="text-neutral-600">reveal-гүй</span>
+                              <span className="text-neutral-600">no reveal</span>
                             </>
                           )}
                         </div>
