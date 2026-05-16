@@ -6,7 +6,7 @@ import { Shield, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 interface Props {
   email: string;
   enabled: boolean;
-  role: "admin" | "viewer";
+  role: "admin" | "viewer" | "auditor";
 }
 
 export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {

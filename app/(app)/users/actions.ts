@@ -10,7 +10,7 @@ const createSchema = z.object({
   email: z.string().email().max(255),
   password: z.string().min(8).max(128),
   full_name: z.string().max(120).optional(),
-  role: z.enum(["admin", "viewer"]),
+  role: z.enum(["admin", "viewer", "auditor"]),
 });
 
 async function audit(action: string, detail: string, user_id: string, user_email: string) {
@@ -63,7 +63,7 @@ export async function createUserAction(formData: FormData) {
 
 const roleSchema = z.object({
   user_id: z.string().uuid(),
-  role: z.enum(["admin", "viewer"]),
+  role: z.enum(["admin", "viewer", "auditor"]),
 });
 
 export async function changeRoleAction(formData: FormData) {

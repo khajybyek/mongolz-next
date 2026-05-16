@@ -62,6 +62,14 @@ export async function requireAdmin() {
   return ctx;
 }
 
+export async function requireAdminOrAuditor() {
+  const ctx = await requireUser();
+  if (ctx.profile.role !== "admin" && ctx.profile.role !== "auditor") {
+    redirect("/dashboard?error=forbidden");
+  }
+  return ctx;
+}
+
 /**
  * API Route Handler: 401/403 JSON буцаана (redirect биш).
  */
@@ -93,6 +101,24 @@ export async function requireUserApi(): Promise<ApiAuthResult> {
     .single<PublicProfile>();
 
   if (error || !profile) return { error: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
+  return { user: { id: user.id, email: user.email! }, profile };
+}
+
+export async function requireAdminOrAuditorApi(): Promise<ApiAuthResult> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
+
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .select(PUBLIC_PROFILE_COLUMNS)
+    .eq("id", user.id)
+    .single<PublicProfile>();
+
+  if (error || !profile) return { error: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
+  if (profile.role !== "admin" && profile.role !== "auditor") {
+    return { error: NextResponse.json({ error: "forbidden: admin or auditor only" }, { status: 403 }) };
+  }
   return { user: { id: user.id, email: user.email! }, profile };
 }
 

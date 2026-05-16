@@ -24,6 +24,9 @@ import {
   Webhook,
   GraduationCap,
   Gauge,
+  ShieldCheck,
+  CalendarClock,
+  Database,
   type LucideIcon,
 } from "lucide-react";
 import { MongolzLogo } from "./logo";
@@ -37,6 +40,7 @@ type NavItem = {
   icon: LucideIcon;
   labelKey: Parameters<typeof t>[0];
   adminOnly?: boolean;
+  auditorAllowed?: boolean;
 };
 
 const NAV: NavItem[] = [
@@ -46,29 +50,38 @@ const NAV: NavItem[] = [
   { href: "/search", icon: Search, labelKey: "nav_search" },
   { href: "/suspects", icon: UserSearch, labelKey: "nav_suspects", adminOnly: true },
   { href: "/alerts", icon: Bell, labelKey: "nav_alerts", adminOnly: true },
+  { href: "/alerts-live", icon: Bell, labelKey: "nav_alerts_live", adminOnly: true },
   { href: "/alert-rules", icon: BellRing, labelKey: "nav_alert_rules", adminOnly: true },
   { href: "/analytics", icon: BarChart3, labelKey: "nav_analytics" },
   { href: "/ai", icon: Sparkles, labelKey: "nav_ai", adminOnly: true },
   { href: "/faces", icon: Users, labelKey: "nav_faces", adminOnly: true },
   { href: "/cameras", icon: Cctv, labelKey: "nav_cameras", adminOnly: true },
-  { href: "/audit", icon: ScrollText, labelKey: "nav_audit", adminOnly: true },
+  { href: "/audit", icon: ScrollText, labelKey: "nav_audit", adminOnly: true, auditorAllowed: true },
   { href: "/users", icon: UserCog, labelKey: "nav_users", adminOnly: true },
   { href: "/webhooks", icon: Webhook, labelKey: "nav_webhooks", adminOnly: true },
+  { href: "/reveal-approvals", icon: ShieldCheck, labelKey: "nav_reveal_approvals", adminOnly: true },
+  { href: "/retention", icon: CalendarClock, labelKey: "nav_retention", adminOnly: true },
   { href: "/active-learning", icon: GraduationCap, labelKey: "nav_active_learning", adminOnly: true },
   { href: "/benchmarks", icon: Gauge, labelKey: "nav_benchmarks", adminOnly: true },
+  { href: "/db-monitor", icon: Database, labelKey: "nav_db_monitor", adminOnly: true },
   { href: "/docs", icon: BookOpen, labelKey: "nav_docs", adminOnly: true },
   { href: "/settings", icon: Settings, labelKey: "nav_settings", adminOnly: true },
 ];
 
 interface SidebarProps {
   lang: Lang;
-  role: "admin" | "viewer";
+  role: "admin" | "viewer" | "auditor";
   email: string;
 }
 
 export function Sidebar({ lang, role, email }: SidebarProps) {
   const pathname = usePathname();
-  const items = NAV.filter((n) => !n.adminOnly || role === "admin");
+  const items = NAV.filter((n) => {
+    if (role === "admin") return true;
+    if (role === "auditor") return n.auditorAllowed === true;
+    // viewer
+    return !n.adminOnly;
+  });
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // Pathname өөрчлөгдөхөд drawer-ыг хаах (mobile дээр link дарсны дараа)
@@ -133,10 +146,16 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
                 "badge mt-1",
                 role === "admin"
                   ? "bg-accent/15 text-accent"
+                  : role === "auditor"
+                  ? "bg-warning/15 text-warning"
                   : "bg-white/5 text-neutral-400"
               )}
             >
-              {role === "admin" ? t("role_admin", lang) : t("role_viewer", lang)}
+              {role === "admin"
+                ? t("role_admin", lang)
+                : role === "auditor"
+                ? t("role_auditor", lang)
+                : t("role_viewer", lang)}
             </span>
           </div>
           <form action="/auth/logout" method="post">

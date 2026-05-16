@@ -3,7 +3,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { createClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/lib/supabase/auth";
+import { requireAdminOrAuditor } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { formatDate } from "@/lib/utils";
 import { AuditFilters } from "./audit-filters";
@@ -39,7 +39,7 @@ export default async function AuditPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  await requireAdmin();
+  await requireAdminOrAuditor();
   const { t } = await getT();
   const params = await searchParams;
   const supabase = await createClient();

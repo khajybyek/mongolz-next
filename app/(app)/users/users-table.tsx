@@ -8,7 +8,7 @@ interface User {
   id: string;
   email: string;
   full_name: string | null;
-  role: "admin" | "viewer";
+  role: "admin" | "viewer" | "auditor";
   totp_enabled: boolean;
   created_at: string;
 }
@@ -25,7 +25,7 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
     setTimeout(() => setFeedback(null), 4000);
   }
 
-  function changeRole(user: User, newRole: "admin" | "viewer") {
+  function changeRole(user: User, newRole: "admin" | "viewer" | "auditor") {
     if (!confirm(`${user.email}-ийн role-ыг "${newRole}"-руу өөрчлөх үү?`)) return;
     setBusyId(user.id);
     startTransition(async () => {
@@ -37,6 +37,13 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
       if (r?.error) showFeedback(user.id, "err", r.error);
       else showFeedback(user.id, "ok", `Role → ${newRole}`);
     });
+  }
+
+  function nextRoleCycle(current: User["role"]): User["role"] {
+    // admin → viewer → auditor → admin
+    if (current === "admin") return "viewer";
+    if (current === "viewer") return "auditor";
+    return "admin";
   }
 
   function removeUser(user: User) {
@@ -100,6 +107,8 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                       className={`badge ${
                         u.role === "admin"
                           ? "bg-accent/15 text-accent"
+                          : u.role === "auditor"
+                          ? "bg-warning/15 text-warning"
                           : "bg-neutral-500/15 text-neutral-300"
                       }`}
                     >
@@ -120,8 +129,8 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                         <>
                           <button
                             disabled={pending && busyId === u.id}
-                            onClick={() => changeRole(u, u.role === "admin" ? "viewer" : "admin")}
-                            title={u.role === "admin" ? "Demote to viewer" : "Promote to admin"}
+                            onClick={() => changeRole(u, nextRoleCycle(u.role))}
+                            title={`Цикл: admin → viewer → auditor → admin (одоо: ${u.role})`}
                             className="p-1.5 rounded hover:bg-white/5 text-neutral-400 hover:text-accent"
                           >
                             {u.role === "admin" ? (

@@ -31,6 +31,10 @@ export const T = {
   nav_webhooks: { mn: "Webhook", en: "Webhooks", kr: "웹훅" },
   nav_active_learning: { mn: "Active Learning", en: "Active Learning", kr: "학습 피드백" },
   nav_benchmarks: { mn: "Гүйцэтгэл", en: "Benchmarks", kr: "성능" },
+  nav_reveal_approvals: { mn: "Reveal зөвшөөрөл", en: "Reveal Approvals", kr: "공개 승인" },
+  nav_retention: { mn: "Хадгалах хугацаа", en: "Retention", kr: "보존 정책" },
+  nav_alerts_live: { mn: "Alerts Live", en: "Alerts Live", kr: "실시간 알림" },
+  nav_db_monitor: { mn: "DB Performance", en: "DB Performance", kr: "DB 성능" },
 
   // ── Login ──
   login_title: { mn: "Нэвтрэх", en: "Sign In", kr: "로그인" },
@@ -124,6 +128,7 @@ export const T = {
   // ── Roles ──
   role_admin: { mn: "Админ", en: "Admin", kr: "관리자" },
   role_viewer: { mn: "Хянагч", en: "Viewer", kr: "뷰어" },
+  role_auditor: { mn: "Аудитор", en: "Auditor", kr: "감사자" },
 } as const;
 
 export type TranslationKey = keyof typeof T;

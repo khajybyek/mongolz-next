@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
+import { requireAdminOrAuditorApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 
 function csvEscape(v: unknown): string {
@@ -12,7 +12,7 @@ function csvEscape(v: unknown): string {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = await requireAdminApi();
+  const auth = await requireAdminOrAuditorApi();
   if (isAuthErr(auth)) return auth.error;
 
   const sp = req.nextUrl.searchParams;

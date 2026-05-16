@@ -1,10 +1,16 @@
-import { Trash2, Power } from "lucide-react";
+import Link from "next/link";
+import { Trash2, Power, Clock, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
-import { addCameraAction, deleteCameraAction, toggleCameraAction } from "./actions";
+import {
+  addCameraAction,
+  deleteCameraAction,
+  toggleCameraAction,
+  toggleConsentAction,
+} from "./actions";
 import { cn } from "@/lib/utils";
 import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 
@@ -74,10 +80,48 @@ export default async function CamerasPage() {
                     <span className="badge bg-bg-tertiary text-neutral-400">
                       {c.cam_type.toUpperCase()}
                     </span>
+                    {c.consent_required && (
+                      <span
+                        className="badge bg-warning/15 text-warning"
+                        title="Хүлээн зөвшөөрөл шаардлагатай — байршилд тэмдэг тавь"
+                      >
+                        Consent
+                      </span>
+                    )}
                   </div>
                   <code className="text-xs text-neutral-500 break-all">{c.url}</code>
+                  <form action={toggleConsentAction} className="mt-2">
+                    <input type="hidden" name="id" value={c.id} />
+                    <input
+                      type="hidden"
+                      name="required"
+                      value={String(!c.consent_required)}
+                    />
+                    <button
+                      type="submit"
+                      className="text-[10px] uppercase tracking-wide text-neutral-500 hover:text-warning transition"
+                    >
+                      {c.consent_required
+                        ? "✓ Consent ON — даран унтраах"
+                        : "○ Consent off — идэвхжүүлэх"}
+                    </button>
+                  </form>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
+                  <Link
+                    href={`/cameras/${c.id}/schedule` as never}
+                    className="btn-ghost text-xs p-2"
+                    title="Masking schedule"
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                  </Link>
+                  <Link
+                    href={`/cameras/${c.id}/permissions` as never}
+                    className="btn-ghost text-xs p-2"
+                    title="Хандах эрх"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                  </Link>
                   <form action={toggleCameraAction}>
                     <input type="hidden" name="id" value={c.id} />
                     <input type="hidden" name="enabled" value={String(!c.enabled)} />

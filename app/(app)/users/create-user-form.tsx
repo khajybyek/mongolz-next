@@ -73,6 +73,7 @@ export function CreateUserForm() {
         />
         <select name="role" defaultValue="viewer" required className="input text-sm">
           <option value="viewer">Viewer (read-only)</option>
+          <option value="auditor">Auditor (audit log only)</option>
           <option value="admin">Admin (full access)</option>
         </select>
       </div>

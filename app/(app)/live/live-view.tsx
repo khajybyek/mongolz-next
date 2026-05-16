@@ -95,11 +95,17 @@ function pickMimeType(): string {
 
 function DeviceCameraView() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const overlayRef = useRef<HTMLCanvasElement | null>(null);
+  const detectorRafRef = useRef<number | null>(null);
+  const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState<string>("");
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState(false);
+  const [detectorReady, setDetectorReady] = useState(false);
+  const [detectorBackend, setDetectorBackend] = useState<"webgpu" | "wasm" | "off">("off");
+  const [faceCount, setFaceCount] = useState(0);
 
   // Recording state
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -161,6 +167,105 @@ function DeviceCameraView() {
   }
 
   useEffect(() => () => stream?.getTracks().forEach((t) => t.stop()), [stream]);
+
+  // ───────── Live face detection loop ─────────
+  // Loads UltraFace-RFB-320 on demand, then ~5fps detection draws bbox overlay
+  // on a transparent canvas above the video element. Pure client-side.
+  useEffect(() => {
+    if (!active || !videoRef.current || !overlayRef.current) return;
+    let cancelled = false;
+    const video = videoRef.current;
+    const overlay = overlayRef.current;
+    const ctx2d = overlay.getContext("2d");
+    if (!ctx2d) return;
+    const ctx: CanvasRenderingContext2D = ctx2d;
+
+    async function loop() {
+      let detectFaces: typeof import("@/lib/edge-inference/face-detector").detectFaces;
+      try {
+        const mod = await import("@/lib/edge-inference/face-detector");
+        const backend = await mod.initDetector("/models/face_detect.onnx", "webgpu");
+        if (cancelled) return;
+        detectFaces = mod.detectFaces;
+        setDetectorReady(true);
+        setDetectorBackend(backend);
+      } catch {
+        // detector unavailable — silently fall back to no overlay
+        setDetectorBackend("off");
+        return;
+      }
+      let lastDetect = 0;
+
+      const tick = async (now: number) => {
+        if (cancelled || !video.videoWidth || !video.videoHeight) {
+          detectorRafRef.current = requestAnimationFrame(tick);
+          return;
+        }
+        overlay.width = video.videoWidth;
+        overlay.height = video.videoHeight;
+
+        if (now - lastDetect > 200) {
+          // ~5 fps inference
+          lastDetect = now;
+          if (!sampleCanvasRef.current) {
+            sampleCanvasRef.current = document.createElement("canvas");
+          }
+          const sample = sampleCanvasRef.current;
+          sample.width = video.videoWidth;
+          sample.height = video.videoHeight;
+          const sctx = sample.getContext("2d", { willReadFrequently: true });
+          if (!sctx) return;
+          sctx.drawImage(video, 0, 0);
+          let imageData: ImageData;
+          try {
+            imageData = sctx.getImageData(0, 0, sample.width, sample.height);
+          } catch {
+            // canvas tainted — skip
+            detectorRafRef.current = requestAnimationFrame(tick);
+            return;
+          }
+
+          let faces: { bbox: [number, number, number, number]; confidence: number }[] = [];
+          try {
+            faces = await detectFaces(imageData, 0.45);
+          } catch {
+            // single frame failure — keep loop alive
+          }
+          if (cancelled) return;
+
+          ctx.clearRect(0, 0, overlay.width, overlay.height);
+          ctx.lineWidth = Math.max(2, Math.round(overlay.width / 320));
+          ctx.strokeStyle = "#00d4ff";
+          ctx.fillStyle = "#00d4ffcc";
+          ctx.font = `${Math.max(12, Math.round(overlay.width / 60))}px ui-sans-serif`;
+          faces.forEach((f, i) => {
+            const [x, y, w, h] = f.bbox;
+            ctx.strokeRect(x, y, w, h);
+            const label = `#${i + 1} ${(f.confidence * 100).toFixed(0)}%`;
+            const m = ctx.measureText(label);
+            const pad = 4;
+            ctx.fillRect(x, y - 18, m.width + pad * 2, 18);
+            ctx.fillStyle = "#0a0a1e";
+            ctx.fillText(label, x + pad, y - 5);
+            ctx.fillStyle = "#00d4ffcc";
+          });
+          setFaceCount(faces.length);
+        }
+
+        detectorRafRef.current = requestAnimationFrame(tick);
+      };
+
+      detectorRafRef.current = requestAnimationFrame(tick);
+    }
+
+    loop();
+
+    return () => {
+      cancelled = true;
+      if (detectorRafRef.current !== null) cancelAnimationFrame(detectorRafRef.current);
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+    };
+  }, [active]);
 
   // Recording timer
   useEffect(() => {
@@ -278,6 +383,10 @@ function DeviceCameraView() {
           playsInline
           className="w-full h-full object-contain"
         />
+        <canvas
+          ref={overlayRef}
+          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+        />
         {!active && !error && (
           <div className="absolute inset-0 flex items-center justify-center text-neutral-500 text-sm pointer-events-none">
             &quot;Эхлүүлэх&quot; товчийг дар
@@ -288,6 +397,15 @@ function DeviceCameraView() {
             <span className="w-2 h-2 rounded-full bg-white" />
             REC {Math.floor(elapsed / 60).toString().padStart(2, "0")}:
             {(elapsed % 60).toString().padStart(2, "0")}
+          </div>
+        )}
+        {active && detectorBackend !== "off" && (
+          <div className="absolute top-3 right-3 text-[10px] font-medium px-2.5 py-1 rounded-full bg-bg-secondary/80 backdrop-blur border border-white/10 flex items-center gap-1.5">
+            <span className={detectorReady ? "text-accent" : "text-neutral-500"}>●</span>
+            <span className="text-neutral-300">
+              {detectorReady ? `${faceCount} нүүр` : "loading…"}
+            </span>
+            <span className="text-neutral-500 uppercase">{detectorBackend}</span>
           </div>
         )}
       </div>

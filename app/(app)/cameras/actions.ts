@@ -74,3 +74,25 @@ export async function toggleCameraAction(formData: FormData) {
 
   revalidatePath("/cameras");
 }
+
+export async function toggleConsentAction(formData: FormData) {
+  const { user } = await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  const required = String(formData.get("required") ?? "false") === "true";
+  if (!id) return;
+
+  const supabase = await createClient();
+  await supabase.from("cameras").update({ consent_required: required }).eq("id", id);
+
+  try {
+    const svc = createServiceClient();
+    await svc.from("audit_log").insert({
+      action: "CAMERA_CONSENT_TOGGLE",
+      detail: `camera ${id} → consent_required=${required}`,
+      user_id: user.id,
+      user_email: user.email,
+    });
+  } catch {}
+
+  revalidatePath("/cameras");
+}

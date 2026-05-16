@@ -1,7 +1,7 @@
 // Supabase generated types-ийг тогтмол: `npx supabase gen types typescript --local > lib/database.types.ts`
 // Доорх нь schema-тай тохируулсан manual stub.
 
-export type UserRole = "admin" | "viewer";
+export type UserRole = "admin" | "viewer" | "auditor";
 export type CameraType = "rtsp" | "http" | "usb" | "webcam";
 
 export interface Profile {

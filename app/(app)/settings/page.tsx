@@ -41,6 +41,28 @@ export default async function SettingsPage({
           enabled={enabled}
           role={profile.role}
         />
+
+        <div className="card space-y-3">
+          <h3 className="text-sm font-semibold">Миний өгөгдөл — GDPR / PIPA</h3>
+          <p className="text-xs text-neutral-400 leading-relaxed">
+            Систем дотор танаас цуглуулсан өгөгдлийг ZIP-аар татах эсвэл хүсэлт
+            гаргаж бүртгэлээ устгах боломжтой.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <a
+              href="/api/gdpr/export"
+              className="btn-secondary text-sm flex-1 text-center"
+            >
+              📦 Өгөгдлөө татах (ZIP)
+            </a>
+            <a
+              href="/settings/erase"
+              className="btn-danger text-sm flex-1 text-center"
+            >
+              🗑️ Бүртгэлээ устгах
+            </a>
+          </div>
+        </div>
       </div>
     </>
   );
