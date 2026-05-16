@@ -38,7 +38,7 @@ export default async function ActiveLearningPage() {
 
       <div className="card mb-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-neutral-500">{t("col_total") || "Total"}</div>
+          <div className="text-[10px] uppercase tracking-wide text-neutral-500">{t("col_total")}</div>
           <div className="text-xl font-bold">{stats.total}</div>
         </div>
         <div>

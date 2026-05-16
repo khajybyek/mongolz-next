@@ -374,7 +374,6 @@ export const T = {
   suspects_title: { mn: "Сэжигтэн удирдах", en: "Suspects", kr: "용의자 관리" },
   suspect_full_name: { mn: "Нэр", en: "Name", kr: "이름" },
   suspect_notes: { mn: "Тэмдэглэл", en: "Notes", kr: "메모" },
-  suspect_photo: { mn: "Зураг (jpg/png)", en: "Photo (jpg/png)", kr: "사진 (jpg/png)" },
   suspect_add_btn: { mn: "Сэжигтэн нэмэх", en: "Add suspect", kr: "용의자 추가" },
 
   // ── Faces ──
@@ -507,6 +506,7 @@ export const T = {
   col_suspect: { mn: "Сэжигтэн", en: "Suspect", kr: "용의자" },
   col_similarity: { mn: "Тааралцал", en: "Similarity", kr: "유사도" },
   col_actions: { mn: "Үйлдэл", en: "Actions", kr: "작업" },
+  col_total: { mn: "Нийт", en: "Total", kr: "전체" },
 } as const;
 
 export type TranslationKey = keyof typeof T;
