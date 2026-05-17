@@ -18,7 +18,7 @@ export default async function FacesPage() {
 
   const { data: faces } = await supabase
     .from("faces")
-    .select("id, filename, image_path, detected_at, camera_id, cameras:cameras(name)")
+    .select("id, filename, image_path, detected_at, camera_id, recording_id, cameras:cameras(name)")
     .order("detected_at", { ascending: false })
     .limit(PAGE_LIMIT);
 
@@ -28,6 +28,7 @@ export default async function FacesPage() {
     image_path: string;
     detected_at: string;
     camera_id: string | null;
+    recording_id: string | null;
     cameras: { name: string } | { name: string }[] | null;
   }>;
 
@@ -52,15 +53,17 @@ export default async function FacesPage() {
           {rows.map((f) => {
             const url = urlByPath.get(f.image_path);
             const cam = Array.isArray(f.cameras) ? f.cameras[0] : f.cameras;
-            return (
-              <div key={f.id} className="card p-1.5">
+            const href = f.recording_id ? `/playback/${f.recording_id}?face=${f.id}` : null;
+
+            const inner = (
+              <>
                 <div className="aspect-square bg-bg-tertiary rounded mb-1.5 overflow-hidden">
                   {url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={url}
                       alt={f.filename}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover transition-transform group-hover:scale-105"
                       loading="lazy"
                     />
                   ) : (
@@ -77,7 +80,29 @@ export default async function FacesPage() {
                     {cam.name}
                   </div>
                 )}
-              </div>
+              </>
+            );
+
+            if (!href) {
+              return (
+                <div
+                  key={f.id}
+                  className="card p-1.5 opacity-60"
+                  title={t("faces_no_recording")}
+                >
+                  {inner}
+                </div>
+              );
+            }
+            return (
+              <a
+                key={f.id}
+                href={href}
+                className="card p-1.5 group block transition hover:border-accent/40 hover:shadow-glow-soft focus-visible:ring-2 focus-visible:ring-accent/40 outline-none"
+                title={t("faces_open_playback")}
+              >
+                {inner}
+              </a>
             );
           })}
         </div>

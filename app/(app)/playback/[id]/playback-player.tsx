@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Eye, MousePointerClick, ListChecks, X } from "lucide-react";
 import { VideoWithFaceOverlay, type FaceBox } from "./video-with-face-overlay";
 import { FaceTimeline } from "./face-timeline";
@@ -39,6 +39,7 @@ export function PlaybackPlayer({
   detectedFaces,
   isAdmin,
   durationSec,
+  initialFaceId,
 }: {
   recordingId: string;
   videoUrl: string;
@@ -48,6 +49,8 @@ export function PlaybackPlayer({
   isAdmin: boolean;
   /** Server-side hint for total duration. Overridden once <video> loads metadata. */
   durationSec: number | null;
+  /** From ?face=… — if set, seek the player there on metadata load. */
+  initialFaceId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [initialFaceIds, setInitialFaceIds] = useState<string[]>([]);
@@ -80,6 +83,33 @@ export function PlaybackPlayer({
       // Ignore — some browsers throw if not yet seekable.
     }
   }
+
+  // Deep-link from /faces (or anywhere with ?face={id}) → seek to the
+  // matching face's time once. Wait for loadedmetadata so v.duration is
+  // valid (otherwise the clamp inside seekTo wipes the request).
+  const seekConsumed = useRef(false);
+  useEffect(() => {
+    if (!initialFaceId || seekConsumed.current) return;
+    const target = detectedFaces.find((f) => f.id === initialFaceId);
+    if (!target || target.time_in_video_sec == null) return;
+    const v = videoElementRef.current;
+    if (!v) return;
+    const sec = target.time_in_video_sec;
+    const apply = () => {
+      seekConsumed.current = true;
+      seekTo(sec);
+    };
+    if (v.readyState >= 1 && (v.duration || 0) > 0) {
+      apply();
+    } else {
+      const handler = () => {
+        apply();
+        v.removeEventListener("loadedmetadata", handler);
+      };
+      v.addEventListener("loadedmetadata", handler);
+      return () => v.removeEventListener("loadedmetadata", handler);
+    }
+  }, [initialFaceId, detectedFaces]);
 
   // Сонгогдсон нүүр (preview-нд харуулах)
   const selectedFaces = useMemo(

@@ -1388,6 +1388,18 @@ export const T = {
   zones_enable: { mn: "Идэвхжүүлэх", en: "Enable", kr: "활성화" },
   zones_too_small: { mn: "Талбай хэт жижиг (≥2%).", en: "Area too small (≥2%).", kr: "영역이 너무 작음 (≥2%)." },
 
+  // ── Faces page navigation hints ──
+  faces_open_playback: {
+    mn: "Уг царайн харагдсан бичлэг рүү очих",
+    en: "Open the recording where this face appeared",
+    kr: "이 얼굴이 나타난 녹화로 이동",
+  },
+  faces_no_recording: {
+    mn: "Бичлэгтэй холбогдоогүй царай (живо detection)",
+    en: "Standalone face (no recording linked)",
+    kr: "녹화와 연결되지 않은 얼굴 (실시간 감지)",
+  },
+
   // ── Anomaly detection ──
   nav_anomaly: { mn: "Anomaly", en: "Anomaly", kr: "이상 감지" },
   anomaly_title: { mn: "Anomaly detection", en: "Anomaly Detection", kr: "이상 감지" },

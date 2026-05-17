@@ -25,10 +25,14 @@ export const revalidate = 0;
 
 export default async function PlaybackDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ face?: string }>;
 }) {
   const { id } = await params;
+  const sp = await searchParams;
+  const initialFaceId = typeof sp.face === "string" ? sp.face : null;
   const { profile } = await requireUser();
   const { t } = await getT();
   const supabase = await createClient();
@@ -160,6 +164,7 @@ export default async function PlaybackDetailPage({
               detectedFaces={detectedFaces}
               isAdmin={isAdmin}
               durationSec={rec.duration_sec ?? null}
+              initialFaceId={initialFaceId}
             />
           ) : (
             <div className="card aspect-video bg-black flex items-center justify-center text-text-muted text-sm">
