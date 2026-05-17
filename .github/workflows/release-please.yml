@@ -3,6 +3,7 @@ name: Release please
 on:
   push:
     branches: [main]
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -11,9 +12,22 @@ permissions:
 # Release-please reads Conventional-Commit messages on `main` and opens
 # a release PR that bumps `package.json` + writes `CHANGELOG.md`. Merging
 # that PR tags the release. See https://github.com/googleapis/release-please-action
+#
+# One-time setup required (otherwise the action fails with
+# "GitHub Actions is not permitted to create or approve pull requests"):
+#
+#   Repo → Settings → Actions → General → Workflow permissions
+#   → check "Allow GitHub Actions to create and approve pull requests"
+#
+# The action will still commit + push the release branch even without
+# that permission, so historical runs are recoverable — just enable
+# the setting and re-run via workflow_dispatch.
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    # Don't block the overall CI signal on this — it's advisory until
+    # the repo PR-permission setting is on.
+    continue-on-error: true
     steps:
       - uses: googleapis/release-please-action@v4
         with:

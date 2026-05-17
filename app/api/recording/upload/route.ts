@@ -2,7 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+// Vercel Hobby tier caps function duration at 60 s; any larger value
+// is silently ignored. Pinning to 60 makes the limit visible in code
+// and lets us bump it to 300 the moment we upgrade to Pro without
+// chasing through other files.
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   const auth = await requireUserApi();

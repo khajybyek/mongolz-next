@@ -380,8 +380,25 @@ function DeviceCameraView() {
     const res = await fetch("/api/recording/upload", { method: "POST", body: fd });
     if (!res.ok) {
       const ct = res.headers.get("content-type") ?? "";
-      const txt = ct.includes("json") ? JSON.stringify(await res.json()) : await res.text();
-      throw new Error(`Chunk ${chunkIndex} failed: ${txt.slice(0, 120)}`);
+      let msg: string;
+      if (ct.includes("json")) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        msg = body?.error ?? `HTTP ${res.status}`;
+      } else {
+        const text = await res.text().catch(() => "");
+        // Vercel timeout / Next.js runtime crash returns a hefty HTML page.
+        // Detect the common signatures and translate to something a human
+        // can act on, instead of dumping <!DOCTYPE html…> at the user.
+        if (text.includes("FUNCTION_INVOCATION_TIMEOUT") || text.includes("__next_error__")) {
+          msg =
+            res.status === 504
+              ? "ML боловсруулалт хэт удсан (Vercel function timeout). Chunk-ийн size-ыг багасгах эсвэл Pro tier шилжих хэрэгтэй."
+              : `Server алдаа (HTTP ${res.status})`;
+        } else {
+          msg = `HTTP ${res.status}`;
+        }
+      }
+      throw new Error(`Chunk ${chunkIndex} failed: ${msg}`);
     }
   }
 
