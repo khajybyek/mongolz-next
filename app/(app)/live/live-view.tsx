@@ -336,11 +336,18 @@ function DeviceCameraView() {
     rec.onstop = async () => {
       const duration = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
       // flush any remaining bytes as the final chunk
-      await flushChunk(true);
-      setSavedMsg(
-        `✓ Session ${sessionId.slice(0, 8)} — ${chunkIndex} chunk · ${duration}s. ` +
-        `Боловсруулалт ажиллаж байна.`,
-      );
+      uploadStartRef.current = Date.now();
+      setUploadElapsed(0);
+      setUploading(true);
+      try {
+        await flushChunk(true);
+        setSavedMsg(
+          `✓ Session ${sessionId.slice(0, 8)} — ${chunkIndex} chunk · ${duration}s. ` +
+          `Боловсруулалт ажиллаж байна.`,
+        );
+      } finally {
+        setUploading(false);
+      }
     };
 
     rec.start(1000); // 1s timeslice — periodic ondataavailable

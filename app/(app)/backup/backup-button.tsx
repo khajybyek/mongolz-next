@@ -3,12 +3,10 @@
 import { useRef, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { TotpPrompt } from "@/components/totp-prompt";
-import { useT } from "@/lib/i18n/client";
 
 const REAUTH_REQUIRED = "REAUTH_REQUIRED";
 
 export function BackupButton({ label }: { label: string }) {
-  const { t } = useT();
   const [busy, setBusy] = useState(false);
   const [needsTotp, setNeedsTotp] = useState(false);
   const [error, setError] = useState<string | null>(null);
