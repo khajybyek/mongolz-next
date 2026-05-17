@@ -24,6 +24,28 @@ async function getClientIp(): Promise<string | null> {
   }
 }
 
+/** Хэрэглэгч аль host-аар (live.mongolz.dev, mongolz.dev, vercel.app) орсон —
+ *  audit log-д кадрлахад хэрэглэнэ. */
+async function getClientHost(): Promise<string | null> {
+  try {
+    const h = await headers();
+    return (h.get("x-forwarded-host") ?? h.get("host"))?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** User-Agent string — audit detail-д device/browser fingerprint болгож хадгална. */
+async function getClientUa(): Promise<string | null> {
+  try {
+    const h = await headers();
+    const ua = h.get("user-agent");
+    return ua ? ua.slice(0, 200) : null;
+  } catch {
+    return null;
+  }
+}
+
 function sanitizeNextPath(raw: string): string {
   if (!raw) return "/dashboard";
   try {
@@ -81,6 +103,11 @@ export async function signInAction(formData: FormData) {
   }
 
   const ip = await getClientIp();
+  const host = await getClientHost();
+  const ua = await getClientUa();
+  const ctx = [host ? `host=${host}` : null, ua ? `ua=${ua}` : null]
+    .filter(Boolean)
+    .join(" · ");
 
   // Rate limit шалгах (5 fail/email/15min, 10 fail/IP/15min)
   const rl = await checkLoginRateLimit({ ip, email });
@@ -89,7 +116,7 @@ export async function signInAction(formData: FormData) {
       const svc = createServiceClient();
       await svc.from("audit_log").insert({
         action: "LOGIN_BLOCKED",
-        detail: `${rl.reason}: ${rl.message}`,
+        detail: `${rl.reason}: ${rl.message}${ctx ? ` · ${ctx}` : ""}`,
         user_email: email,
         ip,
       });
@@ -105,7 +132,7 @@ export async function signInAction(formData: FormData) {
       const svc = createServiceClient();
       await svc.from("audit_log").insert({
         action: "LOGIN_FAILED",
-        detail: `Reason: ${error.message}`,
+        detail: `Reason: ${error.message}${ctx ? ` · ${ctx}` : ""}`,
         user_email: email,
         ip,
       });
@@ -144,8 +171,9 @@ export async function signInAction(formData: FormData) {
   try {
     await svc.from("audit_log").insert({
       action: "LOGIN",
-      detail: `Email: ${email} (no TOTP)`,
+      detail: `Email: ${email} (no TOTP)${ctx ? ` · ${ctx}` : ""}`,
       user_email: email,
+      user_id: user.id,
       ip,
     });
   } catch {}
@@ -172,6 +200,11 @@ export async function verifyTotpAction(formData: FormData) {
   const totpCode = String(formData.get("totp_code") ?? "").trim();
   const next = String(formData.get("next") ?? "/dashboard");
   const ip = await getClientIp();
+  const host = await getClientHost();
+  const ua = await getClientUa();
+  const ctx = [host ? `host=${host}` : null, ua ? `ua=${ua}` : null]
+    .filter(Boolean)
+    .join(" · ");
 
   if (!/^\d{6}$/.test(totpCode)) {
     return redirect(`/login?step=totp&error=Invalid+code+format&next=${encodeURIComponent(next)}`);
@@ -204,7 +237,9 @@ export async function verifyTotpAction(formData: FormData) {
       await svc.from("audit_log").insert({
         action:
           result === "replayed" ? "TOTP_LOGIN_REPLAY_BLOCKED" : "TOTP_LOGIN_FAILED",
-        detail: result === "replayed" ? "Code reused" : "2FA code invalid",
+        detail:
+          (result === "replayed" ? "Code reused" : "2FA code invalid") +
+          (ctx ? ` · ${ctx}` : ""),
         user_id: profile.id,
         user_email: profile.email,
         ip,
@@ -241,7 +276,8 @@ export async function verifyTotpAction(formData: FormData) {
   try {
     await svc.from("audit_log").insert({
       action: "LOGIN",
-      detail: `Email: ${profile.email} (TOTP verified)`,
+      detail: `Email: ${profile.email} (TOTP verified)${ctx ? ` · ${ctx}` : ""}`,
+      user_id: profile.id,
       user_email: profile.email,
       ip,
     });

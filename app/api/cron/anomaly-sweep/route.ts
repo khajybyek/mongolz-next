@@ -3,10 +3,10 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { isPushConfigured, sendPushToAllAdmins } from "@/lib/push";
 
 /**
- * Anomaly sweep — runs every 30 minutes via Vercel Cron.
- * Calls camera_anomaly_scores() and writes alerts of type='anomaly' for
- * any (camera, hour) bucket with |z| >= ANOMALY_THRESHOLD (default 3).
- * Dedup key keeps one alert per (camera, hour) per day.
+ * Anomaly sweep — runs once a day via Vercel Cron (Hobby tier limit).
+ * Scans the past 24h for buckets with |z| >= ANOMALY_THRESHOLD (default 3)
+ * and emits a single alert per (camera, hour-bucket) thanks to the dedup
+ * helper. Upgrade to Pro to switch the cron to hourly if needed.
  */
 function authorized(req: NextRequest): boolean {
   const sec = process.env.CRON_SECRET ?? process.env.MONITORING_CRON_SECRET;
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
   const svc = createServiceClient();
   const { data, error } = await svc.rpc("camera_anomaly_scores", {
-    p_window_hours: 1,
+    p_window_hours: 24,
     p_baseline_days: 28,
   });
   if (error) {

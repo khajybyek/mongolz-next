@@ -22,7 +22,7 @@
     },
     {
       "path": "/api/cron/anomaly-sweep",
-      "schedule": "0 * * * *"
+      "schedule": "30 1 * * *"
     }
   ]
 }
