@@ -22,6 +22,8 @@ const PUBLIC_PATHS = [
   "/api/cron", // Vercel Cron endpoints (their own bearer auth)
   "/api/monitoring", // Cron-style monitoring endpoints
   "/api/auth/passkey/login", // Public passkey login endpoints
+  "/api/push/dispatch", // Server-to-server push dispatch (bearer-auth)
+  "/api/vitals", // Authenticated beacon — handler does its own auth via cookies
 ];
 
 const PUBLIC_EXACT = new Set([

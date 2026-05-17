@@ -29,6 +29,9 @@ import {
   Database,
   Archive,
   Crown,
+  Footprints,
+  Flame,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 import { MongolzLogo } from "./logo";
@@ -67,6 +70,9 @@ const NAV: NavItem[] = [
   { href: "/reveal-approvals", icon: ShieldCheck, labelKey: "nav_reveal_approvals", adminOnly: true },
   { href: "/retention", icon: CalendarClock, labelKey: "nav_retention", adminOnly: true },
   { href: "/active-learning", icon: GraduationCap, labelKey: "nav_active_learning", adminOnly: true },
+  { href: "/reid", icon: Footprints, labelKey: "nav_reid", adminOnly: true },
+  { href: "/heatmap", icon: Flame, labelKey: "nav_heatmap", adminOnly: true },
+  { href: "/perf-budget", icon: Activity, labelKey: "nav_perf", adminOnly: true },
   { href: "/ml-lab", icon: Sparkles, labelKey: "nav_ml_lab", adminOnly: true },
   { href: "/benchmarks", icon: Gauge, labelKey: "nav_benchmarks", adminOnly: true },
   { href: "/db-monitor", icon: Database, labelKey: "nav_db_monitor", adminOnly: true },

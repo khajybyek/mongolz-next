@@ -3,6 +3,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "@/lib/theme/client";
 import { getServerTheme } from "@/lib/theme/server";
 import { ServiceWorkerRegister } from "@/components/sw-register";
+import { VitalsReporter } from "@/components/vitals-reporter";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -45,6 +46,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <ThemeProvider initial={theme}>{children}</ThemeProvider>
         <SpeedInsights />
         <ServiceWorkerRegister />
+        <VitalsReporter />
       </body>
     </html>
   );

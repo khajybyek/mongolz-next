@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getT } from "@/lib/i18n/server";
 import { TotpSettings } from "./totp-settings";
 import { PasskeySettings } from "./passkey-settings";
+import { PushSettings } from "./push-settings";
 
 export default async function SettingsPage({
   searchParams,
@@ -39,6 +40,8 @@ export default async function SettingsPage({
         <TotpSettings email={user.email} enabled={enabled} role={profile.role} />
 
         <PasskeySettings />
+
+        <PushSettings />
 
         <div className="card space-y-3">
           <h3 className="text-sm font-semibold">{t("my_data_title")}</h3>

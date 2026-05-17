@@ -96,3 +96,48 @@ self.addEventListener("fetch", (event) => {
     }),
   );
 });
+
+// ── Web Push handlers ─────────────────────────────────────────────────
+self.addEventListener("push", (event) => {
+  let payload = { title: "MONGOLZ Security", body: "Шинэ мэдэгдэл" };
+  try {
+    if (event.data) {
+      const parsed = event.data.json();
+      if (parsed && typeof parsed === "object") payload = parsed;
+    }
+  } catch (_e) {
+    try {
+      const text = event.data && event.data.text();
+      if (text) payload.body = text;
+    } catch (_e2) {}
+  }
+
+  const options = {
+    body: payload.body || "",
+    icon: payload.icon || "/branding/apple-icon.png",
+    badge: payload.badge || "/branding/favicon.png",
+    tag: payload.tag || "mongolz",
+    data: { url: payload.url || "/alerts" },
+    renotify: true,
+    requireInteraction: false,
+  };
+  event.waitUntil(self.registration.showNotification(payload.title || "MONGOLZ Security", options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || "/alerts";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        const url = new URL(c.url);
+        if (url.origin === self.location.origin) {
+          c.focus();
+          c.navigate(target).catch(() => undefined);
+          return;
+        }
+      }
+      return self.clients.openWindow(target);
+    }),
+  );
+});

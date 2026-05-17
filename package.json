@@ -19,6 +19,7 @@
     "deploy:staging": "vercel deploy --yes",
     "backup:verify": "tsx scripts/verify-backups.ts",
     "rotate:keys": "tsx scripts/rotate-keys.ts",
+    "gen:vapid": "tsx scripts/gen-vapid.ts",
     "test": "jest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
@@ -57,10 +58,13 @@
     "react-server-dom-webpack": "^19.2.6",
     "recharts": "^2.15.0",
     "tailwind-merge": "^2.5.5",
+    "web-push": "^3.6.7",
+    "web-vitals": "^4.2.4",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@types/web-push": "^3.6.4",
     "@next/eslint-plugin-next": "16.3.0-canary.19",
     "@playwright/test": "^1.60.0",
     "@types/jest": "^30.0.0",

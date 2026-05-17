@@ -1340,6 +1340,77 @@ export const T = {
     en: "Sign in with an authorized account to explore the live system. Most features unlock only after enabling TOTP on the demo account.",
     kr: "승인된 계정으로 로그인하여 라이브 시스템을 탐색하세요. 대부분의 기능은 데모 계정에 TOTP를 활성화한 후에만 잠금 해제됩니다.",
   },
+
+  // ── Cross-camera Re-ID ──
+  nav_reid: { mn: "Re-ID мөшгилт", en: "Re-ID Trail", kr: "재식별 추적" },
+  reid_title: { mn: "Cross-camera Re-ID", en: "Cross-camera Re-ID", kr: "교차 카메라 재식별" },
+  reid_subtitle: {
+    mn: "Нэг хүн хэдэн камераар явсныг embedding similarity-ээр сэргээх.",
+    en: "Reconstruct one person's movement across cameras via embedding similarity.",
+    kr: "임베딩 유사도를 통해 한 사람의 카메라 간 이동을 재구성합니다.",
+  },
+  reid_pick_source: { mn: "Эх царайгаа сонгох", en: "Pick a source face", kr: "기준 얼굴 선택" },
+  reid_threshold: { mn: "Босго", en: "Threshold", kr: "임계값" },
+  reid_window: { mn: "Хугацааны цонх", en: "Time window", kr: "시간 윈도우" },
+  reid_first: { mn: "Эхэлсэн", en: "First seen", kr: "처음 발견" },
+  reid_last: { mn: "Сүүлд", en: "Last seen", kr: "마지막 발견" },
+  reid_total: { mn: "Нийт олдвор", en: "Total hits", kr: "전체 일치" },
+  reid_cameras: { mn: "Камер", en: "Cameras", kr: "카메라" },
+  reid_timeline: { mn: "Цаг хугацааны зураглал", en: "Timeline", kr: "타임라인" },
+  reid_intro: {
+    mn: "Зүүн талаас царай сонгоход бусад камер дээрх таарал гарч ирнэ.",
+    en: "Pick a face on the left to see matches from other cameras.",
+    kr: "왼쪽에서 얼굴을 선택하면 다른 카메라의 일치 결과가 표시됩니다.",
+  },
+
+  // ── Heatmap analytics ──
+  nav_heatmap: { mn: "Heatmap", en: "Heatmap", kr: "히트맵" },
+  heatmap_title: { mn: "Царайн heatmap", en: "Face Heatmap", kr: "얼굴 히트맵" },
+  heatmap_subtitle: {
+    mn: "Камер бүрт нүүр илрүүлсэн frame-ийн bbox-ыг spatial density болгож харуулах.",
+    en: "Spatial density of detected face bboxes per camera frame.",
+    kr: "카메라 프레임당 감지된 얼굴 bbox의 공간 밀도.",
+  },
+  heatmap_camera: { mn: "Камер", en: "Camera", kr: "카메라" },
+  heatmap_window: { mn: "Хугацаа", en: "Window", kr: "기간" },
+  heatmap_samples: { mn: "Дээж", en: "Samples", kr: "샘플" },
+  heatmap_select_camera: { mn: "Камер сонгоно уу", en: "Select a camera", kr: "카메라를 선택하세요" },
+  heatmap_no_data: { mn: "Энэ хугацаанд bbox-той царай байхгүй.", en: "No face bboxes recorded in this window.", kr: "이 기간에 기록된 얼굴 bbox가 없습니다." },
+
+  // ── Web Push ──
+  push_title: { mn: "Push мэдэгдэл", en: "Push Notifications", kr: "푸시 알림" },
+  push_desc: {
+    mn: "Browser-ийн push subscription. Alert гарвал бичлэгийн оронд шууд browser-руу мэдэгдэнэ.",
+    en: "Browser push subscriptions. Alerts reach your browser directly without polling.",
+    kr: "브라우저 푸시 구독. 알림이 폴링 없이 브라우저로 직접 전달됩니다.",
+  },
+  push_enable: { mn: "Push идэвхжүүлэх", en: "Enable push", kr: "푸시 활성화" },
+  push_disable: { mn: "Push зогсоох", en: "Disable push", kr: "푸시 비활성화" },
+  push_test: { mn: "Туршилт мэдэгдэл", en: "Send test", kr: "테스트 전송" },
+  push_status_enabled: { mn: "Идэвхтэй", en: "Active", kr: "활성" },
+  push_status_disabled: { mn: "Идэвхгүй", en: "Inactive", kr: "비활성" },
+  push_blocked: { mn: "Browser-ийн зөвшөөрөл хаагдсан.", en: "Browser permission blocked.", kr: "브라우저 권한이 차단되었습니다." },
+  push_unsupported: { mn: "Энэ browser push дэмжихгүй.", en: "This browser does not support push.", kr: "이 브라우저는 푸시를 지원하지 않습니다." },
+
+  // ── Performance budget ──
+  nav_perf: { mn: "Гүйцэтгэл", en: "Web Vitals", kr: "웹 바이탈" },
+  perf_title: { mn: "Performance budget", en: "Performance Budget", kr: "성능 예산" },
+  perf_subtitle: {
+    mn: "Core Web Vitals — бодит хэрэглэгчдээс цуглуулсан LCP/INP/CLS p75.",
+    en: "Core Web Vitals — real-user p75 for LCP/INP/CLS.",
+    kr: "Core Web Vitals — 실사용자 p75 LCP/INP/CLS.",
+  },
+  perf_samples: { mn: "Дээж", en: "Samples", kr: "샘플" },
+  perf_p75: { mn: "p75", en: "p75", kr: "p75" },
+  perf_p95: { mn: "p95", en: "p95", kr: "p95" },
+  perf_budget: { mn: "Зорилго", en: "Budget", kr: "예산" },
+  perf_metric: { mn: "Метрик", en: "Metric", kr: "지표" },
+  perf_page: { mn: "Хуудас", en: "Page", kr: "페이지" },
+  perf_empty: {
+    mn: "Одоогоор Web Vitals дээж цугларсангүй. Тоглуулагч хуудас руу зочлоход cэxэн дээж эхэлнэ.",
+    en: "No Web Vitals samples yet. They start arriving once admin pages get visited.",
+    kr: "아직 Web Vitals 샘플이 없습니다. 관리자 페이지를 방문하면 수집이 시작됩니다.",
+  },
 } as const;
 
 export type TranslationKey = keyof typeof T;
