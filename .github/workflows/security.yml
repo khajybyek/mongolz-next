@@ -7,6 +7,7 @@ on:
     branches: [main]
   schedule:
     - cron: "0 6 * * 1"
+  workflow_dispatch: # manual one-shot trigger (for baseline scans)
 
 jobs:
   audit:
@@ -78,3 +79,59 @@ jobs:
         with:
           path: .
           extra_args: --only-verified --no-update
+
+  # ─── DAST (dynamic application security testing) ──────────────────────
+  # These probe the LIVE production URL. To keep WAF noise low and avoid
+  # CI minute burn we only run on the weekly schedule + manual dispatch.
+
+  nuclei:
+    name: DAST (Nuclei)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Nuclei
+        uses: projectdiscovery/nuclei-action@main
+        with:
+          target: https://mongolz.vercel.app
+          # `templates: cves,vulnerabilities,misconfiguration,exposures` are the
+          # high-signal categories; `default-logins` and `panels` flag exposed
+          # admin endpoints.
+          flags: >-
+            -severity critical,high,medium
+            -rate-limit 50
+            -timeout 10
+            -markdown-export nuclei-report.md
+            -no-color
+            -silent
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuclei-report
+          path: nuclei-report.md
+          if-no-files-found: ignore
+
+  zap:
+    name: DAST (OWASP ZAP baseline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.13.0
+        with:
+          target: https://mongolz.vercel.app
+          cmd_options: "-a -j"
+          # -a   include alpha-quality passive rules
+          # -j   use the AJAX spider for JS-heavy routes
+          fail_action: false
+          allow_issue_writing: true
+          artifact_name: zap-baseline-report

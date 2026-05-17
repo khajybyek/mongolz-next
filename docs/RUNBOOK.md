@@ -209,10 +209,24 @@ P2 until resolved.
 | Cadence | Task |
 |---|---|
 | Daily | Confirm `/api/uptime` ok, Sentry quiet, `/api/cron/backup-verify` ran |
-| Weekly | Review `audit_log` for `KEY_ROTATION_DUE`, `BREAK_GLASS_*`, `ADMIN_COUNT_ZERO` rows |
-| Monthly | Confirm `npm audit --omit=dev` and Semgrep have no new criticals |
+| Weekly | Review `audit_log` for `KEY_ROTATION_DUE`, `BREAK_GLASS_*`, `ADMIN_COUNT_ZERO` rows; check **Nuclei** + **OWASP ZAP** DAST reports (Monday 06:00 UTC) |
+| Monthly | Confirm `npm audit --omit=dev`, Semgrep, and the DAST baseline have no new criticals |
 | Quarterly | Restore drill on staging (§3) |
 | Semi-annually | Review COMPLIANCE.md for regulation changes |
+
+### Continuous security testing matrix
+
+| Layer | Tool | Cadence | Output |
+|---|---|---|---|
+| Dependency audit | `npm audit` + `pip-audit` | every push + weekly | CI summary |
+| Static analysis (SAST) | Semgrep (681 rules) | every push | fails build on ERROR severity |
+| Secret scanning | trufflehog | PR + weekly | fails PR on verified leak |
+| Dynamic analysis (DAST) | Nuclei (CVEs + misconfig templates) | weekly | uploaded artifact `nuclei-report.md` |
+| Dynamic analysis (DAST) | OWASP ZAP baseline | weekly | uploaded artifact `zap-baseline-report`; opens GitHub issues for findings |
+| Manual audit | code review + multi-agent triage | per major change | committed fixes |
+| Drill | Backup restore on staging | quarterly | `BACKUP_RESTORE_DRILL` audit row |
+
+To trigger a one-off DAST scan: GitHub Actions → Security workflow → `Run workflow`.
 
 ---
 

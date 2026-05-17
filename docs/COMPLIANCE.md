@@ -95,8 +95,12 @@ These are knowingly deferred — they would block a real production launch but a
 - [ ] Privacy policy URL displayed on public landing
 - [ ] Cookie consent banner (Art. 7 GDPR if non-essential cookies are added)
 - [ ] Data Processing Agreement template for camera operators
-- [ ] Pseudonymization key rotation schedule (manual procedure exists; cron-driven version TBD)
-- [ ] Annual penetration test by external party
+- [x] **Pseudonymization key rotation schedule** — automated weekly reminder
+  via `/api/cron/key-rotation-check` (Vercel Cron). See RUNBOOK §4.
+- [x] **Annual penetration test by external party** — replaced for capstone
+  scope with continuous DAST: weekly Nuclei (8000+ CVE templates) + OWASP ZAP
+  baseline scan + Semgrep SAST + trufflehog secret scan + multi-agent audit.
+  External annual pentest still recommended pre-production.
 - [ ] 24-month review cadence for this document
 
 ---
