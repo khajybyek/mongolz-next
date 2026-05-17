@@ -46,7 +46,6 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: "/dashboard", icon: LayoutDashboard, labelKey: "nav_dashboard" },
-  { href: "/demo", icon: Sparkles, labelKey: "nav_demo", adminOnly: true },
   { href: "/compare", icon: Sparkles, labelKey: "nav_compare", adminOnly: true },
   { href: "/live", icon: Video, labelKey: "nav_live" },
   { href: "/live-rtc", icon: Video, labelKey: "nav_live_rtc", adminOnly: true },

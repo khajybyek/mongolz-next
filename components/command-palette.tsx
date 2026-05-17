@@ -53,7 +53,6 @@ export function CommandPalette({ role }: { role: "admin" | "viewer" | "auditor" 
       { href: "/playback", icon: PlayCircle, label: t("nav_playback") },
       { href: "/analytics", icon: BarChart3, label: t("nav_analytics") },
       { href: "/audit", icon: ScrollText, label: t("nav_audit") },
-      { href: "/demo", icon: Sparkles, label: t("nav_demo"), keywords: ["pitch", "defense"] },
       { href: "/compare", icon: Sparkles, label: t("nav_compare"), keywords: ["mask", "blur", "algorithm"] },
       { href: "/suspects", icon: UserSearch, label: t("nav_suspects") },
       { href: "/alerts", icon: Bell, label: t("nav_alerts") },
