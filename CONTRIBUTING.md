@@ -117,6 +117,28 @@ If production is degraded:
 
 Open a P0 issue from the bug template. Postmortem within 48 h.
 
+## macOS + iCloud Drive
+
+If your checkout lives under `~/Desktop` or `~/Documents` (both
+default-synced to iCloud) you'll periodically see weird breakage:
+
+* `node_modules/.bin/next` missing.
+* TypeScript complaining about `* 2.ts` files.
+* `python` venv shows duplicate `.pyc 2` files.
+
+The cause is iCloud Drive creating "Filename 2.ext" copies of files
+it thinks conflict. The fix is to route the offending directories
+through a `*.nosync` suffix — macOS's file provider skips that suffix
+by convention. The repo already wires this up; if `npm install` ever
+clobbers the symlink, just run:
+
+```bash
+npm run heal:icloud
+```
+
+The script moves `node_modules`, `.next`, and `ml-service/venv` under
+their respective `*.nosync` siblings and re-creates the symlinks.
+
 ## Reaching us
 
 - Defense panel feedback / capstone questions: open an issue.

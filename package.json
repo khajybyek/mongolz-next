@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "lint:db": "supabase db lint --linked",
     "lint:migrations": "node scripts/lint-migrations.mjs",
+    "heal:icloud": "bash scripts/heal-icloud.sh",
     "typecheck": "find .next/types .next/dev/types -name '* 2.ts' -delete 2>/dev/null || true; next typegen && tsc --noEmit --incremental false",
     "create-user": "tsx scripts/create-admin.ts",
     "create-admin": "ROLE=admin tsx scripts/create-admin.ts",
