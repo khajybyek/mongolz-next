@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { Eye, MousePointerClick, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +30,8 @@ export function VideoWithFaceOverlay({
   selectedIds,
   onFaceClick,
   onToggleSelect,
+  videoElementRef,
+  onTimeChange,
 }: {
   src: string;
   faces: FaceBox[];
@@ -41,22 +43,34 @@ export function VideoWithFaceOverlay({
   onFaceClick: (face: FaceBox) => void;
   /** select-mode-д face дээр click → toggle */
   onToggleSelect: (face: FaceBox) => void;
+  /** Optional shared ref so a parent (e.g. FaceTimeline owner) can call .currentTime = X */
+  videoElementRef?: MutableRefObject<HTMLVideoElement | null>;
+  /** Notifies the parent when currentTime / duration change. */
+  onTimeChange?: (currentTime: number, duration: number) => void;
 }) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const internalRef = useRef<HTMLVideoElement | null>(null);
+  const videoRef = videoElementRef ?? internalRef;
   const [currentTime, setCurrentTime] = useState(0);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    const onTime = () => setCurrentTime(v.currentTime);
+    const onTime = () => {
+      setCurrentTime(v.currentTime);
+      onTimeChange?.(v.currentTime, isFinite(v.duration) ? v.duration : 0);
+    };
+    const onMeta = () =>
+      onTimeChange?.(v.currentTime, isFinite(v.duration) ? v.duration : 0);
     v.addEventListener("timeupdate", onTime);
     v.addEventListener("seeked", onTime);
+    v.addEventListener("loadedmetadata", onMeta);
     return () => {
       v.removeEventListener("timeupdate", onTime);
       v.removeEventListener("seeked", onTime);
+      v.removeEventListener("loadedmetadata", onMeta);
     };
-  }, []);
+  }, [videoRef, onTimeChange]);
 
   const visible = faces.filter(
     (f) =>

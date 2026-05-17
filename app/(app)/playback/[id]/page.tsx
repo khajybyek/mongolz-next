@@ -85,13 +85,15 @@ export default async function PlaybackDetailPage({
       bbox: f.bbox,
     }));
 
-  // Modal жагсаалтанд (3-р tab) — бүгдийг дугаартай нь
+  // Modal жагсаалтанд (3-р tab) болон Face timeline-д ашиглах. Сүүлийнхэд
+  // time_in_video_sec нь scrubber-ын тэнхлэг тул заавал орох ёстой.
   const detectedFaces = numberedFaces.map((f) => ({
     id: f.id,
     display_no: f.display_no,
     filename: f.filename,
     detected_at: f.detected_at,
     signed: f.signed,
+    time_in_video_sec: f.time_in_video_sec,
   }));
 
   // Suspects (admin л харах)
@@ -119,6 +121,7 @@ export default async function PlaybackDetailPage({
               suspects={suspects ?? []}
               detectedFaces={detectedFaces}
               isAdmin={isAdmin}
+              durationSec={rec.duration_sec ?? null}
             />
           ) : (
             <div className="card aspect-video bg-black flex items-center justify-center text-text-muted text-sm">

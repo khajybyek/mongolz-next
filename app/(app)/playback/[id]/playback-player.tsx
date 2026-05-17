@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Eye, MousePointerClick, ListChecks, X } from "lucide-react";
 import { VideoWithFaceOverlay, type FaceBox } from "./video-with-face-overlay";
+import { FaceTimeline } from "./face-timeline";
 import { RevealModal } from "./reveal-modal";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +19,8 @@ interface DetectedFace {
   filename: string;
   detected_at: string;
   signed: string | null;
+  /** Seconds from recording start. Null when no started_at on the recording. */
+  time_in_video_sec: number | null;
 }
 
 /**
@@ -35,6 +38,7 @@ export function PlaybackPlayer({
   suspects,
   detectedFaces,
   isAdmin,
+  durationSec,
 }: {
   recordingId: string;
   videoUrl: string;
@@ -42,6 +46,8 @@ export function PlaybackPlayer({
   suspects: Suspect[];
   detectedFaces: DetectedFace[];
   isAdmin: boolean;
+  /** Server-side hint for total duration. Overridden once <video> loads metadata. */
+  durationSec: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const [initialFaceIds, setInitialFaceIds] = useState<string[]>([]);
@@ -49,6 +55,27 @@ export function PlaybackPlayer({
   // Multi-select горим
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Video element + time state — shared with FaceTimeline so the rail can
+  // highlight the closest face and the scrubber can seek the player.
+  const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [liveDuration, setLiveDuration] = useState<number | null>(durationSec);
+
+  function seekTo(sec: number) {
+    const v = videoElementRef.current;
+    if (!v) return;
+    const t = Math.max(0, Math.min(v.duration || sec, sec));
+    try {
+      v.currentTime = t;
+      // If paused, give a quick visual hint by attempting play().
+      if (v.paused) {
+        void v.play().catch(() => undefined);
+      }
+    } catch {
+      // Ignore — some browsers throw if not yet seekable.
+    }
+  }
 
   // Сонгогдсон нүүр (preview-нд харуулах)
   const selectedFaces = useMemo(
@@ -111,7 +138,21 @@ export function PlaybackPlayer({
         selectedIds={selectedIds}
         onFaceClick={onFaceClick}
         onToggleSelect={toggleSelect}
+        videoElementRef={videoElementRef}
+        onTimeChange={(t, d) => {
+          setCurrentTime(t);
+          if (d > 0 && d !== liveDuration) setLiveDuration(d);
+        }}
       />
+
+      {isAdmin && (
+        <FaceTimeline
+          duration={liveDuration}
+          currentTime={currentTime}
+          faces={detectedFaces}
+          onSeek={seekTo}
+        />
+      )}
 
       {isAdmin && (
         <>
