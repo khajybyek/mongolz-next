@@ -156,7 +156,7 @@ body {
   /* ─────────── Cards ─────────── */
   .card {
     @apply bg-surface border border-border rounded-xl p-5;
-    background-image: linear-gradient(180deg, rgba(255,255,255,0.012) 0%, transparent 100%);
+    background-image: linear-gradient(180deg, rgb(var(--text-muted) / 0.025) 0%, transparent 100%);
   }
   .card-hover {
     @apply card transition hover:border-border-strong hover:bg-surface-elevated;
@@ -166,7 +166,7 @@ body {
   }
   .card-glass {
     @apply rounded-xl p-5 border border-text-muted/[0.08];
-    background: rgba(15, 16, 22, 0.6);
+    background: rgb(var(--surface) / 0.6);
     backdrop-filter: blur(20px) saturate(180%);
   }
   .card-glow {
@@ -342,9 +342,9 @@ body {
     @apply rounded-md;
     background: linear-gradient(
       90deg,
-      rgba(255,255,255,0.03) 0%,
-      rgba(255,255,255,0.06) 50%,
-      rgba(255,255,255,0.03) 100%
+      rgb(var(--text-muted) / 0.05) 0%,
+      rgb(var(--text-muted) / 0.10) 50%,
+      rgb(var(--text-muted) / 0.05) 100%
     );
     background-size: 1000px 100%;
     animation: shimmer 2s linear infinite;
