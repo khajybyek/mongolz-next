@@ -45,8 +45,15 @@ const WALL_HOSTS = new Set(
 );
 
 function isWallHost(request: NextRequest): boolean {
-  const host = (request.headers.get("host") ?? "").toLowerCase();
-  return WALL_HOSTS.has(host);
+  // Vercel sometimes preserves the deployment URL in `host` and exposes
+  // the user-facing alias only via `x-forwarded-host`. Check both, plus
+  // the parsed nextUrl host as a last resort, before deciding.
+  const fwd = request.headers.get("x-forwarded-host");
+  const host = request.headers.get("host");
+  const candidates = [fwd, host, request.nextUrl.host]
+    .filter((v): v is string => Boolean(v))
+    .map((v) => v.toLowerCase().split(",")[0]!.trim());
+  return candidates.some((c) => WALL_HOSTS.has(c));
 }
 
 export async function updateSession(request: NextRequest) {
