@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 
 const ALGO = "aes-256-gcm";
 const PREFIX = "enc:";
+const AUTH_TAG_BYTES = 16; // 128-bit tag (max for GCM, NIST-recommended)
 
 function getKey(): Buffer {
   const raw = process.env.CAMERA_URL_KEY;
@@ -30,7 +31,9 @@ export function unwrapCameraUrlForRuntime(stored: string): string {
 export function encryptCameraUrl(plaintext: string): string {
   const key = getKey();
   const iv = randomBytes(12);
-  const cipher = createCipheriv(ALGO, key, iv);
+  // Explicit authTagLength locks the tag size (NIST SP 800-38D requires
+  // a single, agreed-upon t for every (key, IV) pair).
+  const cipher = createCipheriv(ALGO, key, iv, { authTagLength: AUTH_TAG_BYTES });
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   const payload = Buffer.concat([iv, tag, encrypted]).toString("base64");
@@ -42,9 +45,9 @@ export function decryptCameraUrl(stored: string): string {
   const key = getKey();
   const buf = Buffer.from(stored.slice(PREFIX.length), "base64");
   const iv = buf.subarray(0, 12);
-  const tag = buf.subarray(12, 28);
-  const encrypted = buf.subarray(28);
-  const decipher = createDecipheriv(ALGO, key, iv);
+  const tag = buf.subarray(12, 12 + AUTH_TAG_BYTES);
+  const encrypted = buf.subarray(12 + AUTH_TAG_BYTES);
+  const decipher = createDecipheriv(ALGO, key, iv, { authTagLength: AUTH_TAG_BYTES });
   decipher.setAuthTag(tag);
   return decipher.update(encrypted) + decipher.final("utf8");
 }
