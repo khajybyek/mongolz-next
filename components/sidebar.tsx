@@ -81,6 +81,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/live", icon: Video, labelKey: "nav_live" },
       { href: "/live-rtc", icon: Video, labelKey: "nav_live_rtc", adminOnly: true },
+      { href: "/wall", icon: Video, labelKey: "nav_wall", adminOnly: true },
       { href: "/playback", icon: PlayCircle, labelKey: "nav_playback" },
     ],
   },
@@ -89,7 +90,7 @@ const NAV_GROUPS: NavGroup[] = [
     labelKey: "nav_group_search",
     icon: ScanFace,
     items: [
-      { href: "/search", icon: Search, labelKey: "nav_search" },
+      { href: "/search", icon: Search, labelKey: "nav_search", adminOnly: true },
       { href: "/suspects", icon: UserSearch, labelKey: "nav_suspects", adminOnly: true },
       { href: "/alerts", icon: Bell, labelKey: "nav_alerts", adminOnly: true },
       { href: "/alerts-live", icon: Bell, labelKey: "nav_alerts_live", adminOnly: true },

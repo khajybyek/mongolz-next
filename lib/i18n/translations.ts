@@ -1435,6 +1435,16 @@ export const T = {
   cam_status_unknown: { mn: "Тодорхойгүй", en: "Unknown", kr: "알 수 없음" },
   cam_last_seen: { mn: "Сүүлд илрүүлсэн", en: "Last seen", kr: "마지막 감지" },
 
+  // ── Wall (kiosk) view ──
+  wall_title: { mn: "Live хана", en: "Live Wall", kr: "라이브 월" },
+  wall_cameras: { mn: "камер", en: "cameras", kr: "카메라" },
+  wall_back: { mn: "Дэшбоард", en: "Dashboard", kr: "대시보드" },
+  wall_enter_fs: { mn: "Бүтэн дэлгэц", en: "Enter full screen", kr: "전체 화면" },
+  wall_exit_fs: { mn: "Бүтэн дэлгэцээс гарах", en: "Exit full screen", kr: "전체 화면 종료" },
+  wall_no_cameras: { mn: "Идэвхтэй камер байхгүй.", en: "No active cameras.", kr: "활성 카메라가 없습니다." },
+  wall_last: { mn: "Сүүлд", en: "Last", kr: "마지막" },
+  nav_wall: { mn: "Live хана", en: "Live Wall", kr: "라이브 월" },
+
   // ── Anomaly detection ──
   nav_anomaly: { mn: "Anomaly", en: "Anomaly", kr: "이상 감지" },
   anomaly_title: { mn: "Anomaly detection", en: "Anomaly Detection", kr: "이상 감지" },

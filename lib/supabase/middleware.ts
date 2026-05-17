@@ -34,8 +34,48 @@ const PUBLIC_EXACT = new Set([
 
 type CookieItem = { name: string; value: string; options?: CookieOptions };
 
+// Hosts that should be locked to /wall — the kiosk subdomain rewrites any
+// request to the wall view so a control-room display can be pointed at it
+// without any chrome ever leaking through.
+const WALL_HOSTS = new Set(
+  (process.env.WALL_HOSTS ?? "live.mongolz.dev,live.mongolz.vercel.app")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean),
+);
+
+function isWallHost(request: NextRequest): boolean {
+  const host = (request.headers.get("host") ?? "").toLowerCase();
+  return WALL_HOSTS.has(host);
+}
+
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
+
+  // Subdomain rewrite — `live.mongolz.dev` is the always-on control-room
+  // monitor. Force every authed request on that host onto /wall, even if
+  // the user manually typed a different path. Login / static assets must
+  // still pass through so the user can sign in on the subdomain.
+  const path = request.nextUrl.pathname;
+  if (isWallHost(request)) {
+    const allowPassthrough =
+      path === "/login" ||
+      path.startsWith("/auth/") ||
+      path.startsWith("/api/") ||
+      path.startsWith("/_next") ||
+      path === "/favicon.ico" ||
+      path.startsWith("/icon") ||
+      path.startsWith("/apple-icon") ||
+      path === "/manifest.webmanifest" ||
+      path === "/sw.js" ||
+      path === "/offline.html";
+    if (!allowPassthrough && !path.startsWith("/wall")) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/wall";
+      url.search = "";
+      return NextResponse.rewrite(url);
+    }
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -58,7 +98,6 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const path = request.nextUrl.pathname;
   const isPublic =
     PUBLIC_EXACT.has(path) || PUBLIC_PATHS.some((p) => path.startsWith(p));
 
@@ -95,7 +134,11 @@ export async function updateSession(request: NextRequest) {
       (p) => path === p || path.startsWith(p)
     );
 
-    if (!isApiOrAsset) {
+    // On the wall subdomain every request has already been rewritten to
+    // /wall (which is a one-purpose kiosk view). Skip the role-redirect
+    // logic that would otherwise bounce admin-without-TOTP → /settings or
+    // auditor → /audit and trap the user in a rewrite loop.
+    if (!isApiOrAsset && !isWallHost(request)) {
       try {
         const { data: prof } = await supabase
           .from("profiles")
