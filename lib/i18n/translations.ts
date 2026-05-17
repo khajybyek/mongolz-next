@@ -1171,6 +1171,53 @@ export const T = {
   cmdk_navigate: { mn: "сонгох", en: "navigate", kr: "탐색" },
   cmdk_open: { mn: "нээх", en: "open", kr: "열기" },
   cmdk_toggle: { mn: "нээх / хаах", en: "toggle", kr: "토글" },
+
+  // ─── public landing (home) ───
+  home_pill: {
+    mn: "Capstone 3B-26-1",
+    en: "Capstone 3B-26-1",
+    kr: "Capstone 3B-26-1",
+  },
+  home_hero_title: {
+    mn: "Хувийн нууцыг хадгалсан AI камерын систем",
+    en: "AI surveillance that preserves privacy",
+    kr: "프라이버시를 보호하는 AI 감시 시스템",
+  },
+  home_hero_body: {
+    mn: "MONGOLZ Security нь нүүр илрүүлэлтийг автомат privacy mask-аар хүргэж, эх бичлэгийг AES-256-аар шифрлэн зөвхөн зөвшөөрөгдсөн reveal flow-ор буцаах боломжтой систем юм.",
+    en: "MONGOLZ Security pairs real-time face detection with automatic privacy masking, AES-256 encrypted originals, and a 4-eyes reveal flow.",
+    kr: "MONGOLZ Security는 실시간 얼굴 감지, 자동 프라이버시 마스킹, AES-256으로 암호화된 원본, 4-eyes reveal 흐름을 결합합니다.",
+  },
+  home_cta_login: {
+    mn: "Нэвтрэх",
+    en: "Sign in",
+    kr: "로그인",
+  },
+  home_cta_dashboard: {
+    mn: "Системд орох",
+    en: "Open dashboard",
+    kr: "대시보드 열기",
+  },
+  home_cta_learn: {
+    mn: "Дэлгэрэнгүй",
+    en: "Learn more",
+    kr: "더 알아보기",
+  },
+  home_demos_body: {
+    mn: "Нэвтэрсний дараа эдгээр feature-уудыг шууд туршаад үзэх боломжтой.",
+    en: "Sign in to try these features directly on live data.",
+    kr: "로그인하여 라이브 데이터에서 이 기능을 직접 시도해보세요.",
+  },
+  home_final_cta_title: {
+    mn: "Бэлэн үү?",
+    en: "Ready to explore?",
+    kr: "탐색할 준비가 되셨나요?",
+  },
+  home_final_cta_body: {
+    mn: "Эрхтэй хэрэглэгчээр нэвтэрч системийг шууд харж үзээрэй. Demo акк дээр TOTP-ийг идэвхжүүлсний дараа л бүх feature нээгдэнэ.",
+    en: "Sign in with an authorized account to explore the live system. Most features unlock only after enabling TOTP on the demo account.",
+    kr: "승인된 계정으로 로그인하여 라이브 시스템을 탐색하세요. 대부분의 기능은 데모 계정에 TOTP를 활성화한 후에만 잠금 해제됩니다.",
+  },
 } as const;
 
 export type TranslationKey = keyof typeof T;

@@ -8,6 +8,7 @@ const PUBLIC_PATHS = [
   "/favicon.ico",
   "/icon",
   "/apple-icon",
+  "/logo.png",
   "/api/lang", // Login page-аас хэл сольж болохын тулд unauth-аар хүртээмжтэй
   "/monitoring", // Sentry tunnel route — anonymous beacons, no auth required
   "/manifest.webmanifest", // PWA manifest — installable without login
@@ -16,6 +17,10 @@ const PUBLIC_PATHS = [
   "/api/cron", // Vercel Cron endpoints (their own bearer auth)
   "/api/monitoring", // Cron-style monitoring endpoints
 ];
+
+const PUBLIC_EXACT = new Set([
+  "/", // Public capstone landing page (home)
+]);
 
 type CookieItem = { name: string; value: string; options?: CookieOptions };
 
@@ -44,7 +49,8 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
+  const isPublic =
+    PUBLIC_EXACT.has(path) || PUBLIC_PATHS.some((p) => path.startsWith(p));
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
