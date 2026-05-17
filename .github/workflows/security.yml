@@ -121,6 +121,9 @@ jobs:
     timeout-minutes: 30
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     permissions:
+      # `permissions:` is a full override, so we must restate the default
+      # `contents: read` token that `actions/checkout` needs.
+      contents: read
       issues: write
     steps:
       - uses: actions/checkout@v4
