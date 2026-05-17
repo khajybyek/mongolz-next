@@ -1,10 +1,12 @@
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
-import { ImageOff } from "lucide-react";
+import { ImageOff, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
+import { hasFreshReauth } from "@/lib/auth/step-up";
 import { getT } from "@/lib/i18n/server";
 import { formatDate } from "@/lib/utils";
+import { ReauthGate } from "@/components/reauth-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +14,25 @@ const SIGNED_URL_TTL_SEC = 600;
 const PAGE_LIMIT = 120;
 
 export default async function FacesPage() {
-  await requireAdmin();
+  const { user } = await requireAdmin();
   const { t } = await getT();
+
+  // Step-up reauth gate — /faces is the densest privacy surface in the
+  // product (every detected face thumbnail across every recording), so
+  // gate it behind a fresh TOTP even for an already-logged-in admin.
+  if (!(await hasFreshReauth(user.id))) {
+    return (
+      <>
+        <PageHeader
+          title={t("faces_title")}
+          subtitle={t("reauth_gate_subtitle")}
+          icon={<Users className="w-5 h-5" />}
+        />
+        <ReauthGate />
+      </>
+    );
+  }
+
   const supabase = await createClient();
 
   const { data: faces } = await supabase

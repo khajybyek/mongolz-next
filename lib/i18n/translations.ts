@@ -1400,6 +1400,18 @@ export const T = {
     kr: "녹화와 연결되지 않은 얼굴 (실시간 감지)",
   },
 
+  // ── Step-up gate ──
+  reauth_gate_title: {
+    mn: "Дахин баталгаажуулалт шаардлагатай",
+    en: "Re-authentication required",
+    kr: "재인증이 필요합니다",
+  },
+  reauth_gate_subtitle: {
+    mn: "Энэ хэсэг нь хувийн нууцлалд нөлөөтэй учир TOTP-аар дахин баталгаажуулна уу. 15 минут хүчинтэй.",
+    en: "This view is privacy-sensitive — re-verify with your TOTP code. Valid for 15 minutes.",
+    kr: "이 페이지는 프라이버시에 민감하므로 TOTP로 다시 인증하세요. 15분 동안 유효합니다.",
+  },
+
   // ── Anomaly detection ──
   nav_anomaly: { mn: "Anomaly", en: "Anomaly", kr: "이상 감지" },
   anomaly_title: { mn: "Anomaly detection", en: "Anomaly Detection", kr: "이상 감지" },
