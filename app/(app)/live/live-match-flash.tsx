@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ShieldAlert, X } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
+import { useT } from "@/lib/i18n/client";
 
 interface Alert {
   id: string;
@@ -25,6 +26,7 @@ const FLASH_MS = 4000;
  * the high-impact flash, fires for similarity >= 0.7 only.
  */
 export function LiveMatchFlash() {
+  const { t } = useT();
   const [match, setMatch] = useState<Alert | null>(null);
 
   useEffect(() => {
@@ -82,7 +84,7 @@ export function LiveMatchFlash() {
           <ShieldAlert className="w-7 h-7 text-danger" />
         </div>
         <div className="text-[10px] uppercase tracking-[0.18em] text-danger font-semibold">
-          High-confidence match
+          {t("live_match_label")}
         </div>
         <div className="text-2xl font-bold text-text mt-1 leading-tight">
           {match.suspect_name}
@@ -95,7 +97,7 @@ export function LiveMatchFlash() {
         </div>
         <div className="mt-4 text-2xs text-text-muted inline-flex items-center gap-1">
           <X className="w-3 h-3" />
-          Click to dismiss · {Math.round(FLASH_MS / 1000)}s
+          {t("live_match_dismiss_hint")} · {Math.round(FLASH_MS / 1000)}s
         </div>
       </button>
     </div>

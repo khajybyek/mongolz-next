@@ -75,20 +75,19 @@ export function RevealModal({
 
   // Time-window scope (optional). Default: full recording (window disabled),
   // unless an initialTimeWindow was passed (FaceTimeline "Reveal range" quick-launch).
+  // We coerce so that windowEnd > windowStart even on malformed inputs.
   const [windowEnabled, setWindowEnabled] = useState(!!initialTimeWindow);
-  const [windowStart, setWindowStart] = useState(
-    initialTimeWindow ? Math.max(0, Math.floor(initialTimeWindow.start)) : 0,
-  );
-  const [windowEnd, setWindowEnd] = useState(
-    initialTimeWindow
-      ? Math.max(
-          1,
-          Math.ceil(initialTimeWindow.end),
-        )
-      : recordingDurationSec
-      ? Math.max(1, Math.round(recordingDurationSec))
-      : 0,
-  );
+  const [windowStart, setWindowStart] = useState(() => {
+    if (!initialTimeWindow) return 0;
+    return Math.max(0, Math.floor(initialTimeWindow.start));
+  });
+  const [windowEnd, setWindowEnd] = useState(() => {
+    if (initialTimeWindow) {
+      const s = Math.max(0, Math.floor(initialTimeWindow.start));
+      return Math.max(s + 1, Math.ceil(initialTimeWindow.end));
+    }
+    return recordingDurationSec ? Math.max(1, Math.round(recordingDurationSec)) : 0;
+  });
 
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);

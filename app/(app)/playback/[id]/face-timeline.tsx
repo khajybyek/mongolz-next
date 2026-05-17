@@ -3,6 +3,7 @@
 import { useMemo, useRef } from "react";
 import { Eye, Scissors } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/client";
 
 export interface TimelineFace {
   id: string;
@@ -51,6 +52,7 @@ export function FaceTimeline({
   onRevealFace,
   onRevealRange,
 }: Props) {
+  const { t } = useT();
   const trackRef = useRef<HTMLDivElement | null>(null);
 
   // Only faces with a real time-in-video; sorted ascending.
@@ -123,11 +125,11 @@ export function FaceTimeline({
                   sortedFaces.map((f) => f.id),
                 );
               }}
-              title="Зөвхөн нүүр илэрсэн хугацааны хүрээнд reveal хийх"
+              title={t("pb_reveal_range_hint")}
               className="inline-flex items-center gap-1 text-2xs px-2 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
             >
               <Scissors className="w-3 h-3" />
-              Хүрээгээр reveal
+              {t("pb_reveal_range_btn")}
             </button>
           )}
           <span className="text-2xs text-text-muted font-mono">

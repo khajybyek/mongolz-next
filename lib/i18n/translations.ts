@@ -1275,6 +1275,31 @@ export const T = {
     en: "Health check failed",
     kr: "상태 확인 실패",
   },
+  live_match_label: {
+    mn: "Өндөр итгэлтэй таалцал",
+    en: "High-confidence match",
+    kr: "고신뢰도 일치",
+  },
+  live_match_dismiss_hint: {
+    mn: "Дарж хаах",
+    en: "Click to dismiss",
+    kr: "클릭하여 닫기",
+  },
+  pb_reveal_history_title: {
+    mn: "Reveal түүх",
+    en: "Reveal history",
+    kr: "공개 기록",
+  },
+  pb_reveal_range_btn: {
+    mn: "Хүрээгээр reveal",
+    en: "Reveal range",
+    kr: "범위 공개",
+  },
+  pb_reveal_range_hint: {
+    mn: "Зөвхөн нүүр илэрсэн хугацааны хүрээнд reveal хийх",
+    en: "Reveal only the time window where faces are detected",
+    kr: "얼굴이 감지된 시간 범위에서만 공개",
+  },
   home_hero_title: {
     mn: "Хувийн нууцыг хадгалсан AI камерын систем",
     en: "AI surveillance that preserves privacy",

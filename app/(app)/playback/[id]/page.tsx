@@ -256,7 +256,7 @@ export default async function PlaybackDetailPage({
             <div className="card space-y-2">
               <h3 className="text-xs uppercase tracking-wide text-text-soft mb-2 flex items-center gap-1.5">
                 <History className="w-3.5 h-3.5" />
-                Reveal түүх ({revealHistory.length})
+                {t("pb_reveal_history_title")} ({revealHistory.length})
               </h3>
               <ul className="space-y-1.5 max-h-72 overflow-y-auto">
                 {revealHistory.map((h) => (

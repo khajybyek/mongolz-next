@@ -332,8 +332,16 @@ class RevealProcessor:
                 if not ok or frame is None:
                     break
 
-                # Frame-ийн timestamp (секундээр) — time-bounded reveal-д ашиглана
-                frame_time_sec = frame_idx / fps if fps > 0 else 0.0
+                # Frame-ийн timestamp (секундээр) — time-bounded reveal-д ашиглана.
+                # CAP_PROP_POS_MSEC нь decoder-аас яаралтай зүйлийн жинхэнэ
+                # presentation-timestamp буцаадаг тул variable-FPS видео болон
+                # 29.97fps-ийн rounding error-аас зайлсхийнэ. Хэрэв 0 / not
+                # available бол frame_idx / fps fallback.
+                pos_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
+                if pos_ms and pos_ms > 0:
+                    frame_time_sec = pos_ms / 1000.0
+                else:
+                    frame_time_sec = frame_idx / fps if fps > 0 else 0.0
                 in_scope = (
                     not time_bounded
                     or (

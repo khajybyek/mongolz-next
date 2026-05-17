@@ -16,8 +16,16 @@ export async function addSuspectAction(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const photo = formData.get("photo");
   const tierRaw = String(formData.get("privacy_tier") ?? "standard");
-  const privacy_tier: "vip" | "standard" | "relaxed" =
-    tierRaw === "vip" || tierRaw === "relaxed" ? tierRaw : "standard";
+
+  // Strict enum validation — anything outside the allowed values is
+  // rejected with a clear error instead of silently coerced to "standard".
+  const ALLOWED_TIERS = ["vip", "standard", "relaxed"] as const;
+  if (!ALLOWED_TIERS.includes(tierRaw as (typeof ALLOWED_TIERS)[number])) {
+    return redirect(
+      `/suspects?error=${encodeURIComponent("invalid privacy_tier")}`,
+    );
+  }
+  const privacy_tier = tierRaw as "vip" | "standard" | "relaxed";
 
   if (!name || !(photo instanceof File) || photo.size === 0) {
     return redirect("/suspects?error=missing-fields");

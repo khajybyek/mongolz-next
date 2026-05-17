@@ -74,12 +74,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Time window нь recording-ийн duration-аас давсан эсэхийг шалгана
-  if (target_end_sec !== null && rec.duration_sec && target_end_sec > rec.duration_sec + 1) {
-    return NextResponse.json(
-      { error: `Time window-ийн end (${target_end_sec}s) recording duration-аас давсан байна (${rec.duration_sec}s)` },
-      { status: 400 },
-    );
+  // Time window нь recording-ийн duration-аас давсан эсэхийг шалгана.
+  // NULL duration_sec → time window-ийг бид баталгаажуулах боломжгүй, тиймээс
+  // time-bounded reveal-ийг REJECT хийнэ (whole-recording reveal зөвшөөрнө).
+  if (target_end_sec !== null) {
+    if (!rec.duration_sec || rec.duration_sec <= 0) {
+      return NextResponse.json(
+        { error: "Recording-ийн duration тодорхойгүй тул time-bounded reveal боломжгүй" },
+        { status: 400 },
+      );
+    }
+    if (target_end_sec > rec.duration_sec + 1) {
+      return NextResponse.json(
+        { error: `Time window-ийн end (${target_end_sec}s) recording duration-аас давсан байна (${rec.duration_sec}s)` },
+        { status: 400 },
+      );
+    }
   }
 
   // Method-аас хамаарч target embedding(-ууд)-ыг бүрдүүлэх
