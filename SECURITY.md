@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-Email **security@mongolz.local** with:
+Email **khajybyek@gmail.com** with:
 - Description and impact of the issue
 - Steps to reproduce (PoC welcome)
 - Any suggested fix
