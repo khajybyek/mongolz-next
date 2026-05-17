@@ -110,8 +110,19 @@ export async function checkLoginRateLimit(
   const maxIp = opts.maxPerIp ?? 10;
   const since = new Date(Date.now() - window * 1000).toISOString();
 
-  // Email-ээр буруу login оролдлого
-  const failedActions = ["LOGIN_FAILED", "TOTP_LOGIN_FAILED"];
+  // Анхааран хооронд тоологдох ёстой бүх failure event:
+  //   LOGIN_FAILED          — password буруу
+  //   TOTP_LOGIN_FAILED     — 2FA код буруу
+  //   TOTP_LOGIN_REPLAY_BLOCKED — replay attack
+  //   REAUTH_FAILED         — step-up password буруу
+  //   REAUTH_TOTP_FAILED    — step-up TOTP буруу
+  const failedActions = [
+    "LOGIN_FAILED",
+    "TOTP_LOGIN_FAILED",
+    "TOTP_LOGIN_REPLAY_BLOCKED",
+    "REAUTH_FAILED",
+    "REAUTH_TOTP_FAILED",
+  ];
 
   const { count: emailFails } = await svc
     .from("audit_log")
@@ -121,6 +132,7 @@ export async function checkLoginRateLimit(
     .gte("created_at", since);
 
   if ((emailFails ?? 0) >= maxEmail) {
+    await maybeAlertLockout("email", opts.email, emailFails ?? 0, maxEmail);
     return {
       ok: false,
       reason: "email_locked",
@@ -139,6 +151,7 @@ export async function checkLoginRateLimit(
       .gte("created_at", since);
 
     if ((ipFails ?? 0) >= maxIp) {
+      await maybeAlertLockout("ip", opts.ip, ipFails ?? 0, maxIp);
       return {
         ok: false,
         reason: "ip_locked",
@@ -149,4 +162,54 @@ export async function checkLoginRateLimit(
   }
 
   return { ok: true };
+}
+
+/**
+ * Send a Slack alert + audit row when an account is locked out.
+ * Throttled to once per (kind, target) per hour so we don't spam during a
+ * sustained brute-force attempt — the rate-limit decision still fires every
+ * attempt, but the alert only fires the first time within the cool-down.
+ */
+async function maybeAlertLockout(
+  kind: "email" | "ip",
+  target: string,
+  fails: number,
+  threshold: number,
+): Promise<void> {
+  const svc = createServiceClient();
+  const ALERT_COOLDOWN_SEC = 3600;
+  const since = new Date(Date.now() - ALERT_COOLDOWN_SEC * 1000).toISOString();
+
+  // Cool-down check
+  const { count: recent } = await svc
+    .from("audit_log")
+    .select("*", { count: "exact", head: true })
+    .eq("action", "LOCKOUT_TRIGGERED")
+    .ilike("detail", `%${target}%`)
+    .gte("created_at", since);
+
+  if ((recent ?? 0) > 0) return;
+
+  // Audit
+  try {
+    await svc.from("audit_log").insert({
+      action: "LOCKOUT_TRIGGERED",
+      detail: `${kind}=${target} fails=${fails}/${threshold}`,
+      ...(kind === "email" ? { user_email: target } : { ip: target }),
+    });
+  } catch {}
+
+  // Slack alert (best-effort)
+  const slackUrl = process.env.SLACK_ALERT_WEBHOOK;
+  if (slackUrl) {
+    try {
+      await fetch(slackUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: `:lock: *MONGOLZ account lockout* — ${kind} \`${target}\` locked after ${fails}/${threshold} failed attempts in 15 min`,
+        }),
+      });
+    } catch {}
+  }
 }

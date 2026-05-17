@@ -44,7 +44,24 @@ Signals that should trigger a response:
 
 Per-incident playbooks:
 
-#### a. Suspected credential leak (service-role key, env var)
+#### a. Brute-force / credential stuffing in progress
+
+`LOCKOUT_TRIGGERED` rows are appearing in `audit_log` faster than 1 per hour.
+
+1. Check the source pattern:
+   ```sql
+   SELECT detail, user_email, ip, count(*)
+   FROM audit_log
+   WHERE action = 'LOCKOUT_TRIGGERED'
+     AND created_at >= now() - interval '1 hour'
+   GROUP BY 1, 2, 3
+   ORDER BY 4 DESC;
+   ```
+2. If a single IP — block at Vercel firewall (Settings → Firewall) or push a tighter `checkLoginRateLimit` value (e.g. `maxPerIp=3`).
+3. If many IPs hitting the same email — flag the account, force-rotate password, and re-enable TOTP recovery codes for the user.
+4. Inform the affected user via the email on file.
+
+#### b. Suspected credential leak (service-role key, env var)
 
 1. Vercel → rotate the env var → redeploy.
 2. Supabase Dashboard → revoke the old key.
