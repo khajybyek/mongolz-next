@@ -53,7 +53,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       >
         {SKIP_LABEL[lang] ?? SKIP_LABEL.en}
       </a>
-      <Sidebar lang={lang} role={profile.role} email={user.email} />
+      <Sidebar
+        lang={lang}
+        role={profile.role}
+        email={user.email}
+        isSuperAdmin={profile.is_super_admin}
+      />
       <main id="main" tabIndex={-1} className="flex-1 min-w-0 overflow-x-hidden">
         <div className="px-4 md:px-6 lg:px-8 py-6 lg:py-8 max-w-7xl mx-auto animate-fade-in">
           {children}

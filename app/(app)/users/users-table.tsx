@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { Shield, ShieldOff, KeyRound, Trash2, Loader2, AlertCircle, Check } from "lucide-react";
+import { Shield, ShieldOff, KeyRound, Trash2, Loader2, AlertCircle, Check, Crown, Lock } from "lucide-react";
 import { changeRoleAction, deleteUserAction, resetPasswordAction } from "./actions";
 import { TotpPrompt } from "@/components/totp-prompt";
 import { useT } from "@/lib/i18n/client";
@@ -14,6 +14,7 @@ interface User {
   full_name: string | null;
   role: "admin" | "viewer" | "auditor";
   totp_enabled: boolean;
+  is_super_admin: boolean;
   created_at: string;
 }
 
@@ -130,7 +131,7 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                 const fb = feedback?.id === u.id ? feedback : null;
                 return (
                   <>
-                    <tr key={u.id}>
+                    <tr key={u.id} className={u.is_super_admin ? "bg-accent/[0.03]" : ""}>
                       <td>
                         <span className="font-medium text-text">{u.email}</span>
                         {isSelf && (
@@ -138,19 +139,30 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                             ({t("users_self_label")})
                           </span>
                         )}
+                        {u.is_super_admin && (
+                          <span
+                            className="ml-2 inline-flex items-center gap-1 text-2xs font-semibold uppercase tracking-wider text-accent"
+                            title="Зөвхөн Supabase Studio-аас устгана"
+                          >
+                            <Crown className="w-3 h-3" />
+                            Super admin
+                          </span>
+                        )}
                       </td>
                       <td>{u.full_name ?? "—"}</td>
                       <td>
                         <span
                           className={`badge ${
-                            u.role === "admin"
+                            u.is_super_admin
+                              ? "badge-accent"
+                              : u.role === "admin"
                               ? "badge-accent"
                               : u.role === "auditor"
                               ? "badge-warning"
                               : "badge-muted"
                           }`}
                         >
-                          {u.role}
+                          {u.is_super_admin ? "super_admin" : u.role}
                         </span>
                       </td>
                       <td>
@@ -163,7 +175,15 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                       <td className="text-xs">{u.created_at}</td>
                       <td>
                         <div className="flex items-center justify-end gap-1.5">
-                          {!isSelf && (
+                          {u.is_super_admin ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-2xs text-text-muted"
+                              title="Зөвхөн Supabase Studio-аас засна"
+                            >
+                              <Lock className="w-3 h-3" />
+                              Protected
+                            </span>
+                          ) : !isSelf ? (
                             <>
                               <button
                                 disabled={pending && busyId === u.id}
@@ -201,7 +221,7 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                                 )}
                               </button>
                             </>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                     </tr>

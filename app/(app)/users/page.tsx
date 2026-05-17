@@ -16,7 +16,7 @@ export default async function UsersPage() {
 
   const { data: profiles } = await svc
     .from("profiles")
-    .select("id, email, full_name, role, totp_enabled, created_at, updated_at")
+    .select("id, email, full_name, role, totp_enabled, is_super_admin, created_at, updated_at")
     .order("created_at", { ascending: false });
 
   return (
@@ -38,6 +38,7 @@ export default async function UsersPage() {
             full_name: p.full_name,
             role: p.role,
             totp_enabled: p.totp_enabled,
+            is_super_admin: p.is_super_admin ?? false,
             created_at: formatDate(p.created_at),
           }))}
           currentUserId={ctx.user.id}

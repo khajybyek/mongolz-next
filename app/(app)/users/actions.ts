@@ -92,9 +92,13 @@ export async function changeRoleAction(formData: FormData): Promise<ActionError 
   const svc = createServiceClient();
   const { data: target } = await svc
     .from("profiles")
-    .select("email")
+    .select("email, is_super_admin")
     .eq("id", parsed.data.user_id)
     .single();
+
+  if (target?.is_super_admin) {
+    return { error: "Super admin role is locked — change it via Supabase Studio" };
+  }
 
   const { error } = await svc
     .from("profiles")
@@ -132,9 +136,13 @@ export async function deleteUserAction(formData: FormData): Promise<ActionError 
   // Last-admin protection
   const { data: target } = await svc
     .from("profiles")
-    .select("email, role")
+    .select("email, role, is_super_admin")
     .eq("id", parsed.data.user_id)
     .single();
+
+  if (target?.is_super_admin) {
+    return { error: "Super admin cannot be deleted — use Supabase Studio" };
+  }
 
   if (target?.role === "admin") {
     const { count: adminCount } = await svc
@@ -199,9 +207,13 @@ export async function resetPasswordAction(formData: FormData): Promise<ActionErr
   const svc = createServiceClient();
   const { data: target } = await svc
     .from("profiles")
-    .select("email")
+    .select("email, is_super_admin")
     .eq("id", parsed.data.user_id)
     .single();
+
+  if (target?.is_super_admin) {
+    return { error: "Super admin password cannot be reset by another admin" };
+  }
 
   const { error } = await svc.auth.admin.updateUserById(parsed.data.user_id, {
     password: parsed.data.password,

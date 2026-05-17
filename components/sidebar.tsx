@@ -28,6 +28,7 @@ import {
   CalendarClock,
   Database,
   Archive,
+  Crown,
   type LucideIcon,
 } from "lucide-react";
 import { MongolzLogo } from "./logo";
@@ -78,9 +79,10 @@ interface SidebarProps {
   lang: Lang;
   role: "admin" | "viewer" | "auditor";
   email: string;
+  isSuperAdmin?: boolean;
 }
 
-export function Sidebar({ lang, role, email }: SidebarProps) {
+export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProps) {
   const pathname = usePathname();
   const items = NAV.filter((n) => {
     if (role === "admin") return true;
@@ -169,15 +171,25 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
         <div className="flex items-center justify-between gap-2 rounded-lg bg-text-muted/[0.02] border border-border p-2.5">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-accent/15 text-accent border border-accent/20 inline-flex items-center justify-center shrink-0 text-2xs font-semibold uppercase">
-                {(email ?? "?").charAt(0)}
+              <div className="relative shrink-0">
+                <div className="w-7 h-7 rounded-full bg-accent/15 text-accent border border-accent/20 inline-flex items-center justify-center text-2xs font-semibold uppercase">
+                  {(email ?? "?").charAt(0)}
+                </div>
+                {isSuperAdmin && (
+                  <Crown
+                    className="absolute -top-1 -right-1 w-3 h-3 text-accent drop-shadow-[0_0_4px_rgba(0,212,255,0.6)]"
+                    aria-label="Super admin"
+                  />
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-2xs font-medium text-text truncate">{email}</div>
                 <span
                   className={cn(
                     "badge mt-0.5",
-                    role === "admin"
+                    isSuperAdmin
+                      ? "badge-accent"
+                      : role === "admin"
                       ? "badge-accent"
                       : role === "auditor"
                       ? "badge-warning"
@@ -187,14 +199,16 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
                   <span
                     className={cn(
                       "badge-dot",
-                      role === "admin"
+                      isSuperAdmin || role === "admin"
                         ? "bg-accent"
                         : role === "auditor"
                         ? "bg-warning"
                         : "bg-text-muted"
                     )}
                   />
-                  {role === "admin"
+                  {isSuperAdmin
+                    ? "Super admin"
+                    : role === "admin"
                     ? t("role_admin", lang)
                     : role === "auditor"
                     ? t("role_auditor", lang)

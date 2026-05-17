@@ -12,6 +12,11 @@ export interface Profile {
   totp_secret: string | null;
   totp_enabled: boolean;
   totp_recovery_codes: string[];
+  /** When true, the row is protected by the protect_super_admin DB trigger.
+   *  App-level callers cannot demote, delete or revoke this flag — only
+   *  service_role / Supabase Studio can. There is at most one super admin
+   *  in the system (enforced by partial unique index). */
+  is_super_admin: boolean;
   created_at: string;
   updated_at: string;
 }

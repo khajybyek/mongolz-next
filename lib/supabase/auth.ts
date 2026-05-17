@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "./server";
 import type { PublicProfile } from "@/lib/database.types";
 
-const PUBLIC_PROFILE_COLUMNS = "id, email, full_name, role, totp_enabled, created_at, updated_at";
+const PUBLIC_PROFILE_COLUMNS = "id, email, full_name, role, totp_enabled, is_super_admin, created_at, updated_at";
 
 type AuthCtx = { user: { id: string; email: string }; profile: PublicProfile };
 type ApiAuthOk = AuthCtx;
