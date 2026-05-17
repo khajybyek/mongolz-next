@@ -885,6 +885,252 @@ export const T = {
     en: "After successful verification, you won't be asked again for the next 15 minutes.",
     kr: "성공적으로 확인되면 다음 15분 동안 다시 묻지 않습니다.",
   },
+
+  // ─── /compare page (privacy mask algorithm comparison) ───
+  compare_title: {
+    mn: "Алгоритмын харьцуулалт",
+    en: "Algorithm Comparison",
+    kr: "알고리즘 비교",
+  },
+  compare_subtitle: {
+    mn: "Privacy mask алгоритмууд — Cubist Mosaic, Gaussian Blur, Pixelate",
+    en: "Privacy mask algorithms — Cubist Mosaic, Gaussian Blur, Pixelate",
+    kr: "프라이버시 마스킹 알고리즘 — Cubist Mosaic, Gaussian Blur, Pixelate",
+  },
+  compare_drop_here: {
+    mn: "Зураг чирж тавих эсвэл сонгох",
+    en: "Drop an image here or click to choose",
+    kr: "이미지를 드롭하거나 클릭하여 선택",
+  },
+  compare_drop_hint: {
+    mn: "JPG, PNG, WebP — нүүртэй зураг хамгийн сайн",
+    en: "JPG, PNG, WebP — works best with face photos",
+    kr: "JPG, PNG, WebP — 얼굴 사진이 가장 좋습니다",
+  },
+  compare_run_btn: {
+    mn: "3 алгоритмыг ажиллуулах",
+    en: "Run all 3 algorithms",
+    kr: "3개 알고리즘 실행",
+  },
+  compare_clear: { mn: "Цэвэрлэх", en: "Clear", kr: "지우기" },
+  compare_original: { mn: "Эх зураг", en: "Original", kr: "원본" },
+  compare_no_mask: {
+    mn: "Mask хийгээгүй — танигдах боломжтой",
+    en: "Not masked — identifiable",
+    kr: "마스크 없음 — 식별 가능",
+  },
+  compare_no_result: { mn: "Үр дүн алга", en: "No result", kr: "결과 없음" },
+  compare_winner: { mn: "Хамгийн сайн", en: "Best", kr: "최고" },
+  compare_ssim: { mn: "SSIM", en: "SSIM", kr: "SSIM" },
+  compare_obscure: {
+    mn: "Далдалсан хувь",
+    en: "Obscured",
+    kr: "은닉률",
+  },
+  compare_faces_found: { mn: "Нүүр", en: "Faces", kr: "얼굴" },
+  compare_ml_err: {
+    mn: "ML service хариулсангүй",
+    en: "ML service did not respond",
+    kr: "ML 서비스가 응답하지 않습니다",
+  },
+  compare_empty_title: {
+    mn: "Зураг сонгоод эхэл",
+    en: "Choose an image to begin",
+    kr: "시작하려면 이미지를 선택하세요",
+  },
+  compare_empty_desc: {
+    mn: "Сонгосон зургийн нүүрнүүдийг 3 өөр алгоритмаар нуугаад харьцуулсан үр дүнг үзүүлнэ.",
+    en: "Faces in the chosen image will be masked with three different algorithms and compared side-by-side.",
+    kr: "선택한 이미지의 얼굴이 3가지 다른 알고리즘으로 마스킹되어 나란히 비교됩니다.",
+  },
+  compare_methodology_title: {
+    mn: "Аргачлал",
+    en: "Methodology",
+    kr: "방법론",
+  },
+  compare_methodology_body: {
+    mn: "SSIM (Structural Similarity Index) бага байх тусам нүүр илүү танигдахааргүй болсон гэсэн үг. Бид нэмж нь хувийн нууцлал хадгалах боловч хүний нүдэнд таатай харагдах үүднээс Voronoi Cubist Mosaic-ыг анхдагч алгоритм болгон сонгосон. Бүх mask-уудын эх бичлэг AES-256-GCM-ээр шифрлэгдэж, тусгай эрхтэй reveal flow дамжуулан л буцаагдана.",
+    en: "Lower SSIM (Structural Similarity Index) = harder to recognize. We default to the Voronoi-based Cubist Mosaic because it preserves privacy while staying visually pleasant. Every masked frame is stored alongside an AES-256-GCM encrypted original, only recoverable via the authorized reveal flow.",
+    kr: "SSIM(구조적 유사도 지수)가 낮을수록 얼굴을 더 알아보기 어렵습니다. 우리는 프라이버시를 보호하면서 시각적으로도 만족스러운 Voronoi 기반 Cubist Mosaic을 기본으로 사용합니다. 마스킹된 모든 프레임은 AES-256-GCM 암호화된 원본과 함께 저장되며, 권한이 부여된 reveal 흐름을 통해서만 복구할 수 있습니다.",
+  },
+
+  // ─── /demo guided walkthrough ───
+  demo_title: { mn: "Capstone Demo", en: "Capstone Demo", kr: "Capstone 데모" },
+  demo_subtitle: {
+    mn: "Защитын танилцуулга — 6 алхамаар MONGOLZ Security-г харах",
+    en: "Defense walkthrough — explore MONGOLZ Security in 6 sections",
+    kr: "방어 워크스루 — 6개 섹션으로 MONGOLZ Security 탐색",
+  },
+  demo_section_problem: { mn: "Асуудал", en: "Problem", kr: "문제" },
+  demo_section_arch: { mn: "Архитектур", en: "Architecture", kr: "아키텍처" },
+  demo_section_numbers: { mn: "Тоо", en: "Numbers", kr: "수치" },
+  demo_section_demos: { mn: "Live demo", en: "Live demos", kr: "라이브 데모" },
+  demo_section_security: { mn: "Аюулгүй байдал", en: "Security stack", kr: "보안 스택" },
+  demo_problem_title: {
+    mn: "Хувийн нууц vs Аюулгүй байдал",
+    en: "Privacy vs Security",
+    kr: "프라이버시와 보안",
+  },
+  demo_problem_body: {
+    mn: "Уламжлалт CCTV систем хэн нэгний нүүрийг бүгдийг харах боломжтой. MONGOLZ Security нь үе шаттай эрх (admin / auditor / viewer) + автомат privacy mask + аудит лог-той зарчмаар ажилладаг.",
+    en: "Conventional CCTV gives any operator access to every face. MONGOLZ Security uses tiered roles (admin / auditor / viewer), automatic privacy masking on every frame, and a tamper-evident audit log.",
+    kr: "기존 CCTV는 모든 운영자가 모든 얼굴에 접근할 수 있습니다. MONGOLZ Security는 계층 역할(admin / auditor / viewer), 모든 프레임의 자동 프라이버시 마스킹, 변조 방지 감사 로그를 사용합니다.",
+  },
+  demo_problem_tile_a_title: {
+    mn: "Уламжлалт CCTV",
+    en: "Conventional CCTV",
+    kr: "기존 CCTV",
+  },
+  demo_problem_tile_a_body: {
+    mn: "Бүх нүүр бүхэн нь хадгалагдаж, аливаа оператор шууд харах эрхтэй. Privacy regulation-уудтай зөрчилддөг.",
+    en: "Every face is stored unmasked, any operator can view directly. Conflicts with privacy regulations.",
+    kr: "모든 얼굴이 마스크 없이 저장되며 운영자가 직접 볼 수 있습니다. 프라이버시 규정과 충돌합니다.",
+  },
+  demo_problem_tile_b_title: {
+    mn: "MONGOLZ Security",
+    en: "MONGOLZ Security",
+    kr: "MONGOLZ Security",
+  },
+  demo_problem_tile_b_body: {
+    mn: "Бичлэг хийгдмэгц нүүр бүр Cubist Mosaic-аар автоматаар нуугдаж, эх хувь нь AES-256-GCM-ээр шифрлэгдэн архивлагдана. 4-eyes approval-той reveal flow л буцаах боломжтой.",
+    en: "Every face is masked with Cubist Mosaic on capture; the original is encrypted with AES-256-GCM. Only the 4-eyes approval reveal flow can unwrap it.",
+    kr: "캡처 시 모든 얼굴이 Cubist Mosaic으로 마스킹되며, 원본은 AES-256-GCM으로 암호화됩니다. 4-eyes 승인 reveal 흐름만 원본을 복원할 수 있습니다.",
+  },
+  demo_arch_title: {
+    mn: "4 давхаргат архитектур",
+    en: "4-tier architecture",
+    kr: "4계층 아키텍처",
+  },
+  demo_arch_body: {
+    mn: "Singapore region дотор сонгогдсон холболтоор хүлээлт буурч latency 50ms-аас бага.",
+    en: "All four tiers are co-located in Singapore for sub-50ms inter-service latency.",
+    kr: "모든 4계층이 싱가포르 지역에 함께 위치하여 50ms 미만의 서비스 간 지연 시간을 제공합니다.",
+  },
+  demo_arch_n_camera: { mn: "Камер", en: "Camera", kr: "카메라" },
+  demo_numbers_title: {
+    mn: "Production-д бодит тоо",
+    en: "Live production numbers",
+    kr: "실시간 운영 수치",
+  },
+  demo_numbers_body: {
+    mn: "Энэ хүснэгт нь жинхэнэ Supabase database-аас real-time татаж байгаа.",
+    en: "These figures are pulled live from the production Supabase database.",
+    kr: "이 수치는 운영 Supabase 데이터베이스에서 실시간으로 가져옵니다.",
+  },
+  demo_demos_title: {
+    mn: "Шууд туршаад үзээрэй",
+    en: "Try it live",
+    kr: "라이브로 시도해보세요",
+  },
+  demo_demos_body: {
+    mn: "Defense panel-д шууд click хийгээд жинхэнэ систем дээр демо хийх боломжтой.",
+    en: "Click any card to demo the live system directly from the panel.",
+    kr: "카드를 클릭하면 패널에서 라이브 시스템을 바로 시연할 수 있습니다.",
+  },
+  demo_demos_open: { mn: "Нээх", en: "Open", kr: "열기" },
+  demo_demos_live_body: {
+    mn: "Browser webcam-аас бичлэг хийгээд automatic face mosaic, encrypted storage, reveal flow-г бүгдийг харна.",
+    en: "Record from your webcam to see automatic face mosaic, encrypted storage, and the reveal flow end-to-end.",
+    kr: "웹캠에서 녹화하여 자동 얼굴 모자이크, 암호화 저장, reveal 흐름을 끝까지 확인하세요.",
+  },
+  demo_demos_compare_body: {
+    mn: "3 algorithm-ийг ижил зураг дээр зэрэг ажиллуулж SSIM-аар харьцуулна.",
+    en: "Run all 3 masking algorithms on the same image side-by-side with SSIM scoring.",
+    kr: "같은 이미지에 3가지 마스킹 알고리즘을 나란히 실행하고 SSIM 점수를 비교합니다.",
+  },
+  demo_demos_ai_body: {
+    mn: "Claude Sonnet-аар alert pattern-ийг анализ хийгээд аномалийг автомат олно.",
+    en: "Claude Sonnet analyzes alert patterns and surfaces anomalies in plain English.",
+    kr: "Claude Sonnet이 알림 패턴을 분석하고 이상 징후를 자연어로 제공합니다.",
+  },
+  demo_sec_title: {
+    mn: "15 давхаргат хамгаалалт",
+    en: "15-layer defense in depth",
+    kr: "15계층 심층 방어",
+  },
+  demo_sec_body: {
+    mn: "Аливаа нэг давхарга зөрчигдсөн ч хүний нэр устгагдахгүй, бүх үйлдэл аудитад үлдэнэ.",
+    en: "Any single layer breach is contained: identities stay masked, every action is auditable.",
+    kr: "단일 계층이 침해되더라도 신원이 노출되지 않고 모든 작업이 감사됩니다.",
+  },
+  demo_sec_totp: {
+    mn: "TOTP 2FA admin үйлдэлд шаардлагатай",
+    en: "TOTP 2FA required for admin actions",
+    kr: "관리자 작업에 TOTP 2FA 필수",
+  },
+  demo_sec_rls: {
+    mn: "PostgreSQL RLS — 24 policy",
+    en: "PostgreSQL RLS — 24 policies",
+    kr: "PostgreSQL RLS — 24개 정책",
+  },
+  demo_sec_aes: {
+    mn: "AES-256-GCM encrypted recordings",
+    en: "AES-256-GCM encrypted recordings",
+    kr: "AES-256-GCM 암호화된 녹화",
+  },
+  demo_sec_audit: {
+    mn: "Hash-chain audit log",
+    en: "Hash-chain audit log",
+    kr: "해시 체인 감사 로그",
+  },
+  demo_sec_4eyes: {
+    mn: "4-eyes approval reveal-д",
+    en: "4-eyes approval on reveal",
+    kr: "reveal 시 4-eyes 승인",
+  },
+  demo_sec_roles: {
+    mn: "Admin / Auditor / Viewer role",
+    en: "Admin / Auditor / Viewer roles",
+    kr: "Admin / Auditor / Viewer 역할",
+  },
+  demo_cta_title: {
+    mn: "Хамгийн их харагдах demo",
+    en: "Most impactful demo",
+    kr: "가장 인상적인 데모",
+  },
+  demo_cta_body: {
+    mn: "Хэрэв 1 минутын дотор үзүүлэх ёстой бол /compare хуудсан дээр жинхэнэ нүүртэй зураг upload хийгээд 3 алгоритм-ийг ажиллуулна — visual + SSIM хоёулаа үзүүлэгдэнэ.",
+    en: "If you have only 1 minute, run /compare with a real face photo — visual + SSIM metrics land together for maximum impact.",
+    kr: "1분만 있다면 /compare에서 실제 얼굴 사진으로 실행하세요 — 시각적 결과와 SSIM 지표가 함께 표시되어 최대 효과를 냅니다.",
+  },
+
+  // ─── sidebar nav additions ───
+  nav_demo: { mn: "Демо", en: "Demo", kr: "데모" },
+  nav_compare: { mn: "Харьцуулалт", en: "Compare", kr: "비교" },
+
+  // ─── /analytics enhancements ───
+  analytics_subtitle: {
+    mn: "Сүүлийн 7 хоногийн KPI + урт хугацааны тренд",
+    en: "Last 7 days KPIs + long-range trends",
+    kr: "지난 7일 KPI + 장기 추세",
+  },
+  analytics_kpi_faces_7d: {
+    mn: "7 хоногт илэрсэн нүүр",
+    en: "Faces (7d)",
+    kr: "얼굴 (7일)",
+  },
+  analytics_kpi_alerts_7d: {
+    mn: "7 хоногийн alert",
+    en: "Alerts (7d)",
+    kr: "알림 (7일)",
+  },
+  analytics_kpi_recordings_7d: {
+    mn: "7 хоногийн бичлэг",
+    en: "Recordings (7d)",
+    kr: "녹화 (7일)",
+  },
+  analytics_kpi_high_severity: {
+    mn: "Өндөр зэрэг",
+    en: "High severity",
+    kr: "높은 심각도",
+  },
+  alerts_high_med: { mn: "дунд", en: "med", kr: "중간" },
+  alerts_high_low: { mn: "бага", en: "low", kr: "낮음" },
+  analytics_empty_desc: {
+    mn: "Мэдээлэл цуглуулсны дараа график автомат гарч ирнэ.",
+    en: "Charts will appear once data is collected.",
+    kr: "데이터가 수집되면 차트가 표시됩니다.",
+  },
 } as const;
 
 export type TranslationKey = keyof typeof T;

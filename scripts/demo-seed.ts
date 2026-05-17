@@ -42,6 +42,8 @@ const DEMO_SUSPECTS = [
   { name: `${DEMO_PREFIX}John Doe (FBI Most Wanted)`, notes: "Demo data — wanted for armed robbery" },
   { name: `${DEMO_PREFIX}Jane Smith (Interpol)`, notes: "Demo data — international fraud" },
   { name: `${DEMO_PREFIX}Anonymous (Internal Watch)`, notes: "Demo data — internal threat" },
+  { name: `${DEMO_PREFIX}M. Park (Stalker watchlist)`, notes: "Demo data — repeat-pattern visitor" },
+  { name: `${DEMO_PREFIX}D. Erdene (Visitor blocked)`, notes: "Demo data — banned visitor" },
 ];
 
 function randomEmbedding(seed: number): number[] {
@@ -121,7 +123,7 @@ async function main() {
     else console.log(`+ suspect ${s.name}`);
   }
 
-  // Synthetic alerts (last 24h, varied similarity)
+  // Synthetic alerts — 7 days, 100+ rows, realistic time-of-day distribution
   const { data: suspects } = await supabase
     .from("suspects")
     .select("id, name")
@@ -133,33 +135,101 @@ async function main() {
 
   if (suspects?.length && cameras?.length) {
     const now = Date.now();
+    const SEVEN_DAYS_MS = 7 * 24 * 3600_000;
+    const TOTAL_ALERTS = 120;
+
+    // Hour-of-day weights (KST): higher during working hours, peaks at lunch + evening rush
+    const HOUR_WEIGHTS = [
+      0.4, 0.3, 0.3, 0.3, 0.3, 0.5,  // 00-05 quiet
+      0.7, 0.9, 1.2, 1.5, 1.6, 1.7,  // 06-11 morning ramp
+      2.0, 1.8, 1.5, 1.4, 1.3, 1.6,  // 12-17 lunch + afternoon
+      1.9, 1.6, 1.3, 1.0, 0.8, 0.6,  // 18-23 evening + wind down
+    ];
+    const totalWeight = HOUR_WEIGHTS.reduce((a, b) => a + b, 0);
+
+    function pickHour(): number {
+      let r = Math.random() * totalWeight;
+      for (let h = 0; h < 24; h++) {
+        r -= HOUR_WEIGHTS[h];
+        if (r <= 0) return h;
+      }
+      return 23;
+    }
+
+    // Day weights: weekdays slightly busier than weekends; today + yesterday hottest
+    function dayBias(daysAgo: number): number {
+      if (daysAgo <= 1) return 1.6;
+      if (daysAgo === 2) return 1.3;
+      if (daysAgo >= 6) return 0.6;
+      const dow = new Date(now - daysAgo * 86_400_000).getDay();
+      return dow === 0 || dow === 6 ? 0.7 : 1.0;
+    }
+
+    function pickDay(): number {
+      const weights: number[] = [];
+      for (let d = 0; d < 7; d++) weights.push(dayBias(d));
+      const tot = weights.reduce((a, b) => a + b, 0);
+      let r = Math.random() * tot;
+      for (let d = 0; d < 7; d++) {
+        r -= weights[d];
+        if (r <= 0) return d;
+      }
+      return 0;
+    }
+
+    function pickSimilarity(): number {
+      // 60% mid 0.45-0.70, 25% high 0.70-0.90, 15% very high 0.90-0.99
+      const u = Math.random();
+      if (u < 0.6) return 0.45 + Math.random() * 0.25;
+      if (u < 0.85) return 0.70 + Math.random() * 0.20;
+      return 0.90 + Math.random() * 0.09;
+    }
+
+    const susList = suspects;
+    type Suspect = (typeof susList)[number];
+    function pickSuspect(): Suspect {
+      // Top 2 suspects get ~60% of alerts to create realistic "frequent visitor" feel
+      const r = Math.random();
+      if (r < 0.35) return susList[0]!;
+      if (r < 0.6) return susList[1]!;
+      return susList[Math.floor(Math.random() * susList.length)]!;
+    }
+
     const rows = [];
-    for (let i = 0; i < 12; i++) {
-      const s = suspects[i % suspects.length];
-      const c = cameras[i % cameras.length];
+    for (let i = 0; i < TOTAL_ALERTS; i++) {
+      const s = pickSuspect();
+      const c = cameras[Math.floor(Math.random() * cameras.length)];
+      const daysAgo = pickDay();
+      const hour = pickHour();
+      const minute = Math.floor(Math.random() * 60);
+      const sec = Math.floor(Math.random() * 60);
+      const ts = new Date(now - daysAgo * 86_400_000);
+      ts.setHours(hour, minute, sec, 0);
+      // Skip future timestamps (today at a future hour)
+      if (ts.getTime() > now) continue;
       rows.push({
         suspect_id: s.id,
         suspect_name: s.name,
         camera_id: c.id,
         camera_name: c.name,
-        similarity: 0.45 + Math.random() * 0.5,
-        created_at: new Date(now - i * 3600_000).toISOString(),
+        similarity: pickSimilarity(),
+        created_at: ts.toISOString(),
       });
     }
 
-    // Idempotency: only insert if no demo alerts exist yet today
+    // Idempotency: only insert if no demo alerts exist yet in last 7 days
     const { count } = await supabase
       .from("alerts")
       .select("id", { count: "exact", head: true })
       .ilike("suspect_name", `${DEMO_PREFIX}%`)
-      .gte("created_at", new Date(now - 24 * 3600_000).toISOString());
+      .gte("created_at", new Date(now - SEVEN_DAYS_MS).toISOString());
 
-    if ((count ?? 0) > 0) {
-      console.log(`alerts: ${count} demo alerts already exist (skip)`);
+    if ((count ?? 0) >= 50) {
+      console.log(`alerts: ${count} demo alerts already exist within 7d (skip — wipe to regenerate)`);
     } else {
       const { error } = await supabase.from("alerts").insert(rows);
       if (error) console.error(`insert alerts: ${error.message}`);
-      else console.log(`+ ${rows.length} demo alerts`);
+      else console.log(`+ ${rows.length} demo alerts (7-day spread)`);
     }
   }
 
