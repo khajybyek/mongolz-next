@@ -15,6 +15,9 @@ export async function addSuspectAction(formData: FormData) {
   }
   const name = String(formData.get("name") ?? "").trim();
   const photo = formData.get("photo");
+  const tierRaw = String(formData.get("privacy_tier") ?? "standard");
+  const privacy_tier: "vip" | "standard" | "relaxed" =
+    tierRaw === "vip" || tierRaw === "relaxed" ? tierRaw : "standard";
 
   if (!name || !(photo instanceof File) || photo.size === 0) {
     return redirect("/suspects?error=missing-fields");
@@ -48,6 +51,7 @@ export async function addSuspectAction(formData: FormData) {
     name,
     image_path: path,
     embedding: embedding as never,
+    privacy_tier,
     created_by: user.id,
   });
 

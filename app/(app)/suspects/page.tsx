@@ -14,7 +14,7 @@ export default async function SuspectsPage() {
 
   const { data: suspects } = await supabase
     .from("suspects")
-    .select("id, name, image_path, notes, created_at")
+    .select("id, name, image_path, notes, privacy_tier, created_at")
     .order("created_at", { ascending: false });
 
   // Storage signed URLs
@@ -32,7 +32,7 @@ export default async function SuspectsPage() {
       <PageHeader title={t("manage_suspects")} subtitle={t("nav_suspects")} />
 
       <div className="card mb-6">
-        <form action={addSuspectAction} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <form action={addSuspectAction} className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <input
             name="name"
             placeholder={t("suspect_name")}
@@ -46,12 +46,17 @@ export default async function SuspectsPage() {
             required
             className="input file:bg-accent/15 file:text-accent file:border-0 file:rounded file:px-2 file:py-1 file:mr-2"
           />
+          <select name="privacy_tier" defaultValue="standard" className="input">
+            <option value="vip">VIP · хатуу хамгаалалт</option>
+            <option value="standard">Standard · ердийн</option>
+            <option value="relaxed">Relaxed · хөнгөн</option>
+          </select>
           <button type="submit" className="btn-primary">
             {t("add_suspect")}
           </button>
         </form>
         <p className="text-xs text-text-muted mt-2">
-          ArcFace embedding · ML service
+          ArcFace embedding · ML service · privacy tier-аар mask хүч + reveal flow тохируулна
         </p>
       </div>
 
@@ -76,7 +81,21 @@ export default async function SuspectsPage() {
                 )}
               </div>
               <div className="p-3">
-                <div className="font-medium text-sm truncate">{s.name}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-medium text-sm truncate">{s.name}</div>
+                  <span
+                    className={
+                      s.privacy_tier === "vip"
+                        ? "badge badge-warning"
+                        : s.privacy_tier === "relaxed"
+                        ? "badge badge-muted"
+                        : "badge badge-accent"
+                    }
+                    title={`Privacy tier: ${s.privacy_tier ?? "standard"}`}
+                  >
+                    {s.privacy_tier ?? "standard"}
+                  </span>
+                </div>
                 <div className="text-xs text-text-muted mt-0.5">
                   {formatDate(s.created_at)}
                 </div>

@@ -36,6 +36,7 @@ export function RevealModal({
   suspects,
   detectedFaces,
   initialFaceIds,
+  initialTimeWindow,
   maskedUrl,
   recordingDurationSec,
   onClose,
@@ -53,6 +54,9 @@ export function RevealModal({
   maskedUrl?: string | null;
   /** Recording duration (s) — time-window slider-т ашиглана. NULL бол slider-ийг нуух. */
   recordingDurationSec?: number | null;
+  /** If set, pre-enable the time window and seed start/end. Used by the
+   *  FaceTimeline "Reveal range" quick-launch button. */
+  initialTimeWindow?: { start: number; end: number } | null;
   onClose: () => void;
 }) {
   const hasInitial = (initialFaceIds?.length ?? 0) > 0;
@@ -69,11 +73,21 @@ export function RevealModal({
 
   const [threshold, setThreshold] = useState(0.45);
 
-  // Time-window scope (optional). Default: full recording (window disabled).
-  const [windowEnabled, setWindowEnabled] = useState(false);
-  const [windowStart, setWindowStart] = useState(0);
+  // Time-window scope (optional). Default: full recording (window disabled),
+  // unless an initialTimeWindow was passed (FaceTimeline "Reveal range" quick-launch).
+  const [windowEnabled, setWindowEnabled] = useState(!!initialTimeWindow);
+  const [windowStart, setWindowStart] = useState(
+    initialTimeWindow ? Math.max(0, Math.floor(initialTimeWindow.start)) : 0,
+  );
   const [windowEnd, setWindowEnd] = useState(
-    recordingDurationSec ? Math.max(1, Math.round(recordingDurationSec)) : 0,
+    initialTimeWindow
+      ? Math.max(
+          1,
+          Math.ceil(initialTimeWindow.end),
+        )
+      : recordingDurationSec
+      ? Math.max(1, Math.round(recordingDurationSec))
+      : 0,
   );
 
   const [password, setPassword] = useState("");

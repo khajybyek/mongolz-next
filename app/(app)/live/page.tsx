@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/ui/page-header";
 import { LiveCameraView } from "./live-view";
+import { LiveMatchFlash } from "./live-match-flash";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
@@ -34,6 +35,7 @@ export default async function LivePage() {
     <>
       <PageHeader title={t("nav_live")} subtitle={t("select_camera")} />
       <LiveCameraView cameras={cameras} />
+      {isAdmin && <LiveMatchFlash />}
     </>
   );
 }

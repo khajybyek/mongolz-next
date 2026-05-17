@@ -3,6 +3,7 @@
 
 export type UserRole = "admin" | "viewer" | "auditor";
 export type CameraType = "rtsp" | "http" | "usb" | "webcam";
+export type SuspectPrivacyTier = "vip" | "standard" | "relaxed";
 
 export interface Profile {
   id: string;

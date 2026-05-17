@@ -51,6 +51,10 @@ export function PlaybackPlayer({
 }) {
   const [open, setOpen] = useState(false);
   const [initialFaceIds, setInitialFaceIds] = useState<string[]>([]);
+  const [initialTimeWindow, setInitialTimeWindow] = useState<{
+    start: number;
+    end: number;
+  } | null>(null);
 
   // Multi-select горим
   const [selectMode, setSelectMode] = useState(false);
@@ -122,6 +126,7 @@ export function PlaybackPlayer({
   function close() {
     setOpen(false);
     setInitialFaceIds([]);
+    setInitialTimeWindow(null);
   }
 
   function exitSelectMode() {
@@ -155,6 +160,14 @@ export function PlaybackPlayer({
             // Тухайн нүүрний хугацаа руу seek хийгээд reveal modal-ыг pre-selected face_id-тай нээнэ
             if (f.time_in_video_sec !== null) seekTo(f.time_in_video_sec);
             setInitialFaceIds([f.id]);
+            setInitialTimeWindow(null);
+            setOpen(true);
+          }}
+          onRevealRange={(startSec, endSec, faceIds) => {
+            // FaceTimeline-аас "Хүрээгээр reveal" товч даравал бүх face_ids +
+            // time window-той RevealModal нээгдэнэ.
+            setInitialFaceIds(faceIds);
+            setInitialTimeWindow({ start: startSec, end: endSec });
             setOpen(true);
           }}
         />
@@ -320,6 +333,7 @@ export function PlaybackPlayer({
           suspects={suspects}
           detectedFaces={detectedFaces}
           initialFaceIds={initialFaceIds}
+          initialTimeWindow={initialTimeWindow}
           maskedUrl={videoUrl}
           recordingDurationSec={liveDuration ?? durationSec}
           onClose={close}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import { Eye } from "lucide-react";
+import { Eye, Scissors } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface TimelineFace {
@@ -26,6 +26,9 @@ interface Props {
   /** When set, an Eye button appears on each thumbnail; click → open reveal
    *  modal pre-selected with that face_id. */
   onRevealFace?: (face: TimelineFace) => void;
+  /** When set, a "Reveal range" button appears in the header; click → open
+   *  reveal modal pre-seeded with the time window covering all detected faces. */
+  onRevealRange?: (startSec: number, endSec: number, faceIds: string[]) => void;
 }
 
 /**
@@ -46,6 +49,7 @@ export function FaceTimeline({
   onSeek,
   title,
   onRevealFace,
+  onRevealRange,
 }: Props) {
   const trackRef = useRef<HTMLDivElement | null>(null);
 
@@ -100,13 +104,36 @@ export function FaceTimeline({
 
   return (
     <div className="card mt-3 space-y-3">
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
         <h3 className="text-xs uppercase tracking-wide text-text-soft">
           {title ?? "Face timeline"}
         </h3>
-        <span className="text-2xs text-text-muted font-mono">
-          {fmt(currentTime)} / {fmt(effectiveDuration)}
-        </span>
+        <div className="flex items-center gap-2">
+          {onRevealRange && sortedFaces.length >= 1 && (
+            <button
+              type="button"
+              onClick={() => {
+                const first = sortedFaces[0]!.time_in_video_sec;
+                const last = sortedFaces[sortedFaces.length - 1]!.time_in_video_sec;
+                const start = Math.max(0, first - 1);
+                const end = Math.min(effectiveDuration, last + 1);
+                onRevealRange(
+                  start,
+                  end,
+                  sortedFaces.map((f) => f.id),
+                );
+              }}
+              title="Зөвхөн нүүр илэрсэн хугацааны хүрээнд reveal хийх"
+              className="inline-flex items-center gap-1 text-2xs px-2 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+            >
+              <Scissors className="w-3 h-3" />
+              Хүрээгээр reveal
+            </button>
+          )}
+          <span className="text-2xs text-text-muted font-mono">
+            {fmt(currentTime)} / {fmt(effectiveDuration)}
+          </span>
+        </div>
       </div>
 
       {/* Scrubber track */}

@@ -1,6 +1,17 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Lock, Calendar, Camera as CamIcon, Clock, ShieldCheck } from "lucide-react";
+import {
+  ArrowLeft,
+  Lock,
+  Calendar,
+  Camera as CamIcon,
+  Clock,
+  ShieldCheck,
+  History,
+  CheckCircle2,
+  XCircle,
+  Hourglass,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { formatDate } from "@/lib/utils";
@@ -100,6 +111,33 @@ export default async function PlaybackDetailPage({
   const { data: suspects } = isAdmin
     ? await supabase.from("suspects").select("id, name, image_path").order("name")
     : { data: null };
+
+  // Энэ recording-ийн өмнөх reveal job-уудын түүх (admin only).
+  // 4-eyes audit / accountability — кто, хэзээ, ямар scope-ээр reveal хийсэн.
+  type RevealHistoryRow = {
+    id: string;
+    status: string;
+    method: string;
+    threshold: number | null;
+    target_start_sec: number | null;
+    target_end_sec: number | null;
+    requested_email: string | null;
+    approved_email: string | null;
+    rejected_email: string | null;
+    created_at: string;
+    completed_at: string | null;
+  };
+  const { data: revealHistoryRaw } = isAdmin
+    ? await supabase
+        .from("reveal_jobs")
+        .select(
+          "id, status, method, threshold, target_start_sec, target_end_sec, requested_email, approved_email, rejected_email, created_at, completed_at",
+        )
+        .eq("recording_id", id)
+        .order("created_at", { ascending: false })
+        .limit(15)
+    : { data: null };
+  const revealHistory: RevealHistoryRow[] = (revealHistoryRaw ?? []) as RevealHistoryRow[];
 
   return (
     <>
@@ -213,10 +251,80 @@ export default async function PlaybackDetailPage({
               {t("reveal_not_possible")}
             </div>
           )}
+
+          {isAdmin && revealHistory.length > 0 && (
+            <div className="card space-y-2">
+              <h3 className="text-xs uppercase tracking-wide text-text-soft mb-2 flex items-center gap-1.5">
+                <History className="w-3.5 h-3.5" />
+                Reveal түүх ({revealHistory.length})
+              </h3>
+              <ul className="space-y-1.5 max-h-72 overflow-y-auto">
+                {revealHistory.map((h) => (
+                  <li
+                    key={h.id}
+                    className="text-[11px] leading-relaxed border-l-2 pl-2 py-1"
+                    style={{
+                      borderColor:
+                        h.status === "completed"
+                          ? "rgb(34 197 94 / 0.6)"
+                          : h.status === "rejected" || h.status === "failed"
+                          ? "rgb(244 63 94 / 0.6)"
+                          : "rgb(0 212 255 / 0.4)",
+                    }}
+                  >
+                    <div className="flex items-center gap-1.5 text-text">
+                      {h.status === "completed" ? (
+                        <CheckCircle2 className="w-3 h-3 text-success shrink-0" />
+                      ) : h.status === "rejected" || h.status === "failed" ? (
+                        <XCircle className="w-3 h-3 text-danger shrink-0" />
+                      ) : (
+                        <Hourglass className="w-3 h-3 text-accent shrink-0" />
+                      )}
+                      <span className="font-mono text-text-soft">
+                        {h.id.slice(0, 8)}
+                      </span>
+                      <span className="text-text-muted">·</span>
+                      <span className="font-medium">{h.method}</span>
+                      {h.target_start_sec !== null && h.target_end_sec !== null && (
+                        <>
+                          <span className="text-text-muted">·</span>
+                          <span className="text-accent font-mono">
+                            ⏱ {fmtSec(h.target_start_sec)}→{fmtSec(h.target_end_sec)}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    <div className="text-text-muted">
+                      {h.requested_email}
+                      {h.approved_email && h.approved_email !== h.requested_email && (
+                        <span className="text-success"> · approved by {h.approved_email}</span>
+                      )}
+                      {h.rejected_email && (
+                        <span className="text-danger"> · rejected by {h.rejected_email}</span>
+                      )}
+                    </div>
+                    <div className="text-text-faint">
+                      {formatDate(h.created_at)}
+                      {h.threshold !== null && (
+                        <span className="text-text-muted"> · threshold {h.threshold}</span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
     </>
   );
+}
+
+function fmtSec(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return "—";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function Row({
