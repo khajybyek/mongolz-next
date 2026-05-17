@@ -32,32 +32,34 @@ jobs:
           pip install pip-audit
           pip-audit -r ml-service/requirements.txt || true
 
-  codeql:
-    name: CodeQL SAST
+  sast:
+    name: SAST (Semgrep)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [javascript-typescript, python]
+    timeout-minutes: 10
+    container: semgrep/semgrep:latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: github/codeql-action/init@v3
-        with:
-          languages: ${{ matrix.language }}
-          # Standard query suite + extra security-focused queries
-          # ('security-extended' adds XSS, SSRF, path traversal patterns
-          #  not in the default set).
-          queries: security-and-quality, security-extended
-
-      - uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:${{ matrix.language }}"
+      # Run Semgrep with audited security rulesets covering TS, JS, Python:
+      # - p/owasp-top-ten         OWASP A01-A10
+      # - p/security-audit        broad CWE catch-all
+      # - p/typescript            TS-specific anti-patterns
+      # - p/react                 React XSS / hooks misuse
+      # - p/nextjs                Next.js auth + route patterns
+      # - p/python                general Python issues
+      # Exit non-zero on findings so PRs surface them.
+      - run: semgrep ci
+        env:
+          SEMGREP_RULES: >-
+            p/owasp-top-ten
+            p/security-audit
+            p/typescript
+            p/react
+            p/nextjs
+            p/python
+          # No SEMGREP_APP_TOKEN — local rules only (no Semgrep Cloud).
+          # Fail-on configures severity threshold; ERROR fails the build.
+          SEMGREP_FAIL_ON: ERROR
 
   secrets-scan:
     name: Secret scanning (trufflehog)
