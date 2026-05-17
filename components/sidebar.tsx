@@ -244,11 +244,13 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
 
       <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
         {visibleGroups.map((group) => {
-          // Auto-open the group that contains the active route; user toggle
-          // overrides via localStorage once they touch the header.
+          // Default to open. Pre-hydration we always render open to avoid an
+          // SSR/CSR mismatch; once hydrated we honour the user's localStorage
+          // toggle even for the group containing the active route (otherwise
+          // clicking the chevron looks broken).
           const userCollapsed = hydrated && collapsed[group.id] === true;
           const containsActive = group.id === activeGroupId;
-          const open = containsActive || !userCollapsed;
+          const open = !userCollapsed;
           const GroupIcon = group.icon;
           return (
             <div key={group.id}>
@@ -266,6 +268,12 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
               >
                 <GroupIcon className="w-3.5 h-3.5 shrink-0 opacity-70" aria-hidden />
                 <span className="flex-1 text-left truncate">{t(group.labelKey, lang)}</span>
+                {!open && containsActive && (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-accent shrink-0"
+                    aria-label="contains active route"
+                  />
+                )}
                 <ChevronDown
                   className={cn(
                     "w-3.5 h-3.5 shrink-0 transition-transform opacity-60",

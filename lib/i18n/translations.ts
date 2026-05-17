@@ -1362,6 +1362,8 @@ export const T = {
     en: "Pick a face on the left to see matches from other cameras.",
     kr: "왼쪽에서 얼굴을 선택하면 다른 카메라의 일치 결과가 표시됩니다.",
   },
+  reid_source: { mn: "Эх царай", en: "Source face", kr: "기준 얼굴" },
+  reid_clear: { mn: "Цэвэрлэх", en: "Clear", kr: "지우기" },
 
   // ── Heatmap analytics ──
   nav_heatmap: { mn: "Heatmap", en: "Heatmap", kr: "히트맵" },

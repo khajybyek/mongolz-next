@@ -83,6 +83,11 @@ export function ReidView({ initialThumbs }: { initialThumbs: Thumb[] }) {
     return { first, last, dur: last - first };
   }, [trail]);
 
+  const selectedThumb = useMemo(
+    () => initialThumbs.find((th) => th.id === selectedId) ?? null,
+    [initialThumbs, selectedId],
+  );
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6">
       {/* Source picker */}
@@ -91,6 +96,42 @@ export function ReidView({ initialThumbs }: { initialThumbs: Thumb[] }) {
           <Search className="w-4 h-4 text-accent" />
           {t("reid_pick_source")}
         </div>
+
+        {selectedThumb && (
+          <div className="rounded-lg border border-accent/30 bg-accent/5 p-2">
+            <div className="text-[10px] text-accent uppercase tracking-wider font-semibold mb-1.5">
+              {t("reid_source")}
+            </div>
+            <div className="flex gap-2">
+              <div className="w-16 h-16 shrink-0 rounded overflow-hidden border border-accent/40">
+                {selectedThumb.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={selectedThumb.image_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-bg-tertiary">
+                    <ImageOff className="w-4 h-4 text-text-faint" />
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs truncate text-text" title={selectedThumb.camera_name ?? ""}>
+                  {selectedThumb.camera_name ?? "—"}
+                </div>
+                <div className="text-[10px] text-text-muted truncate">
+                  {formatDate(selectedThumb.detected_at)}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(null)}
+                  className="mt-1 text-[10px] text-text-muted hover:text-danger-ring transition"
+                >
+                  ✕ {t("reid_clear")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {initialThumbs.length === 0 ? (
           <Empty message={t("empty")} />
         ) : (

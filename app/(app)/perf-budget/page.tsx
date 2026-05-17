@@ -63,6 +63,25 @@ export default async function PerfBudgetPage() {
     samples: t.samples,
   }));
 
+  // Per-metric 7-day sparkline: sample-weighted daily p75 across all pages.
+  const sparkBuckets = new Map<string, Map<string, { num: number; den: number }>>();
+  for (const r of rows) {
+    const inner = sparkBuckets.get(r.metric) ?? new Map();
+    const day = r.day.slice(0, 10);
+    const cur = inner.get(day) ?? { num: 0, den: 0 };
+    cur.num += r.p75 * r.samples;
+    cur.den += r.samples;
+    inner.set(day, cur);
+    sparkBuckets.set(r.metric, inner);
+  }
+  const sparkCollapsed = new Map<string, number[]>();
+  for (const [metric, inner] of sparkBuckets.entries()) {
+    const series = Array.from(inner.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, v]) => (v.den ? v.num / v.den : 0));
+    if (series.length > 0) sparkCollapsed.set(metric, series);
+  }
+
   return (
     <>
       <PageHeader
@@ -79,7 +98,17 @@ export default async function PerfBudgetPage() {
             {["LCP", "INP", "CLS", "FCP", "TTFB"].map((metric) => {
               const o = overall.find((x) => x.metric === metric);
               const budget = BUDGETS[metric];
-              return <MetricSummary key={metric} metric={metric} p75={o?.p75 ?? null} samples={o?.samples ?? 0} budget={budget} />;
+              const series = sparkCollapsed.get(metric);
+              return (
+                <MetricSummary
+                  key={metric}
+                  metric={metric}
+                  p75={o?.p75 ?? null}
+                  samples={o?.samples ?? 0}
+                  budget={budget}
+                  spark={series}
+                />
+              );
             })}
           </div>
 
@@ -141,11 +170,13 @@ function MetricSummary({
   p75,
   samples,
   budget,
+  spark,
 }: {
   metric: string;
   p75: number | null;
   samples: number;
   budget: { good: number; poor: number; unit: "ms" | "score" } | undefined;
+  spark?: number[];
 }) {
   const status = p75 == null || !budget ? "none" : p75 <= budget.good ? "good" : p75 <= budget.poor ? "warn" : "poor";
   const ring =
@@ -156,9 +187,20 @@ function MetricSummary({
         : status === "poor"
           ? "border-danger/40 bg-danger-soft"
           : "border-border";
+  const sparkStroke =
+    status === "good"
+      ? "rgb(34,197,94)"
+      : status === "warn"
+        ? "rgb(245,158,11)"
+        : status === "poor"
+          ? "rgb(244,63,94)"
+          : "rgb(113,113,122)";
   return (
     <div className={"card border " + ring}>
-      <div className="text-xs text-text-soft">{metric}</div>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs text-text-soft">{metric}</span>
+        {spark && spark.length >= 2 && <Sparkline points={spark} stroke={sparkStroke} />}
+      </div>
       <div className="text-2xl font-semibold mt-1 tabular-nums">
         {p75 == null ? "—" : formatVal(metric, p75)}
       </div>
@@ -167,6 +209,28 @@ function MetricSummary({
         {samples > 0 && ` · ${samples} samples`}
       </div>
     </div>
+  );
+}
+
+function Sparkline({ points, stroke }: { points: number[]; stroke: string }) {
+  if (points.length < 2) return null;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min || 1;
+  const W = 56;
+  const H = 18;
+  const step = points.length === 1 ? W : W / (points.length - 1);
+  const path = points
+    .map((p, i) => {
+      const x = i * step;
+      const y = H - ((p - min) / range) * H;
+      return `${i === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="overflow-visible">
+      <path d={path} fill="none" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 

@@ -123,17 +123,31 @@ export function HeatmapView({ cameras }: { cameras: Camera[] }) {
           </div>
         )}
         {!loading && !err && data && data.samples > 0 && (
-          <div className="relative aspect-video w-full bg-bg-tertiary rounded overflow-hidden">
-            <canvas
-              ref={canvasRef}
-              width={1280}
-              height={720}
-              className="w-full h-full"
-            />
-            <div className="absolute bottom-1 right-1 flex items-center gap-2 text-[10px] text-text px-1.5 py-0.5 rounded bg-bg/60 backdrop-blur">
-              <Flame className="w-3 h-3" /> max {data.grid.max}
+          <>
+            <div className="relative aspect-video w-full bg-bg-tertiary rounded overflow-hidden">
+              <canvas
+                ref={canvasRef}
+                width={1280}
+                height={720}
+                className="w-full h-full"
+              />
+              <div className="absolute top-1 right-1 flex items-center gap-2 text-[10px] text-text px-1.5 py-0.5 rounded bg-bg/60 backdrop-blur">
+                <Flame className="w-3 h-3" /> max {data.grid.max}
+              </div>
             </div>
-          </div>
+            {/* Viridis-style legend */}
+            <div className="mt-2 flex items-center gap-2 text-[10px] text-text-muted">
+              <span>0</span>
+              <div
+                className="flex-1 h-1.5 rounded-full"
+                style={{
+                  background:
+                    "linear-gradient(to right, rgb(49,54,149), rgb(34,211,238), rgb(134,239,172), rgb(250,204,21), rgb(239,68,68))",
+                }}
+              />
+              <span>{data.grid.max}</span>
+            </div>
+          </>
         )}
       </div>
 
