@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef } from "react";
+import { Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface TimelineFace {
@@ -22,6 +23,9 @@ interface Props {
   onSeek: (sec: number) => void;
   /** Optional caption above the scrubber. */
   title?: string;
+  /** When set, an Eye button appears on each thumbnail; click → open reveal
+   *  modal pre-selected with that face_id. */
+  onRevealFace?: (face: TimelineFace) => void;
 }
 
 /**
@@ -35,7 +39,14 @@ interface Props {
  * Forensic / panel-friendly: lets the operator jump to a specific person's
  * frame without scrubbing the raw timeline.
  */
-export function FaceTimeline({ duration, currentTime, faces, onSeek, title }: Props) {
+export function FaceTimeline({
+  duration,
+  currentTime,
+  faces,
+  onSeek,
+  title,
+  onRevealFace,
+}: Props) {
   const trackRef = useRef<HTMLDivElement | null>(null);
 
   // Only faces with a real time-in-video; sorted ascending.
@@ -156,41 +167,58 @@ export function FaceTimeline({ duration, currentTime, faces, onSeek, title }: Pr
             const isActive = activeFaceId === f.id;
             return (
               <li key={f.id} className="shrink-0">
-                <button
-                  type="button"
-                  onClick={() => onSeek(f.time_in_video_sec)}
+                <div
                   className={cn(
-                    "relative w-16 h-16 rounded-md overflow-hidden border-2 transition",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    "relative w-16 h-16 rounded-md overflow-hidden border-2 transition group/face",
                     isActive
                       ? "border-accent ring-2 ring-accent/40 shadow-[0_0_12px_rgba(0,212,255,0.4)]"
                       : "border-transparent hover:border-accent/60",
                   )}
-                  title={`#${f.display_no} · ${fmt(f.time_in_video_sec)}`}
-                  aria-current={isActive ? "true" : undefined}
                 >
-                  {f.signed ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={f.signed}
-                      alt={`Face ${f.display_no}`}
-                      className="absolute inset-0 w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="absolute inset-0 bg-bg-tertiary" />
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => onSeek(f.time_in_video_sec)}
+                    className="absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    title={`#${f.display_no} · ${fmt(f.time_in_video_sec)} · seek`}
+                    aria-current={isActive ? "true" : undefined}
+                  >
+                    {f.signed ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={f.signed}
+                        alt={`Face ${f.display_no}`}
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 bg-bg-tertiary" />
+                    )}
+                  </button>
                   <span
                     className={cn(
-                      "absolute top-0.5 left-0.5 text-[10px] font-bold leading-none px-1 py-0.5 rounded",
+                      "absolute top-0.5 left-0.5 text-[10px] font-bold leading-none px-1 py-0.5 rounded pointer-events-none",
                       isActive ? "bg-accent text-bg" : "bg-black/70 text-accent",
                     )}
                   >
                     #{f.display_no}
                   </span>
-                  <span className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 via-black/40 to-transparent px-1 py-0.5 text-[9px] font-mono text-white text-right">
+                  <span className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 via-black/40 to-transparent px-1 py-0.5 text-[9px] font-mono text-white text-right pointer-events-none">
                     {fmt(f.time_in_video_sec)}
                   </span>
-                </button>
+                  {onRevealFace && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRevealFace(f);
+                      }}
+                      title={`Энэ хүний нүүрийг reveal хийх — #${f.display_no}`}
+                      aria-label={`Reveal face ${f.display_no}`}
+                      className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-accent text-bg inline-flex items-center justify-center opacity-0 group-hover/face:opacity-100 focus:opacity-100 transition shadow-overlay"
+                    >
+                      <Eye className="w-3 h-3" strokeWidth={2.5} />
+                    </button>
+                  )}
+                </div>
               </li>
             );
           })}

@@ -151,6 +151,12 @@ export function PlaybackPlayer({
           currentTime={currentTime}
           faces={detectedFaces}
           onSeek={seekTo}
+          onRevealFace={(f) => {
+            // Тухайн нүүрний хугацаа руу seek хийгээд reveal modal-ыг pre-selected face_id-тай нээнэ
+            if (f.time_in_video_sec !== null) seekTo(f.time_in_video_sec);
+            setInitialFaceIds([f.id]);
+            setOpen(true);
+          }}
         />
       )}
 
@@ -314,6 +320,7 @@ export function PlaybackPlayer({
           suspects={suspects}
           detectedFaces={detectedFaces}
           initialFaceIds={initialFaceIds}
+          maskedUrl={videoUrl}
           onClose={close}
         />
       )}

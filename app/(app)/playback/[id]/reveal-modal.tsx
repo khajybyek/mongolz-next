@@ -36,6 +36,7 @@ export function RevealModal({
   suspects,
   detectedFaces,
   initialFaceIds,
+  maskedUrl,
   onClose,
 }: {
   recordingId: string;
@@ -47,6 +48,8 @@ export function RevealModal({
    *   - 1+ хүн → reauth-руу (multi-target reveal)
    */
   initialFaceIds?: string[];
+  /** Original (blurred) recording URL — done step-д revealed video-той side-by-side харьцуулна. */
+  maskedUrl?: string | null;
   onClose: () => void;
 }) {
   const hasInitial = (initialFaceIds?.length ?? 0) > 0;
@@ -495,12 +498,16 @@ export function RevealModal({
                     </div>
                   </div>
 
-                  <video
-                    src={job.signed_url}
-                    controls
-                    autoPlay
-                    className="w-full rounded-lg bg-black"
-                  />
+                  {maskedUrl ? (
+                    <SideBySidePlayer maskedUrl={maskedUrl} revealedUrl={job.signed_url} />
+                  ) : (
+                    <video
+                      src={job.signed_url}
+                      controls
+                      autoPlay
+                      className="w-full rounded-lg bg-black"
+                    />
+                  )}
 
                   <div className="flex gap-2">
                     <a
@@ -559,6 +566,102 @@ function Stepper({ current }: { current: Step }) {
           {s.label}
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Side-by-side comparison of the masked (original) and revealed videos.
+ * Playback is synced: hitting play on one mirrors to the other, and seeking
+ * one pulls the second to within 0.25s of the same offset.
+ */
+function SideBySidePlayer({
+  maskedUrl,
+  revealedUrl,
+}: {
+  maskedUrl: string;
+  revealedUrl: string;
+}) {
+  const maskedRef = useRef<HTMLVideoElement | null>(null);
+  const revealedRef = useRef<HTMLVideoElement | null>(null);
+  const lockRef = useRef(false);
+
+  useEffect(() => {
+    const a = maskedRef.current;
+    const b = revealedRef.current;
+    if (!a || !b) return;
+
+    const sync = (from: HTMLVideoElement, to: HTMLVideoElement) => {
+      if (lockRef.current) return;
+      lockRef.current = true;
+      try {
+        if (Math.abs(to.currentTime - from.currentTime) > 0.25) {
+          to.currentTime = from.currentTime;
+        }
+        if (from.paused !== to.paused) {
+          if (from.paused) to.pause();
+          else void to.play().catch(() => undefined);
+        }
+      } finally {
+        // Release lock on next tick so the mirrored events don't trigger us back.
+        setTimeout(() => {
+          lockRef.current = false;
+        }, 50);
+      }
+    };
+
+    const onAPlay = () => sync(a, b);
+    const onAPause = () => sync(a, b);
+    const onASeek = () => sync(a, b);
+    const onBPlay = () => sync(b, a);
+    const onBPause = () => sync(b, a);
+    const onBSeek = () => sync(b, a);
+
+    a.addEventListener("play", onAPlay);
+    a.addEventListener("pause", onAPause);
+    a.addEventListener("seeked", onASeek);
+    b.addEventListener("play", onBPlay);
+    b.addEventListener("pause", onBPause);
+    b.addEventListener("seeked", onBSeek);
+
+    return () => {
+      a.removeEventListener("play", onAPlay);
+      a.removeEventListener("pause", onAPause);
+      a.removeEventListener("seeked", onASeek);
+      b.removeEventListener("play", onBPlay);
+      b.removeEventListener("pause", onBPause);
+      b.removeEventListener("seeked", onBSeek);
+    };
+  }, []);
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div className="space-y-1">
+        <div className="text-[10px] uppercase tracking-wide text-text-muted font-medium">
+          Masked (original)
+        </div>
+        <video
+          ref={maskedRef}
+          src={maskedUrl}
+          controls
+          playsInline
+          muted
+          className="w-full aspect-video rounded-lg bg-black"
+        />
+      </div>
+      <div className="space-y-1">
+        <div className="text-[10px] uppercase tracking-wide text-success font-medium">
+          Revealed
+        </div>
+        <video
+          ref={revealedRef}
+          src={revealedUrl}
+          controls
+          autoPlay
+          playsInline
+          className="w-full aspect-video rounded-lg bg-black ring-2 ring-success/40"
+        />
+      </div>
     </div>
   );
 }
