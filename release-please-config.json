@@ -1,0 +1,20 @@
+{
+  "release-type": "node",
+  "packages": {
+    ".": {
+      "package-name": "mongolz-next",
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug Fixes" },
+        { "type": "perf", "section": "Performance" },
+        { "type": "refactor", "section": "Refactoring" },
+        { "type": "docs", "section": "Documentation" },
+        { "type": "test", "section": "Tests", "hidden": true },
+        { "type": "ci", "section": "CI / Build", "hidden": true },
+        { "type": "build", "section": "CI / Build", "hidden": true },
+        { "type": "chore", "section": "Chores", "hidden": true }
+      ]
+    }
+  },
+  "include-component-in-tag": false
+}

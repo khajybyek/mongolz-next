@@ -19,6 +19,7 @@ const PUBLIC_PATHS = [
   "/offline.html", // PWA offline fallback page
   "/api/csp-report", // CSP report-uri — browser beacons, no auth
   "/api/uptime", // External uptime monitors hit this without auth
+  "/api/slo-status", // Public SLO probe — see docs/SLO.md
   "/api/cron", // Vercel Cron endpoints (their own bearer auth)
   "/api/monitoring", // Cron-style monitoring endpoints
   "/api/auth/passkey/login", // Public passkey login endpoints

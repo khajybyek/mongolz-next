@@ -1,0 +1,21 @@
+name: Release please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Release-please reads Conventional-Commit messages on `main` and opens
+# a release PR that bumps `package.json` + writes `CHANGELOG.md`. Merging
+# that PR tags the release. See https://github.com/googleapis/release-please-action
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: node
+          package-name: mongolz-next

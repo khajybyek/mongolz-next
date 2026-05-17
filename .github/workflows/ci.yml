@@ -28,6 +28,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Migration safety lint
+        run: npm run lint:migrations
+
       - name: Type check
         run: npx tsc --noEmit --incremental false
         env:

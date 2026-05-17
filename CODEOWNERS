@@ -1,0 +1,23 @@
+# Code owners — anyone touching a path under here gets the listed
+# reviewer auto-requested on a PR. GitHub enforces this when
+# "Require review from Code Owners" is on in branch protection.
+#
+# Solo capstone: @khajybyek owns everything. In a multi-person team
+# this file would split by domain (auth, ML, frontend, ops).
+
+* @khajybyek
+
+# Security-sensitive surfaces — second pair of eyes required even
+# inside the team. Listed individually so the requirement survives a
+# wildcard rewrite.
+/lib/auth/                  @khajybyek
+/lib/supabase/middleware.ts @khajybyek
+/lib/camera-crypto.ts       @khajybyek
+/proxy.ts                   @khajybyek
+/supabase/migrations/       @khajybyek
+/ml-service/crypto_utils.py @khajybyek
+/ml-service/reveal_job.py   @khajybyek
+
+# Architectural records — frozen after merge. Touching an existing
+# ADR is a smell; raise a new one instead.
+/docs/adr/                  @khajybyek

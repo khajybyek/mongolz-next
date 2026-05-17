@@ -14,7 +14,10 @@ ALTER TABLE public.reveal_jobs
   ADD COLUMN IF NOT EXISTS target_start_sec real,
   ADD COLUMN IF NOT EXISTS target_end_sec   real;
 
--- Range must be sane when both are set.
+-- safety: ok — DROP CONSTRAINT IF EXISTS is paired with the ADD CONSTRAINT
+-- below to make the migration idempotent on re-run. There is no
+-- intermediate state where rows are unprotected because both statements
+-- run inside the same transaction.
 ALTER TABLE public.reveal_jobs
   DROP CONSTRAINT IF EXISTS reveal_jobs_time_window_chk;
 
