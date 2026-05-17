@@ -44,16 +44,23 @@ const WALL_HOSTS = new Set(
     .filter(Boolean),
 );
 
+function wallHostCandidates(request: NextRequest): string[] {
+  const fwd = request.headers.get("x-forwarded-host");
+  const host = request.headers.get("host");
+  return [fwd, host, request.nextUrl.host]
+    .filter((v): v is string => Boolean(v))
+    .map((v) => v.toLowerCase().split(",")[0]!.trim());
+}
+
 function isWallHost(request: NextRequest): boolean {
   // Vercel sometimes preserves the deployment URL in `host` and exposes
   // the user-facing alias only via `x-forwarded-host`. Check both, plus
-  // the parsed nextUrl host as a last resort, before deciding.
-  const fwd = request.headers.get("x-forwarded-host");
-  const host = request.headers.get("host");
-  const candidates = [fwd, host, request.nextUrl.host]
-    .filter((v): v is string => Boolean(v))
-    .map((v) => v.toLowerCase().split(",")[0]!.trim());
-  return candidates.some((c) => WALL_HOSTS.has(c));
+  // the parsed nextUrl host as a last resort, before deciding. Match by
+  // exact membership AND by suffix to tolerate Vercel preview aliases.
+  const candidates = wallHostCandidates(request);
+  return candidates.some(
+    (c) => WALL_HOSTS.has(c) || [...WALL_HOSTS].some((h) => c === h || c.startsWith(h + ":")),
+  );
 }
 
 export async function updateSession(request: NextRequest) {
@@ -64,7 +71,15 @@ export async function updateSession(request: NextRequest) {
   // the user manually typed a different path. Login / static assets must
   // still pass through so the user can sign in on the subdomain.
   const path = request.nextUrl.pathname;
-  if (isWallHost(request)) {
+  const wallHit = isWallHost(request);
+  // Diagnostic — visible via `curl -I` so we can see what hosts the
+  // request carried when the rewrite did or didn't fire.
+  response.headers.set("x-mongolz-wall-host", wallHit ? "hit" : "miss");
+  response.headers.set(
+    "x-mongolz-host-candidates",
+    wallHostCandidates(request).join("|"),
+  );
+  if (wallHit) {
     const allowPassthrough =
       path === "/login" ||
       path.startsWith("/auth/") ||
@@ -80,7 +95,13 @@ export async function updateSession(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/wall";
       url.search = "";
-      return NextResponse.rewrite(url);
+      const rewriteRes = NextResponse.rewrite(url);
+      rewriteRes.headers.set("x-mongolz-wall-host", "rewrite");
+      rewriteRes.headers.set(
+        "x-mongolz-host-candidates",
+        wallHostCandidates(request).join("|"),
+      );
+      return rewriteRes;
     }
   }
 
