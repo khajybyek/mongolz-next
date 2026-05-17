@@ -31,6 +31,9 @@ const securityHeaders = [
 const config: NextConfig = {
   // Next.js 16: typedRoutes нь stable болсон тул experimental-аас гарсан
   typedRoutes: true,
+  // Strip the `X-Powered-By: Next.js` header — framework fingerprinting
+  // makes targeted CVE lookups easier for attackers.
+  poweredByHeader: false,
   // Multiple lockfile warning-аас сэргийлэх — workspace root-ыг тодотгоно
   turbopack: {
     root: __dirname,
