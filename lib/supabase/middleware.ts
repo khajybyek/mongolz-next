@@ -71,15 +71,7 @@ export async function updateSession(request: NextRequest) {
   // the user manually typed a different path. Login / static assets must
   // still pass through so the user can sign in on the subdomain.
   const path = request.nextUrl.pathname;
-  const wallHit = isWallHost(request);
-  // Diagnostic — visible via `curl -I` so we can see what hosts the
-  // request carried when the rewrite did or didn't fire.
-  response.headers.set("x-mongolz-wall-host", wallHit ? "hit" : "miss");
-  response.headers.set(
-    "x-mongolz-host-candidates",
-    wallHostCandidates(request).join("|"),
-  );
-  if (wallHit) {
+  if (isWallHost(request)) {
     const allowPassthrough =
       path === "/login" ||
       path.startsWith("/auth/") ||
@@ -95,13 +87,7 @@ export async function updateSession(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/wall";
       url.search = "";
-      const rewriteRes = NextResponse.rewrite(url);
-      rewriteRes.headers.set("x-mongolz-wall-host", "rewrite");
-      rewriteRes.headers.set(
-        "x-mongolz-host-candidates",
-        wallHostCandidates(request).join("|"),
-      );
-      return rewriteRes;
+      return NextResponse.rewrite(url);
     }
   }
 
