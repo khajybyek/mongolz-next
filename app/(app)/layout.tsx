@@ -2,6 +2,7 @@ import { Sidebar } from "@/components/sidebar";
 import { RealtimeAlerts } from "@/components/realtime-alerts";
 import { requireUser } from "@/lib/supabase/auth";
 import { getServerLang } from "@/lib/i18n/server";
+import { LangProvider } from "@/lib/i18n/client";
 import { isStaging, envLabel } from "@/lib/env";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -29,6 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const DISMISS: Record<string, string> = { mn: "Хаах", en: "Close", kr: "닫기" };
 
   return (
+    <LangProvider initial={lang}>
     <div className="md:flex min-h-screen relative">
       {/* Ambient backdrop gradient — Linear/Vercel feel */}
       <div
@@ -67,5 +69,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         />
       )}
     </div>
+    </LangProvider>
   );
 }

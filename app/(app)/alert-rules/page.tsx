@@ -44,7 +44,7 @@ export default async function AlertRulesPage() {
       />
 
       {rules.length === 0 ? (
-        <Empty message="Хараахан дүрэм байхгүй. Дээрх формоор үүсгэнэ үү." />
+        <Empty message={t("ar_empty")} />
       ) : (
         <RulesTable rules={rules} />
       )}

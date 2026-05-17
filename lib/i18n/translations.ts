@@ -559,6 +559,237 @@ export const T = {
     kr: "이상 탐지 및 알림 요약을 실행합니다.",
   },
   ai_card_cta: { mn: "AI нээх", en: "Open AI", kr: "AI 열기" },
+
+  // ─── active-learning ───
+  al_suggested_thresholds: {
+    mn: "Санал болгож буй threshold-ууд",
+    en: "Suggested thresholds",
+    kr: "추천 임계값",
+  },
+  refresh: { mn: "Шинэчлэх", en: "Refresh", kr: "새로고침" },
+  loading_dots: { mn: "Ачаалж байна…", en: "Loading…", kr: "불러오는 중…" },
+  no_suspects_yet: { mn: "Сэжигтэн байхгүй", en: "No suspects", kr: "용의자 없음" },
+  no_labels: { mn: "Шошго байхгүй", en: "No labels", kr: "라벨 없음" },
+  total_lower: { mn: "нийт", en: "total", kr: "총" },
+  al_threshold_hint: {
+    mn: "Шошголсон сэрэмжлүүлэг дээр үндэслэн F1-оптимал threshold-ыг тооцоолно. Хангалттай data (10+) хуримтлуулсны дараа алдааны түвшин буурна.",
+    en: "F1-optimal threshold is computed from labeled alerts. Error rate drops after 10+ labels.",
+    kr: "F1 최적 임계값은 라벨이 지정된 알림에서 계산됩니다. 10개 이상 라벨 후 오류율이 감소합니다.",
+  },
+  al_pending: { mn: "Хүлээгдэж буй", en: "Pending", kr: "대기 중" },
+  no_alerts_yet: { mn: "Сэрэмжлүүлэг байхгүй", en: "No alerts yet", kr: "알림 없음" },
+  al_label_tp_tip: { mn: "Зөв match", en: "Correct match", kr: "정확한 매치" },
+  al_label_fp_tip: { mn: "Буруу match", en: "Incorrect match", kr: "잘못된 매치" },
+  al_label_clear_tip: { mn: "Шошго цуцлах", en: "Clear label", kr: "라벨 지우기" },
+  al_unknown_count: { mn: "тодорхойгүй", en: "unknown", kr: "불명" },
+
+  // ─── alert-rules ───
+  ar_empty: {
+    mn: "Хараахан дүрэм байхгүй. Дээрх формоор үүсгэнэ үү.",
+    en: "No rules yet. Use the form above to create one.",
+    kr: "아직 규칙이 없습니다. 위 양식으로 생성하세요.",
+  },
+  ar_new_rule_btn: { mn: "Шинэ дүрэм", en: "New rule", kr: "새 규칙" },
+  ar_added_ok: { mn: "Дүрэм нэмлээ", en: "Rule added", kr: "규칙 추가됨" },
+  ar_form_title: { mn: "Шинэ alert дүрэм", en: "New alert rule", kr: "새 알림 규칙" },
+  ar_name_placeholder: {
+    mn: "Дүрмийн нэр (жнь: 'Гол хаалга, ажлын цаг')",
+    en: "Rule name (e.g. 'Main entrance, business hours')",
+    kr: "규칙 이름 (예: '정문, 영업시간')",
+  },
+  ar_active: { mn: "Идэвхтэй", en: "Active", kr: "활성" },
+  ar_suspect_label: {
+    mn: "Сэжигтэн (хоосон = бүгд)",
+    en: "Suspect (blank = all)",
+    kr: "용의자 (비어두면 = 전체)",
+  },
+  ar_all_suspects: { mn: "— Бүх сэжигтэн —", en: "— All suspects —", kr: "— 모든 용의자 —" },
+  ar_camera_label: {
+    mn: "Камер (хоосон = бүгд)",
+    en: "Camera (blank = all)",
+    kr: "카메라 (비어두면 = 전체)",
+  },
+  ar_all_cameras: { mn: "— Бүх камер —", en: "— All cameras —", kr: "— 모든 카메라 —" },
+  ar_min_sim: { mn: "Min similarity", en: "Min similarity", kr: "최소 유사도" },
+  ar_dedup_win: {
+    mn: "Dedup цонх (сек)",
+    en: "Dedup window (sec)",
+    kr: "중복 제거 창 (초)",
+  },
+  ar_burst_count: {
+    mn: "Burst min (хэдэн ширхэг)",
+    en: "Burst min (count)",
+    kr: "버스트 최소 (개수)",
+  },
+  ar_burst_win: {
+    mn: "Burst цонх (сек)",
+    en: "Burst window (sec)",
+    kr: "버스트 창 (초)",
+  },
+  ar_quiet_from: {
+    mn: "Чимээгүй эхлэх (KST)",
+    en: "Quiet start (KST)",
+    kr: "정숙 시작 (KST)",
+  },
+  ar_quiet_to: {
+    mn: "Чимээгүй дуусах (KST)",
+    en: "Quiet end (KST)",
+    kr: "정숙 종료 (KST)",
+  },
+  create_btn: { mn: "Үүсгэх", en: "Create", kr: "생성" },
+  cancel_btn: { mn: "Цуцлах", en: "Cancel", kr: "취소" },
+  col_name: { mn: "Нэр", en: "Name", kr: "이름" },
+  col_scope: { mn: "Хамрах хүрээ", en: "Scope", kr: "범위" },
+  col_quiet: { mn: "Чимээгүй", en: "Quiet", kr: "정숙" },
+  col_action: { mn: "Үйлдэл", en: "Action", kr: "작업" },
+  scope_suspect: { mn: "Сэжигтэн", en: "Suspect", kr: "용의자" },
+  scope_camera: { mn: "Камер", en: "Camera", kr: "카메라" },
+  any_lower: { mn: "бүгд", en: "any", kr: "전체" },
+  off_lower: { mn: "идэвхгүй", en: "off", kr: "비활성" },
+  delete_btn: { mn: "Устгах", en: "Delete", kr: "삭제" },
+  delete_confirm: {
+    mn: "Энэ дүрмийг устгах уу?",
+    en: "Delete this rule?",
+    kr: "이 규칙을 삭제하시겠습니까?",
+  },
+
+  // ─── alerts-live ───
+  al_live_chart_title: {
+    mn: "Сүүлийн 60 минут — 5 минут тутам",
+    en: "Last 60 minutes — every 5 min",
+    kr: "지난 60분 — 5분 간격",
+  },
+  no_activity: { mn: "Идэвхгүй", en: "No activity", kr: "활동 없음" },
+  al_live_empty: {
+    mn: "Alert байхгүй. Шинэ alert үүсэхэд автоматаар нэмэгдэнэ.",
+    en: "No alerts. New alerts will appear automatically.",
+    kr: "알림 없음. 새 알림이 자동으로 표시됩니다.",
+  },
+
+  // ─── live (camera) ───
+  live_mode_device: {
+    mn: "Тухайн төхөөрөмж",
+    en: "This device",
+    kr: "이 기기",
+  },
+  live_mode_phone: { mn: "Гар утас", en: "Phone", kr: "휴대폰" },
+  live_perm_error: {
+    mn: "Камер хандах эрх олгогдсонгүй",
+    en: "Camera permission denied",
+    kr: "카메라 권한이 거부됨",
+  },
+  live_press_start: {
+    mn: '"Эхлүүлэх" товчийг дар',
+    en: 'Press "Start"',
+    kr: '"시작" 버튼을 누르세요',
+  },
+  live_select_cam: { mn: "Камер сонгох", en: "Select camera", kr: "카메라 선택" },
+  live_no_devices: { mn: "— Илрээгүй —", en: "— None found —", kr: "— 없음 —" },
+  live_camera_off_btn: {
+    mn: "Камер унтраах",
+    en: "Stop camera",
+    kr: "카메라 끄기",
+  },
+  live_start_btn: { mn: "Эхлүүлэх", en: "Start", kr: "시작" },
+  live_rec_start_btn: {
+    mn: "Бичлэг эхлүүлэх",
+    en: "Start recording",
+    kr: "녹화 시작",
+  },
+  live_rec_stop_btn: {
+    mn: "Бичлэг зогсоох",
+    en: "Stop recording",
+    kr: "녹화 정지",
+  },
+  live_processing: {
+    mn: "Боловсруулж байна…",
+    en: "Processing…",
+    kr: "처리 중…",
+  },
+  live_keep_page: {
+    mn: "Хуудсыг хаахгүй.",
+    en: "Keep this page open.",
+    kr: "페이지를 닫지 마세요.",
+  },
+  live_view_playback: {
+    mn: "Playback хуудаст харах →",
+    en: "View on Playback page →",
+    kr: "재생 페이지에서 보기 →",
+  },
+  faces_count_label: { mn: "нүүр", en: "faces", kr: "얼굴" },
+  live_processing_hint: {
+    mn: "Face detection (InsightFace), mosaic anonymization, AES-256 encrypt — бичлэгийн уртаас хамаарч ~30-90 секунд хүлээгээрэй.",
+    en: "Face detection (InsightFace), mosaic anonymization, AES-256 encrypt — wait ~30-90 seconds depending on length.",
+    kr: "얼굴 감지 (InsightFace), 모자이크 익명화, AES-256 암호화 — 길이에 따라 ~30-90초 대기.",
+  },
+  live_recording_hint: {
+    mn: "Бичлэг < 100MB. Face detection, mosaic, encrypted original бүгд автомат — multi-ID reveal боломжтой.",
+    en: "Recordings < 100MB. Face detection, mosaic, encrypted original all automatic — multi-ID reveal supported.",
+    kr: "녹화 < 100MB. 얼굴 감지, 모자이크, 암호화된 원본 모두 자동 — 다중 ID 공개 지원.",
+  },
+  live_cctv_press_start: {
+    mn: 'Камер сонгож "Эхлүүлэх" дар',
+    en: 'Select a camera and press "Start"',
+    kr: '카메라를 선택하고 "시작"을 누르세요',
+  },
+  live_cctv_hint: {
+    mn: "(RTSP → HLS — Python ML service шаардана)",
+    en: "(RTSP → HLS — Python ML service required)",
+    kr: "(RTSP → HLS — Python ML 서비스 필요)",
+  },
+  live_registered_cctv: {
+    mn: "Бүртгэлтэй CCTV",
+    en: "Registered CCTV",
+    kr: "등록된 CCTV",
+  },
+  manage_btn: { mn: "Удирдах →", en: "Manage →", kr: "관리 →" },
+  live_no_cameras_msg: {
+    mn: "Камер бүртгэгдээгүй.",
+    en: "No cameras registered.",
+    kr: "등록된 카메라가 없습니다.",
+  },
+  live_manage_cameras_link: {
+    mn: '"Камер удирдах"',
+    en: '"Manage cameras"',
+    kr: '"카메라 관리"',
+  },
+  live_add_from_page: {
+    mn: "хуудаснаас нэмнэ үү.",
+    en: "page to add one.",
+    kr: "페이지에서 추가하세요.",
+  },
+  live_phone_press_connect: {
+    mn: 'URL оруулаад "Холбогдох" дар',
+    en: 'Enter URL and press "Connect"',
+    kr: 'URL을 입력하고 "연결"을 누르세요',
+  },
+  live_stream_type: {
+    mn: "Stream төрөл",
+    en: "Stream type",
+    kr: "스트림 유형",
+  },
+  live_phone_url: {
+    mn: "Утасны Stream URL",
+    en: "Phone stream URL",
+    kr: "휴대폰 스트림 URL",
+  },
+  live_disconnect_btn: { mn: "Тасрах", en: "Disconnect", kr: "연결 해제" },
+  live_connect_btn: { mn: "Холбогдох", en: "Connect", kr: "연결" },
+  live_phone_hint_title: {
+    mn: "💡 Утасны IP Webcam яаж тохируулах вэ?",
+    en: "💡 How to set up phone IP Webcam?",
+    kr: "💡 휴대폰 IP 웹캠을 어떻게 설정하나요?",
+  },
+  live_camera_not_opened: {
+    mn: "Камер нээгдсэнгүй",
+    en: "Camera could not open",
+    kr: "카메라를 열 수 없습니다",
+  },
+  live_ml_unreachable: {
+    mn: "Python ML service хариулсангүй. ml-service folder-аас `uvicorn main:app --port 8000` ажиллуулна уу.",
+    en: "Python ML service unreachable. Run `uvicorn main:app --port 8000` from the ml-service folder.",
+    kr: "Python ML 서비스에 연결할 수 없습니다. ml-service 폴더에서 `uvicorn main:app --port 8000`를 실행하세요.",
+  },
 } as const;
 
 export type TranslationKey = keyof typeof T;

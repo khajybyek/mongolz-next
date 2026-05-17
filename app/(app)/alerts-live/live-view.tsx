@@ -11,6 +11,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
+import { useT } from "@/lib/i18n/client";
 
 interface Alert {
   id: string;
@@ -36,6 +37,7 @@ interface Props {
 }
 
 export function LiveAlertsView({ seed, labels }: Props) {
+  const { t, lang } = useT();
   const [alerts, setAlerts] = useState<Alert[]>(seed);
   const [connected, setConnected] = useState(false);
 
@@ -126,7 +128,7 @@ export function LiveAlertsView({ seed, labels }: Props) {
 
       {/* Histogram chart */}
       <div className="card">
-        <h3 className="text-sm font-semibold mb-3">Сүүлийн 60 минут — 5 минут тутам</h3>
+        <h3 className="text-sm font-semibold mb-3">{t("al_live_chart_title")}</h3>
         <div style={{ width: "100%", height: 200 }}>
           <ResponsiveContainer>
             <BarChart data={histogram} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
@@ -152,7 +154,7 @@ export function LiveAlertsView({ seed, labels }: Props) {
         <div className="card">
           <h3 className="text-sm font-semibold mb-3">{labels.topSuspects}</h3>
           {bySuspect.length === 0 ? (
-            <p className="text-xs text-neutral-500 py-6 text-center">Идэвхгүй</p>
+            <p className="text-xs text-text-muted py-6 text-center">{t("no_activity")}</p>
           ) : (
             <ul className="space-y-1.5">
               {bySuspect.map(([name, count]) => (
@@ -167,7 +169,7 @@ export function LiveAlertsView({ seed, labels }: Props) {
         <div className="card">
           <h3 className="text-sm font-semibold mb-3">{labels.topCameras}</h3>
           {byCamera.length === 0 ? (
-            <p className="text-xs text-neutral-500 py-6 text-center">Идэвхгүй</p>
+            <p className="text-xs text-text-muted py-6 text-center">{t("no_activity")}</p>
           ) : (
             <ul className="space-y-1.5">
               {byCamera.map(([name, count]) => (
@@ -188,8 +190,8 @@ export function LiveAlertsView({ seed, labels }: Props) {
         </div>
         <div className="max-h-80 overflow-y-auto">
           {alerts.length === 0 ? (
-            <p className="text-xs text-neutral-500 py-8 text-center">
-              Alert байхгүй. Шинэ alert үүсэхэд автоматаар нэмэгдэнэ.
+            <p className="text-xs text-text-muted py-8 text-center">
+              {t("al_live_empty")}
             </p>
           ) : (
             <table className="w-full text-sm">
@@ -215,8 +217,10 @@ export function LiveAlertsView({ seed, labels }: Props) {
                         {(a.similarity * 100).toFixed(0)}%
                       </span>
                     </td>
-                    <td className="px-4 py-2 text-xs text-neutral-500 whitespace-nowrap">
-                      {new Date(a.created_at).toLocaleTimeString("mn-MN")}
+                    <td className="px-4 py-2 text-xs text-text-muted whitespace-nowrap">
+                      {new Date(a.created_at).toLocaleTimeString(
+                        lang === "kr" ? "ko-KR" : lang === "en" ? "en-US" : "mn-MN"
+                      )}
                     </td>
                   </tr>
                 ))}

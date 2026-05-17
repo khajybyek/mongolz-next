@@ -14,6 +14,7 @@ import {
 import { HlsPlayer } from "@/components/hls-player";
 import { startCameraAction, stopCameraAction, getStreamTicketAction } from "./actions";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/client";
 
 interface Camera {
   id: string;
@@ -25,16 +26,17 @@ interface Camera {
 type Mode = "device" | "phone" | "cctv";
 
 export function LiveCameraView({ cameras }: { cameras: Camera[] }) {
+  const { t } = useT();
   const [mode, setMode] = useState<Mode>("device");
 
   return (
     <div className="space-y-4">
       <div className="card flex items-center gap-2 p-2 w-fit">
         <ModeBtn current={mode} value="device" onClick={setMode} icon={Laptop}>
-          Тухайн төхөөрөмж
+          {t("live_mode_device")}
         </ModeBtn>
         <ModeBtn current={mode} value="phone" onClick={setMode} icon={Smartphone}>
-          Гар утас
+          {t("live_mode_phone")}
         </ModeBtn>
         <ModeBtn current={mode} value="cctv" onClick={setMode} icon={Cctv}>
           IP CCTV
@@ -94,6 +96,7 @@ function pickMimeType(): string {
 }
 
 function DeviceCameraView() {
+  const { t } = useT();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const detectorRafRef = useRef<number | null>(null);
@@ -131,11 +134,8 @@ function DeviceCameraView() {
         setDevices(cams);
         if (cams[0]) setDeviceId(cams[0].deviceId);
       } catch (e) {
-        setError(
-          e instanceof Error
-            ? `Камер хандах эрх олгогдсонгүй: ${e.message}`
-            : "Камер хандах эрх олгогдсонгүй"
-        );
+        const prefix = t("live_perm_error");
+        setError(e instanceof Error ? `${prefix}: ${e.message}` : prefix);
       }
     })();
   }, []);
@@ -152,7 +152,7 @@ function DeviceCameraView() {
       setStream(s);
       setActive(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Камер нээгдсэнгүй");
+      setError(e instanceof Error ? e.message : t("live_camera_not_opened"));
     }
   }
 
@@ -405,8 +405,8 @@ function DeviceCameraView() {
           className="absolute inset-0 w-full h-full object-contain pointer-events-none"
         />
         {!active && !error && (
-          <div className="absolute inset-0 flex items-center justify-center text-neutral-500 text-sm pointer-events-none">
-            &quot;Эхлүүлэх&quot; товчийг дар
+          <div className="absolute inset-0 flex items-center justify-center text-text-muted text-sm pointer-events-none">
+            {t("live_press_start")}
           </div>
         )}
         {recording && (
@@ -417,31 +417,29 @@ function DeviceCameraView() {
           </div>
         )}
         {active && detectorBackend !== "off" && (
-          <div className="absolute top-3 right-3 text-[10px] font-medium px-2.5 py-1 rounded-full bg-bg-secondary/80 backdrop-blur border border-white/10 flex items-center gap-1.5">
-            <span className={detectorReady ? "text-accent" : "text-neutral-500"}>●</span>
-            <span className="text-neutral-300">
-              {detectorReady ? `${faceCount} нүүр` : "loading…"}
+          <div className="absolute top-3 right-3 text-2xs font-medium px-2.5 py-1 rounded-full bg-surface/80 backdrop-blur border border-border-strong flex items-center gap-1.5">
+            <span className={detectorReady ? "text-accent" : "text-text-muted"}>●</span>
+            <span className="text-text-soft">
+              {detectorReady ? `${faceCount} ${t("faces_count_label")}` : "loading…"}
             </span>
-            <span className="text-neutral-500 uppercase">{detectorBackend}</span>
+            <span className="text-text-muted uppercase">{detectorBackend}</span>
           </div>
         )}
       </div>
 
       <div className="card space-y-3">
         <div>
-          <label className="text-xs uppercase tracking-wide text-neutral-400 mb-1.5 block">
-            Камер сонгох
-          </label>
+          <label className="label">{t("live_select_cam")}</label>
           <select
             value={deviceId}
             onChange={(e) => setDeviceId(e.target.value)}
             disabled={active || !devices.length}
             className="input"
           >
-            {devices.length === 0 && <option>— Илрээгүй —</option>}
+            {devices.length === 0 && <option>{t("live_no_devices")}</option>}
             {devices.map((d) => (
               <option key={d.deviceId} value={d.deviceId}>
-                {d.label || `Камер ${d.deviceId.slice(0, 6)}`}
+                {d.label || `${t("nav_cameras")} ${d.deviceId.slice(0, 6)}`}
               </option>
             ))}
           </select>
@@ -458,7 +456,7 @@ function DeviceCameraView() {
           <div className="bg-success/10 border border-success/30 rounded-lg p-2.5 text-xs text-success">
             {savedMsg}{" "}
             <Link href="/playback" className="underline hover:text-success/80">
-              Playback хуудаст харах →
+              {t("live_view_playback")}
             </Link>
           </div>
         )}
@@ -467,12 +465,12 @@ function DeviceCameraView() {
         {active ? (
           <button onClick={stop} className="btn-ghost w-full" disabled={uploading}>
             <Square className="w-4 h-4" />
-            Камер унтраах
+            {t("live_camera_off_btn")}
           </button>
         ) : (
           <button onClick={start} className="btn-primary w-full" disabled={uploading}>
             <Play className="w-4 h-4" />
-            Эхлүүлэх
+            {t("live_start_btn")}
           </button>
         )}
 
@@ -486,12 +484,12 @@ function DeviceCameraView() {
                 className="btn-primary w-full bg-danger hover:bg-danger/90"
               >
                 <span className="w-2.5 h-2.5 rounded-full bg-white" />
-                Бичлэг эхлүүлэх
+                {t("live_rec_start_btn")}
               </button>
             ) : (
               <button onClick={stopRecording} className="btn-ghost w-full">
                 <Square className="w-4 h-4" />
-                Бичлэг зогсоох
+                {t("live_rec_stop_btn")}
               </button>
             )}
           </>
@@ -501,7 +499,7 @@ function DeviceCameraView() {
           <div className="bg-accent/10 border border-accent/30 rounded-lg p-3 text-xs text-accent space-y-2">
             <div className="flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-              <span className="font-medium">Боловсруулж байна...</span>
+              <span className="font-medium">{t("live_processing")}</span>
               <span className="ml-auto font-mono">
                 {Math.floor(uploadElapsed / 60)
                   .toString()
@@ -509,19 +507,13 @@ function DeviceCameraView() {
                 :{(uploadElapsed % 60).toString().padStart(2, "0")}
               </span>
             </div>
-            <div className="text-[10px] text-neutral-400 leading-relaxed">
-              Face detection (InsightFace), mosaic anonymization, AES-256
-              encrypt — бичлэгийн уртаас хамаарч{" "}
-              <span className="text-accent">~30-90 секунд</span> хүлээгээрэй.
-              Хуудсыг хаахгүй.
+            <div className="text-2xs text-text-soft leading-relaxed">
+              {t("live_processing_hint")} {t("live_keep_page")}
             </div>
           </div>
         )}
 
-        <p className="text-[11px] text-neutral-500 leading-relaxed">
-          💡 Бичлэг {`<`} 100MB. Face detection, mosaic, encrypted original
-          бүгд автомат — multi-ID reveal боломжтой.
-        </p>
+        <p className="text-2xs text-text-muted leading-relaxed">💡 {t("live_recording_hint")}</p>
       </div>
     </div>
   );
@@ -531,6 +523,7 @@ function DeviceCameraView() {
 // 2. Phone — IP Webcam app (HTTP MJPEG/MP4 stream)
 // ────────────────────────────────────────────────────
 function PhoneIpWebcamView() {
+  const { t } = useT();
   const [url, setUrl] = useState("http://192.168.1.5:8080/video");
   const [active, setActive] = useState(false);
   const [streamType, setStreamType] = useState<"mjpeg" | "mp4">("mjpeg");
@@ -539,9 +532,7 @@ function PhoneIpWebcamView() {
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">
       <div className="card p-0 overflow-hidden bg-black aspect-video relative flex items-center justify-center">
         {!active ? (
-          <div className="text-neutral-500 text-sm">
-            URL оруулаад "Холбогдох" дар
-          </div>
+          <div className="text-text-muted text-sm">{t("live_phone_press_connect")}</div>
         ) : streamType === "mjpeg" ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -563,9 +554,7 @@ function PhoneIpWebcamView() {
 
       <div className="card space-y-3">
         <div>
-          <label className="text-xs uppercase tracking-wide text-neutral-400 mb-1.5 block">
-            Stream төрөл
-          </label>
+          <label className="label">{t("live_stream_type")}</label>
           <select
             value={streamType}
             onChange={(e) => setStreamType(e.target.value as "mjpeg" | "mp4")}
@@ -578,9 +567,7 @@ function PhoneIpWebcamView() {
         </div>
 
         <div>
-          <label className="text-xs uppercase tracking-wide text-neutral-400 mb-1.5 block">
-            Утасны Stream URL
-          </label>
+          <label className="label">{t("live_phone_url")}</label>
           <input
             value={url}
             onChange={(e) => setUrl(e.target.value)}
@@ -593,18 +580,18 @@ function PhoneIpWebcamView() {
         {active ? (
           <button onClick={() => setActive(false)} className="btn-danger w-full">
             <Square className="w-4 h-4" />
-            Тасрах
+            {t("live_disconnect_btn")}
           </button>
         ) : (
           <button onClick={() => setActive(true)} className="btn-primary w-full">
             <Play className="w-4 h-4" />
-            Холбогдох
+            {t("live_connect_btn")}
           </button>
         )}
 
-        <details className="text-[11px] text-neutral-500 leading-relaxed">
-          <summary className="cursor-pointer hover:text-neutral-300">
-            💡 Утасны IP Webcam яаж тохируулах вэ?
+        <details className="text-2xs text-text-muted leading-relaxed">
+          <summary className="cursor-pointer hover:text-text-soft">
+            {t("live_phone_hint_title")}
           </summary>
           <ul className="mt-2 space-y-1 pl-3 list-disc">
             <li>
@@ -627,6 +614,7 @@ function PhoneIpWebcamView() {
 // 3. IP CCTV — RTSP Python ML service-аар HLS-руу хөрвүүлэх
 // ────────────────────────────────────────────────────
 function CctvView({ cameras }: { cameras: Camera[] }) {
+  const { t } = useT();
   const [active, setActive] = useState<string | null>(null);
   const [ticket, setTicket] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -637,14 +625,11 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
     setBusy(true);
     try {
       await startCameraAction(c.id);
-      const t = await getStreamTicketAction(c.id);
-      setTicket(t);
+      const ticketStr = await getStreamTicketAction(c.id);
+      setTicket(ticketStr);
       setActive(c.id);
     } catch {
-      setError(
-        "Python ML service хариулсангүй. ml-service folder-аас " +
-          "`uvicorn main:app --port 8000` ажиллуулна уу."
-      );
+      setError(t("live_ml_unreachable"));
     } finally {
       setBusy(false);
     }
@@ -670,35 +655,30 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
         {streamUrl ? (
           <HlsPlayer src={streamUrl} className="w-full h-full" />
         ) : (
-          <div className="text-neutral-500 text-sm text-center px-4">
-            Камер сонгож "Эхлүүлэх" дар
+          <div className="text-text-muted text-sm text-center px-4">
+            {t("live_cctv_press_start")}
             <br />
-            <span className="text-[11px] text-neutral-600">
-              (RTSP → HLS — Python ML service шаардана)
-            </span>
+            <span className="text-2xs text-text-faint">{t("live_cctv_hint")}</span>
           </div>
         )}
       </div>
 
       <div className="card space-y-2">
-        <h2 className="text-xs uppercase tracking-wide text-neutral-400 mb-2 flex items-center justify-between">
-          Бүртгэлтэй CCTV
-          <a
-            href="/cameras"
-            className="text-[10px] text-accent hover:underline normal-case"
-          >
-            Удирдах →
+        <h2 className="text-2xs uppercase tracking-wide text-text-muted mb-2 flex items-center justify-between">
+          {t("live_registered_cctv")}
+          <a href="/cameras" className="text-2xs text-accent hover:underline normal-case">
+            {t("manage_btn")}
           </a>
         </h2>
 
         {cameras.length === 0 && (
-          <p className="text-xs text-neutral-500 py-4 text-center">
-            Камер бүртгэгдээгүй.
+          <p className="text-xs text-text-muted py-4 text-center">
+            {t("live_no_cameras_msg")}
             <br />
             <a href="/cameras" className="text-accent hover:underline">
-              "Камер удирдах"
+              {t("live_manage_cameras_link")}
             </a>{" "}
-            хуудаснаас нэмнэ үү.
+            {t("live_add_from_page")}
           </p>
         )}
 

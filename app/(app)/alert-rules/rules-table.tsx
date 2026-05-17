@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Trash2, Power, Loader2 } from "lucide-react";
 import { toggleRuleAction, deleteRuleAction } from "./actions";
 import { formatDate } from "@/lib/utils";
+import { useT } from "@/lib/i18n/client";
 
 interface Rule {
   id: string;
@@ -21,6 +22,7 @@ interface Rule {
 }
 
 export function RulesTable({ rules }: { rules: Rule[] }) {
+  const { t } = useT();
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -33,7 +35,7 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
   }
 
   function remove(r: Rule) {
-    if (!confirm(`"${r.name}" дүрмийг устгах уу?`)) return;
+    if (!confirm(`"${r.name}" — ${t("delete_confirm")}`)) return;
     setBusy(r.id);
     startTransition(async () => {
       await deleteRuleAction(r.id);
@@ -42,71 +44,89 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
   }
 
   return (
-    <div className="card overflow-x-auto p-0">
-      <table className="w-full text-sm">
-        <thead className="bg-bg-tertiary/50">
-          <tr className="text-xs uppercase tracking-wide text-neutral-400">
-            <th className="px-4 py-2.5 text-left">Нэр</th>
-            <th className="px-4 py-2.5 text-left">Хамрах хүрээ</th>
-            <th className="px-4 py-2.5 text-left">Threshold</th>
-            <th className="px-4 py-2.5 text-left">Dedup</th>
-            <th className="px-4 py-2.5 text-left">Burst</th>
-            <th className="px-4 py-2.5 text-left">Чимээгүй</th>
-            <th className="px-4 py-2.5 text-right">Үйлдэл</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/5">
-          {rules.map((r) => (
-            <tr key={r.id} className="hover:bg-white/[0.02]">
-              <td className="px-4 py-2.5">
-                <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${r.enabled ? "bg-success" : "bg-neutral-600"}`} />
-                  <span className="font-medium">{r.name}</span>
-                </div>
-                <div className="text-[10px] text-neutral-500 mt-0.5">{formatDate(r.created_at)}</div>
-              </td>
-              <td className="px-4 py-2.5 text-xs text-neutral-400">
-                <div>Сэжигтэн: <span className="text-neutral-200">{r.suspect_name ?? "any"}</span></div>
-                <div>Камер: <span className="text-neutral-200">{r.camera_name ?? "any"}</span></div>
-              </td>
-              <td className="px-4 py-2.5 text-xs font-mono">≥ {r.min_similarity.toFixed(2)}</td>
-              <td className="px-4 py-2.5 text-xs">{r.dedup_window_sec === 0 ? "off" : `${r.dedup_window_sec}s`}</td>
-              <td className="px-4 py-2.5 text-xs">
-                {r.burst_count > 1 ? `${r.burst_count} / ${r.burst_window_sec}s` : "off"}
-              </td>
-              <td className="px-4 py-2.5 text-xs">
-                {r.quiet_from && r.quiet_to ? `${r.quiet_from}—${r.quiet_to}` : "—"}
-              </td>
-              <td className="px-4 py-2.5">
-                <div className="flex items-center justify-end gap-1.5">
-                  <button
-                    disabled={pending && busy === r.id}
-                    onClick={() => toggle(r)}
-                    title={r.enabled ? "Disable" : "Enable"}
-                    className={`p-1.5 rounded hover:bg-white/5 ${
-                      r.enabled ? "text-success" : "text-neutral-500"
-                    }`}
-                  >
-                    {pending && busy === r.id ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Power className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                  <button
-                    disabled={pending && busy === r.id}
-                    onClick={() => remove(r)}
-                    title="Устгах"
-                    className="p-1.5 rounded hover:bg-danger/15 text-neutral-400 hover:text-danger"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </td>
+    <div className="card p-0 overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>{t("col_name")}</th>
+              <th>{t("col_scope")}</th>
+              <th>Threshold</th>
+              <th>Dedup</th>
+              <th>Burst</th>
+              <th>{t("col_quiet")}</th>
+              <th className="text-right">{t("col_action")}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rules.map((r) => (
+              <tr key={r.id}>
+                <td>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        r.enabled ? "bg-success" : "bg-text-faint"
+                      }`}
+                    />
+                    <span className="font-medium text-text">{r.name}</span>
+                  </div>
+                  <div className="text-2xs text-text-muted mt-0.5">
+                    {formatDate(r.created_at)}
+                  </div>
+                </td>
+                <td className="text-xs">
+                  <div>
+                    {t("scope_suspect")}:{" "}
+                    <span className="text-text">{r.suspect_name ?? t("any_lower")}</span>
+                  </div>
+                  <div>
+                    {t("scope_camera")}:{" "}
+                    <span className="text-text">{r.camera_name ?? t("any_lower")}</span>
+                  </div>
+                </td>
+                <td className="text-xs font-mono">≥ {r.min_similarity.toFixed(2)}</td>
+                <td className="text-xs">
+                  {r.dedup_window_sec === 0 ? t("off_lower") : `${r.dedup_window_sec}s`}
+                </td>
+                <td className="text-xs">
+                  {r.burst_count > 1
+                    ? `${r.burst_count} / ${r.burst_window_sec}s`
+                    : t("off_lower")}
+                </td>
+                <td className="text-xs">
+                  {r.quiet_from && r.quiet_to ? `${r.quiet_from}—${r.quiet_to}` : "—"}
+                </td>
+                <td>
+                  <div className="flex items-center justify-end gap-1.5">
+                    <button
+                      disabled={pending && busy === r.id}
+                      onClick={() => toggle(r)}
+                      title={r.enabled ? "Disable" : "Enable"}
+                      className={`p-1.5 rounded hover:bg-white/5 ${
+                        r.enabled ? "text-success" : "text-text-muted"
+                      }`}
+                    >
+                      {pending && busy === r.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Power className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    <button
+                      disabled={pending && busy === r.id}
+                      onClick={() => remove(r)}
+                      title={t("delete_btn")}
+                      className="p-1.5 rounded hover:bg-danger-soft text-text-soft hover:text-danger"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
+import { Badge } from "@/components/ui/badge";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatDate, pct } from "@/lib/utils";
@@ -38,53 +39,60 @@ export default async function ActiveLearningPage() {
 
       <div className="card mb-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-neutral-500">{t("col_total")}</div>
-          <div className="text-xl font-bold">{stats.total}</div>
+          <div className="text-2xs uppercase tracking-wide text-text-muted">{t("col_total")}</div>
+          <div className="text-xl font-bold text-text">{stats.total}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-neutral-500">True positive</div>
+          <div className="text-2xs uppercase tracking-wide text-text-muted">True positive</div>
           <div className="text-xl font-bold text-success">{stats.tp}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-neutral-500">False positive</div>
+          <div className="text-2xs uppercase tracking-wide text-text-muted">False positive</div>
           <div className="text-xl font-bold text-danger">{stats.fp}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-neutral-500">Хүлээгдэж буй</div>
+          <div className="text-2xs uppercase tracking-wide text-text-muted">
+            {t("al_pending")}
+          </div>
           <div className="text-xl font-bold text-warning">{stats.pending}</div>
         </div>
       </div>
 
       {!alerts?.length ? (
-        <Empty message="Сэрэмжлүүлэг байхгүй" />
+        <Empty message={t("no_alerts_yet")} />
       ) : (
-        <div className="card overflow-x-auto p-0">
-          <table className="w-full text-sm">
-            <thead className="bg-bg-tertiary/50">
-              <tr className="text-xs uppercase tracking-wide text-neutral-400">
-                <th className="px-4 py-2.5 text-left">Сэжигтэн</th>
-                <th className="px-4 py-2.5 text-left">Камер</th>
-                <th className="px-4 py-2.5 text-left">Таарц</th>
-                <th className="px-4 py-2.5 text-left">Цаг</th>
-                <th className="px-4 py-2.5 text-left">Label</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {alerts.map((a) => (
-                <tr key={a.id} className="hover:bg-white/[0.02]">
-                  <td className="px-4 py-2.5 font-medium">{a.suspect_name}</td>
-                  <td className="px-4 py-2.5 text-neutral-400">{a.camera_name ?? "—"}</td>
-                  <td className="px-4 py-2.5">
-                    <span className="badge bg-warning/15 text-warning">{pct(a.similarity)}</span>
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-neutral-500">{formatDate(a.created_at)}</td>
-                  <td className="px-4 py-2.5">
-                    <LabelButtons id={a.id} current={a.label as "true_positive" | "false_positive" | "unknown"} />
-                  </td>
+        <div className="card p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>{t("col_suspect")}</th>
+                  <th>{t("col_camera")}</th>
+                  <th>{t("col_similarity")}</th>
+                  <th>{t("col_when")}</th>
+                  <th>Label</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {alerts.map((a) => (
+                  <tr key={a.id}>
+                    <td className="font-medium text-text">{a.suspect_name}</td>
+                    <td>{a.camera_name ?? "—"}</td>
+                    <td>
+                      <Badge variant="warning">{pct(a.similarity)}</Badge>
+                    </td>
+                    <td className="text-2xs">{formatDate(a.created_at)}</td>
+                    <td>
+                      <LabelButtons
+                        id={a.id}
+                        current={a.label as "true_positive" | "false_positive" | "unknown"}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </>
