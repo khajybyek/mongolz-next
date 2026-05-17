@@ -1097,6 +1097,88 @@ export const T = {
   // ─── sidebar nav additions ───
   nav_demo: { mn: "Демо", en: "Demo", kr: "데모" },
   nav_compare: { mn: "Харьцуулалт", en: "Compare", kr: "비교" },
+  nav_ml_lab: { mn: "ML лаб", en: "ML Lab", kr: "ML 실험실" },
+
+  // ─── ML Lab ───
+  ml_lab_title: { mn: "ML лаб", en: "ML Lab", kr: "ML 실험실" },
+  ml_lab_subtitle: {
+    mn: "Anti-spoof + multi-frame embedding fusion",
+    en: "Anti-spoof + multi-frame embedding fusion",
+    kr: "Anti-spoof + 다중 프레임 임베딩 융합",
+  },
+  ml_lab_tab_antispoof: { mn: "Anti-spoof", en: "Anti-spoof", kr: "Anti-spoof" },
+  ml_lab_tab_fusion: { mn: "Embedding fusion", en: "Embedding fusion", kr: "임베딩 융합" },
+  ml_lab_drop: { mn: "Нүүртэй зураг тавь", en: "Drop a face image", kr: "얼굴 이미지를 넣으세요" },
+  ml_lab_drop_hint: {
+    mn: "Бид InsightFace-аар нүүрийн bbox crop хийгээд liveness-ыг тооцоолно.",
+    en: "We crop the bbox via InsightFace and score liveness.",
+    kr: "InsightFace로 bbox를 자르고 라이브니스를 점수화합니다.",
+  },
+  ml_lab_run_antispoof: { mn: "Anti-spoof ажиллуулах", en: "Run anti-spoof", kr: "Anti-spoof 실행" },
+  ml_lab_no_result: {
+    mn: "Үр дүн алга",
+    en: "No result yet",
+    kr: "결과 없음",
+  },
+  ml_lab_no_result_desc: {
+    mn: "Зураг сонгоод 'Anti-spoof ажиллуулах' дар.",
+    en: "Pick an image and click 'Run anti-spoof'.",
+    kr: "이미지를 선택하고 'Run anti-spoof'를 클릭하세요.",
+  },
+  ml_lab_verdict_live: { mn: "Амьд нүүр (live)", en: "Live face", kr: "실제 얼굴" },
+  ml_lab_verdict_spoof: { mn: "Хуурамч (spoof)", en: "Spoof detected", kr: "스푸핑 감지됨" },
+  ml_lab_spoof_score: { mn: "Spoof score", en: "Spoof score", kr: "스푸핑 점수" },
+  ml_lab_laplacian: { mn: "Laplacian variance", en: "Laplacian variance", kr: "라플라시안 분산" },
+  ml_lab_laplacian_hint: {
+    mn: "Текстур нарийвчлал — хэвлэмэл зураг бага variance-тай.",
+    en: "Texture detail — printed photos have low variance.",
+    kr: "텍스처 세부 — 인쇄된 사진은 분산이 낮습니다.",
+  },
+  ml_lab_color: { mn: "HSV color variance", en: "HSV color variance", kr: "HSV 색상 분산" },
+  ml_lab_color_hint: {
+    mn: "Дэлгэцийн moiré + color cast илрүүлдэг.",
+    en: "Detects screen moiré + color cast.",
+    kr: "화면 모아레와 색 캐스트를 감지합니다.",
+  },
+  ml_lab_frequency: { mn: "FFT high-frequency", en: "FFT high-frequency", kr: "FFT 고주파" },
+  ml_lab_frequency_hint: {
+    mn: "Хэвлэмэл цаас high-spatial-freq-г жигдрүүлдэг.",
+    en: "Photo paper smooths high spatial frequencies.",
+    kr: "인쇄지가 고공간 주파수를 부드럽게 합니다.",
+  },
+  ml_lab_fusion_sim_title: { mn: "Frame fusion simulator", en: "Frame fusion simulator", kr: "프레임 융합 시뮬레이터" },
+  ml_lab_fusion_sim_desc: {
+    mn: "Синтетик ArcFace embedding-ийг noise-той үүсгээд multi-frame fusion-ийг туршина.",
+    en: "Generates synthetic ArcFace embeddings with noise to test multi-frame fusion.",
+    kr: "노이즈가 있는 합성 ArcFace 임베딩을 생성하여 다중 프레임 융합을 테스트합니다.",
+  },
+  ml_lab_frame_count: { mn: "Frame count", en: "Frame count", kr: "프레임 수" },
+  ml_lab_noise: { mn: "Noise", en: "Noise", kr: "노이즈" },
+  ml_lab_noise_hint: {
+    mn: "0 = perfect frames, 0.5 = blurry / motion / occluded.",
+    en: "0 = perfect frames, 0.5 = blurry / motion / occluded.",
+    kr: "0 = 완벽한 프레임, 0.5 = 흐림 / 움직임 / 가림.",
+  },
+  ml_lab_strategy: { mn: "Fusion strategy", en: "Fusion strategy", kr: "융합 전략" },
+  ml_lab_run_fusion: { mn: "Fusion ажиллуулах", en: "Run fusion", kr: "융합 실행" },
+  ml_lab_fusion_no_result: {
+    mn: "Үр дүн алга — 'Fusion ажиллуулах' дар.",
+    en: "No result yet — click 'Run fusion'.",
+    kr: "결과 없음 — 'Run fusion'을 클릭하세요.",
+  },
+  ml_lab_similarity_to_first: {
+    mn: "Эхний frame-тэй similarity",
+    en: "Similarity to first frame",
+    kr: "첫 프레임과의 유사도",
+  },
+  ml_lab_similarity_hint: {
+    mn: "1.0-д ойртох тусам fusion нь noise-ыг арилгасан гэсэн үг.",
+    en: "Closer to 1.0 = fusion has cleaned up the noise.",
+    kr: "1.0에 가까울수록 융합이 노이즈를 제거함.",
+  },
+  ml_lab_frames_used: { mn: "Frame ашигласан", en: "Frames used", kr: "사용된 프레임" },
+  ml_lab_embedding_dim: { mn: "Embedding dim", en: "Embedding dim", kr: "임베딩 차원" },
+  ml_lab_resimulate: { mn: "Дахин simulate", en: "Re-simulate", kr: "재시뮬레이션" },
 
   // ─── /analytics enhancements ───
   analytics_subtitle: {

@@ -66,6 +66,7 @@ const NAV: NavItem[] = [
   { href: "/reveal-approvals", icon: ShieldCheck, labelKey: "nav_reveal_approvals", adminOnly: true },
   { href: "/retention", icon: CalendarClock, labelKey: "nav_retention", adminOnly: true },
   { href: "/active-learning", icon: GraduationCap, labelKey: "nav_active_learning", adminOnly: true },
+  { href: "/ml-lab", icon: Sparkles, labelKey: "nav_ml_lab", adminOnly: true },
   { href: "/benchmarks", icon: Gauge, labelKey: "nav_benchmarks", adminOnly: true },
   { href: "/db-monitor", icon: Database, labelKey: "nav_db_monitor", adminOnly: true },
   { href: "/backup", icon: Archive, labelKey: "nav_backup", adminOnly: true },
