@@ -8,6 +8,8 @@ const PUBLIC_PATHS = [
   "/favicon.ico",
   "/icon",
   "/apple-icon",
+  "/opengraph-image", // Next.js og-image convention — Slack/Twitter crawlers
+  "/twitter-image", // Next.js twitter-image convention
   "/logo.png",
   "/.well-known/", // RFC 8615 reserved (security.txt, etc.)
   "/api/lang", // Login page-аас хэл сольж болохын тулд unauth-аар хүртээмжтэй
