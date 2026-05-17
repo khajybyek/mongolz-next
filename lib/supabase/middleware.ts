@@ -21,6 +21,8 @@ const PUBLIC_PATHS = [
 
 const PUBLIC_EXACT = new Set([
   "/", // Public capstone landing page (home)
+  "/robots.txt", // SEO crawler hint — must be reachable unauthenticated
+  "/sitemap.xml", // SEO sitemap — must be reachable unauthenticated
 ]);
 
 type CookieItem = { name: string; value: string; options?: CookieOptions };
