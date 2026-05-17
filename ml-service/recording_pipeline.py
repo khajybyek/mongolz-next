@@ -59,6 +59,7 @@ ALERT_THRESHOLD = 0.45
 # Хуучин 0.75 нь front-only-д л ажилладаг байсан (side-profile нь шинэ
 # row болж хадгалагддаг асуудалтай).
 DEDUP_THRESHOLD = 0.35  # Хатуу — нэг хүний бүх өнцгийг 1-2 frame-д нэгтгэнэ
+TIER_MATCH_THRESHOLD = 0.40  # Per-face suspect match для tier resolution
 ALERT_COOLDOWN_SEC = 15
 BLUR_KERNEL = (51, 51)
 BLUR_SIGMA = 30
@@ -314,10 +315,12 @@ class RecordingSession:
         # өмнө бүгдийг await хийхэд хэрэглэнэ (race condition засвар).
         self.arcface_tasks: list[asyncio.Task] = []
 
-        # Persistent blur cache: (bbox, ttl_frames). Detection амжилтгүй
+        # Persistent blur cache: (bbox, ttl_frames, tier). Detection амжилтгүй
         # болсон frame-уудад өмнөх box-уудыг үргэлжлүүлэн blur хийнэ.
         # Үр дүнд хүн хөдөлсөн ч face гэнэт илэрхий гарахгүй.
-        self._blur_box_cache: list[tuple[tuple[int, int, int, int], int]] = []
+        # tier нь last-known privacy_tier — InsightFace step-аас embedding-аар
+        # шинэчлэгдэнэ; Haar нь embedding-гүй тул "standard" заана.
+        self._blur_box_cache: list[tuple[tuple[int, int, int, int], int, str]] = []
         self._blur_frame_idx = 0
 
         # ArcFace session-wide dedup + alert state.
@@ -326,6 +329,14 @@ class RecordingSession:
         # (0.45) бол ижил хүн гэж тоомсорлож алгасна.
         self.session_embeddings: list[np.ndarray] = []
         self.last_alert_at: dict[str, float] = {}
+
+        # Suspect cache: загвар эхлэхэд DB-ээс татаж нэг л удаа кэшилнэ.
+        # Per-frame face embedding-ийг энэ кэштэй харьцуулж, аль ч suspect-той
+        # cosine sim >= TIER_MATCH_THRESHOLD бол түүний privacy_tier-ийг
+        # Cubist mask-руу дамжуулна. None бол "standard".
+        # Refresh нь session lifetime-аар бус — шинэ session шинэ кэш.
+        self.suspect_cache: list[tuple[np.ndarray, str]] = []  # (embedding, tier)
+        self._load_suspect_cache()
 
         # Жинхэнэ видео уртыг хадгалах (frame_idx / output_fps).
         # File mode-д ended_at - started_at нь processing time-ыг агуулдаг тул
@@ -342,6 +353,74 @@ class RecordingSession:
             return value
         except (ValueError, AttributeError):
             return None
+
+    def _load_suspect_cache(self) -> None:
+        """Pre-load every suspect's (embedding, privacy_tier) into RAM.
+
+        Called once at session start. Per-frame face embeddings get matched
+        against this cache to pick the Cubist tier:
+          * match >= TIER_MATCH_THRESHOLD → use matched suspect's tier
+          * no match                       → "standard"
+
+        Failures are non-fatal: empty cache → everyone gets "standard" (the
+        previous behaviour), pipeline continues unchanged.
+        """
+        try:
+            res = (
+                self.storage.client.table("suspects")
+                .select("embedding, privacy_tier")
+                .execute()
+            )
+            cache: list[tuple[np.ndarray, str]] = []
+            for row in res.data or []:
+                emb_raw = row.get("embedding")
+                tier_raw = row.get("privacy_tier") or "standard"
+                if not emb_raw:
+                    continue
+                try:
+                    if isinstance(emb_raw, str):
+                        cleaned = emb_raw.strip().lstrip("[").rstrip("]")
+                        if not cleaned:
+                            continue
+                        emb = np.fromstring(cleaned, sep=",", dtype=np.float32)
+                    else:
+                        emb = np.asarray(emb_raw, dtype=np.float32)
+                    if emb.size != 512:
+                        continue
+                    tier = tier_raw if tier_raw in ("vip", "standard", "relaxed") else "standard"
+                    cache.append((emb, tier))
+                except Exception:
+                    continue
+            self.suspect_cache = cache
+            log.info(
+                "Suspect cache loaded: %d entries (vip=%d, relaxed=%d, standard=%d)",
+                len(cache),
+                sum(1 for _, t in cache if t == "vip"),
+                sum(1 for _, t in cache if t == "relaxed"),
+                sum(1 for _, t in cache if t == "standard"),
+            )
+        except Exception as e:
+            log.warning("Suspect cache load failed (fallback to standard tier): %s", e)
+            self.suspect_cache = []
+
+    def _resolve_tier(self, face_embedding: np.ndarray) -> str:
+        """Match a face embedding against the suspect cache → return the
+        privacy_tier of the best match (if similarity >= threshold),
+        otherwise 'standard'.
+
+        Cosine similarity on already-L2-normalised ArcFace embeddings is
+        just the dot product; with ~10-100 suspects this is microseconds.
+        """
+        if not self.suspect_cache:
+            return "standard"
+        best_sim = 0.0
+        best_tier = "standard"
+        for (emb, tier) in self.suspect_cache:
+            sim = float(np.dot(face_embedding, emb))
+            if sim > best_sim:
+                best_sim = sim
+                best_tier = tier
+        return best_tier if best_sim >= TIER_MATCH_THRESHOLD else "standard"
 
     def _draw_kst_timestamp(self, frame: np.ndarray, frame_idx: int) -> None:
         """Frame дээр KST timestamp burn-in нэмнэ (in-place).
@@ -642,10 +721,15 @@ class RecordingSession:
                 minSize=HAAR_MIN_SIZE,
             )
             for (x, y, fw, fh) in haar_faces:
-                new_boxes.append((int(x), int(y), int(x + fw), int(y + fh)))
+                # Haar has no embedding — default to "standard" tier. If
+                # InsightFace overlaps this region in the same / next pass it
+                # will replace with the proper tier via the merge logic.
+                new_boxes.append((int(x), int(y), int(x + fw), int(y + fh), "standard"))
 
         # Step 2: InsightFace primary detection (every Nth frame) — confidence
         # threshold-ээр false positive шүүх. Haar-аас илүү ялгаа гаргадаг.
+        # Бид энд ArcFace embedding-ээ авч suspect cache-тэй харьцуулан
+        # тохирох privacy_tier-ийг box-руу холбоно (per-face tier mask).
         if self._blur_frame_idx % INSIGHTFACE_BLUR_EVERY_N == 0:
             try:
                 ok, encoded = cv2.imencode(".jpg", frame)
@@ -656,16 +740,18 @@ class RecordingSession:
                         if d.confidence < INSIGHTFACE_MIN_CONFIDENCE:
                             continue
                         x1, y1, x2, y2 = map(int, d.bbox)
-                        new_boxes.append((x1, y1, x2, y2))
+                        tier = self._resolve_tier(d.embedding)
+                        new_boxes.append((x1, y1, x2, y2, tier))
             except Exception as e:
                 log.debug("InsightFace blur skipped: %s", e)
 
         # Step 3: Cache TTL decay → шинэ box-уудыг fresh TTL-тэй нэмэх
         self._blur_box_cache = [
-            (b, ttl - 1) for (b, ttl) in self._blur_box_cache if ttl > 1
+            (b, ttl - 1, tier) for (b, ttl, tier) in self._blur_box_cache if ttl > 1
         ]
-        for box in new_boxes:
-            self._blur_box_cache.append((box, BLUR_PERSIST_FRAMES))
+        for nb in new_boxes:
+            bx1, by1, bx2, by2, btier = nb
+            self._blur_box_cache.append(((bx1, by1, bx2, by2), BLUR_PERSIST_FRAMES, btier))
 
         # Дотор давхардсан box-уудыг IoU-аар нэгтгэнэ
         self._blur_box_cache = self._merge_overlapping_boxes(self._blur_box_cache)
@@ -675,7 +761,7 @@ class RecordingSession:
             return frame
 
         out = frame.copy()
-        for (x1, y1, x2, y2), _ttl in self._blur_box_cache:
+        for (x1, y1, x2, y2), _ttl, tier in self._blur_box_cache:
             bw, bh = x2 - x1, y2 - y1
             pad_x = int(bw * BLUR_PAD_RATIO)
             pad_y = int(bh * BLUR_PAD_RATIO)
@@ -691,23 +777,28 @@ class RecordingSession:
             cx = (x1 + x2) // 2
             cy = (y1 + y2) // 2
             seed = (cx >> 5) * 7919 + (cy >> 5) * 31
-            out[y1p:y2p, x1p:x2p] = _cubist_anonymize(roi, seed=seed)
+            out[y1p:y2p, x1p:x2p] = _cubist_anonymize(roi, seed=seed, privacy_tier=tier)
         return out
 
     @staticmethod
     def _merge_overlapping_boxes(
-        cache: list[tuple[tuple[int, int, int, int], int]],
+        cache: list[tuple[tuple[int, int, int, int], int, str]],
         iou_threshold: float = 0.4,
-    ) -> list[tuple[tuple[int, int, int, int], int]]:
+    ) -> list[tuple[tuple[int, int, int, int], int, str]]:
         """Cache доторх IoU > threshold-той box-уудыг нэгтгэнэ.
         Илүү шинэ TTL (өндөр)-ийг үлдээж бусдыг хаяна.
+        Tier-ийн хувьд: давхцаж буй box-уудаас VIP > standard > relaxed-ийн
+        тэргүүлэх дарааллаар ялах — нэг хүн VIP бөгөөд другаа standard бол
+        VIP мask ашиглана (худалдан сэргийлэх protection).
         """
+        tier_rank = {"vip": 2, "standard": 1, "relaxed": 0}
+
         # TTL буурах эрэмбээр sort — шинэ detection эхэнд
         cache_sorted = sorted(cache, key=lambda x: -x[1])
-        kept: list[tuple[tuple[int, int, int, int], int]] = []
-        for box, ttl in cache_sorted:
-            duplicate = False
-            for kbox, _kttl in kept:
+        kept: list[tuple[tuple[int, int, int, int], int, str]] = []
+        for box, ttl, tier in cache_sorted:
+            duplicate_idx: int | None = None
+            for idx, (kbox, _kttl, _ktier) in enumerate(kept):
                 # Inline IoU
                 ax1, ay1, ax2, ay2 = box
                 bx1, by1, bx2, by2 = kbox
@@ -720,10 +811,16 @@ class RecordingSession:
                 union = area_a + area_b - inter
                 iou = inter / union if union > 0 else 0
                 if iou > iou_threshold:
-                    duplicate = True
+                    duplicate_idx = idx
                     break
-            if not duplicate:
-                kept.append((box, ttl))
+            if duplicate_idx is None:
+                kept.append((box, ttl, tier))
+            else:
+                # Existing wins on bbox + TTL, but we may need to upgrade the
+                # tier to the more protective one.
+                kbox, kttl, ktier = kept[duplicate_idx]
+                if tier_rank.get(tier, 1) > tier_rank.get(ktier, 1):
+                    kept[duplicate_idx] = (kbox, kttl, tier)
         return kept
 
     # ────────────────────────────────────────────
