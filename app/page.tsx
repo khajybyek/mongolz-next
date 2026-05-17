@@ -245,9 +245,11 @@ export default async function HomePage() {
         </div>
 
         {/* Footer */}
-        <footer className="mt-12 pt-6 border-t border-border flex flex-wrap items-center justify-between gap-3 text-2xs text-text-muted">
-          <span>© {new Date().getFullYear()} MONGOLZ Security · Capstone 3B-26-1</span>
-          <span>Next.js 16 · Supabase · Railway · Vercel</span>
+        <footer className="mt-12 pt-6 border-t border-border flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-2xs text-text-muted">
+          <span className="md:max-w-2xl leading-relaxed">
+            © {new Date().getFullYear()} MONGOLZ Security — {t("home_footer_tagline")}
+          </span>
+          <span className="shrink-0">Next.js 16 · Supabase · Railway · Vercel</span>
         </footer>
       </main>
     </div>

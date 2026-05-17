@@ -1174,9 +1174,14 @@ export const T = {
 
   // ─── public landing (home) ───
   home_pill: {
-    mn: "Capstone 3B-26-1",
-    en: "Capstone 3B-26-1",
-    kr: "Capstone 3B-26-1",
+    mn: "Capstone · 3B-26-1",
+    en: "Capstone · 3B-26-1",
+    kr: "Capstone · 3B-26-1",
+  },
+  home_footer_tagline: {
+    mn: "Олон эрхийн mask + reveal боломжтой ухаалаг сүлжээний камер ба нэгдсэн удирдлагын сервер хөгжүүлэлт",
+    en: "Multi-authority masking + reveal · intelligent network camera & integrated control server",
+    kr: "다중 권한 마스킹 및 복원이 가능한 지능형 네트워크 카메라 및 통합관제 서버 개발",
   },
   home_hero_title: {
     mn: "Хувийн нууцыг хадгалсан AI камерын систем",
