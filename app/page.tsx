@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { MongolzLogo } from "@/components/logo";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { createClient } from "@/lib/supabase/server";
 import { getServerLang, getT } from "@/lib/i18n/server";
 
@@ -62,6 +63,7 @@ export default async function HomePage() {
         </Link>
         <div className="flex items-center gap-3">
           <LanguageSwitcher current={lang} />
+          <ThemeToggle />
           {signedIn ? (
             <Link href={"/dashboard" as never} className="btn-primary btn-sm">
               <LayoutDashboard className="w-3.5 h-3.5" />

@@ -6,38 +6,40 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Base surfaces — Linear/Vercel-style deep neutrals (slight cool tint)
+        // Theme-aware tokens — flip via html[data-theme="light"]
+        // (defined in globals.css as space-separated RGB channels).
         bg: {
-          DEFAULT: "#08090d",
-          secondary: "#0f1016",
-          tertiary: "#16171f",
+          DEFAULT: "rgb(var(--bg) / <alpha-value>)",
+          secondary: "rgb(var(--bg-secondary) / <alpha-value>)",
+          tertiary: "rgb(var(--bg-tertiary) / <alpha-value>)",
         },
         surface: {
-          DEFAULT: "#0f1016",
-          elevated: "#16171f",
-          overlay: "#1c1e28",
-          inverse: "#f4f4f5",
+          DEFAULT: "rgb(var(--surface) / <alpha-value>)",
+          elevated: "rgb(var(--surface-elevated) / <alpha-value>)",
+          overlay: "rgb(var(--surface-overlay) / <alpha-value>)",
+          inverse: "rgb(var(--bg) / <alpha-value>)",
         },
-        // Borders — soft hairlines
+        // Borders — soft hairlines; alpha-controllable via globals.css.
         border: {
-          DEFAULT: "rgba(255,255,255,0.06)",
-          strong: "rgba(255,255,255,0.10)",
-          accent: "rgba(0,212,255,0.30)",
+          DEFAULT: "rgb(var(--border-color) / var(--border-alpha))",
+          strong: "rgb(var(--border-color) / var(--border-strong-alpha))",
+          accent: "rgb(var(--accent) / 0.30)",
         },
-        // Text scale
+        // Text scale — theme-aware.
         text: {
-          DEFAULT: "#f4f4f5",
-          soft: "#a1a1aa",
-          muted: "#71717a",
-          faint: "#52525b",
-          inverse: "#0a0a0f",
+          DEFAULT: "rgb(var(--text) / <alpha-value>)",
+          soft: "rgb(var(--text-soft) / <alpha-value>)",
+          muted: "rgb(var(--text-muted) / <alpha-value>)",
+          faint: "rgb(var(--text-faint) / <alpha-value>)",
+          inverse: "rgb(var(--bg) / <alpha-value>)",
         },
-        // Accent — refined cyan with full scale
+        // Accent — also theme-aware (darker in light mode for AA contrast).
+        // Static `accent.50..900` scale kept for explicit shade pickers.
         accent: {
-          DEFAULT: "#00d4ff",
-          hover: "#33dfff",
-          muted: "#0099cc",
-          glow: "rgba(0,212,255,0.35)",
+          DEFAULT: "rgb(var(--accent) / <alpha-value>)",
+          hover: "rgb(var(--accent-hover) / <alpha-value>)",
+          muted: "rgb(var(--accent-muted) / <alpha-value>)",
+          glow: "rgb(var(--accent) / 0.35)",
           50: "#e6faff",
           100: "#b3f0ff",
           200: "#80e6ff",

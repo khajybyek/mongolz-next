@@ -1,6 +1,7 @@
 import { ShieldCheck, KeyRound } from "lucide-react";
 import { MongolzLogo } from "@/components/logo";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Alert } from "@/components/ui/alert";
 import { getServerLang, getT } from "@/lib/i18n/server";
 import { signInAction, verifyTotpAction, cancelTotpAction } from "./actions";
@@ -40,7 +41,10 @@ export default async function LoginPage({
           <span className="text-sm font-bold tracking-tight">MONGOLZ</span>
           <span className="badge-muted">Security</span>
         </div>
-        <LanguageSwitcher current={lang} />
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher current={lang} />
+          <ThemeToggle />
+        </div>
       </header>
 
       {/* Center content */}

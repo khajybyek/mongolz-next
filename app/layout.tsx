@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { ThemeProvider } from "@/lib/theme/client";
+import { getServerTheme } from "@/lib/theme/server";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,11 +18,12 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const theme = await getServerTheme();
   return (
-    <html lang="mn" className="dark">
+    <html lang="mn" data-theme={theme} className={theme === "dark" ? "dark" : undefined}>
       <body className="min-h-screen antialiased">
-        {children}
+        <ThemeProvider initial={theme}>{children}</ThemeProvider>
         <SpeedInsights />
       </body>
     </html>

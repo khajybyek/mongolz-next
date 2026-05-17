@@ -33,6 +33,7 @@ import {
 import { MongolzLogo } from "./logo";
 import { cn } from "@/lib/utils";
 import { LanguageSwitcher } from "./language-switcher";
+import { ThemeToggle } from "./theme-toggle";
 import type { Lang } from "@/lib/i18n/translations";
 import { t } from "@/lib/i18n/translations";
 
@@ -157,7 +158,12 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
       </nav>
 
       <div className="px-4 py-4 border-t border-border space-y-3">
-        <LanguageSwitcher current={lang} />
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <LanguageSwitcher current={lang} />
+          </div>
+          <ThemeToggle />
+        </div>
 
         <div className="flex items-center justify-between gap-2 rounded-lg bg-white/[0.02] border border-border p-2.5">
           <div className="min-w-0 flex-1">
