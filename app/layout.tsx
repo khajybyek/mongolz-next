@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "@/lib/theme/client";
 import { getServerTheme } from "@/lib/theme/server";
+import { ServiceWorkerRegister } from "@/components/sw-register";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -43,6 +44,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="min-h-screen antialiased">
         <ThemeProvider initial={theme}>{children}</ThemeProvider>
         <SpeedInsights />
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

@@ -15,10 +15,13 @@ const PUBLIC_PATHS = [
   "/api/lang", // Login page-аас хэл сольж болохын тулд unauth-аар хүртээмжтэй
   "/monitoring", // Sentry tunnel route — anonymous beacons, no auth required
   "/manifest.webmanifest", // PWA manifest — installable without login
+  "/sw.js", // PWA service worker — must load before any auth check
+  "/offline.html", // PWA offline fallback page
   "/api/csp-report", // CSP report-uri — browser beacons, no auth
   "/api/uptime", // External uptime monitors hit this without auth
   "/api/cron", // Vercel Cron endpoints (their own bearer auth)
   "/api/monitoring", // Cron-style monitoring endpoints
+  "/api/auth/passkey/login", // Public passkey login endpoints
 ];
 
 const PUBLIC_EXACT = new Set([
