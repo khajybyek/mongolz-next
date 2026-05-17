@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   Upload,
   Loader2,
@@ -40,13 +40,6 @@ export function CompareView() {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    return () => {
-      if (preview) URL.revokeObjectURL(preview);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   function handleFile(f: File | null) {
     if (preview) URL.revokeObjectURL(preview);
