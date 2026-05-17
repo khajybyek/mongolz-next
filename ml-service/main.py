@@ -20,9 +20,11 @@ Deploy:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import io
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from typing import Any
 from uuid import uuid4
@@ -128,7 +130,9 @@ async def require_token(authorization: str | None = Header(default=None)):
         return
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing token")
-    if authorization.removeprefix("Bearer ") != ML_TOKEN:
+    # Constant-time compare so token-length / prefix oracle attacks can't
+    # measure how many bytes matched.
+    if not hmac.compare_digest(authorization.removeprefix("Bearer "), ML_TOKEN):
         raise HTTPException(403, "Invalid token")
 
 
@@ -250,9 +254,31 @@ async def camera_stop(req: CameraStopReq):
 
 
 # ── HLS Stream ──────────────────────────────────────────────────
+_HLS_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _safe_hls_path(camera_id: str, segment: str) -> str:
+    """Resolve a path inside HLS_DIR with traversal defence-in-depth.
+
+    The endpoint is already gated by `require_token`, but we still treat
+    `camera_id` / `segment` as untrusted: reject anything with a path
+    separator, anchor or relative segment, then verify the resolved
+    absolute path is rooted inside HLS_DIR. Refusing is preferable to
+    accidentally serving `/etc/passwd` if a future caller bypasses the
+    Next.js proxy.
+    """
+    if not _HLS_NAME_RE.match(camera_id) or not _HLS_NAME_RE.match(segment):
+        raise HTTPException(400, "invalid path component")
+    root = os.path.realpath(HLS_DIR)
+    candidate = os.path.realpath(os.path.join(root, camera_id, segment))
+    if not candidate.startswith(root + os.sep) and candidate != root:
+        raise HTTPException(400, "path escapes HLS_DIR")
+    return candidate
+
+
 @app.get("/stream/{camera_id}/index.m3u8", dependencies=[Depends(require_token)])
 async def stream_playlist(camera_id: str):
-    path = os.path.join(HLS_DIR, camera_id, "index.m3u8")
+    path = _safe_hls_path(camera_id, "index.m3u8")
     if not os.path.exists(path):
         raise HTTPException(404, "stream not active")
     return FileResponse(path, media_type="application/vnd.apple.mpegurl")
@@ -262,7 +288,7 @@ async def stream_playlist(camera_id: str):
 async def stream_segment(camera_id: str, segment: str):
     if not segment.endswith(".ts"):
         raise HTTPException(400, "invalid segment")
-    path = os.path.join(HLS_DIR, camera_id, segment)
+    path = _safe_hls_path(camera_id, segment)
     if not os.path.exists(path):
         raise HTTPException(404, "segment not found")
     return FileResponse(path, media_type="video/MP2T")
