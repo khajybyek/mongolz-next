@@ -64,3 +64,15 @@ export async function requireFreshReauth(userId: string): Promise<true> {
   }
   return true;
 }
+
+/**
+ * Non-throwing variant for use in Server Actions. Returns either
+ * `null` (reauth fresh, continue) or `{ error: "REAUTH_REQUIRED" }`
+ * which clients detect to open the TOTP prompt.
+ */
+export async function ensureFreshReauth(
+  userId: string,
+): Promise<{ error: "REAUTH_REQUIRED" } | null> {
+  if (await hasFreshReauth(userId)) return null;
+  return { error: "REAUTH_REQUIRED" };
+}

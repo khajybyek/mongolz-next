@@ -1,8 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Trash2, Send, Loader2 } from "lucide-react";
 import { deleteWebhookAction, testWebhookAction } from "./actions";
+import { TotpPrompt } from "@/components/totp-prompt";
+import { useT } from "@/lib/i18n/client";
+
+const REAUTH_REQUIRED = "REAUTH_REQUIRED";
 
 interface Hook {
   id: string;
@@ -24,16 +28,27 @@ const KIND_BG: Record<Hook["kind"], string> = {
 };
 
 export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
+  const { t } = useT();
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<{ id: string; action: "delete" | "test" } | null>(null);
+  const [needsTotp, setNeedsTotp] = useState(false);
+  const pendingDeleteRef = useRef<string | null>(null);
+
+  function runDelete(id: string) {
+    setBusy({ id, action: "delete" });
+    startTransition(async () => {
+      const res = await deleteWebhookAction(id);
+      setBusy(null);
+      if (res && "error" in res && res.error === REAUTH_REQUIRED) {
+        pendingDeleteRef.current = id;
+        setNeedsTotp(true);
+      }
+    });
+  }
 
   function remove(h: Hook) {
-    if (!confirm(`"${h.name}" webhook-ийг устгах уу?`)) return;
-    setBusy({ id: h.id, action: "delete" });
-    startTransition(async () => {
-      await deleteWebhookAction(h.id);
-      setBusy(null);
-    });
+    if (!confirm(`"${h.name}" — ${t("delete_confirm")}`)) return;
+    runDelete(h.id);
   }
 
   function test(h: Hook) {
@@ -54,6 +69,7 @@ export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
   }
 
   return (
+    <>
     <div className="card overflow-x-auto p-0">
       <table className="w-full text-sm">
         <thead className="bg-bg-tertiary/50">
@@ -121,5 +137,21 @@ export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
         </tbody>
       </table>
     </div>
+    <TotpPrompt
+      open={needsTotp}
+      onClose={() => {
+        setNeedsTotp(false);
+        pendingDeleteRef.current = null;
+      }}
+      onSuccess={() => {
+        setNeedsTotp(false);
+        const id = pendingDeleteRef.current;
+        if (id) {
+          pendingDeleteRef.current = null;
+          runDelete(id);
+        }
+      }}
+    />
+    </>
   );
 }

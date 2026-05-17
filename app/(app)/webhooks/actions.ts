@@ -6,6 +6,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { dispatchEvent } from "@/lib/webhooks";
+import { ensureFreshReauth } from "@/lib/auth/step-up";
 
 const EVENTS = ["alert_created", "reveal_completed", "system_health", "audit_critical"] as const;
 
@@ -47,7 +48,9 @@ export async function createWebhookAction(formData: FormData) {
 }
 
 export async function deleteWebhookAction(id: string) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
+  const reauth = await ensureFreshReauth(ctx.user.id);
+  if (reauth) return reauth;
   const supabase = await createClient();
   const { error } = await supabase.from("webhooks").delete().eq("id", id);
   if (error) return { error: error.message };

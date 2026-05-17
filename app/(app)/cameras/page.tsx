@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Trash2, Power, Clock, Users } from "lucide-react";
+import { Power, Clock, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
+import { DeleteWithTotp } from "@/components/delete-with-totp";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
@@ -127,12 +128,12 @@ export default async function CamerasPage() {
                       <Power className="w-3.5 h-3.5" />
                     </button>
                   </form>
-                  <form action={deleteCameraAction}>
-                    <input type="hidden" name="id" value={c.id} />
-                    <button type="submit" className="btn-danger text-xs p-2">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </form>
+                  <DeleteWithTotp
+                    id={c.id}
+                    action={deleteCameraAction}
+                    confirmMessage={`${c.name} — ${t("delete_confirm")}`}
+                    iconOnly
+                  />
                 </div>
               </div>
             </div>

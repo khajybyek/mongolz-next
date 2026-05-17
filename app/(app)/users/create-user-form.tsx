@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { UserPlus, Loader2, AlertCircle, Check } from "lucide-react";
 import { createUserAction } from "./actions";
-import { TotpPrompt } from "./totp-prompt";
+import { TotpPrompt } from "@/components/totp-prompt";
 import { useT } from "@/lib/i18n/client";
 
 const REAUTH_REQUIRED = "REAUTH_REQUIRED";

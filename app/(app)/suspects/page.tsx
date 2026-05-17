@@ -1,6 +1,6 @@
-import { Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
+import { DeleteWithTotp } from "@/components/delete-with-totp";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
@@ -80,13 +80,14 @@ export default async function SuspectsPage() {
                 <div className="text-xs text-neutral-500 mt-0.5">
                   {formatDate(s.created_at)}
                 </div>
-                <form action={deleteSuspectAction} className="mt-3">
-                  <input type="hidden" name="id" value={s.id} />
-                  <button type="submit" className="btn-danger w-full text-xs">
-                    <Trash2 className="w-3.5 h-3.5" />
-                    {t("delete")}
-                  </button>
-                </form>
+                <div className="mt-3">
+                  <DeleteWithTotp
+                    id={s.id}
+                    action={deleteSuspectAction}
+                    confirmMessage={`${s.name} — ${t("delete_confirm")}`}
+                    label={t("delete")}
+                  />
+                </div>
               </div>
             </div>
           ))}

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { mlEmbed } from "@/lib/ml-client";
+import { ensureFreshReauth } from "@/lib/auth/step-up";
 
 export async function addSuspectAction(formData: FormData) {
   const { user } = await requireAdmin();
@@ -62,14 +63,16 @@ export async function addSuspectAction(formData: FormData) {
   revalidatePath("/suspects");
 }
 
-export async function deleteSuspectAction(formData: FormData) {
+export async function deleteSuspectAction(
+  id: string,
+): Promise<{ error: string } | { ok: true }> {
   const { user } = await requireAdmin();
-  const id = String(formData.get("id") ?? "");
-  if (!id) return;
+  const reauth = await ensureFreshReauth(user.id);
+  if (reauth) return reauth;
+  if (!id) return { error: "missing id" };
 
   const supabase = await createClient();
 
-  // image_path-г олж storage-аас устгана
   const { data: s } = await supabase
     .from("suspects")
     .select("image_path, name")
@@ -80,7 +83,8 @@ export async function deleteSuspectAction(formData: FormData) {
     await supabase.storage.from("suspects").remove([s.image_path]);
   }
 
-  await supabase.from("suspects").delete().eq("id", id);
+  const { error } = await supabase.from("suspects").delete().eq("id", id);
+  if (error) return { error: error.message };
 
   try {
     const svc = createServiceClient();
@@ -93,4 +97,5 @@ export async function deleteSuspectAction(formData: FormData) {
   } catch {}
 
   revalidatePath("/suspects");
+  return { ok: true };
 }

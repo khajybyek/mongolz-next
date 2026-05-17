@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { protectCameraUrlForStorage } from "@/lib/camera-crypto";
+import { ensureFreshReauth } from "@/lib/auth/step-up";
 
 export async function addCameraAction(formData: FormData) {
   const { user } = await requireAdmin();
@@ -41,13 +42,17 @@ export async function addCameraAction(formData: FormData) {
   revalidatePath("/cameras");
 }
 
-export async function deleteCameraAction(formData: FormData) {
+export async function deleteCameraAction(
+  id: string,
+): Promise<{ error: string } | { ok: true }> {
   const { user } = await requireAdmin();
-  const id = String(formData.get("id") ?? "");
-  if (!id) return;
+  const reauth = await ensureFreshReauth(user.id);
+  if (reauth) return reauth;
+  if (!id) return { error: "missing id" };
 
   const supabase = await createClient();
-  await supabase.from("cameras").delete().eq("id", id);
+  const { error } = await supabase.from("cameras").delete().eq("id", id);
+  if (error) return { error: error.message };
 
   try {
     const svc = createServiceClient();
@@ -60,6 +65,7 @@ export async function deleteCameraAction(formData: FormData) {
   } catch {}
 
   revalidatePath("/cameras");
+  return { ok: true };
 }
 
 export async function toggleCameraAction(formData: FormData) {

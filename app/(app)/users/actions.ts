@@ -5,9 +5,8 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
-import { hasFreshReauth } from "@/lib/auth/step-up";
+import { ensureFreshReauth } from "@/lib/auth/step-up";
 
-const REAUTH_REQUIRED = "REAUTH_REQUIRED" as const;
 type ActionError = { error: string };
 type ActionOk = { ok: true };
 
@@ -18,18 +17,7 @@ async function audit(action: string, detail: string, user_id: string, user_email
   await svc.from("audit_log").insert({ action, detail, user_id, user_email, ip });
 }
 
-/**
- * Sensitive user-CRUD operations require a fresh TOTP step-up. The
- * client posts the TOTP code to `/api/auth/reauth/totp` which sets the
- * `mongolz-reauth` cookie; this check just verifies that cookie is fresh.
- *
- * Returns `null` if reauth is satisfied, or a typed error to surface
- * to the client (which will then prompt for TOTP).
- */
-async function ensureReauth(userId: string): Promise<ActionError | null> {
-  if (await hasFreshReauth(userId)) return null;
-  return { error: REAUTH_REQUIRED };
-}
+const ensureReauth = ensureFreshReauth;
 
 const createSchema = z.object({
   email: z.string().email().max(255),

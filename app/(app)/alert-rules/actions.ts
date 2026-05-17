@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { ensureFreshReauth } from "@/lib/auth/step-up";
 
 const ruleSchema = z.object({
   name: z.string().min(1).max(120),
@@ -85,6 +86,8 @@ export async function toggleRuleAction(id: string, enabled: boolean) {
 
 export async function deleteRuleAction(id: string) {
   const ctx = await requireAdmin();
+  const reauth = await ensureFreshReauth(ctx.user.id);
+  if (reauth) return reauth;
   const supabase = await createClient();
   const { error } = await supabase.from("alert_rules").delete().eq("id", id);
   if (error) return { error: error.message };

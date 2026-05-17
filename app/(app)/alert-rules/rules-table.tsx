@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Trash2, Power, Loader2 } from "lucide-react";
 import { toggleRuleAction, deleteRuleAction } from "./actions";
 import { formatDate } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
+import { TotpPrompt } from "@/components/totp-prompt";
+
+const REAUTH_REQUIRED = "REAUTH_REQUIRED";
 
 interface Rule {
   id: string;
@@ -25,6 +28,8 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
   const { t } = useT();
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
+  const [needsTotp, setNeedsTotp] = useState(false);
+  const pendingDeleteRef = useRef<string | null>(null);
 
   function toggle(r: Rule) {
     setBusy(r.id);
@@ -34,16 +39,25 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
     });
   }
 
-  function remove(r: Rule) {
-    if (!confirm(`"${r.name}" — ${t("delete_confirm")}`)) return;
-    setBusy(r.id);
+  function runDelete(id: string) {
+    setBusy(id);
     startTransition(async () => {
-      await deleteRuleAction(r.id);
+      const res = await deleteRuleAction(id);
       setBusy(null);
+      if (res && "error" in res && res.error === REAUTH_REQUIRED) {
+        pendingDeleteRef.current = id;
+        setNeedsTotp(true);
+      }
     });
   }
 
+  function remove(r: Rule) {
+    if (!confirm(`"${r.name}" — ${t("delete_confirm")}`)) return;
+    runDelete(r.id);
+  }
+
   return (
+    <>
     <div className="card p-0 overflow-hidden">
       <div className="overflow-x-auto">
         <table className="tbl">
@@ -128,5 +142,21 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
         </table>
       </div>
     </div>
+    <TotpPrompt
+      open={needsTotp}
+      onClose={() => {
+        setNeedsTotp(false);
+        pendingDeleteRef.current = null;
+      }}
+      onSuccess={() => {
+        setNeedsTotp(false);
+        const id = pendingDeleteRef.current;
+        if (id) {
+          pendingDeleteRef.current = null;
+          runDelete(id);
+        }
+      }}
+    />
+    </>
   );
 }
