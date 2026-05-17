@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { DeleteWithTotp } from "@/components/delete-with-totp";
@@ -65,48 +66,50 @@ export default async function SuspectsPage() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {items.map((s) => (
-            <div key={s.id} className="card overflow-hidden p-0">
-              <div className="aspect-square bg-bg-tertiary relative">
-                {s.signedUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={s.signedUrl}
-                    alt={s.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-xs text-text-muted">
-                    no image
+            <div key={s.id} className="card overflow-hidden p-0 hover:border-accent/40 hover:shadow-glow-soft transition">
+              <Link href={`/suspects/${s.id}` as never} className="block group">
+                <div className="aspect-square bg-bg-tertiary relative">
+                  {s.signedUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={s.signedUrl}
+                      alt={s.name}
+                      className="w-full h-full object-cover transition-transform group-hover:scale-[1.03]"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-xs text-text-muted">
+                      no image
+                    </div>
+                  )}
+                </div>
+                <div className="p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-medium text-sm truncate group-hover:text-accent transition">{s.name}</div>
+                    <span
+                      className={
+                        s.privacy_tier === "vip"
+                          ? "badge badge-warning"
+                          : s.privacy_tier === "relaxed"
+                          ? "badge badge-muted"
+                          : "badge badge-accent"
+                      }
+                      title={`Privacy tier: ${s.privacy_tier ?? "standard"}`}
+                    >
+                      {s.privacy_tier ?? "standard"}
+                    </span>
                   </div>
-                )}
-              </div>
-              <div className="p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-medium text-sm truncate">{s.name}</div>
-                  <span
-                    className={
-                      s.privacy_tier === "vip"
-                        ? "badge badge-warning"
-                        : s.privacy_tier === "relaxed"
-                        ? "badge badge-muted"
-                        : "badge badge-accent"
-                    }
-                    title={`Privacy tier: ${s.privacy_tier ?? "standard"}`}
-                  >
-                    {s.privacy_tier ?? "standard"}
-                  </span>
+                  <div className="text-xs text-text-muted mt-0.5">
+                    {formatDate(s.created_at)}
+                  </div>
                 </div>
-                <div className="text-xs text-text-muted mt-0.5">
-                  {formatDate(s.created_at)}
-                </div>
-                <div className="mt-3">
-                  <DeleteWithTotp
-                    id={s.id}
-                    action={deleteSuspectAction}
-                    confirmMessage={`${s.name} — ${t("delete_confirm")}`}
-                    label={t("delete")}
-                  />
-                </div>
+              </Link>
+              <div className="px-3 pb-3">
+                <DeleteWithTotp
+                  id={s.id}
+                  action={deleteSuspectAction}
+                  confirmMessage={`${s.name} — ${t("delete_confirm")}`}
+                  label={t("delete")}
+                />
               </div>
             </div>
           ))}

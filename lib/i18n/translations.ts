@@ -1412,6 +1412,29 @@ export const T = {
     kr: "이 페이지는 프라이버시에 민감하므로 TOTP로 다시 인증하세요. 15분 동안 유효합니다.",
   },
 
+  // ── Suspect detail page ──
+  susp_total_alerts: { mn: "Нийт alert", en: "Total alerts", kr: "전체 알림" },
+  susp_cameras: { mn: "Камер", en: "Cameras", kr: "카메라" },
+  susp_first_seen: { mn: "Анх илрүүлсэн", en: "First seen", kr: "처음 발견" },
+  susp_last_seen: { mn: "Сүүлд илрүүлсэн", en: "Last seen", kr: "마지막 발견" },
+  susp_latest_match: { mn: "Сүүлийн таарал", en: "Latest match", kr: "최신 일치" },
+  susp_open_playback: { mn: "Бичлэг нээх", en: "Open recording", kr: "녹화 열기" },
+  susp_trail: { mn: "Камер бүрх давтамж", en: "Per-camera frequency", kr: "카메라별 빈도" },
+  susp_no_alerts: { mn: "Энэ суспэктэнд таарал байхгүй.", en: "No matches for this suspect yet.", kr: "이 용의자에 대한 일치 없음." },
+  susp_when: { mn: "Хэзээ", en: "When", kr: "시점" },
+  susp_camera: { mn: "Камер", en: "Camera", kr: "카메라" },
+  susp_score: { mn: "Score", en: "Score", kr: "점수" },
+  susp_label: { mn: "Label", en: "Label", kr: "라벨" },
+  susp_action: { mn: "Үйлдэл", en: "Action", kr: "작업" },
+  susp_view: { mn: "Үзэх", en: "View", kr: "보기" },
+
+  // ── Camera health ──
+  cam_status_healthy: { mn: "Аюулгүй", en: "Healthy", kr: "정상" },
+  cam_status_stale: { mn: "Удааширсан", en: "Stale", kr: "지연됨" },
+  cam_status_offline: { mn: "Унтарсан", en: "Offline", kr: "오프라인" },
+  cam_status_unknown: { mn: "Тодорхойгүй", en: "Unknown", kr: "알 수 없음" },
+  cam_last_seen: { mn: "Сүүлд илрүүлсэн", en: "Last seen", kr: "마지막 감지" },
+
   // ── Anomaly detection ──
   nav_anomaly: { mn: "Anomaly", en: "Anomaly", kr: "이상 감지" },
   anomaly_title: { mn: "Anomaly detection", en: "Anomaly Detection", kr: "이상 감지" },
