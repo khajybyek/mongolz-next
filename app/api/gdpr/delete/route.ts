@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { verifyTOTP } from "@/lib/totp";
+import { verifyTOTPWithReplayCheck } from "@/lib/totp";
 
 /**
  * Right to erasure (GDPR Art.17 / PIPA §36).
@@ -60,8 +60,15 @@ export async function POST(req: NextRequest) {
   // Fresh TOTP if enabled
   if (full.totp_enabled) {
     const code = parsed.data.totp_code;
-    if (!code || !full.totp_secret || !verifyTOTP(full.totp_secret, code)) {
+    if (!code || !full.totp_secret) {
       return NextResponse.json({ error: "Fresh TOTP code required" }, { status: 401 });
+    }
+    const result = await verifyTOTPWithReplayCheck(user.id, full.totp_secret, code);
+    if (result !== "ok") {
+      return NextResponse.json(
+        { error: result === "replayed" ? "Code already used" : "Fresh TOTP code required" },
+        { status: 401 }
+      );
     }
   }
 

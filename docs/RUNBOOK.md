@@ -1,186 +1,235 @@
-# MONGOLZ Security — Incident Runbook
+# MONGOLZ Security — Operational Runbook
 
-> On-call playbook. Алдаа гарвал хамгийн түрүүнд энэ document-ыг нэг харж аваарай.
-
----
-
-## Quick links
-
-- **Production:** https://mongolz.vercel.app
-- **ML Service:** https://mongolz-ml-production.up.railway.app
-- **Sentry:** https://mongolz.sentry.io/projects/mongolz-next
-- **Supabase:** https://supabase.com/dashboard/project/ulybenitqmqjfxtaregp
-- **Vercel:** https://vercel.com/mongolz/mongolz
-
-## Common health checks (3 commands)
-
-```bash
-# 1. Public uptime probe
-curl -s https://mongolz.vercel.app/api/uptime | jq
-
-# 2. ML root
-curl https://mongolz-ml-production.up.railway.app/
-
-# 3. Sentry recent errors (last 24h)
-sentry-cli issues list --org mongolz --project mongolz-next --query "is:unresolved age:-24h"
-```
+Practical procedures for keeping the system healthy and responding to
+incidents. Complements [BREAK_GLASS.md](BREAK_GLASS.md) (last-resort actions)
+and [COMPLIANCE.md](COMPLIANCE.md) (legal mapping).
 
 ---
 
-## 🔴 P0 — Production эвдрэв
+## 1. Recovery Objectives
 
-### Symptom: `/api/uptime` returns 503 or doesn't respond
+| Metric | Target | Component | Rationale |
+|---|---|---|---|
+| **RPO** (data loss tolerance) | ≤ 24 h | Supabase Postgres | Daily Vercel-Cron `backup-verify` + Supabase point-in-time backup (Pro tier feature; falls back to manual `pg_dump` on Free). |
+| **RPO** — alerts only | ≤ 5 min | Realtime + audit_log | Hash-chained audit means tampering is detectable even mid-window. |
+| **RTO** (downtime tolerance) | ≤ 60 min | Vercel + Supabase + Railway | Restore from backup ZIP + redeploy each tier. Drill timed at 35-50 min on staging copy. |
+| **MTTD** (detect) | ≤ 5 min | Sentry + `/api/uptime` + `/api/cron/error-rate` | External monitor pings uptime; Sentry catches `Sentry.captureRequestError` on every server error. |
+| **MTTR** (resolve) | ≤ 30 min for P1 | Operator + this runbook |  |
 
-1. `vercel logs --json | head -50` — Next.js side ажиллаж байгаа эсэх
-2. `railway logs --tail 80` — ML service дов байгаа эсэх
-3. Supabase status: https://status.supabase.com/
-
-**If Vercel down:** `vercel deploy --prod --yes` (rebuild). Сайжрахгүй бол `vercel rollback`.
-
-**If ML down:**
-```bash
-cd ml-service
-railway logs --tail 200
-railway restart
-```
-
-**If DB down:** Supabase support. Read replicas автомат failover нь Pro плэйн л.
-
-### Rollback procedure
-
-```bash
-# 1. Last good deployment ID-ийг ол
-vercel ls --prod | head -5
-
-# 2. Promote good one back to production
-vercel promote <good-deployment-url>
-
-# 3. Verify
-curl -s https://mongolz.vercel.app/api/uptime
-```
+P1 = "users cannot log in" OR "live recording paused" OR "audit chain broken".
+P2 = "non-critical feature degraded".
+P3 = "cosmetic / single user impacted".
 
 ---
 
-## 🟠 P1 — ML service фалаад зогссон
+## 2. Incident Response Phases
 
-### Symptom: ML `/detect` returns 500 / `/embed` хариу өгөхгүй
+### 2.1 Detect
 
-1. `railway logs --tail 200 | grep -iE "error|exception|killed"`
-2. OOM эсэх:
+Signals that should trigger a response:
+
+- Sentry alert in #mongolz-alerts Slack
+- `/api/uptime` external probe → `503` for ≥ 2 consecutive checks
+- `audit_log` row with action starting `BREAK_GLASS_*`, `ADMIN_COUNT_ZERO`,
+  `REAUTH_TOTP_REPLAY_BLOCKED`, `KEY_ROTATION_DUE`
+- User report via security@mongolz.local (security.txt)
+
+### 2.2 Triage (within 5 min)
+
+1. Acknowledge alert in chat with `:eyes:` reaction (claim incident).
+2. Decide severity (P1/P2/P3).
+3. Open the corresponding worktree (`detect → triage → contain → eradicate → recover → postmortem`).
+
+### 2.3 Contain (within 15 min)
+
+Per-incident playbooks:
+
+#### a. Suspected credential leak (service-role key, env var)
+
+1. Vercel → rotate the env var → redeploy.
+2. Supabase Dashboard → revoke the old key.
+3. Audit: `INSERT INTO audit_log VALUES ('BREAK_GLASS_KEY_ROTATION', …)`.
+
+#### b. Active SQL or storage attack signal
+
+1. Open Supabase Dashboard → Activity → look for unfamiliar IPs.
+2. If `service_role` from unknown IP: rotate immediately (as above).
+3. If `authenticated` brute force: ban via `auth.identities` row update; tighten `checkLoginRateLimit`.
+
+#### c. Camera operator reports unauthorized reveal
+
+1. `SELECT * FROM reveal_jobs ORDER BY created_at DESC LIMIT 20` — verify request had 4-eyes approval.
+2. `SELECT * FROM audit_log WHERE action LIKE 'REVEAL_%' AND created_at >= now() - interval '24 hours'`.
+3. If approval missing → revoke the requesting admin's role pending investigation.
+
+#### d. Audit chain broken
+
+```sql
+SELECT * FROM verify_audit_chain() WHERE NOT chain_ok LIMIT 20;
+```
+
+Preserve as evidence — **do not backfill**. See [BREAK_GLASS.md §5](BREAK_GLASS.md).
+
+### 2.4 Eradicate / Recover
+
+- Restore from backup if data corruption: see §3 below.
+- Re-enable normal traffic: remove rate-limit overrides, re-enable the affected route.
+- Verify with smoke test:
+  ```bash
+  curl -s https://mongolz.vercel.app/api/uptime
+  curl -sI https://mongolz.vercel.app/login | head -3
+  ```
+
+### 2.5 Post-mortem (within 5 business days)
+
+Template:
+
+```markdown
+# Incident YYYY-MM-DD: <one-line>
+
+**Severity:** P1/P2/P3
+**Duration:** start → end (UTC)
+**Customer impact:** N users affected, … minutes of downtime
+**Root cause:** (1-2 sentences)
+
+## Timeline
+- HH:MM — first signal
+- HH:MM — acknowledged
+- HH:MM — contained
+- HH:MM — resolved
+
+## What went well
+- Detection within MTTD target
+
+## What went poorly
+- (be honest, blameless)
+
+## Action items (assign owners)
+- [ ] code change to prevent recurrence
+- [ ] runbook update
+- [ ] alert tuning
+```
+
+Store post-mortems in `docs/postmortems/YYYY-MM-DD-slug.md`.
+
+---
+
+## 3. Backup Restore Drill
+
+Run on a staging copy every semester.
+
+### 3.1 Inputs
+
+- A `mongolz-backup-<ts>.zip` produced by `/api/admin/backup` (admin-only,
+  TOTP-gated).
+- A clean Supabase project for restore (different `project_ref`).
+
+### 3.2 Steps
+
+1. **Unzip the backup**
+
    ```bash
-   railway logs --tail 500 | grep "MemoryError\|killed"
+   unzip mongolz-backup-*.zip -d ./restore
+   ls restore/tables/      # 12 JSON files (one per table)
+   ls restore/buckets/     # 5 manifest.json files
    ```
-3. **Quick fix:** `railway restart` (10-20 sec downtime)
-4. **Long fix:** Если `MemoryError`: ширнэс instance-ыг өргөтгөх (Railway → Resources → 2GB).
 
-### Frontend automatic fallback
+2. **Apply schema**
 
-`lib/edge-inference/face-detector.ts` нь WebGPU → WASM auto-fallback. ML server doosh бол browser дээр л client-side detection ажиллана.
+   ```bash
+   cd mongolz-next
+   npx supabase db push --linked
+   ```
 
----
+3. **Load rows** (in dependency order)
 
-## 🟡 P2 — Key rotation эсвэл compromise
+   ```bash
+   npx tsx scripts/restore-from-backup.ts ./restore
+   ```
 
-### Suspected ML_SERVICE_TOKEN leak
+   The script inserts in this order:
+   - `profiles` first (FK target for many tables).
+   - Then `cameras`, `suspects`, `alert_rules`.
+   - Then `alerts`, `recordings`, `reveal_jobs`.
+   - Then `webhooks`, `camera_permissions`, `masking_schedules`,
+     `retention_policies`.
+   - Finally `audit_log` in `created_at` order so the hash chain re-binds.
 
-```bash
-npm run rotate:keys -- --key=ML_SERVICE_TOKEN
-vercel deploy --prod --yes
-```
+4. **Re-encrypt blob bytes**
 
-### Suspected ML_ENCRYPTION_KEY leak
+   The backup ZIP does **not** contain encrypted MP4s — only manifests. To
+   actually restore recording bytes, copy them from your **offline** Supabase
+   storage mirror or rely on Supabase Pro point-in-time backup. After upload:
 
-⚠️ **NEVER delete the PREV key before all recordings are re-encrypted.**
+   ```bash
+   npm run backup:verify
+   ```
 
-```bash
-# 1. Rotate
-npm run rotate:keys -- --key=ML_ENCRYPTION_KEY
+5. **Re-key if rotation occurred**
 
-# 2. Старый key автоматаар *_PREV болж хадгалагдана.
-#    Old recordings нь ML service-ийн dual-key fallback-аар уншигдсаар байх ёстой.
+   If `ML_ENCRYPTION_KEY` was rotated since the backup, set
+   `ML_ENCRYPTION_KEY_PREV` on the restore environment (see CLAUDE.md →
+   Key Rotation Procedure).
 
-# 3. Бүх recordings-ыг re-encrypt хий (manual или background job)
-# Тэгээд:
-npm run rotate:keys -- --key=ML_ENCRYPTION_KEY --finalize
-```
+6. **Verify**
 
-### Compromised admin account
-
-1. Supabase dashboard → Authentication → Users → demote сэжигтэй admin → viewer
-2. Audit log шалга:
    ```sql
-   SELECT * FROM audit_log
-   WHERE user_email = 'compromised@example.com'
-   ORDER BY created_at DESC LIMIT 100;
+   SELECT count(*) FROM verify_audit_chain() WHERE NOT chain_ok;
+   -- expect 0
    ```
-3. Reveal jobs шалгах:
+
+   ```bash
+   curl -s "$RESTORE_URL/api/uptime" | jq
+   # expect status=ok, ml=ok, db=ok
+   ```
+
+7. **Record drill outcome**
+
    ```sql
-   SELECT * FROM reveal_jobs WHERE requested_by = '<user-uuid>';
-   ```
-4. Хэрэв reveal хийсэн бол: storage `revealed` bucket-ийн output file-уудыг устга.
-
----
-
-## 🟢 P3 — Performance degradation
-
-### Slow alerts page
-
-1. `/db-monitor` → top 30 slow queries харах
-2. Ихэвчлэн `alerts` table-ийн n+1 query → bulk fetch болгох
-3. Эсвэл `match_faces` ivfflat index reindex:
-   ```sql
-   REINDEX INDEX CONCURRENTLY faces_embedding_ivfflat_idx;
+   INSERT INTO audit_log (action, detail)
+   VALUES ('BACKUP_RESTORE_DRILL',
+           'Drill 2026-Q1: restore took <N> min, all checks ok, operator <name>');
    ```
 
-### High Sentry error volume
+### 3.3 Acceptance criteria for "successful drill"
 
-1. Sentry → Issues → sort by `frequency`
-2. Top 3-ыг шалгах
-3. Group fingerprint-аар муу нийтлэг error-ыг silence хийх
+- All 12 tables restored with row counts matching the manifest.
+- `verify_audit_chain()` returns no mismatches.
+- `/api/uptime` returns `status: ok`.
+- A test alert can be inserted and triggers a webhook.
+- A test reveal job completes end-to-end on a sample recording.
 
----
-
-## Daily / Weekly checklist
-
-### Daily
-- [ ] `/api/uptime` ok
-- [ ] Sentry "unresolved" count хүлээж буй
-- [ ] Backup verify cron pass (audit_log: `BACKUP_VERIFY`)
-
-### Weekly
-- [ ] Verify audit chain: `SELECT count(*) FROM verify_audit_chain();` → 0 байх ёстой
-- [ ] Retention sweep result шалгах
-- [ ] DB performance — slow query top 10 шалгах
-
-### Monthly
-- [ ] Key rotation drill (dev environment)
-- [ ] Sentry source maps verify (test endpoint)
-- [ ] Test admin user creation flow
+If any check fails, file an issue with `[backup-restore]` label and treat as
+P2 until resolved.
 
 ---
 
-## Phone tree
+## 4. Routine Maintenance Checklist
 
-| Issue | First | Second |
-|-------|-------|--------|
-| Vercel down | Project owner | Vercel support |
-| ML down | Project owner | Railway support |
-| DB compromise | Project owner | Supabase support + privacy officer |
-| Data breach | Privacy officer | Legal |
-
----
-
-## Telemetry forwarding
-
-- Sentry → `mongolz` org → `mongolz-next` project
-- Slack: `#mongolz-alerts` channel (env `SLACK_ALERT_WEBHOOK`)
-- Audit log: in-database (`SELECT * FROM audit_log ORDER BY created_at DESC`)
+| Cadence | Task |
+|---|---|
+| Daily | Confirm `/api/uptime` ok, Sentry quiet, `/api/cron/backup-verify` ran |
+| Weekly | Review `audit_log` for `KEY_ROTATION_DUE`, `BREAK_GLASS_*`, `ADMIN_COUNT_ZERO` rows |
+| Monthly | Confirm `npm audit --omit=dev` and Semgrep have no new criticals |
+| Quarterly | Restore drill on staging (§3) |
+| Semi-annually | Review COMPLIANCE.md for regulation changes |
 
 ---
 
-## Glossary
+## 5. Contacts (capstone scope)
 
-- **Reveal** — Voronoi mosaic блюр-аас оригинал бичлэг сэргээх үйлдэл. 4-eyes принцпийг шаардана.
-- **Mask schedule** — Цаг тус бүрд `masked/revealed` горимыг тогтоох per-camera config.
-- **Step-up auth** — 15-min cookie-той re-auth для sensitive ops.
-- **Session pin** — IP/16 + UA fingerprint HMAC cookie. Stolen cookie replays-ийг таслана.
+| Role | Contact |
+|---|---|
+| Owner | khajybyek@gmail.com |
+| Security disclosure | security@mongolz.local → see SECURITY.md |
+| Supabase support | Supabase Dashboard → Help |
+| Railway support | Railway Dashboard → Help |
+| Vercel support | Vercel Dashboard → Help |
+
+---
+
+## 6. Document control
+
+- **Version:** 2.0 (replaces v1)
+- **Last reviewed:** 2026-05-17
+- **Next review:** 2026-11-17

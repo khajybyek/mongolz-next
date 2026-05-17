@@ -12,8 +12,10 @@
  *   2. If profile.totp_enabled → ask for 6-digit code
  *   3. verifyTOTP(secret, code) → grant session
  */
+import { createHash } from "node:crypto";
 import * as OTPAuth from "otpauth";
 import QRCode from "qrcode";
+import { createServiceClient } from "@/lib/supabase/server";
 
 export const ISSUER = "MONGOLZ Security";
 
@@ -63,5 +65,47 @@ export function verifyTOTP(secret: string, token: string): boolean {
     return delta !== null;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Verify TOTP + atomically mark the code as used so it cannot be replayed
+ * inside its 30-second validity window.
+ *
+ * Returns:
+ *   - "ok"        → first-time use, accept
+ *   - "replayed"  → same code presented again, reject
+ *   - "invalid"   → fails RFC 6238 check
+ */
+export type TotpVerifyResult = "ok" | "replayed" | "invalid";
+
+export async function verifyTOTPWithReplayCheck(
+  userId: string,
+  secret: string,
+  token: string,
+): Promise<TotpVerifyResult> {
+  if (!verifyTOTP(secret, token)) return "invalid";
+
+  // Hash the candidate before storing — keeps the DB row from leaking the
+  // raw code if anyone ever sniffs the audit_log replication stream.
+  const cleaned = token.replace(/\s/g, "");
+  const codeHash = createHash("sha256")
+    .update(`${userId}:${cleaned}`)
+    .digest("hex");
+
+  try {
+    const svc = createServiceClient();
+    const { data, error } = await svc.rpc("consume_totp_code", {
+      p_user_id: userId,
+      p_code_hash: codeHash,
+      p_ttl_sec: 90,
+    });
+    if (error) {
+      // DB-level failure should fail-closed: refuse the verify.
+      return "invalid";
+    }
+    return data === true ? "ok" : "replayed";
+  } catch {
+    return "invalid";
   }
 }

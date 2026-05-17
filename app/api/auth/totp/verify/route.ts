@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
-import { verifyTOTP } from "@/lib/totp";
+import { verifyTOTP, verifyTOTPWithReplayCheck } from "@/lib/totp";
 import { generateRecoveryCodes } from "@/lib/totp-recovery";
 
 export async function POST(request: NextRequest) {
@@ -25,7 +25,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "TOTP setup эхлээгүй" }, { status: 400 });
   }
 
-  if (!verifyTOTP(profile.totp_secret, code)) {
+  // First-time setup (profile.totp_enabled === false) skips the replay check
+  // because the row is being created for the first time. Subsequent verifies
+  // go through replay tracking.
+  if (profile.totp_enabled) {
+    const result = await verifyTOTPWithReplayCheck(ctx.user.id, profile.totp_secret, code);
+    if (result !== "ok") {
+      await svc.from("audit_log").insert({
+        action: result === "replayed" ? "TOTP_REPLAY_BLOCKED" : "TOTP_VERIFY_FAILED",
+        user_id: ctx.user.id,
+        user_email: ctx.user.email,
+      });
+      return NextResponse.json(
+        { error: result === "replayed" ? "Код өмнө нь хэрэглэгдсэн" : "Код буруу. Дахин оролд." },
+        { status: 401 }
+      );
+    }
+  } else if (!verifyTOTP(profile.totp_secret, code)) {
     await svc.from("audit_log").insert({
       action: "TOTP_VERIFY_FAILED",
       user_id: ctx.user.id,

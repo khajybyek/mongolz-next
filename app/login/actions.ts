@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { checkLoginRateLimit } from "@/lib/rate-limit";
-import { verifyTOTP } from "@/lib/totp";
+import { verifyTOTPWithReplayCheck } from "@/lib/totp";
 import {
   setPreTotpCookie,
   readPreTotpCookie,
@@ -198,18 +198,20 @@ export async function verifyTotpAction(formData: FormData) {
     return redirect("/login?error=Invalid+credentials");
   }
 
-  const ok = verifyTOTP(profile.totp_secret, totpCode);
-  if (!ok) {
+  const result = await verifyTOTPWithReplayCheck(profile.id, profile.totp_secret, totpCode);
+  if (result !== "ok") {
     try {
       await svc.from("audit_log").insert({
-        action: "TOTP_LOGIN_FAILED",
-        detail: "2FA code invalid",
+        action:
+          result === "replayed" ? "TOTP_LOGIN_REPLAY_BLOCKED" : "TOTP_LOGIN_FAILED",
+        detail: result === "replayed" ? "Code reused" : "2FA code invalid",
         user_id: profile.id,
         user_email: profile.email,
         ip,
       });
     } catch {}
-    return redirect(`/login?step=totp&error=Invalid+2FA+code&next=${encodeURIComponent(next)}`);
+    const msg = result === "replayed" ? "Code+already+used" : "Invalid+2FA+code";
+    return redirect(`/login?step=totp&error=${msg}&next=${encodeURIComponent(next)}`);
   }
 
   // ─── TOTP good — mint a real Supabase session via magiclink exchange ───

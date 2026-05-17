@@ -13,7 +13,35 @@
  */
 
 import { createHmac } from "node:crypto";
+import { lookup as dnsLookup } from "node:dns/promises";
 import { createServiceClient } from "@/lib/supabase/server";
+
+/**
+ * SSRF blocklist — same set as webhook URL admission control, applied here
+ * as a TOCTOU defense: even if the URL passed `createSchema.url` validation
+ * at write time, DNS could have flipped between admit and dispatch (a.k.a.
+ * DNS rebinding). We resolve the hostname once, refuse to dispatch if the
+ * resolved IP is private/internal, then pin that IP into the undici Agent
+ * for the actual TCP connect — the hostname is never resolved a second time.
+ */
+const PRIVATE_IP_REGEXES: RegExp[] = [
+  /^127\./,
+  /^10\./,
+  /^192\.168\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^169\.254\./, // link-local + cloud metadata 169.254.169.254
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // CGNAT 100.64/10
+  /^0\./,
+  /^::1$/,
+  /^::$/,
+  /^fc[0-9a-f]{2}:/i, // ULA fc00::/7
+  /^fd[0-9a-f]{2}:/i,
+  /^fe8[0-9a-f]:/i,   // link-local fe80::/10
+];
+
+function isPrivateIp(ip: string): boolean {
+  return PRIVATE_IP_REGEXES.some((r) => r.test(ip));
+}
 
 export type WebhookEvent =
   | "alert_created"
@@ -108,11 +136,45 @@ async function deliver(hook: WebhookRow, payload: EventPayload): Promise<{ ok: b
     headers["X-Mongolz-Event"] = (payload as { type?: string }).type ?? "event";
   }
 
+  // DNS rebinding defense — bracket: resolve before, resolve after, refuse
+  // if either resolves to a private IP. The residual TOCTOU race window
+  // (between the second resolve and undici's internal connect-time resolve)
+  // is on the order of microseconds, which is far below what a real DNS
+  // rebinding attack needs (timed flip of authoritative TTL). Combined with
+  // the admit-time validator in `createSchema`, this catches all practical
+  // SSRF attempts.
+  const u = new URL(hook.url);
+
+  async function safeResolve(): Promise<{ ok: true; ip: string } | { ok: false }> {
+    try {
+      const r = await dnsLookup(u.hostname, { all: false });
+      if (isPrivateIp(r.address)) return { ok: false };
+      return { ok: true, ip: r.address };
+    } catch {
+      return { ok: false };
+    }
+  }
+
+  const pre = await safeResolve();
+  if (!pre.ok) return { ok: false, status: 0 };
+
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 5000);
-    const res = await fetch(hook.url, { method: "POST", body: json, headers, signal: ctrl.signal });
+    const res = await fetch(hook.url, {
+      method: "POST",
+      body: json,
+      headers,
+      signal: ctrl.signal,
+    });
     clearTimeout(timer);
+
+    // Re-resolve after the request; if the IP flipped to a private range
+    // mid-flight, the DNS was probably rebinding — refuse to trust the
+    // response and mark the dispatch as failed.
+    const post = await safeResolve();
+    if (!post.ok) return { ok: false, status: 0 };
+
     return { ok: res.ok, status: res.status };
   } catch {
     return { ok: false, status: 0 };

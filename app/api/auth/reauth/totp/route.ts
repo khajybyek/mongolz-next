@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
-import { verifyTOTP } from "@/lib/totp";
+import { verifyTOTPWithReplayCheck } from "@/lib/totp";
 import { checkRateLimit, REAUTH_LIMIT } from "@/lib/rate-limit";
 import { buildReauthCookieValue } from "@/lib/auth/step-up";
 
@@ -48,15 +48,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!verifyTOTP(profile.totp_secret, code)) {
+  const result = await verifyTOTPWithReplayCheck(ctx.user.id, profile.totp_secret, code);
+  if (result !== "ok") {
     try {
       await svc.from("audit_log").insert({
-        action: "REAUTH_TOTP_FAILED",
+        action: result === "replayed" ? "REAUTH_TOTP_REPLAY_BLOCKED" : "REAUTH_TOTP_FAILED",
         user_id: ctx.user.id,
         user_email: ctx.user.email,
       });
     } catch {}
-    return NextResponse.json({ error: "Код буруу" }, { status: 401 });
+    return NextResponse.json(
+      { error: result === "replayed" ? "Код өмнө нь хэрэглэгдсэн" : "Код буруу" },
+      { status: 401 }
+    );
   }
 
   const expiresAt = new Date(Date.now() + REAUTH_TTL_MIN * 60 * 1000);

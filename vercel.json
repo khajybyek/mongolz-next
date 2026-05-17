@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/retention-sweep",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/key-rotation-check",
+      "schedule": "0 5 * * 1"
     }
   ]
 }

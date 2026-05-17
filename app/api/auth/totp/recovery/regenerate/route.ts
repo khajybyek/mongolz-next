@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
-import { verifyTOTP } from "@/lib/totp";
+import { verifyTOTPWithReplayCheck } from "@/lib/totp";
 import { generateRecoveryCodes } from "@/lib/totp-recovery";
 
 export async function POST(request: NextRequest) {
@@ -25,8 +25,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "TOTP not enabled" }, { status: 400 });
   }
 
-  if (!verifyTOTP(profile.totp_secret, code)) {
-    return NextResponse.json({ error: "Invalid TOTP code" }, { status: 401 });
+  const result = await verifyTOTPWithReplayCheck(ctx.user.id, profile.totp_secret, code);
+  if (result !== "ok") {
+    return NextResponse.json(
+      { error: result === "replayed" ? "Code already used" : "Invalid TOTP code" },
+      { status: 401 }
+    );
   }
 
   const gen = generateRecoveryCodes();
