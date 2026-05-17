@@ -31,3 +31,46 @@ jobs:
         run: |
           pip install pip-audit
           pip-audit -r ml-service/requirements.txt || true
+
+  codeql:
+    name: CodeQL SAST
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Standard query suite + extra security-focused queries
+          # ('security-extended' adds XSS, SSRF, path traversal patterns
+          #  not in the default set).
+          queries: security-and-quality, security-extended
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  secrets-scan:
+    name: Secret scanning (trufflehog)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: trufflesecurity/trufflehog@main
+        with:
+          # Scan only the new diff on a PR, full history on push to main.
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified --no-update
