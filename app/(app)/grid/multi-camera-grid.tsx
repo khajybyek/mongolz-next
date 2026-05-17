@@ -55,7 +55,7 @@ export function MultiCameraGrid({ cameras }: { cameras: Camera[] }) {
             key={s}
             onClick={() => setGridSize(s)}
             className={`px-3 py-1.5 rounded-md text-sm transition ${
-              gridSize === s ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-white/5"
+              gridSize === s ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-text-muted/5"
             }`}
           >
             {s === 1 ? <Maximize2 className="w-4 h-4" /> : s === 4 ? "2x2" : "3x3"}

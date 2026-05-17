@@ -169,7 +169,7 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                                 disabled={pending && busyId === u.id}
                                 onClick={() => changeRole(u, nextRoleCycle(u.role))}
                                 title={`admin → viewer → auditor → admin (${u.role})`}
-                                className="p-1.5 rounded hover:bg-white/5 text-text-soft hover:text-accent"
+                                className="p-1.5 rounded hover:bg-text-muted/5 text-text-soft hover:text-accent"
                               >
                                 {u.role === "admin" ? (
                                   <ShieldOff className="w-3.5 h-3.5" />
@@ -184,7 +184,7 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                                   setNewPassword("");
                                 }}
                                 title={t("users_pwd_reset_tip")}
-                                className="p-1.5 rounded hover:bg-white/5 text-text-soft hover:text-warning"
+                                className="p-1.5 rounded hover:bg-text-muted/5 text-text-soft hover:text-warning"
                               >
                                 <KeyRound className="w-3.5 h-3.5" />
                               </button>

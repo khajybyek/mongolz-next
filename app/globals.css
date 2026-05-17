@@ -101,12 +101,12 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-white/[0.06] rounded-full;
+  @apply bg-text-muted/[0.06] rounded-full;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-white/[0.12];
+  @apply bg-text-muted/[0.12];
   background-clip: content-box;
   border: 2px solid transparent;
 }
@@ -165,7 +165,7 @@ body {
     @apply bg-surface-elevated border border-border-strong rounded-xl p-5 shadow-elevated;
   }
   .card-glass {
-    @apply rounded-xl p-5 border border-white/[0.08];
+    @apply rounded-xl p-5 border border-text-muted/[0.08];
     background: rgba(15, 16, 22, 0.6);
     backdrop-filter: blur(20px) saturate(180%);
   }
@@ -203,13 +203,13 @@ body {
     box-shadow: 0 0 0 1px rgba(0,212,255,0.40), 0 0 20px rgba(0,212,255,0.30);
   }
   .btn-secondary {
-    @apply btn bg-surface-elevated border border-border-strong text-text hover:bg-surface-overlay hover:border-white/15;
+    @apply btn bg-surface-elevated border border-border-strong text-text hover:bg-surface-overlay hover:border-text-muted/15;
   }
   .btn-ghost {
-    @apply btn bg-white/[0.04] text-text hover:bg-white/[0.08];
+    @apply btn bg-text-muted/[0.04] text-text hover:bg-text-muted/[0.08];
   }
   .btn-outline {
-    @apply btn bg-transparent border border-border-strong text-text-soft hover:border-white/20 hover:text-text;
+    @apply btn bg-transparent border border-border-strong text-text-soft hover:border-text-muted/20 hover:text-text;
   }
   .btn-danger {
     @apply btn bg-danger-soft text-danger border border-danger/30 hover:bg-danger/20 hover:border-danger/50;
@@ -230,7 +230,7 @@ body {
     width: 36px;
     height: 36px;
     min-width: 36px;
-    @apply bg-white/[0.04] text-text-soft hover:bg-white/[0.08] hover:text-text;
+    @apply bg-text-muted/[0.04] text-text-soft hover:bg-text-muted/[0.08] hover:text-text;
   }
 
   /* ─────────── Inputs ─────────── */
@@ -242,7 +242,7 @@ body {
     min-height: 44px;
   }
   .input:hover:not(:disabled):not(:focus) {
-    @apply border-white/15;
+    @apply border-text-muted/15;
   }
   .input:focus {
     @apply outline-none border-accent/60;
@@ -293,7 +293,7 @@ body {
     @apply badge bg-info-soft text-info border-info/20;
   }
   .badge-muted {
-    @apply badge bg-white/[0.05] text-text-soft border-white/10;
+    @apply badge bg-text-muted/[0.05] text-text-soft border-text-muted/10;
   }
   .badge-dot {
     @apply inline-block w-1.5 h-1.5 rounded-full mr-1;
@@ -314,7 +314,7 @@ body {
     @apply border-b border-border transition-colors;
   }
   .tbl tbody tr:hover {
-    @apply bg-white/[0.02];
+    @apply bg-text-muted/[0.02];
   }
   .tbl tbody tr:last-child {
     @apply border-b-0;

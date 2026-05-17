@@ -41,7 +41,7 @@ export function LabelButtons({ id, current }: { id: string; current: Label }) {
         className={`${baseCls} ${
           active === "true_positive"
             ? "bg-success/20 text-success"
-            : "hover:bg-white/5 text-text-muted hover:text-success"
+            : "hover:bg-text-muted/5 text-text-muted hover:text-success"
         }`}
       >
         {busy === "true_positive" ? (
@@ -57,7 +57,7 @@ export function LabelButtons({ id, current }: { id: string; current: Label }) {
         className={`${baseCls} ${
           active === "false_positive"
             ? "bg-danger/20 text-danger"
-            : "hover:bg-white/5 text-text-muted hover:text-danger"
+            : "hover:bg-text-muted/5 text-text-muted hover:text-danger"
         }`}
       >
         {busy === "false_positive" ? (
@@ -71,7 +71,7 @@ export function LabelButtons({ id, current }: { id: string; current: Label }) {
           onClick={() => set("unknown")}
           disabled={pending}
           title={t("al_label_clear_tip")}
-          className={`${baseCls} hover:bg-white/5 text-text-faint hover:text-text-soft`}
+          className={`${baseCls} hover:bg-text-muted/5 text-text-faint hover:text-text-soft`}
         >
           {busy === "unknown" ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />

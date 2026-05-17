@@ -340,7 +340,7 @@ function ArchNode({
   }[tone];
   return (
     <div className="px-4 py-6 text-center">
-      <div className={`inline-flex items-center justify-center w-11 h-11 rounded-lg bg-white/[0.04] border border-border ${toneCls} mb-2.5`}>
+      <div className={`inline-flex items-center justify-center w-11 h-11 rounded-lg bg-text-muted/[0.04] border border-border ${toneCls} mb-2.5`}>
         {icon}
       </div>
       <div className="text-base font-semibold tracking-tight text-text">{label}</div>

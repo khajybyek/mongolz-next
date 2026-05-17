@@ -181,10 +181,10 @@ export function RevealModal({
       onClick={onClose}
     >
       <div
-        className="bg-bg-secondary border border-white/10 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        className="bg-bg-secondary border border-text-muted/10 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-5 border-b border-white/5">
+        <div className="flex items-center justify-between p-5 border-b border-text-muted/5">
           <h2 className="font-semibold flex items-center gap-2">
             <Lock className="w-4 h-4 text-accent" />
             Reveal хийх — нууцлалын журамтай
@@ -466,7 +466,7 @@ export function RevealModal({
               </div>
               {job && (
                 <div className="max-w-md mx-auto">
-                  <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-1.5 bg-text-muted/5 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-accent transition-all duration-300"
                       style={{ width: `${job.progress}%` }}
@@ -553,7 +553,7 @@ function Stepper({ current }: { current: Step }) {
             "flex-1 px-2 py-1.5 rounded-md text-center transition",
             i < idx && "bg-accent/15 text-accent",
             i === idx && "bg-accent/25 text-accent font-bold",
-            i > idx && "bg-white/5 text-text-muted"
+            i > idx && "bg-text-muted/5 text-text-muted"
           )}
         >
           {s.label}
@@ -581,7 +581,7 @@ function MethodCard({
       onClick={onClick}
       className={cn(
         "card text-left transition",
-        active ? "ring-2 ring-accent bg-accent/5" : "hover:bg-white/5"
+        active ? "ring-2 ring-accent bg-accent/5" : "hover:bg-text-muted/5"
       )}
     >
       <Icon className={cn("w-5 h-5 mb-2", active ? "text-accent" : "text-text-soft")} />

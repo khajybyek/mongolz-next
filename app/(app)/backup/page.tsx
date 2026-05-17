@@ -46,7 +46,7 @@ export default async function BackupPage() {
               restore instructions
             </li>
           </ul>
-          <p className="pt-2 border-t border-white/5 text-[10px] text-text-muted">
+          <p className="pt-2 border-t border-text-muted/5 text-[10px] text-text-muted">
             Action audited as{" "}
             <code className="text-warning">BACKUP_DOWNLOAD</code>.
           </p>

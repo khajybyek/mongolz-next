@@ -83,7 +83,7 @@ export default async function SetupPage() {
           <Link
             key={i}
             href={step.href}
-            className="card flex items-center gap-4 hover:bg-white/[0.02] transition"
+            className="card flex items-center gap-4 hover:bg-text-muted/[0.02] transition"
           >
             {step.done ? (
               <CheckCircle className="w-6 h-6 text-success shrink-0" />

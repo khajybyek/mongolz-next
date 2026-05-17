@@ -71,7 +71,7 @@ export function Dialog({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-4 right-4 w-8 h-8 inline-flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-text-soft hover:text-text transition"
+          className="absolute top-4 right-4 w-8 h-8 inline-flex items-center justify-center rounded-lg bg-text-muted/[0.04] hover:bg-text-muted/[0.08] text-text-soft hover:text-text transition"
         >
           <X className="w-4 h-4" />
         </button>

@@ -197,7 +197,7 @@ export default async function PlaybackDetailPage({
                   <p className="text-xs text-text-soft leading-relaxed">
                     {t("face_data_admin_only")}
                   </p>
-                  <p className="text-[10px] text-text-muted leading-relaxed pt-1 border-t border-white/5 mt-2">
+                  <p className="text-[10px] text-text-muted leading-relaxed pt-1 border-t border-text-muted/5 mt-2">
                     {t("privacy_design_note")}
                   </p>
                 </div>

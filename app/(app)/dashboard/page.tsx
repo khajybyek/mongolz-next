@@ -115,7 +115,7 @@ export default async function DashboardPage() {
               {recentAlerts.map((a) => (
                 <li
                   key={a.id}
-                  className="px-5 py-3.5 flex items-center justify-between gap-3 hover:bg-white/[0.02] transition-colors"
+                  className="px-5 py-3.5 flex items-center justify-between gap-3 hover:bg-text-muted/[0.02] transition-colors"
                 >
                   <div className="min-w-0 flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-danger-soft border border-danger/20 inline-flex items-center justify-center shrink-0">

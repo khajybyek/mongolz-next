@@ -47,7 +47,7 @@ export function LanguageSwitcher({ current }: Props) {
             "active:scale-95",
             l === current
               ? "bg-accent/15 text-accent"
-              : "text-text-soft hover:bg-white/5 hover:text-text"
+              : "text-text-soft hover:bg-text-muted/5 hover:text-text"
           )}
           aria-label={`Switch to ${l.toUpperCase()}`}
         >

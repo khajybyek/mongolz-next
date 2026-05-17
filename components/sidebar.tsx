@@ -136,7 +136,7 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
                 "relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150 group",
                 active
                   ? "bg-accent/10 text-accent font-medium"
-                  : "text-text-soft hover:bg-white/[0.04] hover:text-text"
+                  : "text-text-soft hover:bg-text-muted/[0.04] hover:text-text"
               )}
             >
               {active && (
@@ -166,7 +166,7 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
           <ThemeToggle />
         </div>
 
-        <div className="flex items-center justify-between gap-2 rounded-lg bg-white/[0.02] border border-border p-2.5">
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-text-muted/[0.02] border border-border p-2.5">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-full bg-accent/15 text-accent border border-accent/20 inline-flex items-center justify-center shrink-0 text-2xs font-semibold uppercase">
@@ -206,7 +206,7 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
           <form action="/auth/logout" method="post">
             <button
               type="submit"
-              className="text-xs text-text-muted hover:text-danger transition px-1.5 py-1 rounded hover:bg-white/[0.04]"
+              className="text-xs text-text-muted hover:text-danger transition px-1.5 py-1 rounded hover:bg-text-muted/[0.04]"
               title={t("logout", lang)}
             >
               {t("logout", lang)}
@@ -229,7 +229,7 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
           type="button"
           onClick={() => setMobileOpen(true)}
           aria-label={t("open_menu", lang)}
-          className="w-10 h-10 inline-flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition"
+          className="w-10 h-10 inline-flex items-center justify-center rounded-lg bg-text-muted/[0.04] hover:bg-text-muted/[0.08] transition"
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -247,7 +247,7 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
               type="button"
               onClick={() => setMobileOpen(false)}
               aria-label={t("close_menu", lang)}
-              className="absolute top-3 right-3 w-9 h-9 inline-flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition z-10"
+              className="absolute top-3 right-3 w-9 h-9 inline-flex items-center justify-center rounded-lg bg-text-muted/[0.04] hover:bg-text-muted/[0.08] transition z-10"
             >
               <X className="w-5 h-5" />
             </button>

@@ -87,7 +87,7 @@ export function ZKRevealView() {
               type="number"
               value={trials}
               onChange={(e) => setTrials(Number(e.target.value))}
-              className="w-20 bg-bg-tertiary border border-white/10 rounded px-2 py-1 text-xs"
+              className="w-20 bg-bg-tertiary border border-text-muted/10 rounded px-2 py-1 text-xs"
               min={10}
               max={1000}
             />

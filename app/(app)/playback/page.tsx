@@ -64,7 +64,7 @@ export default async function PlaybackPage() {
                     <a
                       key={r.id}
                       href={`/playback/${r.id}`}
-                      className="card flex items-center gap-3 hover:bg-white/[0.02] transition"
+                      className="card flex items-center gap-3 hover:bg-text-muted/[0.02] transition"
                     >
                       <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
                         <FileVideo className="w-5 h-5 text-accent" />

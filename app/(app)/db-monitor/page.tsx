@@ -35,7 +35,7 @@ export default async function DbMonitorPage() {
               <th className="px-4 py-2.5 text-right">Rows avg</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/5">
+          <tbody className="divide-y divide-text-muted/5">
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-6 text-center text-xs text-text-muted">
@@ -44,7 +44,7 @@ export default async function DbMonitorPage() {
               </tr>
             ) : (
               rows.map((r, i) => (
-                <tr key={i} className="hover:bg-white/[0.02]">
+                <tr key={i} className="hover:bg-text-muted/[0.02]">
                   <td className="px-4 py-2.5 font-mono text-[11px] text-text-soft max-w-[600px] break-all">
                     {r.query}
                   </td>

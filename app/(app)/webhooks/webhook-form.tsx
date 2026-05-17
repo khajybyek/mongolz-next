@@ -55,7 +55,7 @@ export function WebhookForm() {
           <code className="text-xs font-mono text-accent flex-1 truncate">{secret}</code>
           <button
             onClick={() => navigator.clipboard?.writeText(secret)}
-            className="p-1.5 rounded hover:bg-white/5 text-text-soft hover:text-accent"
+            className="p-1.5 rounded hover:bg-text-muted/5 text-text-soft hover:text-accent"
             title="Хуулах"
           >
             <Copy className="w-3.5 h-3.5" />

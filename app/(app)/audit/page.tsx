@@ -117,13 +117,13 @@ export default async function AuditPage({
                 <th className="px-4 py-2.5 text-left">{t("audit_col_when")}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-text-muted/5">
               {logs.map((log) => (
-                <tr key={log.id} className="hover:bg-white/[0.02]">
+                <tr key={log.id} className="hover:bg-text-muted/[0.02]">
                   <td className="px-4 py-2.5">
                     <span
                       className={`badge ${
-                        ACTION_COLORS[log.action] ?? "bg-white/5 text-text-soft"
+                        ACTION_COLORS[log.action] ?? "bg-text-muted/5 text-text-soft"
                       }`}
                     >
                       {log.action}

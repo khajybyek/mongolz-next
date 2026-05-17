@@ -89,7 +89,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
       <div className="flex items-center gap-3">
         <div
           className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-            enabled ? "bg-success/15 text-success" : "bg-white/5 text-text-soft"
+            enabled ? "bg-success/15 text-success" : "bg-text-muted/5 text-text-soft"
           }`}
         >
           <Shield className="w-5 h-5" />
@@ -102,7 +102,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
         </div>
         <span
           className={`badge ${
-            enabled ? "bg-success/15 text-success" : "bg-white/5 text-text-soft"
+            enabled ? "bg-success/15 text-success" : "bg-text-muted/5 text-text-soft"
           }`}
         >
           {enabled ? "ON" : "OFF"}
@@ -137,7 +137,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
 
       {/* VERIFY — QR + 6-digit code */}
       {step === "verify" && qr && secret && (
-        <div className="space-y-3 border-t border-white/5 pt-3">
+        <div className="space-y-3 border-t border-text-muted/5 pt-3">
           <p className="text-xs text-text-soft leading-relaxed">
             1. <b>Google Authenticator</b> эсвэл <b>Authy</b>-аа нээ
             <br />
@@ -195,7 +195,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
 
       {/* DISABLE — password confirm */}
       {step === "disable" && (
-        <div className="space-y-3 border-t border-white/5 pt-3">
+        <div className="space-y-3 border-t border-text-muted/5 pt-3">
           <p className="text-xs text-warning">
             ⚠️ TOTP-г унтрааснаар таны бүртгэл нь нууц үгээр л хамгаалагдана.
           </p>
@@ -230,7 +230,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
         </div>
       )}
 
-      <p className="text-[10px] text-text-muted leading-relaxed border-t border-white/5 pt-3">
+      <p className="text-[10px] text-text-muted leading-relaxed border-t border-text-muted/5 pt-3">
         Аккаунт: <b>{email}</b> · Role: <b>{role}</b>
       </p>
     </div>

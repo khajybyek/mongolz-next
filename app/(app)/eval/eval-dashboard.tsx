@@ -43,7 +43,7 @@ export function EvalDashboard() {
             key={t}
             onClick={() => setTab(t)}
             className={`px-3 py-1.5 rounded-md text-sm transition ${
-              tab === t ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-white/5"
+              tab === t ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-text-muted/5"
             }`}
           >
             {t === "detection" ? "Detection F1" : t === "blur" ? "Blur SSIM" : "System"}

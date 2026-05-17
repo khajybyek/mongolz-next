@@ -116,7 +116,7 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
                       disabled={pending && busy === r.id}
                       onClick={() => toggle(r)}
                       title={r.enabled ? "Disable" : "Enable"}
-                      className={`p-1.5 rounded hover:bg-white/5 ${
+                      className={`p-1.5 rounded hover:bg-text-muted/5 ${
                         r.enabled ? "text-success" : "text-text-muted"
                       }`}
                     >

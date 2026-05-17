@@ -157,9 +157,9 @@ export default async function RevealApprovalsPage() {
                 <th className="px-4 py-2.5 text-right">Цаг</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-text-muted/5">
               {recentRows.map((j) => (
-                <tr key={j.id} className="hover:bg-white/[0.02]">
+                <tr key={j.id} className="hover:bg-text-muted/[0.02]">
                   <td className="px-4 py-2.5 font-mono text-xs text-text-soft">
                     {j.id.slice(0, 8)}
                   </td>

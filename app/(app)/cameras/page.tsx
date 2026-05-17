@@ -73,7 +73,7 @@ export default async function CamerasPage() {
                         "badge",
                         c.enabled
                           ? "bg-success/15 text-success"
-                          : "bg-white/5 text-text-muted"
+                          : "bg-text-muted/5 text-text-muted"
                       )}
                     >
                       {c.enabled ? "ON" : "OFF"}

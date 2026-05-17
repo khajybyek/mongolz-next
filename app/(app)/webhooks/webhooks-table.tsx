@@ -82,9 +82,9 @@ export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
             <th className="px-4 py-2.5 text-right">Үйлдэл</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-white/5">
+        <tbody className="divide-y divide-text-muted/5">
           {hooks.map((h) => (
-            <tr key={h.id} className="hover:bg-white/[0.02]">
+            <tr key={h.id} className="hover:bg-text-muted/[0.02]">
               <td className="px-4 py-2.5">
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${h.enabled ? "bg-success" : "bg-text-faint"}`} />
@@ -98,7 +98,7 @@ export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
               <td className="px-4 py-2.5">
                 <div className="flex flex-wrap gap-1">
                   {h.events.map((e) => (
-                    <span key={e} className="badge bg-white/5 text-text-soft text-[10px]">{e}</span>
+                    <span key={e} className="badge bg-text-muted/5 text-text-soft text-[10px]">{e}</span>
                   ))}
                 </div>
               </td>

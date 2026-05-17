@@ -92,7 +92,7 @@ export function BenchmarksView() {
                 key={n}
                 onClick={() => setIterations(n)}
                 className={`px-3 py-1.5 rounded text-xs ${
-                  iterations === n ? "bg-accent/15 text-accent" : "bg-white/5 text-text-soft hover:bg-white/10"
+                  iterations === n ? "bg-accent/15 text-accent" : "bg-text-muted/5 text-text-soft hover:bg-text-muted/10"
                 }`}
               >
                 {n} iter

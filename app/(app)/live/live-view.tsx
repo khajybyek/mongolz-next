@@ -69,7 +69,7 @@ function ModeBtn({
       onClick={() => onClick(value)}
       className={cn(
         "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition",
-        active ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-white/5"
+        active ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-text-muted/5"
       )}
     >
       <Icon className="w-4 h-4" />
@@ -685,7 +685,7 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
         {cameras.map((c) => (
           <div
             key={c.id}
-            className="flex items-center justify-between gap-2 py-2 border-b border-white/5 last:border-0"
+            className="flex items-center justify-between gap-2 py-2 border-b border-text-muted/5 last:border-0"
           >
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">{c.name}</div>

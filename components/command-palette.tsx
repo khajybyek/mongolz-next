@@ -164,7 +164,7 @@ export function CommandPalette({ role }: { role: "admin" | "viewer" | "auditor" 
             placeholder={t("cmdk_placeholder")}
             className="flex-1 bg-transparent outline-none text-sm placeholder:text-text-muted"
           />
-          <kbd className="text-2xs px-1.5 py-0.5 rounded bg-white/[0.06] text-text-muted border border-border font-mono">
+          <kbd className="text-2xs px-1.5 py-0.5 rounded bg-text-muted/[0.06] text-text-muted border border-border font-mono">
             ESC
           </kbd>
         </div>
@@ -194,7 +194,7 @@ export function CommandPalette({ role }: { role: "admin" | "viewer" | "auditor" 
                   className={`px-4 py-2.5 flex items-center gap-3 text-sm cursor-pointer transition-colors ${
                     isActive
                       ? "bg-accent/10 text-accent"
-                      : "text-text-soft hover:bg-white/[0.04]"
+                      : "text-text-soft hover:bg-text-muted/[0.04]"
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
@@ -207,13 +207,13 @@ export function CommandPalette({ role }: { role: "admin" | "viewer" | "auditor" 
         </ul>
         <div className="px-4 py-2 border-t border-border flex items-center justify-between text-2xs text-text-muted">
           <span className="flex items-center gap-2">
-            <kbd className="px-1.5 py-0.5 rounded bg-white/[0.06] border border-border font-mono">↑↓</kbd>
+            <kbd className="px-1.5 py-0.5 rounded bg-text-muted/[0.06] border border-border font-mono">↑↓</kbd>
             {t("cmdk_navigate")}
-            <kbd className="px-1.5 py-0.5 rounded bg-white/[0.06] border border-border font-mono ml-2">↵</kbd>
+            <kbd className="px-1.5 py-0.5 rounded bg-text-muted/[0.06] border border-border font-mono ml-2">↵</kbd>
             {t("cmdk_open")}
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="px-1.5 py-0.5 rounded bg-white/[0.06] border border-border font-mono">⌘K</kbd>
+            <kbd className="px-1.5 py-0.5 rounded bg-text-muted/[0.06] border border-border font-mono">⌘K</kbd>
             {t("cmdk_toggle")}
           </span>
         </div>

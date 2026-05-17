@@ -100,7 +100,7 @@ export function AIChat({
                 "inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
                 active
                   ? "bg-accent text-bg shadow-soft"
-                  : "text-text-soft hover:text-text hover:bg-white/[0.04]"
+                  : "text-text-soft hover:text-text hover:bg-text-muted/[0.04]"
               )}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -207,7 +207,7 @@ function MessageBubble({ message }: { message: Message }) {
           "w-8 h-8 rounded-full inline-flex items-center justify-center border shrink-0",
           isUser
             ? "bg-accent/15 text-accent border-accent/20"
-            : "bg-white/[0.04] text-text-soft border-border"
+            : "bg-text-muted/[0.04] text-text-soft border-border"
         )}
       >
         <Icon className="w-4 h-4" />

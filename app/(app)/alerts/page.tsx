@@ -121,7 +121,7 @@ function SummaryPill({
   variant: "muted" | "danger" | "warning";
 }) {
   const accentBg = {
-    muted: "bg-white/[0.04] border-border text-text",
+    muted: "bg-text-muted/[0.04] border-border text-text",
     danger: "bg-danger-soft border-danger/20 text-danger",
     warning: "bg-warning-soft border-warning/20 text-warning",
   }[variant];

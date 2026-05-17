@@ -92,7 +92,7 @@ export default async function CameraPermissionsPage({
                   <th className="px-4 py-2.5 text-right">{t("col_actions")}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-text-muted/5">
                 {rows.length === 0 ? (
                   <tr>
                     <td
@@ -104,7 +104,7 @@ export default async function CameraPermissionsPage({
                   </tr>
                 ) : (
                   rows.map((r) => (
-                    <tr key={r.id} className="hover:bg-white/[0.02]">
+                    <tr key={r.id} className="hover:bg-text-muted/[0.02]">
                       <td className="px-4 py-2.5 font-medium">
                         {r.user_email ?? r.user_id.slice(0, 8)}
                       </td>

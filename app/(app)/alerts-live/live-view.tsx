@@ -188,7 +188,7 @@ export function LiveAlertsView({ seed, labels }: Props) {
 
       {/* Recent stream */}
       <div className="card p-0">
-        <div className="px-4 py-2.5 border-b border-white/5 text-sm font-semibold">
+        <div className="px-4 py-2.5 border-b border-text-muted/5 text-sm font-semibold">
           {labels.recentTitle}
         </div>
         <div className="max-h-80 overflow-y-auto">
@@ -198,9 +198,9 @@ export function LiveAlertsView({ seed, labels }: Props) {
             </p>
           ) : (
             <table className="w-full text-sm">
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-text-muted/5">
                 {alerts.slice(0, 50).map((a) => (
-                  <tr key={a.id} className="hover:bg-white/[0.02]">
+                  <tr key={a.id} className="hover:bg-text-muted/[0.02]">
                     <td className="px-4 py-2 font-medium truncate max-w-[200px]">
                       {a.suspect_name}
                     </td>

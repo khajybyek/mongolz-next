@@ -100,7 +100,7 @@ export function CompareView() {
         className={`relative rounded-2xl border-2 border-dashed transition-colors ${
           dragging
             ? "border-accent bg-accent/5"
-            : "border-border-strong bg-surface hover:border-white/20"
+            : "border-border-strong bg-surface hover:border-text-muted/20"
         }`}
       >
         <input

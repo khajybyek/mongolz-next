@@ -73,9 +73,9 @@ export default async function JobsPage() {
                   <th className="px-4 py-2.5 text-left">Created</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-text-muted/5">
                 {done.map((j) => (
-                  <tr key={j.id} className="hover:bg-white/[0.02]">
+                  <tr key={j.id} className="hover:bg-text-muted/[0.02]">
                     <td className="px-4 py-2.5 font-mono text-xs">{j.id.slice(0, 8)}</td>
                     <td className="px-4 py-2.5 text-text-soft">{j.method}</td>
                     <td className="px-4 py-2.5">

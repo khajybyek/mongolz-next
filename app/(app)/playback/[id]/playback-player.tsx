@@ -251,7 +251,7 @@ export function PlaybackPlayer({
               </div>
 
               {selectedFaces.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-white/5">
+                <div className="mt-3 pt-3 border-t border-text-muted/5">
                   <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1.5">
                     Сонгогдсон ({selectedFaces.length}):
                   </p>

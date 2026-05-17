@@ -73,9 +73,9 @@ export function PrivacyDashboard() {
                 <th className="px-4 py-2.5 text-left">Privacy</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-text-muted/5">
               {results.map((r) => (
-                <tr key={r.epsilon} className="hover:bg-white/[0.02]">
+                <tr key={r.epsilon} className="hover:bg-text-muted/[0.02]">
                   <td className="px-4 py-2.5 font-mono">{r.epsilon}</td>
                   <td className="px-4 py-2.5 font-mono text-text-soft">{r.sigma}</td>
                   <td className="px-4 py-2.5">

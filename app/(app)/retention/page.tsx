@@ -91,13 +91,13 @@ export default async function RetentionPage() {
                   name="enabled"
                   defaultChecked={p.enabled}
                   value="true"
-                  className="w-4 h-4 rounded border-white/20 bg-bg-tertiary"
+                  className="w-4 h-4 rounded border-text-muted/20 bg-bg-tertiary"
                 />
                 {t("active")}
               </label>
 
               {p.last_swept_at && (
-                <div className="flex items-center gap-1.5 text-[10px] text-text-muted border-t border-white/5 pt-2">
+                <div className="flex items-center gap-1.5 text-[10px] text-text-muted border-t border-text-muted/5 pt-2">
                   <Calendar className="w-3 h-3" />
                   {t("last_swept")}: {formatDate(p.last_swept_at)} ({p.last_swept_rows ?? 0})
                 </div>
