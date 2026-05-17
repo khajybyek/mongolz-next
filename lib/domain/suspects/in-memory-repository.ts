@@ -22,7 +22,7 @@ export class InMemorySuspectRepository implements SuspectRepository {
     return Promise.resolve(this.rows.find((r) => r.id === id) ?? null);
   }
 
-  create(input: NewSuspect): Promise<Suspect> {
+  async create(input: NewSuspect): Promise<Suspect> {
     if (this.rows.some((r) => r.name === input.name)) {
       throw new SuspectRepositoryError(`name in use: ${input.name}`);
     }
@@ -35,7 +35,7 @@ export class InMemorySuspectRepository implements SuspectRepository {
       createdAt: new Date().toISOString(),
     };
     this.rows.push(next);
-    return Promise.resolve(next);
+    return next;
   }
 
   updatePrivacyTier(id: string, tier: Suspect["privacyTier"]): Promise<Suspect | null> {
