@@ -11,6 +11,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { useChartColors } from "@/lib/theme/chart-colors";
 
 interface Props {
   byHour: { h: number; c: number }[];
@@ -20,18 +21,6 @@ interface Props {
   labels: { hourly: string; daily: string; alert: string; top: string };
 }
 
-const TOOLTIP_STYLE = {
-  contentStyle: {
-    background: "rgba(15,16,22,0.95)",
-    border: "1px solid rgba(255,255,255,0.10)",
-    borderRadius: 10,
-    backdropFilter: "blur(8px)",
-    fontSize: 12,
-    color: "#f4f4f5",
-  },
-  cursor: { fill: "rgba(0, 212, 255, 0.06)" },
-};
-
 export function AnalyticsCharts({
   byHour,
   byDate,
@@ -39,14 +28,26 @@ export function AnalyticsCharts({
   topSuspects,
   labels,
 }: Props) {
+  const c = useChartColors();
+  const tooltipStyle = {
+    contentStyle: {
+      background: c.tooltipBg,
+      border: `1px solid ${c.tooltipBorder}`,
+      borderRadius: 10,
+      backdropFilter: "blur(8px)",
+      fontSize: 12,
+      color: c.tooltipText,
+    },
+    cursor: { fill: "rgba(0, 212, 255, 0.06)" },
+  };
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <ChartCard title={labels.hourly}>
         <BarChart data={byHour}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-          <XAxis dataKey="h" stroke="#71717a" fontSize={11} />
-          <YAxis stroke="#71717a" fontSize={11} />
-          <Tooltip {...TOOLTIP_STYLE} />
+          <CartesianGrid strokeDasharray="3 3" stroke={c.grid} />
+          <XAxis dataKey="h" stroke={c.axis} fontSize={11} />
+          <YAxis stroke={c.axis} fontSize={11} />
+          <Tooltip {...tooltipStyle} />
           <Bar dataKey="c" fill="url(#accentGrad)" radius={[6, 6, 0, 0]} />
           <defs>
             <linearGradient id="accentGrad" x1="0" y1="0" x2="0" y2="1">
@@ -59,10 +60,10 @@ export function AnalyticsCharts({
 
       <ChartCard title={labels.daily}>
         <LineChart data={byDate}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-          <XAxis dataKey="d" stroke="#71717a" fontSize={11} />
-          <YAxis stroke="#71717a" fontSize={11} />
-          <Tooltip {...TOOLTIP_STYLE} />
+          <CartesianGrid strokeDasharray="3 3" stroke={c.grid} />
+          <XAxis dataKey="d" stroke={c.axis} fontSize={11} />
+          <YAxis stroke={c.axis} fontSize={11} />
+          <Tooltip {...tooltipStyle} />
           <Line
             type="monotone"
             dataKey="c"
@@ -76,10 +77,10 @@ export function AnalyticsCharts({
 
       <ChartCard title={labels.alert}>
         <BarChart data={alertsByDate}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-          <XAxis dataKey="d" stroke="#71717a" fontSize={11} />
-          <YAxis stroke="#71717a" fontSize={11} />
-          <Tooltip {...TOOLTIP_STYLE} />
+          <CartesianGrid strokeDasharray="3 3" stroke={c.grid} />
+          <XAxis dataKey="d" stroke={c.axis} fontSize={11} />
+          <YAxis stroke={c.axis} fontSize={11} />
+          <Tooltip {...tooltipStyle} />
           <Bar dataKey="c" fill="url(#dangerGrad)" radius={[6, 6, 0, 0]} />
           <defs>
             <linearGradient id="dangerGrad" x1="0" y1="0" x2="0" y2="1">
@@ -92,16 +93,16 @@ export function AnalyticsCharts({
 
       <ChartCard title={labels.top}>
         <BarChart data={topSuspects} layout="vertical">
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-          <XAxis type="number" stroke="#71717a" fontSize={11} />
+          <CartesianGrid strokeDasharray="3 3" stroke={c.grid} />
+          <XAxis type="number" stroke={c.axis} fontSize={11} />
           <YAxis
             dataKey="suspect_name"
             type="category"
-            stroke="#71717a"
+            stroke={c.axis}
             fontSize={11}
             width={110}
           />
-          <Tooltip {...TOOLTIP_STYLE} />
+          <Tooltip {...tooltipStyle} />
           <Bar dataKey="c" fill="url(#warnGrad)" radius={[0, 6, 6, 0]} />
           <defs>
             <linearGradient id="warnGrad" x1="0" y1="0" x2="1" y2="0">

@@ -12,6 +12,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { useT } from "@/lib/i18n/client";
+import { useChartColors } from "@/lib/theme/chart-colors";
 
 interface Alert {
   id: string;
@@ -38,6 +39,7 @@ interface Props {
 
 export function LiveAlertsView({ seed, labels }: Props) {
   const { t, lang } = useT();
+  const chartColors = useChartColors();
   const [alerts, setAlerts] = useState<Alert[]>(seed);
   const [connected, setConnected] = useState(false);
 
@@ -115,14 +117,14 @@ export function LiveAlertsView({ seed, labels }: Props) {
     <div className="space-y-4">
       {/* Connection status */}
       <div className="flex items-center justify-between">
-        <div className="text-xs text-neutral-400">
+        <div className="text-xs text-text-muted">
           {labels.channel}:{" "}
           <span className={connected ? "text-success" : "text-warning"}>
             {connected ? `● ${labels.connected}` : `○ ${labels.connecting}`}
           </span>
         </div>
-        <div className="text-xs text-neutral-400">
-          {labels.totalIn60m}: <b className="text-neutral-100">{alerts.length}</b>
+        <div className="text-xs text-text-muted">
+          {labels.totalIn60m}: <b className="text-text">{alerts.length}</b>
         </div>
       </div>
 
@@ -132,15 +134,16 @@ export function LiveAlertsView({ seed, labels }: Props) {
         <div style={{ width: "100%", height: 200 }}>
           <ResponsiveContainer>
             <BarChart data={histogram} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-              <CartesianGrid stroke="#262644" vertical={false} />
-              <XAxis dataKey="label" stroke="#666" tick={{ fontSize: 10 }} />
-              <YAxis allowDecimals={false} stroke="#666" tick={{ fontSize: 10 }} />
+              <CartesianGrid stroke={chartColors.grid} vertical={false} />
+              <XAxis dataKey="label" stroke={chartColors.axis} tick={{ fontSize: 10 }} />
+              <YAxis allowDecimals={false} stroke={chartColors.axis} tick={{ fontSize: 10 }} />
               <Tooltip
                 contentStyle={{
-                  background: "#12122a",
-                  border: "1px solid #262644",
+                  background: chartColors.tooltipBg,
+                  border: `1px solid ${chartColors.tooltipBorder}`,
                   borderRadius: 8,
                   fontSize: 12,
+                  color: chartColors.tooltipText,
                 }}
               />
               <Bar dataKey="count" fill="#00d4ff" radius={[4, 4, 0, 0]} />
@@ -201,7 +204,7 @@ export function LiveAlertsView({ seed, labels }: Props) {
                     <td className="px-4 py-2 font-medium truncate max-w-[200px]">
                       {a.suspect_name}
                     </td>
-                    <td className="px-4 py-2 text-xs text-neutral-400 truncate max-w-[150px]">
+                    <td className="px-4 py-2 text-xs text-text-muted truncate max-w-[150px]">
                       {a.camera_name ?? "—"}
                     </td>
                     <td className="px-4 py-2">
@@ -211,7 +214,7 @@ export function LiveAlertsView({ seed, labels }: Props) {
                             ? "bg-danger/15 text-danger"
                             : a.similarity >= 0.55
                             ? "bg-warning/15 text-warning"
-                            : "bg-neutral-500/15 text-neutral-400"
+                            : "bg-text-muted/15 text-text-muted"
                         }`}
                       >
                         {(a.similarity * 100).toFixed(0)}%
