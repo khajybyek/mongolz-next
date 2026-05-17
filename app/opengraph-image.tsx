@@ -1,6 +1,8 @@
 import { ImageResponse } from "next/og";
 
-export const runtime = "edge";
+// Next.js 16 deprecated the Edge runtime — switch to nodejs so we keep
+// static OG generation working without the build-time warning.
+export const runtime = "nodejs";
 export const alt = "MONGOLZ Security — Multi-authority masking + reveal";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
