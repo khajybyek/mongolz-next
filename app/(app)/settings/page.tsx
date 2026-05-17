@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getT } from "@/lib/i18n/server";
 import { TotpSettings } from "./totp-settings";
+import { PasskeySettings } from "./passkey-settings";
 
 export default async function SettingsPage({
   searchParams,
@@ -36,6 +37,8 @@ export default async function SettingsPage({
           </div>
         )}
         <TotpSettings email={user.email} enabled={enabled} role={profile.role} />
+
+        <PasskeySettings />
 
         <div className="card space-y-3">
           <h3 className="text-sm font-semibold">{t("my_data_title")}</h3>

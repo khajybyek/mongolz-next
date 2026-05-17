@@ -34,6 +34,7 @@
     "@opentelemetry/sdk-trace-node": "^2.7.1",
     "@opentelemetry/semantic-conventions": "^1.41.1",
     "@sentry/nextjs": "^10.53.1",
+    "@simplewebauthn/server": "^13.3.0",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.46.1",
     "@types/qrcode": "^1.5.6",

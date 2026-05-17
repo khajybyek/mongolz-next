@@ -109,6 +109,49 @@ test.describe("Public OG / metadata routes", () => {
   });
 });
 
+test.describe("Playback + reveal routes (auth-gated)", () => {
+  test("/playback list page redirects unauth users", async ({ request }) => {
+    const res = await request.get("/playback", { maxRedirects: 0 });
+    expect(res.status()).toBe(307);
+    expect(res.headers()["location"]).toContain("/login");
+  });
+
+  test("/playback/[id] detail redirects unauth users (random id)", async ({ request }) => {
+    // Any UUID-shaped id should hit the same auth gate before DB lookup.
+    const res = await request.get(
+      "/playback/00000000-0000-0000-0000-000000000000",
+      { maxRedirects: 0 },
+    );
+    expect(res.status()).toBe(307);
+  });
+
+  test("/api/reveal/start rejects without auth", async ({ request }) => {
+    const fd = new FormData();
+    fd.append("recording_id", "00000000-0000-0000-0000-000000000000");
+    fd.append("method", "detected_face");
+    fd.append("threshold", "0.45");
+    const res = await request.post("/api/reveal/start", {
+      multipart: { recording_id: "00000000-0000-0000-0000-000000000000" },
+    });
+    expect([307, 401, 403]).toContain(res.status());
+  });
+
+  test("/api/reveal/start refuses invalid time window even when unauth", async ({ request }) => {
+    // Auth gate fires first; we just want to assert the endpoint exists and is
+    // mounted at this path (i.e. the time-window feature hasn't been moved
+    // accidentally).
+    const res = await request.post("/api/reveal/start");
+    // 307 (middleware redirect) or 401/403 (route-level guard) are both fine.
+    expect([307, 400, 401, 403]).toContain(res.status());
+    expect(res.status()).not.toBe(404);
+  });
+
+  test("/reveal-approvals redirects unauth users", async ({ request }) => {
+    const res = await request.get("/reveal-approvals", { maxRedirects: 0 });
+    expect(res.status()).toBe(307);
+  });
+});
+
 test.describe("Public health probe", () => {
   test("ml + db checks shipped + status is ok or degraded", async ({ request }) => {
     const res = await request.get("/api/uptime");

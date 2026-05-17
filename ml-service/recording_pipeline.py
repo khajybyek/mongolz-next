@@ -116,13 +116,29 @@ def _mosaic_anonymize(roi: np.ndarray, block_size: int = MOSAIC_BLOCK_SIZE) -> n
 CUBIST_MIN_POLYGONS = 18
 CUBIST_MAX_POLYGONS = 40
 
+# Tier-aware tuning. Capstone thesis: protection level depends on who the
+# subject is. VIP / protected witness → smaller cells (more polygons + heavier
+# blur) make even contour-recovery attacks harder. Relaxed (public figure
+# with no news-value privacy concern) → larger cells + lighter blur.
+_TIER_CUBIST = {
+    "vip":      {"min": 50, "max": 90, "scale_div": 250, "blur_sigma": 1.6},
+    "standard": {"min": CUBIST_MIN_POLYGONS, "max": CUBIST_MAX_POLYGONS,
+                 "scale_div": 600, "blur_sigma": 0.7},
+    "relaxed":  {"min": 10, "max": 18, "scale_div": 1200, "blur_sigma": 0.4},
+}
 
-def _cubist_anonymize(roi: np.ndarray, seed: int = 0) -> np.ndarray:
+
+def _cubist_anonymize(
+    roi: np.ndarray,
+    seed: int = 0,
+    privacy_tier: str = "standard",
+) -> np.ndarray:
     """Voronoi tessellation polygon mosaic — нүүрийг cubist art болгоно.
 
     Args:
         roi: BGR face region (numpy array, H×W×3).
         seed: Тогтмол хэв үүсгэхэд хэрэглэх — ижил seed = ижил polygon байрлал.
+        privacy_tier: 'vip' / 'standard' / 'relaxed' — protection strength.
 
     Returns:
         Polygon-уудаар filled face area. Хэт жижиг ROI-д mosaic-руу буцаана.
@@ -131,9 +147,11 @@ def _cubist_anonymize(roi: np.ndarray, seed: int = 0) -> np.ndarray:
     if h < 16 or w < 16:
         return _mosaic_anonymize(roi)
 
-    # Polygon тоо: ROI хэмжээ дээр scale
+    tier_cfg = _TIER_CUBIST.get(privacy_tier, _TIER_CUBIST["standard"])
+
+    # Polygon тоо: ROI хэмжээ дээр scale (tier-аар тоон границ тохиргоо)
     area = h * w
-    num_points = max(CUBIST_MIN_POLYGONS, min(CUBIST_MAX_POLYGONS, area // 600))
+    num_points = max(int(tier_cfg["min"]), min(int(tier_cfg["max"]), area // int(tier_cfg["scale_div"])))
 
     rng = np.random.RandomState(seed & 0x7FFFFFFF)
     pts_x = rng.randint(2, max(3, w - 2), num_points)
@@ -181,8 +199,10 @@ def _cubist_anonymize(roi: np.ndarray, seed: int = 0) -> np.ndarray:
 
         cv2.fillConvexPoly(output, ifacet, color)
 
-    # Polygon ирмэгийг хэт хатуу биш болгоно (бага зэрэг blend)
-    output = cv2.GaussianBlur(output, (3, 3), 0.7)
+    # Polygon ирмэгийг хэт хатуу биш болгоно (бага зэрэг blend).
+    # Tier-аар sigma тохируулна — VIP илүү blur, relaxed бага.
+    sigma = float(tier_cfg["blur_sigma"])
+    output = cv2.GaussianBlur(output, (3, 3), sigma)
     return output
 
 
