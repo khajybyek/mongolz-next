@@ -63,6 +63,10 @@ jobs:
     name: Secret scanning (trufflehog)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Push-to-main runs would have base==head and the action errors out;
+    # PR-only is the standard pattern. Weekly scheduled run still covers
+    # the full history.
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,7 +74,5 @@ jobs:
 
       - uses: trufflesecurity/trufflehog@main
         with:
-          # Scan only the new diff on a PR, full history on push to main.
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
+          path: .
           extra_args: --only-verified --no-update
