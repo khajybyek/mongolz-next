@@ -54,14 +54,12 @@ export function ThemeProvider({
   const [theme, setThemeState] = useState<Theme>(initial);
 
   // Sync with the cookie on mount (in case it changed between server render
-  // and hydration, e.g. another tab toggled it).
+  // and hydration, e.g. another tab toggled it). Intentionally runs once;
+  // we don't want it to re-fire whenever `theme` changes.
   useEffect(() => {
     const cookieTheme = readCookieTheme();
-    if (cookieTheme !== theme) {
-      setThemeState(cookieTheme);
-      applyThemeAttr(cookieTheme);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setThemeState((cur) => (cur === cookieTheme ? cur : cookieTheme));
+    applyThemeAttr(cookieTheme);
   }, []);
 
   const setTheme = useCallback((t: Theme) => {
