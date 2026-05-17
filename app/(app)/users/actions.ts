@@ -5,13 +5,11 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { hasFreshReauth } from "@/lib/auth/step-up";
 
-const createSchema = z.object({
-  email: z.string().email().max(255),
-  password: z.string().min(8).max(128),
-  full_name: z.string().max(120).optional(),
-  role: z.enum(["admin", "viewer", "auditor"]),
-});
+const REAUTH_REQUIRED = "REAUTH_REQUIRED" as const;
+type ActionError = { error: string };
+type ActionOk = { ok: true };
 
 async function audit(action: string, detail: string, user_id: string, user_email: string) {
   const svc = createServiceClient();
@@ -20,8 +18,30 @@ async function audit(action: string, detail: string, user_id: string, user_email
   await svc.from("audit_log").insert({ action, detail, user_id, user_email, ip });
 }
 
-export async function createUserAction(formData: FormData) {
+/**
+ * Sensitive user-CRUD operations require a fresh TOTP step-up. The
+ * client posts the TOTP code to `/api/auth/reauth/totp` which sets the
+ * `mongolz-reauth` cookie; this check just verifies that cookie is fresh.
+ *
+ * Returns `null` if reauth is satisfied, or a typed error to surface
+ * to the client (which will then prompt for TOTP).
+ */
+async function ensureReauth(userId: string): Promise<ActionError | null> {
+  if (await hasFreshReauth(userId)) return null;
+  return { error: REAUTH_REQUIRED };
+}
+
+const createSchema = z.object({
+  email: z.string().email().max(255),
+  password: z.string().min(8).max(128),
+  full_name: z.string().max(120).optional(),
+  role: z.enum(["admin", "viewer", "auditor"]),
+});
+
+export async function createUserAction(formData: FormData): Promise<ActionError | ActionOk> {
   const ctx = await requireAdmin();
+  const reauthErr = await ensureReauth(ctx.user.id);
+  if (reauthErr) return reauthErr;
 
   const parsed = createSchema.safeParse({
     email: formData.get("email"),
@@ -66,8 +86,10 @@ const roleSchema = z.object({
   role: z.enum(["admin", "viewer", "auditor"]),
 });
 
-export async function changeRoleAction(formData: FormData) {
+export async function changeRoleAction(formData: FormData): Promise<ActionError | ActionOk> {
   const ctx = await requireAdmin();
+  const reauthErr = await ensureReauth(ctx.user.id);
+  if (reauthErr) return reauthErr;
 
   const parsed = roleSchema.safeParse({
     user_id: formData.get("user_id"),
@@ -105,8 +127,10 @@ export async function changeRoleAction(formData: FormData) {
 
 const deleteSchema = z.object({ user_id: z.string().uuid() });
 
-export async function deleteUserAction(formData: FormData) {
+export async function deleteUserAction(formData: FormData): Promise<ActionError | ActionOk> {
   const ctx = await requireAdmin();
+  const reauthErr = await ensureReauth(ctx.user.id);
+  if (reauthErr) return reauthErr;
 
   const parsed = deleteSchema.safeParse({ user_id: formData.get("user_id") });
   if (!parsed.success) return { error: "Invalid user id" };
@@ -152,8 +176,10 @@ const resetSchema = z.object({
   password: z.string().min(8).max(128),
 });
 
-export async function resetPasswordAction(formData: FormData) {
+export async function resetPasswordAction(formData: FormData): Promise<ActionError | ActionOk> {
   const ctx = await requireAdmin();
+  const reauthErr = await ensureReauth(ctx.user.id);
+  if (reauthErr) return reauthErr;
 
   const parsed = resetSchema.safeParse({
     user_id: formData.get("user_id"),

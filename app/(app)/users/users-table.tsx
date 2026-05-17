@@ -1,8 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Shield, ShieldOff, KeyRound, Trash2, Loader2, AlertCircle, Check } from "lucide-react";
 import { changeRoleAction, deleteUserAction, resetPasswordAction } from "./actions";
+import { TotpPrompt } from "./totp-prompt";
+import { useT } from "@/lib/i18n/client";
+
+const REAUTH_REQUIRED = "REAUTH_REQUIRED";
 
 interface User {
   id: string;
@@ -13,210 +17,261 @@ interface User {
   created_at: string;
 }
 
+type PendingAction =
+  | { kind: "role"; user: User; newRole: "admin" | "viewer" | "auditor" }
+  | { kind: "delete"; user: User }
+  | { kind: "reset"; user: User; password: string };
+
 export function UsersTable({ users, currentUserId }: { users: User[]; currentUserId: string }) {
+  const { t } = useT();
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<{ id: string; type: "ok" | "err"; msg: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ id: string; type: "ok" | "err"; msg: string } | null>(
+    null,
+  );
   const [resetUserId, setResetUserId] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
+  const [needsTotp, setNeedsTotp] = useState(false);
+  const pendingActionRef = useRef<PendingAction | null>(null);
 
   function showFeedback(id: string, type: "ok" | "err", msg: string) {
     setFeedback({ id, type, msg });
     setTimeout(() => setFeedback(null), 4000);
   }
 
-  function changeRole(user: User, newRole: "admin" | "viewer" | "auditor") {
-    if (!confirm(`${user.email}-ийн role-ыг "${newRole}"-руу өөрчлөх үү?`)) return;
-    setBusyId(user.id);
+  function runPending(action: PendingAction) {
+    pendingActionRef.current = action;
+    setBusyId(action.user.id);
     startTransition(async () => {
       const fd = new FormData();
-      fd.append("user_id", user.id);
-      fd.append("role", newRole);
-      const r = await changeRoleAction(fd);
+      let res: { error: string } | { ok: true };
+      if (action.kind === "role") {
+        fd.append("user_id", action.user.id);
+        fd.append("role", action.newRole);
+        res = await changeRoleAction(fd);
+      } else if (action.kind === "delete") {
+        fd.append("user_id", action.user.id);
+        res = await deleteUserAction(fd);
+      } else {
+        fd.append("user_id", action.user.id);
+        fd.append("password", action.password);
+        res = await resetPasswordAction(fd);
+      }
       setBusyId(null);
-      if (r?.error) showFeedback(user.id, "err", r.error);
-      else showFeedback(user.id, "ok", `Role → ${newRole}`);
+
+      if ("error" in res) {
+        if (res.error === REAUTH_REQUIRED) {
+          setNeedsTotp(true);
+          return;
+        }
+        pendingActionRef.current = null;
+        showFeedback(action.user.id, "err", res.error);
+      } else {
+        pendingActionRef.current = null;
+        if (action.kind === "role") {
+          showFeedback(action.user.id, "ok", `Role → ${action.newRole}`);
+        } else if (action.kind === "reset") {
+          setResetUserId(null);
+          setNewPassword("");
+          showFeedback(action.user.id, "ok", t("users_pwd_updated"));
+        }
+      }
     });
   }
 
+  function onTotpSuccess() {
+    setNeedsTotp(false);
+    const action = pendingActionRef.current;
+    if (action) runPending(action);
+  }
+
   function nextRoleCycle(current: User["role"]): User["role"] {
-    // admin → viewer → auditor → admin
     if (current === "admin") return "viewer";
     if (current === "viewer") return "auditor";
     return "admin";
   }
 
+  function changeRole(user: User, newRole: "admin" | "viewer" | "auditor") {
+    if (!confirm(`${user.email} — "${newRole}" role?`)) return;
+    runPending({ kind: "role", user, newRole });
+  }
+
   function removeUser(user: User) {
-    if (!confirm(`${user.email}-ийг бүрмөсөн устгах уу? Энэ нь буцаашгүй.`)) return;
-    setBusyId(user.id);
-    startTransition(async () => {
-      const fd = new FormData();
-      fd.append("user_id", user.id);
-      const r = await deleteUserAction(fd);
-      setBusyId(null);
-      if (r?.error) showFeedback(user.id, "err", r.error);
-    });
+    if (!confirm(t("users_delete_confirm").replace("{email}", user.email))) return;
+    runPending({ kind: "delete", user });
   }
 
   function resetPassword(user: User) {
     if (newPassword.length < 8) {
-      showFeedback(user.id, "err", "8+ тэмдэгт хэрэгтэй");
+      showFeedback(user.id, "err", t("users_pwd_too_short"));
       return;
     }
-    setBusyId(user.id);
-    startTransition(async () => {
-      const fd = new FormData();
-      fd.append("user_id", user.id);
-      fd.append("password", newPassword);
-      const r = await resetPasswordAction(fd);
-      setBusyId(null);
-      setResetUserId(null);
-      setNewPassword("");
-      if (r?.error) showFeedback(user.id, "err", r.error);
-      else showFeedback(user.id, "ok", "Нууц үг шинэчилсэн");
-    });
+    runPending({ kind: "reset", user, password: newPassword });
   }
 
   return (
-    <div className="card overflow-x-auto p-0">
-      <table className="w-full text-sm">
-        <thead className="bg-bg-tertiary/50">
-          <tr className="text-xs uppercase tracking-wide text-neutral-400">
-            <th className="px-4 py-2.5 text-left">Имэйл</th>
-            <th className="px-4 py-2.5 text-left">Нэр</th>
-            <th className="px-4 py-2.5 text-left">Role</th>
-            <th className="px-4 py-2.5 text-left">2FA</th>
-            <th className="px-4 py-2.5 text-left">Үүсгэсэн</th>
-            <th className="px-4 py-2.5 text-right">Үйлдэл</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/5">
-          {users.map((u) => {
-            const isSelf = u.id === currentUserId;
-            const fb = feedback?.id === u.id ? feedback : null;
-            return (
-              <>
-                <tr key={u.id} className="hover:bg-white/[0.02]">
-                  <td className="px-4 py-2.5">
-                    <span className="font-medium">{u.email}</span>
-                    {isSelf && <span className="ml-2 text-[10px] text-accent">(та)</span>}
-                  </td>
-                  <td className="px-4 py-2.5 text-neutral-400">{u.full_name ?? "—"}</td>
-                  <td className="px-4 py-2.5">
-                    <span
-                      className={`badge ${
-                        u.role === "admin"
-                          ? "bg-accent/15 text-accent"
-                          : u.role === "auditor"
-                          ? "bg-warning/15 text-warning"
-                          : "bg-neutral-500/15 text-neutral-300"
-                      }`}
-                    >
-                      {u.role}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {u.totp_enabled ? (
-                      <span className="badge bg-success/15 text-success">enabled</span>
-                    ) : (
-                      <span className="badge bg-neutral-500/15 text-neutral-500">disabled</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-neutral-500">{u.created_at}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {!isSelf && (
-                        <>
-                          <button
-                            disabled={pending && busyId === u.id}
-                            onClick={() => changeRole(u, nextRoleCycle(u.role))}
-                            title={`Цикл: admin → viewer → auditor → admin (одоо: ${u.role})`}
-                            className="p-1.5 rounded hover:bg-white/5 text-neutral-400 hover:text-accent"
-                          >
-                            {u.role === "admin" ? (
-                              <ShieldOff className="w-3.5 h-3.5" />
-                            ) : (
-                              <Shield className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                          <button
-                            disabled={pending && busyId === u.id}
-                            onClick={() => { setResetUserId(u.id); setNewPassword(""); }}
-                            title="Нууц үг шинэчлэх"
-                            className="p-1.5 rounded hover:bg-white/5 text-neutral-400 hover:text-warning"
-                          >
-                            <KeyRound className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            disabled={pending && busyId === u.id}
-                            onClick={() => removeUser(u)}
-                            title="Устгах"
-                            className="p-1.5 rounded hover:bg-danger/15 text-neutral-400 hover:text-danger"
-                          >
-                            {pending && busyId === u.id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-                {resetUserId === u.id && (
-                  <tr className="bg-bg-tertiary/30">
-                    <td colSpan={6} className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="password"
-                          placeholder="Шинэ нууц үг (8+ тэмдэгт)"
-                          minLength={8}
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          className="input text-xs flex-1 max-w-sm"
-                          autoComplete="new-password"
-                        />
-                        <button
-                          onClick={() => resetPassword(u)}
-                          disabled={pending && busyId === u.id}
-                          className="btn-primary text-xs"
-                        >
-                          Хадгалах
-                        </button>
-                        <button
-                          onClick={() => { setResetUserId(null); setNewPassword(""); }}
-                          className="btn-ghost text-xs"
-                        >
-                          Цуцлах
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-                {fb && (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-1.5">
-                      <div
-                        className={`text-xs flex items-center gap-1.5 ${
-                          fb.type === "ok" ? "text-success" : "text-danger"
-                        }`}
-                      >
-                        {fb.type === "ok" ? (
-                          <Check className="w-3 h-3" />
-                        ) : (
-                          <AlertCircle className="w-3 h-3" />
+    <>
+      <div className="card p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>{t("users_col_email")}</th>
+                <th>{t("users_col_name")}</th>
+                <th>Role</th>
+                <th>2FA</th>
+                <th>{t("users_col_created")}</th>
+                <th className="text-right">{t("col_action")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => {
+                const isSelf = u.id === currentUserId;
+                const fb = feedback?.id === u.id ? feedback : null;
+                return (
+                  <>
+                    <tr key={u.id}>
+                      <td>
+                        <span className="font-medium text-text">{u.email}</span>
+                        {isSelf && (
+                          <span className="ml-2 text-2xs text-accent">
+                            ({t("users_self_label")})
+                          </span>
                         )}
-                        {fb.msg}
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                      </td>
+                      <td>{u.full_name ?? "—"}</td>
+                      <td>
+                        <span
+                          className={`badge ${
+                            u.role === "admin"
+                              ? "badge-accent"
+                              : u.role === "auditor"
+                              ? "badge-warning"
+                              : "badge-muted"
+                          }`}
+                        >
+                          {u.role}
+                        </span>
+                      </td>
+                      <td>
+                        {u.totp_enabled ? (
+                          <span className="badge-success">enabled</span>
+                        ) : (
+                          <span className="badge-muted">disabled</span>
+                        )}
+                      </td>
+                      <td className="text-xs">{u.created_at}</td>
+                      <td>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {!isSelf && (
+                            <>
+                              <button
+                                disabled={pending && busyId === u.id}
+                                onClick={() => changeRole(u, nextRoleCycle(u.role))}
+                                title={`admin → viewer → auditor → admin (${u.role})`}
+                                className="p-1.5 rounded hover:bg-white/5 text-text-soft hover:text-accent"
+                              >
+                                {u.role === "admin" ? (
+                                  <ShieldOff className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Shield className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                              <button
+                                disabled={pending && busyId === u.id}
+                                onClick={() => {
+                                  setResetUserId(u.id);
+                                  setNewPassword("");
+                                }}
+                                title={t("users_pwd_reset_tip")}
+                                className="p-1.5 rounded hover:bg-white/5 text-text-soft hover:text-warning"
+                              >
+                                <KeyRound className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                disabled={pending && busyId === u.id}
+                                onClick={() => removeUser(u)}
+                                title={t("delete_btn")}
+                                className="p-1.5 rounded hover:bg-danger-soft text-text-soft hover:text-danger"
+                              >
+                                {pending && busyId === u.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {resetUserId === u.id && (
+                      <tr className="bg-surface-elevated/40">
+                        <td colSpan={6} className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="password"
+                              placeholder={t("users_new_pwd_placeholder")}
+                              minLength={8}
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value)}
+                              className="input text-xs flex-1 max-w-sm"
+                              autoComplete="new-password"
+                            />
+                            <button
+                              onClick={() => resetPassword(u)}
+                              disabled={pending && busyId === u.id}
+                              className="btn-primary btn-sm"
+                            >
+                              {t("save_btn")}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setResetUserId(null);
+                                setNewPassword("");
+                              }}
+                              className="btn-ghost btn-sm"
+                            >
+                              {t("cancel_btn")}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {fb && (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-1.5">
+                          <div
+                            className={`text-xs flex items-center gap-1.5 ${
+                              fb.type === "ok" ? "text-success" : "text-danger"
+                            }`}
+                          >
+                            {fb.type === "ok" ? (
+                              <Check className="w-3 h-3" />
+                            ) : (
+                              <AlertCircle className="w-3 h-3" />
+                            )}
+                            {fb.msg}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <TotpPrompt
+        open={needsTotp}
+        onClose={() => {
+          setNeedsTotp(false);
+          pendingActionRef.current = null;
+        }}
+        onSuccess={onTotpSuccess}
+      />
+    </>
   );
 }

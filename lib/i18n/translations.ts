@@ -790,6 +790,101 @@ export const T = {
     en: "Python ML service unreachable. Run `uvicorn main:app --port 8000` from the ml-service folder.",
     kr: "Python ML 서비스에 연결할 수 없습니다. ml-service 폴더에서 `uvicorn main:app --port 8000`를 실행하세요.",
   },
+
+  // ─── users page + TOTP step-up prompt ───
+  users_new_btn: { mn: "Шинэ хэрэглэгч", en: "New user", kr: "새 사용자" },
+  users_created_ok: {
+    mn: "Амжилттай үүсгэлээ",
+    en: "User created",
+    kr: "사용자 생성됨",
+  },
+  users_new_form_title: {
+    mn: "Шинэ хэрэглэгч үүсгэх",
+    en: "Create new user",
+    kr: "새 사용자 만들기",
+  },
+  users_pwd_placeholder: {
+    mn: "Нууц үг (8+ тэмдэгт)",
+    en: "Password (8+ chars)",
+    kr: "비밀번호 (8+ 글자)",
+  },
+  users_fullname_placeholder: {
+    mn: "Бүтэн нэр (заавал биш)",
+    en: "Full name (optional)",
+    kr: "전체 이름 (선택)",
+  },
+  users_col_email: { mn: "Имэйл", en: "Email", kr: "이메일" },
+  users_col_name: { mn: "Нэр", en: "Name", kr: "이름" },
+  users_col_created: { mn: "Үүсгэсэн", en: "Created", kr: "생성됨" },
+  users_self_label: { mn: "та", en: "you", kr: "본인" },
+  users_pwd_reset_tip: {
+    mn: "Нууц үг шинэчлэх",
+    en: "Reset password",
+    kr: "비밀번호 재설정",
+  },
+  users_new_pwd_placeholder: {
+    mn: "Шинэ нууц үг (8+ тэмдэгт)",
+    en: "New password (8+ chars)",
+    kr: "새 비밀번호 (8+ 글자)",
+  },
+  users_pwd_too_short: {
+    mn: "8+ тэмдэгт хэрэгтэй",
+    en: "8+ characters required",
+    kr: "8자 이상 필요",
+  },
+  users_pwd_updated: {
+    mn: "Нууц үг шинэчилсэн",
+    en: "Password updated",
+    kr: "비밀번호 업데이트됨",
+  },
+  users_delete_confirm: {
+    mn: "{email} — хэрэглэгчийг бүрмөсөн устгах уу? Энэ нь буцаашгүй.",
+    en: "Delete {email} permanently? This cannot be undone.",
+    kr: "{email}을(를) 영구적으로 삭제하시겠습니까? 되돌릴 수 없습니다.",
+  },
+  save_btn: { mn: "Хадгалах", en: "Save", kr: "저장" },
+
+  // ─── TOTP step-up dialog (admin user CRUD) ───
+  totp_prompt_title: {
+    mn: "2FA баталгаажуулалт",
+    en: "2FA verification",
+    kr: "2FA 확인",
+  },
+  totp_prompt_desc: {
+    mn: "Хэрэглэгчийн мэдээлэл өөрчлөх нь мэдрэмтгий үйлдэл — нэг удаагийн TOTP кодоо оруулна уу.",
+    en: "Modifying users is a sensitive action — enter your one-time TOTP code.",
+    kr: "사용자 변경은 민감한 작업입니다 — 일회용 TOTP 코드를 입력하세요.",
+  },
+  totp_prompt_label: {
+    mn: "Authenticator app кодыг оруулна уу",
+    en: "Enter the code from your authenticator app",
+    kr: "Authenticator 앱의 코드를 입력하세요",
+  },
+  totp_prompt_verify: {
+    mn: "Баталгаажуулах",
+    en: "Verify",
+    kr: "확인",
+  },
+  totp_prompt_invalid: {
+    mn: "Код буруу эсвэл хугацаа дууссан",
+    en: "Code is invalid or expired",
+    kr: "코드가 잘못되었거나 만료되었습니다",
+  },
+  totp_prompt_not_enabled: {
+    mn: "Энэ үйлдлийг хийхийн тулд эхлээд 2FA-г идэвхжүүлэх ёстой. Тохиргооны хуудаснаас идэвхжүүлнэ үү.",
+    en: "You must enable 2FA before performing this action. Enable it in Settings.",
+    kr: "이 작업을 수행하려면 먼저 2FA를 활성화해야 합니다. 설정에서 활성화하세요.",
+  },
+  totp_prompt_network_err: {
+    mn: "Сүлжээний алдаа — дахин оролд",
+    en: "Network error — please retry",
+    kr: "네트워크 오류 — 다시 시도하세요",
+  },
+  totp_prompt_ttl_hint: {
+    mn: "Амжилттай баталгаажуулсны дараа дараагийн 15 минутын турш дахин асуухгүй.",
+    en: "After successful verification, you won't be asked again for the next 15 minutes.",
+    kr: "성공적으로 확인되면 다음 15분 동안 다시 묻지 않습니다.",
+  },
 } as const;
 
 export type TranslationKey = keyof typeof T;
