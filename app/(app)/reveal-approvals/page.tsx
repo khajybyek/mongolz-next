@@ -17,12 +17,21 @@ interface RevealRow {
   requested_email: string | null;
   recording_id: string | null;
   threshold: number | null;
+  target_start_sec: number | null;
+  target_end_sec: number | null;
   created_at: string;
   approved_email: string | null;
   approved_at: string | null;
   rejected_email: string | null;
   rejected_reason: string | null;
   rejected_at: string | null;
+}
+
+function fmtSec(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return "—";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 export default async function RevealApprovalsPage() {
@@ -34,7 +43,7 @@ export default async function RevealApprovalsPage() {
   const { data: pending } = await svc
     .from("reveal_jobs")
     .select(
-      "id, status, reason, requested_by, requested_email, recording_id, threshold, created_at, approved_email, approved_at, rejected_email, rejected_reason, rejected_at",
+      "id, status, reason, requested_by, requested_email, recording_id, threshold, target_start_sec, target_end_sec, created_at, approved_email, approved_at, rejected_email, rejected_reason, rejected_at",
     )
     .eq("status", "pending_approval")
     .order("created_at", { ascending: false });
@@ -42,7 +51,7 @@ export default async function RevealApprovalsPage() {
   const { data: recent } = await svc
     .from("reveal_jobs")
     .select(
-      "id, status, reason, requested_by, requested_email, recording_id, threshold, created_at, approved_email, approved_at, rejected_email, rejected_reason, rejected_at",
+      "id, status, reason, requested_by, requested_email, recording_id, threshold, target_start_sec, target_end_sec, created_at, approved_email, approved_at, rejected_email, rejected_reason, rejected_at",
     )
     .in("status", ["queued", "processing", "completed", "rejected", "failed"])
     .order("created_at", { ascending: false })
@@ -88,12 +97,17 @@ export default async function RevealApprovalsPage() {
                         {j.reason}
                       </p>
                     )}
-                    <div className="text-[11px] text-text-muted flex gap-3">
+                    <div className="text-[11px] text-text-muted flex gap-3 flex-wrap">
                       <span>{formatDate(j.created_at)}</span>
                       {j.recording_id && (
                         <span className="font-mono">recording {j.recording_id.slice(0, 8)}</span>
                       )}
                       {j.threshold !== null && <span>threshold {j.threshold}</span>}
+                      {j.target_start_sec !== null && j.target_end_sec !== null && (
+                        <span className="text-accent font-mono">
+                          ⏱ {fmtSec(j.target_start_sec)} → {fmtSec(j.target_end_sec)}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -37,6 +37,7 @@ export function RevealModal({
   detectedFaces,
   initialFaceIds,
   maskedUrl,
+  recordingDurationSec,
   onClose,
 }: {
   recordingId: string;
@@ -50,6 +51,8 @@ export function RevealModal({
   initialFaceIds?: string[];
   /** Original (blurred) recording URL — done step-д revealed video-той side-by-side харьцуулна. */
   maskedUrl?: string | null;
+  /** Recording duration (s) — time-window slider-т ашиглана. NULL бол slider-ийг нуух. */
+  recordingDurationSec?: number | null;
   onClose: () => void;
 }) {
   const hasInitial = (initialFaceIds?.length ?? 0) > 0;
@@ -65,6 +68,14 @@ export function RevealModal({
   );
 
   const [threshold, setThreshold] = useState(0.45);
+
+  // Time-window scope (optional). Default: full recording (window disabled).
+  const [windowEnabled, setWindowEnabled] = useState(false);
+  const [windowStart, setWindowStart] = useState(0);
+  const [windowEnd, setWindowEnd] = useState(
+    recordingDurationSec ? Math.max(1, Math.round(recordingDurationSec)) : 0,
+  );
+
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -143,6 +154,10 @@ export function RevealModal({
     if (method === "detected_face") {
       // Олон ID — face_ids[] параметр (FormData-д нэг key олон утгатай)
       Array.from(faceIds).forEach((id) => fd.append("face_ids", id));
+    }
+    if (windowEnabled && windowEnd > windowStart) {
+      fd.append("start_sec", String(windowStart));
+      fd.append("end_sec", String(windowEnd));
     }
 
     try {
@@ -354,6 +369,76 @@ export function RevealModal({
                   Бага = илүү олон тааралт (false positive магадлал ↑) · Их = чанд тааралт
                 </p>
               </div>
+
+              {recordingDurationSec && recordingDurationSec > 1 && (
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-wide text-text-soft flex items-center justify-between">
+                    <span>Хугацааны хязгаар</span>
+                    <button
+                      type="button"
+                      onClick={() => setWindowEnabled((v) => !v)}
+                      className={cn(
+                        "text-[10px] px-2 py-0.5 rounded-full transition",
+                        windowEnabled
+                          ? "bg-accent/15 text-accent border border-accent/30"
+                          : "bg-text-muted/5 text-text-muted hover:text-text",
+                      )}
+                    >
+                      {windowEnabled ? "Идэвхтэй" : "Идэвхгүй"}
+                    </button>
+                  </label>
+                  {windowEnabled ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <div className="text-[10px] text-text-muted mb-1">
+                            Эхлэх — {fmtSec(windowStart)}
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={Math.max(0, Math.floor(recordingDurationSec) - 1)}
+                            step={1}
+                            value={windowStart}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              setWindowStart(v);
+                              if (windowEnd <= v) setWindowEnd(v + 1);
+                            }}
+                            className="w-full accent-accent"
+                          />
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-text-muted mb-1">
+                            Дуусах — {fmtSec(windowEnd)}
+                          </div>
+                          <input
+                            type="range"
+                            min={windowStart + 1}
+                            max={Math.ceil(recordingDurationSec)}
+                            step={1}
+                            value={windowEnd}
+                            onChange={(e) => setWindowEnd(Number(e.target.value))}
+                            className="w-full accent-accent"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-text-muted">
+                        Энэ хүрээнээс гадуурх frame-ууд бүхэлдээ блюртэй
+                        үлдэнэ — &quot;principle of least privilege&quot;.
+                        Сонгосон хүрээ: <span className="text-accent font-mono">
+                          {fmtSec(windowStart)} → {fmtSec(windowEnd)}
+                        </span>{" "}
+                        ({windowEnd - windowStart}s / {Math.ceil(recordingDurationSec)}s)
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[10px] text-text-muted">
+                      Идэвхгүй үед бичлэгийн бүх хугацаанд reveal хийгдэнэ.
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="flex gap-2 pt-2">
                 <button onClick={onClose} className="btn-ghost flex-1">
@@ -664,6 +749,13 @@ function SideBySidePlayer({
       </div>
     </div>
   );
+}
+
+function fmtSec(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return "—";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function MethodCard({

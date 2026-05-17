@@ -37,11 +37,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid params" }, { status: 400 });
   }
 
+  // Optional time window — reveal scope-ийг recording-ийн нэг хэсэгт хязгаарлана.
+  // Хэрэв start_sec/end_sec хоёулаа байхгүй бол whole recording reveal (хуучин зан төлөв).
+  const rawStart = fd.get("start_sec");
+  const rawEnd = fd.get("end_sec");
+  let target_start_sec: number | null = null;
+  let target_end_sec: number | null = null;
+  if (rawStart != null && rawEnd != null && String(rawStart) !== "" && String(rawEnd) !== "") {
+    const s = Number(rawStart);
+    const e = Number(rawEnd);
+    if (!Number.isFinite(s) || !Number.isFinite(e) || s < 0 || e <= s) {
+      return NextResponse.json(
+        { error: "invalid time window — start must be ≥0 and end > start" },
+        { status: 400 },
+      );
+    }
+    target_start_sec = s;
+    target_end_sec = e;
+  }
+
   // Recording байгаа эсэхийг шалгах + has_original
   const supabase = await createClient();
   const { data: rec } = await supabase
     .from("recordings")
-    .select("id, has_original, filename")
+    .select("id, has_original, filename, duration_sec")
     .eq("id", recording_id)
     .single();
 
@@ -52,6 +71,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: "Энэ бичлэгт original үлдээгүй — reveal боломжгүй" },
       { status: 422 }
+    );
+  }
+
+  // Time window нь recording-ийн duration-аас давсан эсэхийг шалгана
+  if (target_end_sec !== null && rec.duration_sec && target_end_sec > rec.duration_sec + 1) {
+    return NextResponse.json(
+      { error: `Time window-ийн end (${target_end_sec}s) recording duration-аас давсан байна (${rec.duration_sec}s)` },
+      { status: 400 },
     );
   }
 
@@ -138,6 +165,8 @@ export async function POST(request: NextRequest) {
       query_embedding: queryEmbeddingSingle as never,
       query_embeddings: queryEmbeddingsMulti as never,
       threshold,
+      target_start_sec,
+      target_end_sec,
       requested_by: ctx.user.id,
       requested_email: ctx.user.email,
       reauth_at: new Date().toISOString(),

@@ -321,6 +321,7 @@ export function PlaybackPlayer({
           detectedFaces={detectedFaces}
           initialFaceIds={initialFaceIds}
           maskedUrl={videoUrl}
+          recordingDurationSec={liveDuration ?? durationSec}
           onClose={close}
         />
       )}

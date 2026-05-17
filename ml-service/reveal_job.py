@@ -141,6 +141,21 @@ class RevealProcessor:
             except Exception:
                 watermark_at = None
 
+            # Optional time-window — frame-уудыг scope-аас гадуурх бол бүх face-ыг
+            # mask-аар хадгална. Хоёулаа NULL бол хуучин whole-recording горим.
+            target_start_sec = job.get("target_start_sec")
+            target_end_sec = job.get("target_end_sec")
+            try:
+                target_start_sec = (
+                    float(target_start_sec) if target_start_sec is not None else None
+                )
+                target_end_sec = (
+                    float(target_end_sec) if target_end_sec is not None else None
+                )
+            except (TypeError, ValueError):
+                target_start_sec = None
+                target_end_sec = None
+
             try:
                 duration = self._process_video(
                     input_mp4=input_mp4,
@@ -150,6 +165,8 @@ class RevealProcessor:
                     job_id=job_id,
                     watermark_email=requester_email,
                     watermark_at=watermark_at,
+                    target_start_sec=target_start_sec,
+                    target_end_sec=target_end_sec,
                 )
             except Exception as e:
                 await self._fail(job_id, f"Боловсруулах алдаа: {e}")
@@ -257,7 +274,17 @@ class RevealProcessor:
         job_id: str,
         watermark_email: str | None = None,
         watermark_at: str | None = None,
+        target_start_sec: float | None = None,
+        target_end_sec: float | None = None,
     ) -> int:
+        """Process video frame-by-frame, selectively un-masking target faces.
+
+        If `target_start_sec`/`target_end_sec` are both set, frames whose
+        timestamp falls OUTSIDE that range are emitted with every face masked
+        (no reveal) regardless of similarity. Inside the range the existing
+        selective-blur logic runs. Default (both None) keeps the legacy
+        whole-recording behaviour.
+        """
         cap = cv2.VideoCapture(input_mp4)
         if not cap.isOpened():
             raise RuntimeError("Input MP4 нээгдсэнгүй")
@@ -266,6 +293,12 @@ class RevealProcessor:
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv2.CAP_PROP_FPS) or 15
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        time_bounded = target_start_sec is not None and target_end_sec is not None
+        if time_bounded:
+            log.info(
+                "Reveal job %s — time-bounded scope [%.2fs, %.2fs]",
+                job_id, target_start_sec, target_end_sec,
+            )
 
         # FFmpeg encoder pipe (BGR raw → MP4 H.264)
         encoder = subprocess.Popen(
@@ -299,14 +332,31 @@ class RevealProcessor:
                 if not ok or frame is None:
                     break
 
-                if frame_idx % detect_every == 0:
-                    # Re-compute матч хэсгүүд — олон target-аас аль нэг нь тохирвол keep
-                    last_match_boxes = self._find_target_boxes(
-                        frame, target_embeddings, threshold
+                # Frame-ийн timestamp (секундээр) — time-bounded reveal-д ашиглана
+                frame_time_sec = frame_idx / fps if fps > 0 else 0.0
+                in_scope = (
+                    not time_bounded
+                    or (
+                        frame_time_sec >= (target_start_sec or 0.0)
+                        and frame_time_sec <= (target_end_sec or float("inf"))
                     )
+                )
+
+                if frame_idx % detect_every == 0:
+                    if in_scope:
+                        # Re-compute матч хэсгүүд — олон target-аас аль нэг нь тохирвол keep
+                        last_match_boxes = self._find_target_boxes(
+                            frame, target_embeddings, threshold
+                        )
+                    else:
+                        # Scope-аас гадуур: бүх face-ыг блюртэй үлдээх → match-гүй
+                        last_match_boxes = []
 
                 # Бүх нүүрийг blur, сонгосон бүс л original үлдэх (Haar only — fast)
-                output = self._selective_blur(frame, last_match_boxes)
+                # Scope-аас гадуур үед last_match_boxes хоосон тул бүгд masked.
+                output = self._selective_blur(
+                    frame, last_match_boxes if in_scope else []
+                )
 
                 # Watermark — accountability layer (admin email + timestamp)
                 if watermark_email:
