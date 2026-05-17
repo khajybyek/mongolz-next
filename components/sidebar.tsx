@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -32,6 +32,12 @@ import {
   Footprints,
   Flame,
   Activity,
+  ChevronDown,
+  Home,
+  ScanFace,
+  Wrench,
+  FlaskConical,
+  MoreHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import { MongolzLogo } from "./logo";
@@ -49,37 +55,95 @@ type NavItem = {
   auditorAllowed?: boolean;
 };
 
-const NAV: NavItem[] = [
-  { href: "/dashboard", icon: LayoutDashboard, labelKey: "nav_dashboard" },
-  { href: "/compare", icon: Sparkles, labelKey: "nav_compare", adminOnly: true },
-  { href: "/live", icon: Video, labelKey: "nav_live" },
-  { href: "/live-rtc", icon: Video, labelKey: "nav_live_rtc", adminOnly: true },
-  { href: "/playback", icon: PlayCircle, labelKey: "nav_playback" },
-  { href: "/search", icon: Search, labelKey: "nav_search" },
-  { href: "/suspects", icon: UserSearch, labelKey: "nav_suspects", adminOnly: true },
-  { href: "/alerts", icon: Bell, labelKey: "nav_alerts", adminOnly: true },
-  { href: "/alerts-live", icon: Bell, labelKey: "nav_alerts_live", adminOnly: true },
-  { href: "/alert-rules", icon: BellRing, labelKey: "nav_alert_rules", adminOnly: true },
-  { href: "/analytics", icon: BarChart3, labelKey: "nav_analytics" },
-  { href: "/ai", icon: Sparkles, labelKey: "nav_ai", adminOnly: true },
-  { href: "/faces", icon: Users, labelKey: "nav_faces", adminOnly: true },
-  { href: "/cameras", icon: Cctv, labelKey: "nav_cameras", adminOnly: true },
-  { href: "/audit", icon: ScrollText, labelKey: "nav_audit", adminOnly: true, auditorAllowed: true },
-  { href: "/users", icon: UserCog, labelKey: "nav_users", adminOnly: true },
-  { href: "/webhooks", icon: Webhook, labelKey: "nav_webhooks", adminOnly: true },
-  { href: "/reveal-approvals", icon: ShieldCheck, labelKey: "nav_reveal_approvals", adminOnly: true },
-  { href: "/retention", icon: CalendarClock, labelKey: "nav_retention", adminOnly: true },
-  { href: "/active-learning", icon: GraduationCap, labelKey: "nav_active_learning", adminOnly: true },
-  { href: "/reid", icon: Footprints, labelKey: "nav_reid", adminOnly: true },
-  { href: "/heatmap", icon: Flame, labelKey: "nav_heatmap", adminOnly: true },
-  { href: "/perf-budget", icon: Activity, labelKey: "nav_perf", adminOnly: true },
-  { href: "/ml-lab", icon: Sparkles, labelKey: "nav_ml_lab", adminOnly: true },
-  { href: "/benchmarks", icon: Gauge, labelKey: "nav_benchmarks", adminOnly: true },
-  { href: "/db-monitor", icon: Database, labelKey: "nav_db_monitor", adminOnly: true },
-  { href: "/backup", icon: Archive, labelKey: "nav_backup", adminOnly: true },
-  { href: "/docs", icon: BookOpen, labelKey: "nav_docs", adminOnly: true },
-  { href: "/settings", icon: Settings, labelKey: "nav_settings", adminOnly: true },
+type NavGroup = {
+  id: string;
+  labelKey: Parameters<typeof t>[0];
+  icon: LucideIcon;
+  items: NavItem[];
+};
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    id: "overview",
+    labelKey: "nav_group_overview",
+    icon: Home,
+    items: [
+      { href: "/dashboard", icon: LayoutDashboard, labelKey: "nav_dashboard" },
+      { href: "/compare", icon: Sparkles, labelKey: "nav_compare", adminOnly: true },
+    ],
+  },
+  {
+    id: "live",
+    labelKey: "nav_group_live",
+    icon: Video,
+    items: [
+      { href: "/live", icon: Video, labelKey: "nav_live" },
+      { href: "/live-rtc", icon: Video, labelKey: "nav_live_rtc", adminOnly: true },
+      { href: "/playback", icon: PlayCircle, labelKey: "nav_playback" },
+    ],
+  },
+  {
+    id: "search",
+    labelKey: "nav_group_search",
+    icon: ScanFace,
+    items: [
+      { href: "/search", icon: Search, labelKey: "nav_search" },
+      { href: "/suspects", icon: UserSearch, labelKey: "nav_suspects", adminOnly: true },
+      { href: "/alerts", icon: Bell, labelKey: "nav_alerts", adminOnly: true },
+      { href: "/alerts-live", icon: Bell, labelKey: "nav_alerts_live", adminOnly: true },
+      { href: "/alert-rules", icon: BellRing, labelKey: "nav_alert_rules", adminOnly: true },
+    ],
+  },
+  {
+    id: "analytics",
+    labelKey: "nav_group_analytics",
+    icon: BarChart3,
+    items: [
+      { href: "/analytics", icon: BarChart3, labelKey: "nav_analytics" },
+      { href: "/ai", icon: Sparkles, labelKey: "nav_ai", adminOnly: true },
+      { href: "/faces", icon: Users, labelKey: "nav_faces", adminOnly: true },
+    ],
+  },
+  {
+    id: "admin",
+    labelKey: "nav_group_admin",
+    icon: Wrench,
+    items: [
+      { href: "/cameras", icon: Cctv, labelKey: "nav_cameras", adminOnly: true },
+      { href: "/audit", icon: ScrollText, labelKey: "nav_audit", adminOnly: true, auditorAllowed: true },
+      { href: "/users", icon: UserCog, labelKey: "nav_users", adminOnly: true },
+      { href: "/webhooks", icon: Webhook, labelKey: "nav_webhooks", adminOnly: true },
+      { href: "/reveal-approvals", icon: ShieldCheck, labelKey: "nav_reveal_approvals", adminOnly: true },
+      { href: "/retention", icon: CalendarClock, labelKey: "nav_retention", adminOnly: true },
+    ],
+  },
+  {
+    id: "ml",
+    labelKey: "nav_group_ml",
+    icon: FlaskConical,
+    items: [
+      { href: "/active-learning", icon: GraduationCap, labelKey: "nav_active_learning", adminOnly: true },
+      { href: "/reid", icon: Footprints, labelKey: "nav_reid", adminOnly: true },
+      { href: "/heatmap", icon: Flame, labelKey: "nav_heatmap", adminOnly: true },
+      { href: "/perf-budget", icon: Activity, labelKey: "nav_perf", adminOnly: true },
+      { href: "/ml-lab", icon: Sparkles, labelKey: "nav_ml_lab", adminOnly: true },
+      { href: "/benchmarks", icon: Gauge, labelKey: "nav_benchmarks", adminOnly: true },
+      { href: "/db-monitor", icon: Database, labelKey: "nav_db_monitor", adminOnly: true },
+    ],
+  },
+  {
+    id: "other",
+    labelKey: "nav_group_other",
+    icon: MoreHorizontal,
+    items: [
+      { href: "/backup", icon: Archive, labelKey: "nav_backup", adminOnly: true },
+      { href: "/docs", icon: BookOpen, labelKey: "nav_docs", adminOnly: true },
+      { href: "/settings", icon: Settings, labelKey: "nav_settings", adminOnly: true },
+    ],
+  },
 ];
+
+const COLLAPSE_STORAGE_KEY = "mongolz-sidebar-collapsed";
 
 interface SidebarProps {
   lang: Lang;
@@ -88,15 +152,61 @@ interface SidebarProps {
   isSuperAdmin?: boolean;
 }
 
+function isItemVisible(item: NavItem, role: SidebarProps["role"]): boolean {
+  if (role === "admin") return true;
+  if (role === "auditor") return item.auditorAllowed === true;
+  return !item.adminOnly;
+}
+
 export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProps) {
   const pathname = usePathname();
-  const items = NAV.filter((n) => {
-    if (role === "admin") return true;
-    if (role === "auditor") return n.auditorAllowed === true;
-    // viewer
-    return !n.adminOnly;
-  });
+  const visibleGroups = useMemo(
+    () =>
+      NAV_GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter((i) => isItemVisible(i, role)),
+      })).filter((group) => group.items.length > 0),
+    [role],
+  );
+
+  const activeGroupId = useMemo(() => {
+    for (const group of visibleGroups) {
+      const hit = group.items.find(
+        (it) => pathname === it.href || pathname.startsWith(it.href + "/"),
+      );
+      if (hit) return group.id;
+    }
+    return null;
+  }, [pathname, visibleGroups]);
+
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+    try {
+      const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, boolean>;
+        if (parsed && typeof parsed === "object") setCollapsed(parsed);
+      }
+    } catch {
+      /* ignore corrupt state */
+    }
+  }, []);
+
+  function toggleGroup(id: string) {
+    setCollapsed((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      try {
+        localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        /* quota exceeded — ignore */
+      }
+      return next;
+    });
+  }
 
   // Pathname өөрчлөгдөхөд drawer-ыг хаах (mobile дээр link дарсны дараа)
   useEffect(() => {
@@ -132,36 +242,76 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
         </Link>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
-        {items.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
-          const Icon = item.icon;
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
+        {visibleGroups.map((group) => {
+          // Auto-open the group that contains the active route; user toggle
+          // overrides via localStorage once they touch the header.
+          const userCollapsed = hydrated && collapsed[group.id] === true;
+          const containsActive = group.id === activeGroupId;
+          const open = containsActive || !userCollapsed;
+          const GroupIcon = group.icon;
           return (
-            <Link
-              key={item.href}
-              href={item.href as never}
-              className={cn(
-                "relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150 group",
-                active
-                  ? "bg-accent/10 text-accent font-medium"
-                  : "text-text-soft hover:bg-text-muted/[0.04] hover:text-text"
-              )}
-            >
-              {active && (
-                <span
-                  className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"
+            <div key={group.id}>
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.id)}
+                aria-expanded={open}
+                aria-controls={`sidebar-group-${group.id}`}
+                className={cn(
+                  "w-full flex items-center gap-2 px-2 py-1 text-2xs uppercase tracking-[0.14em] font-semibold transition-colors rounded-md",
+                  containsActive
+                    ? "text-text"
+                    : "text-text-faint hover:text-text-soft",
+                )}
+              >
+                <GroupIcon className="w-3.5 h-3.5 shrink-0 opacity-70" aria-hidden />
+                <span className="flex-1 text-left truncate">{t(group.labelKey, lang)}</span>
+                <ChevronDown
+                  className={cn(
+                    "w-3.5 h-3.5 shrink-0 transition-transform opacity-60",
+                    open ? "" : "-rotate-90",
+                  )}
                   aria-hidden
                 />
-              )}
-              <Icon
-                className={cn(
-                  "w-4 h-4 shrink-0 transition-transform",
-                  active ? "text-accent" : "text-text-muted group-hover:text-text-soft",
-                  "group-hover:scale-110"
-                )}
-              />
-              <span className="truncate">{t(item.labelKey, lang)}</span>
-            </Link>
+              </button>
+              <div
+                id={`sidebar-group-${group.id}`}
+                hidden={!open}
+                className="mt-1 space-y-0.5"
+              >
+                {group.items.map((item) => {
+                  const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href as never}
+                      className={cn(
+                        "relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150 group",
+                        active
+                          ? "bg-accent/10 text-accent font-medium"
+                          : "text-text-soft hover:bg-text-muted/[0.04] hover:text-text",
+                      )}
+                    >
+                      {active && (
+                        <span
+                          className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"
+                          aria-hidden
+                        />
+                      )}
+                      <Icon
+                        className={cn(
+                          "w-4 h-4 shrink-0 transition-transform",
+                          active ? "text-accent" : "text-text-muted group-hover:text-text-soft",
+                          "group-hover:scale-110",
+                        )}
+                      />
+                      <span className="truncate">{t(item.labelKey, lang)}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
           );
         })}
       </nav>

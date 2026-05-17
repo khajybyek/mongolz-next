@@ -1411,6 +1411,15 @@ export const T = {
     en: "No Web Vitals samples yet. They start arriving once admin pages get visited.",
     kr: "아직 Web Vitals 샘플이 없습니다. 관리자 페이지를 방문하면 수집이 시작됩니다.",
   },
+
+  // ── Sidebar group labels ──
+  nav_group_overview: { mn: "Үндсэн ажиглалт", en: "Overview", kr: "개요" },
+  nav_group_live: { mn: "Live / Recording", en: "Live / Recording", kr: "라이브 / 녹화" },
+  nav_group_search: { mn: "Хайлт / Алерт", en: "Search / Alerts", kr: "검색 / 알림" },
+  nav_group_analytics: { mn: "Аналитик", en: "Analytics", kr: "분석" },
+  nav_group_admin: { mn: "Удирдлага", en: "Administration", kr: "관리" },
+  nav_group_ml: { mn: "ML / Хөгжүүлэлт", en: "ML / Dev", kr: "ML / 개발" },
+  nav_group_other: { mn: "Бусад", en: "Other", kr: "기타" },
 } as const;
 
 export type TranslationKey = keyof typeof T;
