@@ -1,121 +1,191 @@
-# MONGOLZ Security — Defense Demo Walkthrough (2-3 min screencast)
+# Live Demo Script — MONGOLZ Security
 
-> Бичих жагсаалт + үг хэлэх скрипт. QuickTime эсвэл OBS-аар бичээрэй.
-> Дотоод browser tab: `https://mongolz.vercel.app` — admin + auditor + viewer 3 хэрэглэгчтэйгээр.
+A minute-by-minute walkthrough for the capstone defense. Total runtime: **~8 minutes** at a comfortable pace, with 1-2 buffer minutes for questions.
 
-## 0. Бэлдэх
-
-```bash
-# 1. Demo data seed хийсэн эсэхийг шалга
-psql "$SUPABASE_DB_URL" -c "select count(*) from suspects where name like 'demo:%';"
-# → ≥3 байх ёстой. Үгүй бол:
-npm run demo:seed
-
-# 2. Production-аас login хий — браузерт 3 incognito цонх нээ:
-#    Tab 1: admin@mongolz.local  (full access)
-#    Tab 2: viewer@mongolz.local
-#    Tab 3: auditor@mongolz.local
-```
-
-OBS scene: 1080p screen capture + face cam corner оптийн.
+> **Pre-flight checklist (15 min before defense):**
+> - Two devices: laptop + phone (or two browser windows side by side)
+> - Logged in as `khajybyek` on the laptop, logged out on the second
+> - Authenticator app open on phone
+> - `/compare` page pre-loaded with a sample face photo ready to drop
+> - Network: pre-tested on the room's Wi-Fi if possible
+> - Backup: keep `docs/PENTEST_REPORT.pdf` open in a tab in case the live demo dies
 
 ---
 
-## 1. Тоглуулах дараалал (~2:30)
+## Minute 0:00 — Opening (30 s)
 
-### 🎬 SHOT 1 — Logo + Cover (5 sec)
-- Browser tab: `https://mongolz.vercel.app/login`
-- Voice: *"MONGOLZ Security — 다중 권한 마스킹 및 복원이 가능한 지능형 네트워크 카메라 및 통합관제 서버."*
+Open `https://mongolz.vercel.app/` on a fresh tab (logged out).
 
-### 🎬 SHOT 2 — Admin login + TOTP (15 sec)
-- Email + password оруул → 2FA promp гарна → Authenticator-аас код → Dashboard
-- Voice: *"Admin loginoor 2-step TOTP заавал шаарддаг. Step 1 password, step 2 шинэ цонхонд зөвхөн TOTP код."*
+**Script:**
 
-### 🎬 SHOT 3 — Multi-authority masking (30 sec — IM PORTANT!)
-- Tab 1 (admin): `/cameras/<id>/schedule` нээ
-  - "Ажлын цаг 09:00-18:00 = revealed, бусад нь masked" гэх жишээ үзүүл
-- Tab 1: `/cameras/<id>/permissions`
-  - Viewer-д зөвхөн нэг камер хандах эрхтэй гэдгийг харуул
-- Tab 2 (viewer): /playback → "Илрүүлсэн нүүр" хэсэг **Admin-only** badge харагдана
-- Voice: *"Hereglegch tus burt onogdoh masking shatlal — viewer-д face metadata огт байхгүй, admin-д л харагдана."*
+> "MONGOLZ Security нь олон эрхтэй маск + reveal чадвартай ухаалаг сүлжээний камер ба нэгдсэн удирдлагын сервер. Capstone 2026-01-CD-03-07. Энэ нь production deploy.
+>
+> Эхлээд та харж байгаа нь public landing — нэвтрэхгүй хүртэл бүх контент харах боломжтой."
 
-### 🎬 SHOT 4 — Reveal 4-eyes (40 sec — IMPORTANT!)
-- Tab 1 (admin A): `/playback/<id>` → Reveal button → reason бичих → submit
-  - "Status: pending_approval" харагдана
-- Tab 3 (auditor): `/audit` хуудсанд `REVEAL_REQUEST` audit entry харагдана
-- Tab 1 (admin A): `/reveal-approvals` нээ → өөрөө approve хийх гэх боловч "4-eyes principle: another admin must approve" гэсэн error
-- (Эх загвар үзүүлэх) Tab 4 (admin B incognito): `/reveal-approvals` → Approve дарж дуусгана
-- Voice: *"4-eyes principle. Reveal-ийг өөрсдөө дангаар batalgaajuulah bolomjgui — өөр admin л зөвшөөрнө. Audit log дотор бүх алхам хатуу бүртгэлтэй."*
-
-### 🎬 SHOT 5 — Live face detection (15 sec)
-- Tab 1: `/live` → "Эхлүүлэх" дар → webcam → bbox overlay гарна
-- Voice: *"Browser-d ONNX UltraFace огт server руу очихгүй, real-time bbox overlay."*
-
-### 🎬 SHOT 6 — Real-time alerts dashboard (10 sec)
-- Tab 1: `/alerts-live` → live chart + recent stream → шинэ alert ирэхэд animation
-- Voice: *"Supabase Realtime channel-аар шинэ alerts шууд харагдана."*
-
-### 🎬 SHOT 7 — Auditor view (10 sec)
-- Tab 3 (auditor): sidebar дээр зөвхөн **Audit log** ганц л таб
-- Voice: *"Auditor role нь зөвхөн audit log харах ердийн уншиж л чадна — өөр юунд ч хүрэхгүй."*
-
-### 🎬 SHOT 8 — GDPR (10 sec)
-- Tab 1: `/settings` → "Өгөгдлөө татах (ZIP)" → дауунлоудлогдсон файлыг үзүүл
-- Voice: *"GDPR Art.15 / PIPA §35 дагуу өгөгдлөө татах, мөн Art.17 erasure."*
-
-### 🎬 SHOT 9 — Wrap up (10 sec)
-- Voice: *"Multi-authority masking + 4-eyes reveal + audit hash chain — defense ready."*
-- Card: "mongolz.vercel.app"
+Scroll down through the 4 sections (Problem · Architecture · Live demos · Security). Linger ~5 seconds on each.
 
 ---
 
-## 2. Audio script (Mongolian — 2:30 нийт)
+## Minute 0:30 — Login + 2FA (45 s)
 
-```
-MONGOLZ Security — Многоступенчатое маскирование болон сэргээх боломжтой
-intelligent network camera + integrated control server.
+Click **Нэвтрэх** in the header.
 
-[Login] Admin TOTP заавал, viewer-д шаардахгүй — 2-step server-action flow.
+**Script:**
 
-[Multi-authority] Schedule, permissions, role — гурав давхаргат RBAC.
+> "Нэвтрэх форм — нэг анхдагч feature нь email эсвэл username хэлбэрээр нэвтрэх боломжтой. Би `khajybyek` гэж бичээд орох гэж байна."
 
-[4-eyes] Reveal job хоёр admin-ын зөвшөөрөл шаардана.
+Enter:
+- email: `khajybyek`
+- password: (your password)
 
-[Live ML] Browser-d real-time face detection, WebGPU fallback WASM.
+Press Enter.
 
-[Alerts live] Supabase Realtime channel — pg_notify уг шууд push.
+**Script:**
 
-[Auditor] Тусдаа role, зөвхөн уншиж л чадна.
+> "TOTP идэвхтэй админ-д шууд 2-р алхам шаарддаг — нэг удаагийн код."
 
-[GDPR] Data export ZIP, right to erasure CASCADE.
+Open Authenticator → read 6-digit code → enter → submit.
 
-Mongolz.vercel.app. End.
-```
+**Script:**
 
----
-
-## 3. Edit pass
-
-- Audio noise reduction
-- 2x speed up sections with form filling
-- Lower-thirds: route нэр (/cameras, /reveal-approvals) гарч ирэх
-- End card 3 seconds
-
-OBS export: 1080p30, H.264, ~50Mbps, MP4 container.
+> "Нэг чухал зүйл: бид TOTP code-уудыг нэг удаагийн ашиглалттай хийсэн. 30 секундийн validity цонхонд хоёр дахь удаа replay хийх боломжгүй — server-side hash track хийдэг."
 
 ---
 
-## 4. Bicheh garaagaa (Hindi)
+## Minute 1:15 — Dashboard tour (45 s)
 
-OBS encoder сонгох:
-- `Recording Format = mp4`
-- `Recording Quality = High Quality, Medium File Size`
-- `Encoder = Hardware (NVENC/QuickSync)`
+You land on `/dashboard`.
 
-Бичсэн дараа ffmpeg compress:
+**Script:**
 
-```bash
-ffmpeg -i raw.mp4 -c:v libx264 -crf 28 -preset slow -c:a aac -b:a 96k out.mp4
-```
+> "Эндээс бүх админ интерфэйс эхэлдэг. Sidebar дотор:
+> - **Compare** — privacy mask algorithm demo
+> - **Live** — webcam/RTSP recording
+> - **Alerts** — real-time suspect matches
+> - **Audit log** — hash-chained, tamper-evident
+> - **Users / Webhooks / Reveal Approvals** — admin governance
+>
+> Хамгийн чухал нь ⌘K дарвал command palette нээгдэнэ."
 
-target: < 30MB → email/Slack-ээр хуваалцахад тохиромжтой.
+Press **⌘K** → type `compare` → Enter.
+
+---
+
+## Minute 2:00 — Privacy mask comparison demo (2 min)
+
+You're on `/compare`.
+
+**Script:**
+
+> "Энэ бол ажлын гол demo. Капстон-ы зорилго нь privacy vs security tradeoff-ийг шийдэх. Нүүртэй зураг чирж тавья."
+
+Drag the prepared face photo into the upload zone (or click and select).
+
+**Script:**
+
+> "Нэг зураг дээр 3 өөр algorithm-ийг зэрэг ажиллуулна — Cubist Mosaic, Gaussian Blur, Pixelate. Server-side ML service ажиллана, ~3 секундийн дотор."
+
+Click **3 алгоритмыг ажиллуулах**.
+
+Wait for results.
+
+**Script (when results appear):**
+
+> "Хариу 3 panel-аар харагдана. Хамгийн бага SSIM-тэй algorithm нь хамгийн их хувийн нууцлал хадгалсан гэсэн үг — энд `card-glow`-той `Winner` badge тэмдэглэгдсэн.
+>
+> SSIM = Structural Similarity Index — 0-аас 1, бага нь нүүр илүү танигдахааргүй болсон гэсэн үг."
+
+Scroll down to the methodology card.
+
+**Script:**
+
+> "Доорх card дотор бичсэн ёсоор: бүх mask-ийн эх хувь AES-256-GCM-аар шифрлэгдэж, **4-eyes approval reveal flow**-оор л буцаагдана. Жирийн оператор нүүрийг хэзээ ч харахгүй."
+
+---
+
+## Minute 4:00 — Live recording + face detection (90 s)
+
+Click **Live** in sidebar (or ⌘K → `live`).
+
+**Script:**
+
+> "Live page нь webcam-аас бичлэг хийдэг. Browser-side ONNX UltraFace inference WebGPU-аар ажиллана — ~5fps real-time."
+
+Click **Эхлүүлэх** → allow camera permission.
+
+Wait for face overlay box to appear.
+
+**Script:**
+
+> "Дээд буланд анхдагч detector backend харагдах — `1 нүүр · WEBGPU`. Зураг бүхэн encrypt хийгдэж storage руу.
+>
+> Recording эхлүүлбэл 3MB чанх chunked upload — ML service асинхрон-оор mask + AES шифрлэлт хийгээд `recordings` table-д бичнэ."
+
+Click **Бичлэг эхлүүлэх**. Wait ~5 seconds. Click **Бичлэг зогсоох**.
+
+Click **Камер унтраах**.
+
+---
+
+## Minute 5:30 — 2FA gating demo (60 s)
+
+Click **Users** in sidebar.
+
+**Script:**
+
+> "Энэ бол админ user management. **Шинэ хэрэглэгч** товч дарвал TOTP prompt гарч ирнэ."
+
+Click **+ Шинэ хэрэглэгч** → fill form (email/password/role) → click **Үүсгэх**.
+
+The TOTP modal appears.
+
+**Script:**
+
+> "Зориудаар. Suspect нэмэх, user устгах, alert rule үүсгэх — бүх mutation-д TOTP step-up шаардана. Cookie 15 минут hold хийдэг тул нэг сегментэд олон үйлдэл хийхэд дахин дахин гарч ирэхгүй."
+
+Enter TOTP from authenticator → user created.
+
+---
+
+## Minute 6:30 — Compliance + governance (60 s)
+
+Click **Audit Log** in sidebar.
+
+**Script:**
+
+> "Бүх админ үйлдэл энд бичигддэг — hash-chained, нэг row устгавал `verify_audit_chain()` RPC бөмбөгдсөн гэдгийг илрүүлнэ."
+
+Scroll through some entries, point out audit actions like `USER_CREATE`, `REAUTH_TOTP_OK`, `BACKUP_DOWNLOAD`.
+
+**Script:**
+
+> "Жинхэнэ life-нөхцөл-д энэ нь GDPR Art.30 (records of processing) шаардлагыг хангана. Документатлагдсан DPIA `docs/COMPLIANCE.md` дотор Korean PIPA-ийн дагуу мөн хариулсан."
+
+Open new tab → `mongolz.vercel.app/.well-known/security.txt` → show.
+
+---
+
+## Minute 7:30 — Closing (30 s)
+
+Open `/api/uptime` in a tab.
+
+**Script:**
+
+> "Production-ийн health: ml + db real-time. External monitor-уудад зориулсан endpoint.
+>
+> Хураангуй: 14 хүснэгт + 24 RLS policy + AES-256-GCM шифрлэлт + TOTP 2FA + 4-eyes approval + 11 verified bug fix + бүх 5-layer continuous security testing. 9-хуудастай consolidated pentest report repo-д хадгалагдсан.
+>
+> Defense асуулт-уудтай — баярлалаа."
+
+---
+
+## Failure recovery
+
+| Failure | Recovery |
+|---|---|
+| Public landing slow | Refresh once; if still slow → screenshot of the page open in another tab |
+| Login won't accept TOTP | Try a recovery code (one of the 10 SHA-256 hashed codes) |
+| /compare fails | Open `docs/PENTEST_REPORT.pdf` instead — "Here's the consolidated report" |
+| /live no camera | Switch to "Гар утас" tab and demo the IP webcam URL |
+| 2FA prompt won't open | Mention "TotpPrompt is conditional on REAUTH_REQUIRED — must have admin role" |
+| Whole production down | Pull up the GitHub Actions Security page to show recent green runs |
