@@ -9,8 +9,11 @@
  * future commit once UX is validated against the defense rehearsal.
  */
 import {
+  generateAuthenticationOptions,
   generateRegistrationOptions,
+  verifyAuthenticationResponse,
   verifyRegistrationResponse,
+  type AuthenticationResponseJSON,
   type RegistrationResponseJSON,
 } from "@simplewebauthn/server";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -95,6 +98,102 @@ export async function buildRegistrationOptions(args: {
   });
   await storeChallenge(args.user_id, opts.challenge, "register");
   return opts;
+}
+
+/**
+ * Build assertion (login) options for a given user's enrolled passkeys.
+ *
+ * The caller must already know which user is trying to sign in (we look up
+ * by email in /login/begin). We don't want to leak "user X exists" to anon
+ * probes, so /login/begin returns generic options + a flag indicating
+ * whether any passkeys are enrolled — the client doesn't get told why
+ * login failed beyond a generic "passkey login unavailable".
+ */
+export async function buildAuthenticationOptions(args: {
+  user_id: string;
+  host: string | null;
+}) {
+  const rp = getRpConfig(args.host);
+  const svc = createServiceClient();
+  const { data: creds } = await svc
+    .from("webauthn_credentials")
+    .select("credential_id, transports")
+    .eq("user_id", args.user_id);
+
+  if (!creds || creds.length === 0) {
+    throw new Error("No passkeys enrolled for this user");
+  }
+
+  const opts = await generateAuthenticationOptions({
+    rpID: rp.rpId,
+    timeout: 60_000,
+    userVerification: "preferred",
+    allowCredentials: creds.map((c) => ({
+      id: c.credential_id,
+      transports: (c.transports ?? []) as ("internal" | "hybrid" | "usb" | "ble" | "nfc")[],
+    })),
+  });
+
+  await storeChallenge(args.user_id, opts.challenge, "auth");
+  return opts;
+}
+
+/**
+ * Verify an assertion response from `navigator.credentials.get()` and bump
+ * the credential's counter + last_used_at on success.
+ */
+export async function finishAuthentication(args: {
+  user_id: string;
+  host: string | null;
+  response: AuthenticationResponseJSON;
+}) {
+  const rp = getRpConfig(args.host);
+  const expectedChallenge = await consumeChallenge(args.user_id, "auth");
+  if (!expectedChallenge) {
+    throw new Error("Challenge expired or missing — start over");
+  }
+
+  const svc = createServiceClient();
+  // The response contains the credential ID the authenticator selected.
+  const credentialIdB64 = args.response.id;
+  const { data: cred } = await svc
+    .from("webauthn_credentials")
+    .select("id, credential_id, public_key, counter, transports")
+    .eq("user_id", args.user_id)
+    .eq("credential_id", credentialIdB64)
+    .single();
+  if (!cred) {
+    throw new Error("Passkey not recognised");
+  }
+
+  const verification = await verifyAuthenticationResponse({
+    response: args.response,
+    expectedChallenge,
+    expectedOrigin: rp.origin,
+    expectedRPID: rp.rpId,
+    credential: {
+      id: cred.credential_id,
+      publicKey: new Uint8Array(Buffer.from(cred.public_key, "base64url")),
+      counter: Number(cred.counter),
+      transports: (cred.transports ?? []) as ("internal" | "hybrid" | "usb" | "ble" | "nfc")[],
+    },
+    requireUserVerification: false,
+  });
+
+  if (!verification.verified) {
+    throw new Error("WebAuthn assertion verification failed");
+  }
+
+  // Bump counter + touch last_used_at (best-effort).
+  await svc
+    .from("webauthn_credentials")
+    .update({
+      counter: verification.authenticationInfo.newCounter,
+      last_used_at: new Date().toISOString(),
+    })
+    .eq("id", cred.id);
+
+  return { ok: true, credential_id: cred.credential_id };
 }
 
 export async function finishRegistration(args: {

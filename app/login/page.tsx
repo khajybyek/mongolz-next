@@ -5,6 +5,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Alert } from "@/components/ui/alert";
 import { getServerLang, getT } from "@/lib/i18n/server";
 import { signInAction, verifyTotpAction, cancelTotpAction } from "./actions";
+import { PasskeyLoginButton } from "./passkey-login-button";
 
 function displayError(error: string): string {
   try {
@@ -174,6 +175,59 @@ export default async function LoginPage({
                 <button type="submit" className="btn-primary w-full mt-2">
                   {t("login_btn")}
                 </button>
+
+                <div className="relative my-3">
+                  <div className="absolute inset-0 flex items-center" aria-hidden>
+                    <div className="w-full border-t border-border" />
+                  </div>
+                  <div className="relative flex justify-center text-2xs uppercase tracking-wider">
+                    <span className="bg-surface px-2 text-text-muted">
+                      {lang === "mn" ? "эсвэл" : lang === "kr" ? "또는" : "or"}
+                    </span>
+                  </div>
+                </div>
+
+                <PasskeyLoginButton
+                  next={next ?? "/dashboard"}
+                  labels={{
+                    button:
+                      lang === "mn"
+                        ? "Passkey-ээр нэвтрэх"
+                        : lang === "kr"
+                        ? "Passkey로 로그인"
+                        : "Sign in with passkey",
+                    needEmail:
+                      lang === "mn"
+                        ? "Email эсвэл username оруулна уу"
+                        : lang === "kr"
+                        ? "이메일 또는 사용자명을 입력하세요"
+                        : "Enter your email or username first",
+                    notEnrolled:
+                      lang === "mn"
+                        ? "Энэ хэрэглэгчид passkey бүртгэгдээгүй"
+                        : lang === "kr"
+                        ? "이 사용자에게 등록된 패스키가 없습니다"
+                        : "No passkeys enrolled for this user",
+                    unsupported:
+                      lang === "mn"
+                        ? "Энэ браузер passkey дэмжихгүй"
+                        : lang === "kr"
+                        ? "이 브라우저는 패스키를 지원하지 않습니다"
+                        : "This browser doesn't support passkeys",
+                    cancelled:
+                      lang === "mn"
+                        ? "Цуцлагдсан"
+                        : lang === "kr"
+                        ? "취소됨"
+                        : "Cancelled",
+                    generic:
+                      lang === "mn"
+                        ? "Passkey нэвтрэлт амжилтгүй"
+                        : lang === "kr"
+                        ? "패스키 로그인 실패"
+                        : "Passkey login failed",
+                  }}
+                />
               </form>
             )}
           </div>
