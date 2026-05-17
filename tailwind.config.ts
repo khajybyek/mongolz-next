@@ -115,10 +115,12 @@ const config: Config = {
         "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
         "gradient-radial-accent":
           "radial-gradient(circle at top, rgba(0,212,255,0.12) 0%, transparent 60%)",
+        // Theme-aware: end colour pulls --bg / --bg-secondary so light + dark
+        // both flip the background underneath the cyan halo.
         "gradient-hero":
-          "radial-gradient(ellipse 80% 60% at 50% -20%, rgba(0,212,255,0.18) 0%, transparent 60%), linear-gradient(180deg, #08090d 0%, #0f1016 100%)",
+          "radial-gradient(ellipse 80% 60% at 50% -20%, var(--hero-tint, rgba(0,212,255,0.18)) 0%, transparent 60%), linear-gradient(180deg, rgb(var(--bg)) 0%, rgb(var(--bg-secondary)) 100%)",
         "gradient-mesh":
-          "radial-gradient(at 20% 20%, rgba(0,212,255,0.10) 0%, transparent 50%), radial-gradient(at 80% 80%, rgba(124,58,237,0.10) 0%, transparent 50%)",
+          "radial-gradient(at 20% 20%, var(--mesh-tint-cyan, rgba(0,212,255,0.10)) 0%, transparent 50%), radial-gradient(at 80% 80%, var(--mesh-tint-violet, rgba(124,58,237,0.10)) 0%, transparent 50%)",
         "gradient-accent": "linear-gradient(135deg, #00d4ff 0%, #0099cc 100%)",
       },
       animation: {

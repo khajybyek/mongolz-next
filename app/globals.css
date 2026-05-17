@@ -32,6 +32,11 @@
   --border-color: 255 255 255;
   --border-alpha: 0.06;
   --border-strong-alpha: 0.10;
+
+  /* Gradient overlay tints — used by bg-gradient-hero / bg-gradient-mesh */
+  --hero-tint: rgba(0, 212, 255, 0.18);
+  --mesh-tint-cyan: rgba(0, 212, 255, 0.10);
+  --mesh-tint-violet: rgba(124, 58, 237, 0.10);
 }
 
 html[data-theme="light"] {
@@ -58,6 +63,12 @@ html[data-theme="light"] {
   --border-color: 0 0 0;
   --border-alpha: 0.08;
   --border-strong-alpha: 0.14;
+
+  /* Tone the cyan / violet washes down so they read as subtle accents
+     against white instead of muddy fog. */
+  --hero-tint: rgba(0, 153, 204, 0.08);
+  --mesh-tint-cyan: rgba(0, 153, 204, 0.05);
+  --mesh-tint-violet: rgba(124, 58, 237, 0.05);
 }
 
 html,
@@ -365,15 +376,20 @@ body {
 }
 
 @layer utilities {
-  /* Text gradient — for hero titles */
+  /* Text gradient — for hero titles. Both stops use the theme tokens so
+     light and dark modes render legibly without a separate override. */
   .text-gradient-accent {
-    background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%);
+    background: linear-gradient(135deg, rgb(var(--accent)) 0%, #7c3aed 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
   }
   .text-gradient-soft {
-    background: linear-gradient(180deg, #f4f4f5 0%, #a1a1aa 100%);
+    background: linear-gradient(
+      180deg,
+      rgb(var(--text)) 0%,
+      rgb(var(--text-soft)) 100%
+    );
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
