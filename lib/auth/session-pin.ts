@@ -42,9 +42,11 @@ function networkBucket(ip: string): string {
   return ip.split(".").slice(0, 2).join(".");
 }
 
-function fingerprint(ip: string, ua: string): string {
+function fingerprint(ip: string, ua: string): string | null {
+  const secret = signingSecret();
+  if (!secret) return null;
   const bucket = networkBucket(ip);
-  return createHmac("sha256", signingSecret() ?? "fallback")
+  return createHmac("sha256", secret)
     .update(`${bucket}|${ua}`)
     .digest("hex")
     .slice(0, 32);
@@ -71,6 +73,7 @@ export async function bindSessionPin(userId: string): Promise<void> {
   const ua = h.get("user-agent") ?? "";
   const ip = clientIpFromHeader(h);
   const fp = fingerprint(ip, ua);
+  if (!fp) return; // no secret → skip pin (fail-closed below)
   const expiresAt = new Date(Date.now() + TTL_DAYS * 86400_000).toISOString();
   const sig = sign(userId, fp, expiresAt);
   if (!sig) return;
@@ -106,7 +109,7 @@ export async function checkSessionPin(userId: string): Promise<PinResult> {
   const ua = h.get("user-agent") ?? "";
   const ip = clientIpFromHeader(h);
   const fp = fingerprint(ip, ua);
-  if (fp !== cookieFp) return { ok: false, reason: "mismatch" };
+  if (!fp || fp !== cookieFp) return { ok: false, reason: "mismatch" };
 
   return { ok: true };
 }

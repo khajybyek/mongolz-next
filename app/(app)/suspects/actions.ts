@@ -9,6 +9,10 @@ import { ensureFreshReauth } from "@/lib/auth/step-up";
 
 export async function addSuspectAction(formData: FormData) {
   const { user } = await requireAdmin();
+  const reauth = await ensureFreshReauth(user.id);
+  if (reauth) {
+    return redirect("/suspects?error=REAUTH_REQUIRED");
+  }
   const name = String(formData.get("name") ?? "").trim();
   const photo = formData.get("photo");
 

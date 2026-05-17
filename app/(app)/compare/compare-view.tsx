@@ -201,7 +201,7 @@ export function CompareView() {
                   <Stat
                     label={t("compare_ssim")}
                     value={r.ssim.toFixed(3)}
-                    hint="lower=better"
+                    hint={t("compare_ssim_hint")}
                   />
                   <Stat
                     label={t("compare_obscure")}

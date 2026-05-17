@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
   // ML service-руу forward
   const ML_URL = process.env.NEXT_PUBLIC_ML_SERVICE_URL;
-  const ML_TOKEN = process.env.ML_SERVICE_TOKEN ?? "";
+  const ML_TOKEN = process.env.ML_SERVICE_TOKEN;
 
   if (!ML_URL || ML_URL.includes("placeholder")) {
     return NextResponse.json(
@@ -44,6 +44,12 @@ export async function POST(request: NextRequest) {
         error:
           "ML service URL тохируулагдаагүй. Vercel env-д NEXT_PUBLIC_ML_SERVICE_URL-ыг Railway URL-аар шинэчилнэ үү.",
       },
+      { status: 503 }
+    );
+  }
+  if (!ML_TOKEN) {
+    return NextResponse.json(
+      { error: "ML_SERVICE_TOKEN тохируулагдаагүй — admin-аас засуулна уу." },
       { status: 503 }
     );
   }
@@ -59,8 +65,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const headers: Record<string, string> = {};
-    if (ML_TOKEN) headers["Authorization"] = `Bearer ${ML_TOKEN}`;
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${ML_TOKEN}`,
+    };
 
     const res = await fetch(`${ML_URL}/process-upload`, {
       method: "POST",

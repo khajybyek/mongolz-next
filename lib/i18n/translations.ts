@@ -15,7 +15,7 @@ export const T = {
   // ── Navigation ──
   nav_dashboard: { mn: "Хяналтын самбар", en: "Dashboard", kr: "대시보드" },
   nav_live: { mn: "Live бичлэг", en: "Live Feed", kr: "라이브" },
-  nav_playback: { mn: "Playback", en: "Playback", kr: "재생" },
+  nav_playback: { mn: "Тоглуулагч", en: "Playback", kr: "재생" },
   nav_search: { mn: "Царай хайх", en: "Face Search", kr: "얼굴 검색" },
   nav_suspects: { mn: "Сэжигтэн", en: "Suspects", kr: "용의자" },
   nav_alerts: { mn: "Сэрэмжлүүлэг", en: "Alerts", kr: "알림" },
@@ -439,9 +439,9 @@ export const T = {
   users_self: { mn: "(та)", en: "(you)", kr: "(나)" },
 
   // ── Playback ──
-  playback_title: { mn: "Playback", en: "Playback", kr: "재생" },
+  playback_title: { mn: "Бичлэг тоглуулах", en: "Playback", kr: "재생" },
   playback_subtitle: { mn: "Бичлэгүүдийн жагсаалт", en: "Recording list", kr: "녹화 목록" },
-  playback_back: { mn: "Playback", en: "Playback", kr: "재생" },
+  playback_back: { mn: "← Буцах", en: "← Back", kr: "← 뒤로" },
   playback_no_recording: { mn: "Бичлэг олдсонгүй", en: "Recording not found", kr: "녹화를 찾을 수 없습니다" },
   rec_info: { mn: "Бичлэгийн мэдээлэл", en: "Recording info", kr: "녹화 정보" },
   rec_started: { mn: "Эхэлсэн", en: "Started", kr: "시작" },
@@ -1137,6 +1137,24 @@ export const T = {
   autotune_busy: { mn: "Хадгалж байна", en: "Saving", kr: "저장 중" },
   autotune_applied: { mn: "Хадгалсан", en: "Saved", kr: "저장됨" },
   autotune_error: { mn: "Алдаа", en: "Error", kr: "오류" },
+
+  // ─── dashboard system status row labels ───
+  status_db_connected: { mn: "Холбогдсон", en: "Connected", kr: "연결됨" },
+
+  // ─── ai-chat empty state ───
+  ai_empty_chat_hint: {
+    mn: "Доор асуулт бичээд эхэл",
+    en: "Type a question below to start.",
+    kr: "아래에 질문을 입력하여 시작하세요.",
+  },
+  ai_empty_run_hint: {
+    mn: "Доорх товчийг дарж эхэл",
+    en: "Click the button below to generate.",
+    kr: "아래 버튼을 클릭하여 생성하세요.",
+  },
+
+  // ─── /compare additional ───
+  compare_ssim_hint: { mn: "бага=сайн", en: "lower=better", kr: "낮을수록 좋음" },
 
   // ─── command palette (⌘K) ───
   cmdk_title: { mn: "Команд хайх", en: "Command palette", kr: "명령 팔레트" },

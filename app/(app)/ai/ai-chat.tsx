@@ -22,6 +22,8 @@ export interface AIChatLabels {
   chatPlaceholder: string;
   send: string;
   errorGeneric: string;
+  emptyChatHint: string;
+  emptyRunHint: string;
 }
 
 const MODES: Array<{ mode: Mode; icon: LucideIcon; key: keyof AIChatLabels }> = [
@@ -128,9 +130,7 @@ export function AIChat({
               </div>
               <p className="text-sm font-medium text-text">{labels.placeholder}</p>
               <p className="text-xs text-text-muted mt-1.5 max-w-sm text-balance">
-                {mode === "chat"
-                  ? "Type a question below to start."
-                  : `Click "${labels.run}" to generate.`}
+                {mode === "chat" ? labels.emptyChatHint : labels.emptyRunHint}
               </p>
             </div>
           )}

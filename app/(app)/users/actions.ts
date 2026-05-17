@@ -149,6 +149,27 @@ export async function deleteUserAction(formData: FormData): Promise<ActionError 
   const { error } = await svc.auth.admin.deleteUser(parsed.data.user_id);
   if (error) return { error: error.message };
 
+  // Race-safety: between the count above and the delete, another admin may
+  // have been deleted concurrently. If we just removed the only admin, raise
+  // a critical audit event so an operator can promote someone via SQL ASAP.
+  if (target?.role === "admin") {
+    const { count: remaining } = await svc
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("role", "admin");
+    if ((remaining ?? 0) === 0) {
+      try {
+        await svc.from("audit_log").insert({
+          action: "ADMIN_COUNT_ZERO",
+          detail:
+            "Last admin removed via race condition — promote a user via SQL immediately",
+          user_id: ctx.user.id,
+          user_email: ctx.user.email,
+        });
+      } catch {}
+    }
+  }
+
   await audit(
     "USER_DELETE",
     `deleted ${target?.email ?? parsed.data.user_id}`,

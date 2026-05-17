@@ -28,6 +28,8 @@ function pickFormValue(fd: FormData, key: string): string | null {
 
 export async function createRuleAction(formData: FormData) {
   const ctx = await requireAdmin();
+  const reauth = await ensureFreshReauth(ctx.user.id);
+  if (reauth) return reauth;
 
   const parsed = ruleSchema.safeParse({
     name: pickFormValue(formData, "name") ?? "",
@@ -66,6 +68,8 @@ export async function createRuleAction(formData: FormData) {
 
 export async function toggleRuleAction(id: string, enabled: boolean) {
   const ctx = await requireAdmin();
+  const reauth = await ensureFreshReauth(ctx.user.id);
+  if (reauth) return reauth;
   const supabase = await createClient();
   const { error } = await supabase
     .from("alert_rules")

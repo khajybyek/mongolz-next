@@ -22,6 +22,8 @@ export default async function AIPage() {
           chatPlaceholder: t("ai_chat_placeholder"),
           send: t("ai_send"),
           errorGeneric: t("ai_error_generic"),
+          emptyChatHint: t("ai_empty_chat_hint"),
+          emptyRunHint: t("ai_empty_run_hint"),
         }}
         lang={lang}
       />

@@ -153,7 +153,7 @@ export default async function DashboardPage() {
                 value={t("operational") || "Operational"}
                 status="ok"
               />
-              <StatusRow label="Database" value="Connected" status="ok" />
+              <StatusRow label="Database" value={t("status_db_connected")} status="ok" />
               <StatusRow
                 label={t("alerts_24h") || "Alerts (24h)"}
                 value={`${alerts24h ?? 0}`}

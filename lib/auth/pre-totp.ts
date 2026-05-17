@@ -45,7 +45,7 @@ export async function setPreTotpCookie(userId: string): Promise<void> {
   store.set(COOKIE_NAME, value, {
     httpOnly: true,
     secure: true,
-    sameSite: "lax",
+    sameSite: "strict",
     path: "/",
     maxAge: TTL_SECONDS,
   });
