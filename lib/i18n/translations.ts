@@ -539,6 +539,26 @@ export const T = {
   live_rtc_fps: { mn: "FPS", en: "FPS", kr: "FPS" },
   live_rtc_bitrate: { mn: "Bitrate", en: "Bitrate", kr: "비트레이트" },
   live_rtc_packets_lost: { mn: "Алдсан пакет", en: "Packets lost", kr: "패킷 손실" },
+
+  // ─── UI polish (dashboard / alerts / shared) ───
+  alert_history_subtitle: {
+    mn: "Бүх дохиолол, шинээс хуучин руу",
+    en: "All alerts, newest first",
+    kr: "모든 알림, 최신순",
+  },
+  alerts_high: { mn: "Өндөр зэрэг", en: "High severity", kr: "높은 심각도" },
+  alerts_24h: { mn: "Сүүлийн 24 цаг", en: "Last 24h", kr: "지난 24시간" },
+  see_all: { mn: "Бүгдийг харах", en: "See all", kr: "모두 보기" },
+  system_status: { mn: "Системийн төлөв", en: "System status", kr: "시스템 상태" },
+  cameras_online: { mn: "Камер онлайн", en: "Cameras online", kr: "온라인 카메라" },
+  operational: { mn: "Хэвийн", en: "Operational", kr: "정상" },
+  ai_card_title: { mn: "AI шинжилгээ", en: "AI Insights", kr: "AI 분석" },
+  ai_card_desc: {
+    mn: "Аномаль илрүүлэлт болон дохиоллын тойм байгуулна.",
+    en: "Run anomaly detection and natural-language summaries on your alert stream.",
+    kr: "이상 탐지 및 알림 요약을 실행합니다.",
+  },
+  ai_card_cta: { mn: "AI нээх", en: "Open AI", kr: "AI 열기" },
 } as const;
 
 export type TranslationKey = keyof typeof T;

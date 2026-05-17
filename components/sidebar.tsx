@@ -106,12 +106,17 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
 
   const navContent = (
     <>
-      <div className="px-5 py-5 border-b border-white/5">
-        <Link href="/dashboard" className="flex items-center gap-2.5">
-          <MongolzLogo size={56} />
+      <div className="px-5 py-5 border-b border-border">
+        <Link href="/dashboard" className="flex items-center gap-2.5 group">
+          <div className="relative">
+            <div className="absolute inset-0 bg-accent/20 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden />
+            <MongolzLogo size={36} className="relative" />
+          </div>
           <div>
-            <div className="text-sm font-bold tracking-tight">MONGOLZ</div>
-            <div className="text-[10px] text-neutral-500 uppercase tracking-wider">Security</div>
+            <div className="text-sm font-bold tracking-tight text-text">MONGOLZ</div>
+            <div className="text-[10px] text-text-muted uppercase tracking-[0.18em] font-medium">
+              Security
+            </div>
           </div>
         </Link>
       </div>
@@ -125,46 +130,75 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
               key={item.href}
               href={item.href as never}
               className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition",
+                "relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150 group",
                 active
-                  ? "bg-accent/10 text-accent"
-                  : "text-neutral-300 hover:bg-white/5 hover:text-neutral-100"
+                  ? "bg-accent/10 text-accent font-medium"
+                  : "text-text-soft hover:bg-white/[0.04] hover:text-text"
               )}
             >
-              <Icon className="w-4 h-4" />
-              {t(item.labelKey, lang)}
+              {active && (
+                <span
+                  className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"
+                  aria-hidden
+                />
+              )}
+              <Icon
+                className={cn(
+                  "w-4 h-4 shrink-0 transition-transform",
+                  active ? "text-accent" : "text-text-muted group-hover:text-text-soft",
+                  "group-hover:scale-110"
+                )}
+              />
+              <span className="truncate">{t(item.labelKey, lang)}</span>
             </Link>
           );
         })}
       </nav>
 
-      <div className="px-4 py-4 border-t border-white/5 space-y-3">
+      <div className="px-4 py-4 border-t border-border space-y-3">
         <LanguageSwitcher current={lang} />
 
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-white/[0.02] border border-border p-2.5">
           <div className="min-w-0 flex-1">
-            <div className="text-xs font-medium truncate">{email}</div>
-            <span
-              className={cn(
-                "badge mt-1",
-                role === "admin"
-                  ? "bg-accent/15 text-accent"
-                  : role === "auditor"
-                  ? "bg-warning/15 text-warning"
-                  : "bg-white/5 text-neutral-400"
-              )}
-            >
-              {role === "admin"
-                ? t("role_admin", lang)
-                : role === "auditor"
-                ? t("role_auditor", lang)
-                : t("role_viewer", lang)}
-            </span>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-full bg-accent/15 text-accent border border-accent/20 inline-flex items-center justify-center shrink-0 text-2xs font-semibold uppercase">
+                {(email ?? "?").charAt(0)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-2xs font-medium text-text truncate">{email}</div>
+                <span
+                  className={cn(
+                    "badge mt-0.5",
+                    role === "admin"
+                      ? "badge-accent"
+                      : role === "auditor"
+                      ? "badge-warning"
+                      : "badge-muted"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "badge-dot",
+                      role === "admin"
+                        ? "bg-accent"
+                        : role === "auditor"
+                        ? "bg-warning"
+                        : "bg-text-muted"
+                    )}
+                  />
+                  {role === "admin"
+                    ? t("role_admin", lang)
+                    : role === "auditor"
+                    ? t("role_auditor", lang)
+                    : t("role_viewer", lang)}
+                </span>
+              </div>
+            </div>
           </div>
           <form action="/auth/logout" method="post">
             <button
               type="submit"
-              className="text-xs text-neutral-400 hover:text-danger transition"
+              className="text-xs text-text-muted hover:text-danger transition px-1.5 py-1 rounded hover:bg-white/[0.04]"
               title={t("logout", lang)}
             >
               {t("logout", lang)}
@@ -178,16 +212,16 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
   return (
     <>
       {/* Mobile-only top bar — hamburger toggle */}
-      <header className="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-bg/95 backdrop-blur border-b border-white/5">
+      <header className="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-bg/80 backdrop-blur-md border-b border-border">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <MongolzLogo size={44} />
+          <MongolzLogo size={28} />
           <span className="text-sm font-bold tracking-tight">MONGOLZ</span>
         </Link>
         <button
           type="button"
           onClick={() => setMobileOpen(true)}
           aria-label={t("open_menu", lang)}
-          className="w-10 h-10 inline-flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 transition"
+          className="w-10 h-10 inline-flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition"
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -197,15 +231,15 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
       {mobileOpen && (
         <>
           <div
-            className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm animate-in fade-in"
+            className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-md animate-fade-in"
             onClick={() => setMobileOpen(false)}
           />
-          <aside className="md:hidden fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] flex flex-col bg-bg-secondary border-r border-white/10 shadow-2xl">
+          <aside className="md:hidden fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] flex flex-col bg-surface border-r border-border-strong shadow-overlay animate-slide-in-left">
             <button
               type="button"
               onClick={() => setMobileOpen(false)}
               aria-label={t("close_menu", lang)}
-              className="absolute top-3 right-3 w-9 h-9 inline-flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 transition z-10"
+              className="absolute top-3 right-3 w-9 h-9 inline-flex items-center justify-center rounded-lg bg-white/[0.04] hover:bg-white/[0.08] transition z-10"
             >
               <X className="w-5 h-5" />
             </button>
@@ -215,7 +249,7 @@ export function Sidebar({ lang, role, email }: SidebarProps) {
       )}
 
       {/* Desktop sidebar (≥768px) */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-white/5 bg-bg-secondary/50 backdrop-blur">
+      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-surface/50 backdrop-blur">
         {navContent}
       </aside>
     </>
