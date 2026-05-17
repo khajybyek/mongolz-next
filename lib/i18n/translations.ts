@@ -1365,6 +1365,44 @@ export const T = {
   reid_source: { mn: "Эх царай", en: "Source face", kr: "기준 얼굴" },
   reid_clear: { mn: "Цэвэрлэх", en: "Clear", kr: "지우기" },
 
+  // ── Privacy zones ──
+  nav_zones: { mn: "Privacy zones", en: "Privacy Zones", kr: "프라이버시 영역" },
+  zones_title: { mn: "Privacy zone-ууд", en: "Privacy Zones", kr: "프라이버시 영역" },
+  zones_subtitle: {
+    mn: "Камер бүрт reveal хийгдэхгүй полигон сонгох (WC хаалга, ATM keypad гэх мэт).",
+    en: "Per-camera no-reveal zones (restroom door, ATM keypad, etc).",
+    kr: "카메라별 공개 금지 영역 (화장실 출입구, ATM 키패드 등).",
+  },
+  zones_camera: { mn: "Камер", en: "Camera", kr: "카메라" },
+  zones_draw_hint: { mn: "Frame дотор drag хийж тэгш өнцөгт зурна.", en: "Drag inside the frame to draw a rectangle.", kr: "프레임 내부를 드래그하여 사각형을 그립니다." },
+  zones_new: { mn: "Шинэ zone", en: "New zone", kr: "새 영역" },
+  zones_name_placeholder: { mn: "Зоны нэр (жш: WC1)", en: "Zone name (e.g. Restroom)", kr: "영역 이름 (예: 화장실)" },
+  zones_reason_placeholder: { mn: "Шалтгаан (заавал биш)", en: "Reason (optional)", kr: "사유 (선택)" },
+  zones_never_reveal: { mn: "Reveal-д хэзээ ч хүрэхгүй", en: "Never reveal faces in this zone", kr: "이 영역의 얼굴은 절대 공개 안 됨" },
+  zones_vip_mask: { mn: "VIP mask хүчирхэгжүүлэх", en: "Enforce VIP (strong) mask", kr: "VIP(강한) 마스크 적용" },
+  zones_save: { mn: "Хадгалах", en: "Save", kr: "저장" },
+  zones_existing: { mn: "Идэвхтэй zone", en: "Existing zones", kr: "기존 영역" },
+  zones_none: { mn: "Энэ камер дээр zone байхгүй.", en: "No zones for this camera.", kr: "이 카메라에 영역 없음." },
+  zones_no_cameras: { mn: "Эхлээд камер нэмнэ үү.", en: "Add a camera first.", kr: "먼저 카메라를 추가하세요." },
+  zones_disable: { mn: "Зогсоох", en: "Disable", kr: "비활성화" },
+  zones_enable: { mn: "Идэвхжүүлэх", en: "Enable", kr: "활성화" },
+  zones_too_small: { mn: "Талбай хэт жижиг (≥2%).", en: "Area too small (≥2%).", kr: "영역이 너무 작음 (≥2%)." },
+
+  // ── Anomaly detection ──
+  nav_anomaly: { mn: "Anomaly", en: "Anomaly", kr: "이상 감지" },
+  anomaly_title: { mn: "Anomaly detection", en: "Anomaly Detection", kr: "이상 감지" },
+  anomaly_subtitle: {
+    mn: "Per-camera hourly face count-ийн z-score baseline. |z| ≥ 2 нь спайк/dropoff.",
+    en: "Per-camera hourly face count z-score vs baseline. |z| ≥ 2 = spike/dropoff.",
+    kr: "카메라별 시간당 얼굴 카운트 z-score. |z| ≥ 2 = 스파이크/감소.",
+  },
+  anomaly_camera: { mn: "Камер", en: "Camera", kr: "카메라" },
+  anomaly_window: { mn: "Сүүлийн", en: "Recent", kr: "최근" },
+  anomaly_baseline: { mn: "Baseline", en: "Baseline", kr: "기준선" },
+  anomaly_z: { mn: "z-score", en: "z-score", kr: "z-점수" },
+  anomaly_score_legend: { mn: "Тогтвортой / Сэжигтэй / Анхааруулга", en: "Stable / Watch / Alert", kr: "안정 / 주의 / 경보" },
+  anomaly_none: { mn: "Аномали илрээгүй.", en: "No anomalies detected.", kr: "이상이 감지되지 않았습니다." },
+
   // ── Heatmap analytics ──
   nav_heatmap: { mn: "Heatmap", en: "Heatmap", kr: "히트맵" },
   heatmap_title: { mn: "Царайн heatmap", en: "Face Heatmap", kr: "얼굴 히트맵" },

@@ -32,6 +32,12 @@ ml-service/revealed_videos/
 ml-service/.mongolz_key
 ml-service/mongolz.db
 
+# Edge agent runtime
+edge-agent/.env
+
+# Benchmark sample faces — fetched by eval/fetch_face_samples.py
+ml-service/samples/
+
 # Supabase
 supabase/.branches
 supabase/.temp

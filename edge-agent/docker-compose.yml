@@ -1,0 +1,13 @@
+services:
+  mongolz-edge-agent:
+    image: mongolz-edge-agent:latest
+    build: .
+    restart: unless-stopped
+    network_mode: host  # required for LAN RTSP access on Linux
+    env_file:
+      - .env
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
