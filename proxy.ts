@@ -67,7 +67,11 @@ export async function proxy(request: NextRequest) {
 
   // Nonce + CSP-ийг response-д тавина (хэрэв updateSession redirect хийсэн ч)
   const isRedirect = baseRes.status >= 300 && baseRes.status < 400;
-  if (isRedirect) {
+  // `NextResponse.rewrite()` нь 200 буцаадаг ч `x-middleware-rewrite`
+  // header-ээр rewrite гэдгийг тэмдэглэдэг. Энэ тохиолдолд `next()`-ээр
+  // дарж бичих ёсгүй — wall host subdomain rewrite-ийг алдагдуулна.
+  const isRewrite = baseRes.headers.has("x-middleware-rewrite");
+  if (isRedirect || isRewrite) {
     baseRes.headers.set("Content-Security-Policy", buildCsp(nonce, isDev));
     baseRes.headers.set("Report-To", REPORT_TO_HEADER);
     if (!isDev) {
