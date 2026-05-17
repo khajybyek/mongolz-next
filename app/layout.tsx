@@ -5,10 +5,28 @@ import { getServerTheme } from "@/lib/theme/server";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MONGOLZ Security",
-  description: "AI-Powered Surveillance — Face Recognition CCTV",
+  metadataBase: new URL("https://mongolz.vercel.app"),
+  title: { default: "MONGOLZ Security", template: "%s · MONGOLZ Security" },
+  description:
+    "Multi-authority masking + reveal · intelligent network camera & integrated control server. Capstone 2026-01-CD-03-07.",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "MONGOLZ" },
+  openGraph: {
+    type: "website",
+    siteName: "MONGOLZ Security",
+    title: "MONGOLZ Security",
+    description:
+      "Multi-authority masking + reveal · intelligent network camera & integrated control server.",
+    url: "https://mongolz.vercel.app",
+    locale: "mn_MN",
+    alternateLocale: ["en_US", "ko_KR"],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "MONGOLZ Security",
+    description:
+      "Multi-authority masking + reveal · intelligent network camera & integrated control server.",
+  },
 };
 
 export const viewport: Viewport = {

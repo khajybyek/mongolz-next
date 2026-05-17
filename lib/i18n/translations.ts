@@ -1265,6 +1265,16 @@ export const T = {
     en: "Multi-authority masking + reveal · intelligent network camera & integrated control server",
     kr: "다중 권한 마스킹 및 복원이 가능한 지능형 네트워크 카메라 및 통합관제 서버 개발",
   },
+  live_status_loading: {
+    mn: "Шалгаж байна…",
+    en: "Probing…",
+    kr: "확인 중…",
+  },
+  live_status_failed: {
+    mn: "Health check бүтэлгүйтэв",
+    en: "Health check failed",
+    kr: "상태 확인 실패",
+  },
   home_hero_title: {
     mn: "Хувийн нууцыг хадгалсан AI камерын систем",
     en: "AI surveillance that preserves privacy",

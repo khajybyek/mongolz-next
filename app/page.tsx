@@ -18,6 +18,7 @@ import {
 import { MongolzLogo } from "@/components/logo";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LiveStatus } from "@/components/live-status";
 import { createClient } from "@/lib/supabase/server";
 import { getServerLang, getT } from "@/lib/i18n/server";
 
@@ -251,7 +252,11 @@ export default async function HomePage() {
           <span className="md:max-w-2xl leading-relaxed">
             © {new Date().getFullYear()} MONGOLZ Security — {t("home_footer_tagline")}
           </span>
-          <span className="shrink-0">Next.js 16 · Supabase · Railway · Vercel</span>
+          <span className="shrink-0 flex items-center gap-3">
+            <LiveStatus />
+            <span aria-hidden>·</span>
+            Next.js 16 · Supabase · Railway · Vercel
+          </span>
         </footer>
       </main>
     </div>
