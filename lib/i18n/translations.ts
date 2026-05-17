@@ -1131,6 +1131,28 @@ export const T = {
     en: "Charts will appear once data is collected.",
     kr: "데이터가 수집되면 차트가 표시됩니다.",
   },
+
+  // ─── auto-tune (active learning Apply button) ───
+  autotune_apply: { mn: "Apply", en: "Apply", kr: "적용" },
+  autotune_busy: { mn: "Хадгалж байна", en: "Saving", kr: "저장 중" },
+  autotune_applied: { mn: "Хадгалсан", en: "Saved", kr: "저장됨" },
+  autotune_error: { mn: "Алдаа", en: "Error", kr: "오류" },
+
+  // ─── command palette (⌘K) ───
+  cmdk_title: { mn: "Команд хайх", en: "Command palette", kr: "명령 팔레트" },
+  cmdk_placeholder: {
+    mn: "Хайх… (нэр, замаар)",
+    en: "Search routes…",
+    kr: "경로 검색…",
+  },
+  cmdk_empty: {
+    mn: "Илрэц олдсонгүй",
+    en: "No matches",
+    kr: "일치 없음",
+  },
+  cmdk_navigate: { mn: "сонгох", en: "navigate", kr: "탐색" },
+  cmdk_open: { mn: "нээх", en: "open", kr: "열기" },
+  cmdk_toggle: { mn: "нээх / хаах", en: "toggle", kr: "토글" },
 } as const;
 
 export type TranslationKey = keyof typeof T;
