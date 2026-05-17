@@ -24,7 +24,7 @@ export default async function ErasePage() {
     <>
       <Link
         href="/settings"
-        className="text-sm text-neutral-400 hover:text-neutral-100 inline-flex items-center gap-1.5 mb-3"
+        className="text-sm text-text-soft hover:text-text inline-flex items-center gap-1.5 mb-3"
       >
         <ArrowLeft className="w-4 h-4" />
         {t("nav_settings")}

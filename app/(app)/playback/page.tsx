@@ -54,7 +54,7 @@ export default async function PlaybackPage() {
         <div className="space-y-6">
           {[...grouped.entries()].map(([day, items]) => (
             <div key={day}>
-              <h2 className="text-xs uppercase tracking-wide text-neutral-400 mb-3">
+              <h2 className="text-xs uppercase tracking-wide text-text-soft mb-3">
                 {day} · {items?.length ?? 0}
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -74,25 +74,25 @@ export default async function PlaybackPage() {
                           {r.filename}
                           {r.encrypted && <Lock className="w-3 h-3 text-warning" />}
                         </div>
-                        <div className="text-xs text-neutral-500 flex items-center gap-1.5">
+                        <div className="text-xs text-text-muted flex items-center gap-1.5">
                           <span>{formatDate(r.started_at)}</span>
                           <span>·</span>
                           <span>{r.camera_name ?? "—"}</span>
                           <span>·</span>
                           <span>{r.size_bytes ? `${Math.round(r.size_bytes / 1024 / 1024)}MB` : "—"}</span>
                           <span>·</span>
-                          <span className={fc > 0 ? "text-accent" : "text-neutral-600"}>
+                          <span className={fc > 0 ? "text-accent" : "text-text-faint"}>
                             {fc} · {t("faces_label")}
                           </span>
                           {!r.has_original && (
                             <>
                               <span>·</span>
-                              <span className="text-neutral-600">no reveal</span>
+                              <span className="text-text-faint">no reveal</span>
                             </>
                           )}
                         </div>
                       </div>
-                      <PlayCircle className="w-4 h-4 text-neutral-400" />
+                      <PlayCircle className="w-4 h-4 text-text-soft" />
                     </a>
                   );
                 })}

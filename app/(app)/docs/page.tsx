@@ -124,8 +124,8 @@ export default async function DocsPage() {
             <div className="space-y-1.5">
               {section.items.map((item) => (
                 <div key={item.label} className="flex gap-2 text-xs">
-                  <span className="text-neutral-400 shrink-0 w-28 font-mono">{item.label}</span>
-                  <span className="text-neutral-300">{item.value}</span>
+                  <span className="text-text-soft shrink-0 w-28 font-mono">{item.label}</span>
+                  <span className="text-text-soft">{item.value}</span>
                 </div>
               ))}
             </div>

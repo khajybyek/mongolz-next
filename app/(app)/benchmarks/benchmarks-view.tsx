@@ -59,7 +59,7 @@ export function BenchmarksView() {
         <div className="flex items-center gap-2">
           <Icon className="w-4 h-4 text-accent" />
           <h3 className="text-sm font-medium">{label}</h3>
-          <span className="text-[10px] text-neutral-500 ml-auto">{stats.n} samples</span>
+          <span className="text-[10px] text-text-muted ml-auto">{stats.n} samples</span>
         </div>
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
           <Stat label="mean" value={`${stats.mean_ms}ms`} highlight />
@@ -82,7 +82,7 @@ export function BenchmarksView() {
               <Activity className="w-4 h-4 text-accent" />
               Microbenchmark configuration
             </h3>
-            <p className="text-xs text-neutral-400 mt-1">
+            <p className="text-xs text-text-soft mt-1">
               640×480 synthetic image · single-threaded · cold start excluded (1 warmup)
             </p>
           </div>
@@ -92,7 +92,7 @@ export function BenchmarksView() {
                 key={n}
                 onClick={() => setIterations(n)}
                 className={`px-3 py-1.5 rounded text-xs ${
-                  iterations === n ? "bg-accent/15 text-accent" : "bg-white/5 text-neutral-400 hover:bg-white/10"
+                  iterations === n ? "bg-accent/15 text-accent" : "bg-white/5 text-text-soft hover:bg-white/10"
                 }`}
               >
                 {n} iter
@@ -114,15 +114,15 @@ export function BenchmarksView() {
         <>
           <div className="card flex items-center justify-between bg-accent/5 border-accent/20">
             <div>
-              <div className="text-xs text-neutral-400">Effective throughput</div>
+              <div className="text-xs text-text-soft">Effective throughput</div>
               <div className="text-2xl font-bold text-accent font-mono">
                 {result.effective_fps} FPS
               </div>
             </div>
             <div className="text-right">
-              <div className="text-xs text-neutral-400">Input</div>
+              <div className="text-xs text-text-soft">Input</div>
               <div className="text-sm font-mono">{result.input_resolution}</div>
-              <div className="text-[10px] text-neutral-500">{result.iterations} iterations</div>
+              <div className="text-[10px] text-text-muted">{result.iterations} iterations</div>
             </div>
           </div>
 
@@ -130,21 +130,21 @@ export function BenchmarksView() {
           <StatRow label="Embedding generation" stats={result.embedding} icon={Activity} />
           <StatRow label="End-to-end (detect + embed)" stats={result.end_to_end} icon={Clock} />
 
-          <div className="card text-xs text-neutral-400 space-y-2 leading-relaxed">
+          <div className="card text-xs text-text-soft space-y-2 leading-relaxed">
             <div className="flex gap-2">
-              <strong className="text-neutral-300 w-24 shrink-0">Engine:</strong>
-              <code className="font-mono text-neutral-200">{String(result.engine?.model ?? "unknown")}</code>
+              <strong className="text-text-soft w-24 shrink-0">Engine:</strong>
+              <code className="font-mono text-text">{String(result.engine?.model ?? "unknown")}</code>
             </div>
             {result.engine?.embedding_dim !== undefined && (
               <div className="flex gap-2">
-                <strong className="text-neutral-300 w-24 shrink-0">Embedding:</strong>
-                <code className="font-mono text-neutral-200">{String(result.engine.embedding_dim)}-dim</code>
+                <strong className="text-text-soft w-24 shrink-0">Embedding:</strong>
+                <code className="font-mono text-text">{String(result.engine.embedding_dim)}-dim</code>
               </div>
             )}
             {result.engine?.det_size !== undefined && (
               <div className="flex gap-2">
-                <strong className="text-neutral-300 w-24 shrink-0">Det size:</strong>
-                <code className="font-mono text-neutral-200">{JSON.stringify(result.engine.det_size)}</code>
+                <strong className="text-text-soft w-24 shrink-0">Det size:</strong>
+                <code className="font-mono text-text">{JSON.stringify(result.engine.det_size)}</code>
               </div>
             )}
           </div>
@@ -157,8 +157,8 @@ export function BenchmarksView() {
 function Stat({ label, value, highlight, muted }: { label: string; value: string; highlight?: boolean; muted?: boolean }) {
   return (
     <div>
-      <div className={`text-[10px] uppercase tracking-wide ${muted ? "text-neutral-600" : "text-neutral-500"}`}>{label}</div>
-      <div className={`text-sm font-mono ${highlight ? "text-accent font-bold" : muted ? "text-neutral-500" : "text-neutral-200"}`}>{value}</div>
+      <div className={`text-[10px] uppercase tracking-wide ${muted ? "text-text-faint" : "text-text-muted"}`}>{label}</div>
+      <div className={`text-sm font-mono ${highlight ? "text-accent font-bold" : muted ? "text-text-muted" : "text-text"}`}>{value}</div>
     </div>
   );
 }

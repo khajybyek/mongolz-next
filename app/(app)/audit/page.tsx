@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 const ACTION_COLORS: Record<string, string> = {
   LOGIN: "bg-success/15 text-success",
-  LOGOUT: "bg-neutral-500/15 text-neutral-400",
+  LOGOUT: "bg-text-muted/15 text-text-soft",
   LOGIN_FAILED: "bg-danger/15 text-danger",
   ALERT: "bg-danger/15 text-danger",
   SUSPECT_ADD: "bg-accent/15 text-accent",
@@ -109,7 +109,7 @@ export default async function AuditPage({
         <div className="card overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-bg-tertiary/50">
-              <tr className="text-xs uppercase tracking-wide text-neutral-400">
+              <tr className="text-xs uppercase tracking-wide text-text-soft">
                 <th className="px-4 py-2.5 text-left">{t("audit_col_action")}</th>
                 <th className="px-4 py-2.5 text-left">{t("audit_col_detail")}</th>
                 <th className="px-4 py-2.5 text-left">{t("audit_col_user")}</th>
@@ -123,22 +123,22 @@ export default async function AuditPage({
                   <td className="px-4 py-2.5">
                     <span
                       className={`badge ${
-                        ACTION_COLORS[log.action] ?? "bg-white/5 text-neutral-300"
+                        ACTION_COLORS[log.action] ?? "bg-white/5 text-text-soft"
                       }`}
                     >
                       {log.action}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-neutral-400 text-xs max-w-md truncate" title={log.detail ?? ""}>
+                  <td className="px-4 py-2.5 text-text-soft text-xs max-w-md truncate" title={log.detail ?? ""}>
                     {log.detail ?? "—"}
                   </td>
-                  <td className="px-4 py-2.5 text-neutral-400 text-xs">
+                  <td className="px-4 py-2.5 text-text-soft text-xs">
                     {log.user_email ?? "—"}
                   </td>
-                  <td className="px-4 py-2.5 text-neutral-500 text-xs font-mono">
+                  <td className="px-4 py-2.5 text-text-muted text-xs font-mono">
                     {log.ip ?? "—"}
                   </td>
-                  <td className="px-4 py-2.5 text-neutral-500 text-xs">
+                  <td className="px-4 py-2.5 text-text-muted text-xs">
                     {formatDate(log.created_at)}
                   </td>
                 </tr>

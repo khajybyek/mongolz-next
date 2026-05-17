@@ -118,7 +118,7 @@ export function PlaybackPlayer({
           {/* Action bar */}
           <div className="card mt-3 flex items-center gap-3">
             <MousePointerClick className="w-5 h-5 text-accent shrink-0" />
-            <div className="flex-1 text-xs text-neutral-400 leading-relaxed">
+            <div className="flex-1 text-xs text-text-soft leading-relaxed">
               {selectMode ? (
                 <>
                   <span className="text-success font-medium">
@@ -184,14 +184,14 @@ export function PlaybackPlayer({
           {selectMode && detectedFaces.length > 0 && (
             <div className="card mt-3">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs uppercase tracking-wide text-neutral-400">
+                <h3 className="text-xs uppercase tracking-wide text-text-soft">
                   Бүх илрүүлсэн нүүр ({detectedFaces.length}) — click хийн
                   сонго
                 </h3>
                 {selectedIds.size > 0 && (
                   <button
                     type="button"
-                    className="text-[10px] text-neutral-500 hover:text-neutral-200 underline"
+                    className="text-[10px] text-text-muted hover:text-text underline"
                     onClick={() => setSelectedIds(new Set())}
                   >
                     Сонголт цэвэрлэх
@@ -252,7 +252,7 @@ export function PlaybackPlayer({
 
               {selectedFaces.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-white/5">
-                  <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1.5">
                     Сонгогдсон ({selectedFaces.length}):
                   </p>
                   <p className="text-xs text-success font-medium">

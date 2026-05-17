@@ -189,7 +189,7 @@ export function RevealModal({
             <Lock className="w-4 h-4 text-accent" />
             Reveal хийх — нууцлалын журамтай
           </h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-100">
+          <button onClick={onClose} className="text-text-soft hover:text-text">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -227,7 +227,7 @@ export function RevealModal({
 
               {method === "upload" && (
                 <div>
-                  <label className="text-xs uppercase tracking-wide text-neutral-400 mb-1.5 block">
+                  <label className="text-xs uppercase tracking-wide text-text-soft mb-1.5 block">
                     Хайх хүний зураг
                   </label>
                   <input
@@ -242,7 +242,7 @@ export function RevealModal({
               {method === "suspect" && (
                 <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto">
                   {suspects.length === 0 && (
-                    <p className="col-span-2 text-xs text-neutral-500 py-6 text-center">
+                    <p className="col-span-2 text-xs text-text-muted py-6 text-center">
                       Сэжигтэн бүртгэгдээгүй. /suspects хуудаснаас нэмнэ үү.
                     </p>
                   )}
@@ -264,7 +264,7 @@ export function RevealModal({
               {method === "detected_face" && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-neutral-400">
+                    <span className="text-text-soft">
                       Олон ID сонгож зэрэг reveal хийнэ үү{" "}
                       <span className="text-accent">({faceIds.size}/{detectedFaces.length})</span>
                     </span>
@@ -272,7 +272,7 @@ export function RevealModal({
                       <button
                         type="button"
                         onClick={() => setFaceIds(new Set())}
-                        className="text-neutral-500 hover:text-neutral-200 underline"
+                        className="text-text-muted hover:text-text underline"
                       >
                         Цэвэрлэх
                       </button>
@@ -280,7 +280,7 @@ export function RevealModal({
                   </div>
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-72 overflow-y-auto">
                     {detectedFaces.length === 0 && (
-                      <p className="col-span-full text-xs text-neutral-500 py-6 text-center">
+                      <p className="col-span-full text-xs text-text-muted py-6 text-center">
                         Энэ бичлэгийн хугацаанд нүүр илрээгүй.
                       </p>
                     )}
@@ -335,7 +335,7 @@ export function RevealModal({
               )}
 
               <div>
-                <label className="text-xs uppercase tracking-wide text-neutral-400 mb-1.5 block">
+                <label className="text-xs uppercase tracking-wide text-text-soft mb-1.5 block">
                   Тааралтын босго: {threshold.toFixed(2)}
                 </label>
                 <input
@@ -347,7 +347,7 @@ export function RevealModal({
                   onChange={(e) => setThreshold(Number(e.target.value))}
                   className="w-full"
                 />
-                <p className="text-[10px] text-neutral-500 mt-1">
+                <p className="text-[10px] text-text-muted mt-1">
                   Бага = илүү олон тааралт (false positive магадлал ↑) · Их = чанд тааралт
                 </p>
               </div>
@@ -460,7 +460,7 @@ export function RevealModal({
               <Loader2 className="w-10 h-10 animate-spin text-accent mx-auto" />
               <div>
                 <div className="font-medium">Reveal боловсруулж байна...</div>
-                <div className="text-xs text-neutral-500 mt-1">
+                <div className="text-xs text-text-muted mt-1">
                   Frame бүрд нүүр detect → embedding → блюр харьцуулалт хийнэ
                 </div>
               </div>
@@ -472,7 +472,7 @@ export function RevealModal({
                       style={{ width: `${job.progress}%` }}
                     />
                   </div>
-                  <div className="text-[10px] text-neutral-500 mt-1.5">
+                  <div className="text-[10px] text-text-muted mt-1.5">
                     {job.status} · {job.progress}%
                   </div>
                 </div>
@@ -489,7 +489,7 @@ export function RevealModal({
                     <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
                     <div>
                       <div className="font-medium text-success">Reveal амжилттай!</div>
-                      <div className="text-xs text-neutral-400 mt-0.5">
+                      <div className="text-xs text-text-soft mt-0.5">
                         Зөвхөн сонгосон хүний нүүр илэрхий, бусад нь blur-тэй хэвээр
                       </div>
                     </div>
@@ -521,7 +521,7 @@ export function RevealModal({
                   <AlertTriangle className="w-5 h-5 text-danger shrink-0" />
                   <div>
                     <div className="font-medium text-danger">Reveal амжилтгүй</div>
-                    <div className="text-xs text-neutral-400 mt-0.5">
+                    <div className="text-xs text-text-soft mt-0.5">
                       {job.error_message ?? "Тодорхойгүй алдаа"}
                     </div>
                   </div>
@@ -553,7 +553,7 @@ function Stepper({ current }: { current: Step }) {
             "flex-1 px-2 py-1.5 rounded-md text-center transition",
             i < idx && "bg-accent/15 text-accent",
             i === idx && "bg-accent/25 text-accent font-bold",
-            i > idx && "bg-white/5 text-neutral-500"
+            i > idx && "bg-white/5 text-text-muted"
           )}
         >
           {s.label}
@@ -584,9 +584,9 @@ function MethodCard({
         active ? "ring-2 ring-accent bg-accent/5" : "hover:bg-white/5"
       )}
     >
-      <Icon className={cn("w-5 h-5 mb-2", active ? "text-accent" : "text-neutral-400")} />
+      <Icon className={cn("w-5 h-5 mb-2", active ? "text-accent" : "text-text-soft")} />
       <div className="text-sm font-medium">{title}</div>
-      <div className="text-[10px] text-neutral-500 mt-0.5">{desc}</div>
+      <div className="text-[10px] text-text-muted mt-0.5">{desc}</div>
     </button>
   );
 }

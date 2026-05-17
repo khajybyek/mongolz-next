@@ -34,7 +34,7 @@ export function LanguageSwitcher({ current }: Props) {
 
   return (
     <div className="flex items-center gap-1 text-xs">
-      <Languages className="w-3.5 h-3.5 text-neutral-500 hidden sm:inline" />
+      <Languages className="w-3.5 h-3.5 text-text-muted hidden sm:inline" />
       {(Object.keys(LANGUAGES) as Lang[]).map((l) => (
         <button
           key={l}
@@ -47,7 +47,7 @@ export function LanguageSwitcher({ current }: Props) {
             "active:scale-95",
             l === current
               ? "bg-accent/15 text-accent"
-              : "text-neutral-400 hover:bg-white/5 hover:text-neutral-200"
+              : "text-text-soft hover:bg-white/5 hover:text-text"
           )}
           aria-label={`Switch to ${l.toUpperCase()}`}
         >

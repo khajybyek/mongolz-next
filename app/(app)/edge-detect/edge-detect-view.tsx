@@ -113,12 +113,12 @@ export function EdgeDetectView() {
         ) : (
           <div className="flex items-center gap-4 text-xs">
             <span className="badge bg-success/15 text-success">Ready</span>
-            <span className="text-neutral-400">
-              Backend: <span className="text-neutral-200 font-mono">{backend}</span>
+            <span className="text-text-soft">
+              Backend: <span className="text-text font-mono">{backend}</span>
             </span>
             {lastInferenceMs !== null && (
-              <span className="text-neutral-400">
-                Last: <span className="text-neutral-200 font-mono">{lastInferenceMs}ms</span>
+              <span className="text-text-soft">
+                Last: <span className="text-text font-mono">{lastInferenceMs}ms</span>
               </span>
             )}
           </div>
@@ -130,8 +130,8 @@ export function EdgeDetectView() {
               <AlertTriangle className="w-3.5 h-3.5" />
               Face detection model not deployed
             </div>
-            <p className="text-xs text-neutral-400 leading-relaxed">
-              This page needs an ONNX face-detection model at <code className="font-mono text-neutral-300">public/models/face_detect.onnx</code>.
+            <p className="text-xs text-text-soft leading-relaxed">
+              This page needs an ONNX face-detection model at <code className="font-mono text-text-soft">public/models/face_detect.onnx</code>.
               Drop a compatible model (e.g.{" "}
               <a
                 href="https://github.com/onnx/models/tree/main/validated/vision/body_analysis/ultraface"
@@ -164,7 +164,7 @@ export function EdgeDetectView() {
           </label>
 
           {processing && (
-            <div className="flex items-center gap-2 text-xs text-neutral-400">
+            <div className="flex items-center gap-2 text-xs text-text-soft">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
               Running inference...
             </div>
@@ -182,20 +182,20 @@ export function EdgeDetectView() {
           />
 
           {faces.length > 0 && (
-            <div className="text-xs text-neutral-400">
-              Detected <span className="text-neutral-200 font-medium">{faces.length}</span> face{faces.length !== 1 && "s"}
+            <div className="text-xs text-text-soft">
+              Detected <span className="text-text font-medium">{faces.length}</span> face{faces.length !== 1 && "s"}
               {lastInferenceMs !== null && (
-                <> in <span className="text-neutral-200 font-mono">{lastInferenceMs}ms</span></>
+                <> in <span className="text-text font-mono">{lastInferenceMs}ms</span></>
               )}
             </div>
           )}
         </div>
       )}
 
-      <div className="card bg-accent/5 border border-accent/20 text-xs text-neutral-400 leading-relaxed space-y-2">
+      <div className="card bg-accent/5 border border-accent/20 text-xs text-text-soft leading-relaxed space-y-2">
         <p>
-          <strong className="text-neutral-300">WebGPU</strong> uses the GPU for inference — fastest on
-          supported browsers (Chrome 113+). Falls back to <strong className="text-neutral-300">WASM</strong> for
+          <strong className="text-text-soft">WebGPU</strong> uses the GPU for inference — fastest on
+          supported browsers (Chrome 113+). Falls back to <strong className="text-text-soft">WASM</strong> for
           universal compatibility.
         </p>
         <p>

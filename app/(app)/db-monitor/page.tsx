@@ -27,7 +27,7 @@ export default async function DbMonitorPage() {
       <div className="card p-0 mt-4 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-bg-tertiary/50">
-            <tr className="text-xs uppercase tracking-wide text-neutral-400">
+            <tr className="text-xs uppercase tracking-wide text-text-soft">
               <th className="px-4 py-2.5 text-left">Query (240 char preview)</th>
               <th className="px-4 py-2.5 text-right">Calls</th>
               <th className="px-4 py-2.5 text-right">Mean (ms)</th>
@@ -38,14 +38,14 @@ export default async function DbMonitorPage() {
           <tbody className="divide-y divide-white/5">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-xs text-neutral-500">
+                <td colSpan={5} className="px-4 py-6 text-center text-xs text-text-muted">
                   pg_stat_statements is empty (just enabled) — wait a minute and reload.
                 </td>
               </tr>
             ) : (
               rows.map((r, i) => (
                 <tr key={i} className="hover:bg-white/[0.02]">
-                  <td className="px-4 py-2.5 font-mono text-[11px] text-neutral-300 max-w-[600px] break-all">
+                  <td className="px-4 py-2.5 font-mono text-[11px] text-text-soft max-w-[600px] break-all">
                     {r.query}
                   </td>
                   <td className="px-4 py-2.5 text-right text-xs">{r.calls}</td>
@@ -60,10 +60,10 @@ export default async function DbMonitorPage() {
                   >
                     {r.mean_ms.toFixed(2)}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-xs text-neutral-400">
+                  <td className="px-4 py-2.5 text-right text-xs text-text-soft">
                     {(r.total_ms / 1000).toFixed(2)}
                   </td>
-                  <td className="px-4 py-2.5 text-right text-xs text-neutral-400">
+                  <td className="px-4 py-2.5 text-right text-xs text-text-soft">
                     {r.rows_avg}
                   </td>
                 </tr>
@@ -73,8 +73,8 @@ export default async function DbMonitorPage() {
         </table>
       </div>
 
-      <div className="card mt-4 text-xs text-neutral-400 leading-relaxed">
-        💡 <b className="text-neutral-200">Optimization tips</b>
+      <div className="card mt-4 text-xs text-text-soft leading-relaxed">
+        💡 <b className="text-text">Optimization tips</b>
         <ul className="mt-2 space-y-1 list-disc list-inside">
           <li>Mean &gt; 100ms — index хайх / EXPLAIN ANALYZE дуудах</li>
           <li>Mean 20-100ms — Calls олон бол кэш / materialised view</li>

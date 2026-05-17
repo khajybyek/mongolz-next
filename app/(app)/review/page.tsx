@@ -47,7 +47,7 @@ export default async function ReviewPage() {
                 )}
               </div>
               <div className="p-2 space-y-1.5">
-                <div className="text-[10px] text-neutral-500 truncate">{formatDate(f.detected_at)}</div>
+                <div className="text-[10px] text-text-muted truncate">{formatDate(f.detected_at)}</div>
                 <ReviewActions faceId={f.id} />
               </div>
             </div>

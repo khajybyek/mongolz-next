@@ -67,7 +67,7 @@ export function ThresholdTuner() {
   if (loading) {
     return (
       <div className="card flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 animate-spin text-neutral-500" />
+        <Loader2 className="w-6 h-6 animate-spin text-text-muted" />
       </div>
     );
   }
@@ -81,10 +81,10 @@ export function ThresholdTuner() {
           return (
             <div key={key} className="card space-y-2">
               <div className="flex justify-between items-baseline">
-                <label className="text-sm font-medium text-neutral-200">{cfg.label}</label>
+                <label className="text-sm font-medium text-text">{cfg.label}</label>
                 <span className="text-lg font-bold text-accent font-mono">{val}</span>
               </div>
-              <p className="text-xs text-neutral-500">{cfg.desc}</p>
+              <p className="text-xs text-text-muted">{cfg.desc}</p>
               <input
                 type="range"
                 min={cfg.min}
@@ -94,9 +94,9 @@ export function ThresholdTuner() {
                 onChange={(e) => update(key, Number(e.target.value))}
                 className="w-full accent-accent"
               />
-              <div className="flex justify-between text-[10px] text-neutral-600">
+              <div className="flex justify-between text-[10px] text-text-faint">
                 <span>{cfg.min}</span>
-                <span className="text-neutral-500">Default: {DEFAULTS[key]}</span>
+                <span className="text-text-muted">Default: {DEFAULTS[key]}</span>
                 <span>{cfg.max}</span>
               </div>
             </div>
@@ -104,7 +104,7 @@ export function ThresholdTuner() {
         })}
       </div>
 
-      <div className="card bg-warning/5 border border-warning/20 text-xs text-neutral-400 leading-relaxed">
+      <div className="card bg-warning/5 border border-warning/20 text-xs text-text-soft leading-relaxed">
         <Save className="w-4 h-4 text-warning inline mr-1" />
         Threshold changes require ML service restart to take effect. Update the Railway environment
         variables and redeploy.

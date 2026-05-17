@@ -103,7 +103,7 @@ export default async function PlaybackDetailPage({
     <>
       <Link
         href="/playback"
-        className="text-sm text-neutral-400 hover:text-neutral-100 inline-flex items-center gap-1.5 mb-4"
+        className="text-sm text-text-soft hover:text-text inline-flex items-center gap-1.5 mb-4"
       >
         <ArrowLeft className="w-4 h-4" />
         {t("playback_back")}
@@ -121,7 +121,7 @@ export default async function PlaybackDetailPage({
               isAdmin={isAdmin}
             />
           ) : (
-            <div className="card aspect-video bg-black flex items-center justify-center text-neutral-500 text-sm">
+            <div className="card aspect-video bg-black flex items-center justify-center text-text-muted text-sm">
               {t("playback_no_recording")}
             </div>
           )}
@@ -129,7 +129,7 @@ export default async function PlaybackDetailPage({
 
         <div className="space-y-4">
           <div className="card space-y-2">
-            <h3 className="text-xs uppercase tracking-wide text-neutral-400 mb-2">
+            <h3 className="text-xs uppercase tracking-wide text-text-soft mb-2">
               {t("rec_info")}
             </h3>
             <Row icon={Calendar} label={t("rec_started")}>{formatDate(rec.started_at)}</Row>
@@ -144,21 +144,21 @@ export default async function PlaybackDetailPage({
               {rec.has_original ? (
                 <span className="text-success">{t("rec_original_kept")}</span>
               ) : (
-                <span className="text-neutral-500">{t("rec_original_missing")}</span>
+                <span className="text-text-muted">{t("rec_original_missing")}</span>
               )}
             </Row>
           </div>
 
           {isAdmin ? (
             <div className="card space-y-2">
-              <h3 className="text-xs uppercase tracking-wide text-neutral-400 mb-2">
+              <h3 className="text-xs uppercase tracking-wide text-text-soft mb-2">
                 {t("detected_faces_count")} ({detectedFaces.length})
               </h3>
               {detectedFaces.length === 0 ? (
-                <p className="text-xs text-neutral-500 py-4 text-center">
+                <p className="text-xs text-text-muted py-4 text-center">
                   {t("detected_faces_empty")}
                   <br />
-                  <span className="text-neutral-600">
+                  <span className="text-text-faint">
                     {t("detected_faces_hint")}
                   </span>
                 </p>
@@ -194,10 +194,10 @@ export default async function PlaybackDetailPage({
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-warning">
                     {t("admin_only_label")}
                   </h3>
-                  <p className="text-xs text-neutral-400 leading-relaxed">
+                  <p className="text-xs text-text-soft leading-relaxed">
                     {t("face_data_admin_only")}
                   </p>
-                  <p className="text-[10px] text-neutral-500 leading-relaxed pt-1 border-t border-white/5 mt-2">
+                  <p className="text-[10px] text-text-muted leading-relaxed pt-1 border-t border-white/5 mt-2">
                     {t("privacy_design_note")}
                   </p>
                 </div>
@@ -206,7 +206,7 @@ export default async function PlaybackDetailPage({
           )}
 
           {isAdmin && !rec.has_original && (
-            <div className="card text-xs text-neutral-500 leading-relaxed">
+            <div className="card text-xs text-text-muted leading-relaxed">
               {t("reveal_not_possible")}
             </div>
           )}
@@ -227,9 +227,9 @@ function Row({
 }) {
   return (
     <div className="flex items-start gap-2 text-xs">
-      <Icon className="w-3.5 h-3.5 text-neutral-500 mt-0.5 shrink-0" />
-      <div className="text-neutral-500 w-20 shrink-0">{label}</div>
-      <div className="text-neutral-200 flex-1">{children}</div>
+      <Icon className="w-3.5 h-3.5 text-text-muted mt-0.5 shrink-0" />
+      <div className="text-text-muted w-20 shrink-0">{label}</div>
+      <div className="text-text flex-1">{children}</div>
     </div>
   );
 }

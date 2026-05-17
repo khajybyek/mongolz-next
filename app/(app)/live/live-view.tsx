@@ -69,7 +69,7 @@ function ModeBtn({
       onClick={() => onClick(value)}
       className={cn(
         "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition",
-        active ? "bg-accent/15 text-accent" : "text-neutral-400 hover:bg-white/5"
+        active ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-white/5"
       )}
     >
       <Icon className="w-4 h-4" />
@@ -689,7 +689,7 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
           >
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">{c.name}</div>
-              <div className="text-[10px] text-neutral-500 uppercase">{c.cam_type}</div>
+              <div className="text-[10px] text-text-muted uppercase">{c.cam_type}</div>
             </div>
             {active === c.id ? (
               <button

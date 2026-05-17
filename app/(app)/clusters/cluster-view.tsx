@@ -46,7 +46,7 @@ export function ClusterView() {
       <div className="card space-y-3">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="text-xs text-neutral-400 mb-1 block">Epsilon (distance threshold)</label>
+            <label className="text-xs text-text-soft mb-1 block">Epsilon (distance threshold)</label>
             <input
               type="range"
               min={0.2}
@@ -56,10 +56,10 @@ export function ClusterView() {
               onChange={(e) => setEps(Number(e.target.value))}
               className="w-full accent-accent"
             />
-            <div className="text-sm text-neutral-300 font-mono mt-1">{eps}</div>
+            <div className="text-sm text-text-soft font-mono mt-1">{eps}</div>
           </div>
           <div>
-            <label className="text-xs text-neutral-400 mb-1 block">Min Samples</label>
+            <label className="text-xs text-text-soft mb-1 block">Min Samples</label>
             <input
               type="range"
               min={2}
@@ -69,7 +69,7 @@ export function ClusterView() {
               onChange={(e) => setMinSamples(Number(e.target.value))}
               className="w-full accent-accent"
             />
-            <div className="text-sm text-neutral-300 font-mono mt-1">{minSamples}</div>
+            <div className="text-sm text-text-soft font-mono mt-1">{minSamples}</div>
           </div>
         </div>
         <button onClick={runCluster} disabled={loading} className="btn-primary">
@@ -86,15 +86,15 @@ export function ClusterView() {
           <div className="grid grid-cols-3 gap-4">
             <div className="card text-center">
               <div className="text-2xl font-bold text-accent">{result.cluster_count}</div>
-              <div className="text-xs text-neutral-500">Clusters</div>
+              <div className="text-xs text-text-muted">Clusters</div>
             </div>
             <div className="card text-center">
-              <div className="text-2xl font-bold text-neutral-200">{result.total}</div>
-              <div className="text-xs text-neutral-500">Total Faces</div>
+              <div className="text-2xl font-bold text-text">{result.total}</div>
+              <div className="text-xs text-text-muted">Total Faces</div>
             </div>
             <div className="card text-center">
               <div className="text-2xl font-bold text-warning">{result.noise}</div>
-              <div className="text-xs text-neutral-500">Noise (unclustered)</div>
+              <div className="text-xs text-text-muted">Noise (unclustered)</div>
             </div>
           </div>
 
@@ -102,12 +102,12 @@ export function ClusterView() {
             {result.clusters.map((c) => (
               <div key={c.id} className="card">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-semibold text-neutral-200">
+                  <span className="text-sm font-semibold text-text">
                     Cluster #{c.id}
                   </span>
                   <span className="badge bg-accent/15 text-accent">{c.size} faces</span>
                 </div>
-                <div className="text-[10px] text-neutral-500 font-mono break-all">
+                <div className="text-[10px] text-text-muted font-mono break-all">
                   {c.face_ids.join(", ")}
                   {c.size > 10 && ` ... (+${c.size - 10} more)`}
                 </div>

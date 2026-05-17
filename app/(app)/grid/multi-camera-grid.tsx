@@ -55,14 +55,14 @@ export function MultiCameraGrid({ cameras }: { cameras: Camera[] }) {
             key={s}
             onClick={() => setGridSize(s)}
             className={`px-3 py-1.5 rounded-md text-sm transition ${
-              gridSize === s ? "bg-accent/15 text-accent" : "text-neutral-400 hover:bg-white/5"
+              gridSize === s ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-white/5"
             }`}
           >
             {s === 1 ? <Maximize2 className="w-4 h-4" /> : s === 4 ? "2x2" : "3x3"}
           </button>
         ))}
 
-        <div className="ml-auto text-xs text-neutral-500">
+        <div className="ml-auto text-xs text-text-muted">
           {activeStreams.size} / {cameras.length} active
         </div>
       </div>
@@ -78,7 +78,7 @@ export function MultiCameraGrid({ cameras }: { cameras: Camera[] }) {
                 {streamUrl ? (
                   <HlsPlayer src={streamUrl} className="w-full h-full" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-neutral-600 text-xs">
+                  <div className="w-full h-full flex items-center justify-center text-text-faint text-xs">
                     {cam.name}
                   </div>
                 )}

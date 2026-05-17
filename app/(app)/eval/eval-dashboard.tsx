@@ -43,7 +43,7 @@ export function EvalDashboard() {
             key={t}
             onClick={() => setTab(t)}
             className={`px-3 py-1.5 rounded-md text-sm transition ${
-              tab === t ? "bg-accent/15 text-accent" : "text-neutral-400 hover:bg-white/5"
+              tab === t ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-white/5"
             }`}
           >
             {t === "detection" ? "Detection F1" : t === "blur" ? "Blur SSIM" : "System"}
@@ -86,7 +86,7 @@ function DetectionEval() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className="card space-y-3">
-        <h3 className="text-sm font-semibold text-neutral-300">Detection Accuracy Test</h3>
+        <h3 className="text-sm font-semibold text-text-soft">Detection Accuracy Test</h3>
         <input
           type="file"
           accept="image/*"
@@ -94,7 +94,7 @@ function DetectionEval() {
           className="input file:bg-accent/15 file:text-accent file:border-0 file:rounded file:px-2 file:py-1 file:mr-2"
         />
         <div>
-          <label className="text-xs text-neutral-400 mb-1 block">
+          <label className="text-xs text-text-soft mb-1 block">
             Ground Truth Boxes (JSON: [[x1,y1,x2,y2], ...])
           </label>
           <textarea
@@ -118,7 +118,7 @@ function DetectionEval() {
 
       {result && (
         <div className="card space-y-3">
-          <h3 className="text-sm font-semibold text-neutral-300 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-text-soft flex items-center gap-2">
             <BarChart3 className="w-4 h-4" />
             Results
           </h3>
@@ -128,7 +128,7 @@ function DetectionEval() {
             <MetricCard label="F1 Score" value={result.metrics.f1} color="success" />
             <MetricCard label="FPR" value={result.metrics.fpr} color="danger" />
           </div>
-          <div className="text-xs text-neutral-500 space-y-1">
+          <div className="text-xs text-text-muted space-y-1">
             <div>Predicted: {result.predicted_count} faces | GT: {result.gt_count} faces</div>
             <div>TP: {result.metrics.tp} | FP: {result.metrics.fp} | FN: {result.metrics.fn}</div>
           </div>
@@ -166,9 +166,9 @@ function BlurEval() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className="card space-y-3">
-        <h3 className="text-sm font-semibold text-neutral-300">Blur Quality (SSIM)</h3>
+        <h3 className="text-sm font-semibold text-text-soft">Blur Quality (SSIM)</h3>
         <div>
-          <label className="text-xs text-neutral-400 mb-1 block">Original Image</label>
+          <label className="text-xs text-text-soft mb-1 block">Original Image</label>
           <input
             type="file"
             accept="image/*"
@@ -177,7 +177,7 @@ function BlurEval() {
           />
         </div>
         <div>
-          <label className="text-xs text-neutral-400 mb-1 block">Blurred Image</label>
+          <label className="text-xs text-text-soft mb-1 block">Blurred Image</label>
           <input
             type="file"
             accept="image/*"
@@ -199,7 +199,7 @@ function BlurEval() {
 
       {result && (
         <div className="card space-y-3">
-          <h3 className="text-sm font-semibold text-neutral-300 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-text-soft flex items-center gap-2">
             <BarChart3 className="w-4 h-4" />
             Blur Quality Results
           </h3>
@@ -207,11 +207,11 @@ function BlurEval() {
             <MetricCard label="SSIM Mean" value={result.ssim_mean} color="accent" />
             <MetricCard label="Blur Effectiveness" value={result.blur_effectiveness} color="success" />
           </div>
-          <div className="text-xs text-neutral-500">
+          <div className="text-xs text-text-muted">
             Faces detected: {result.face_count}
           </div>
           {result.ssim_per_face.length > 0 && (
-            <div className="text-xs text-neutral-400 space-y-1">
+            <div className="text-xs text-text-soft space-y-1">
               {result.ssim_per_face.map((s, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <span>Face #{i + 1}:</span>
@@ -248,7 +248,7 @@ function SystemEval() {
 
   return (
     <div className="card space-y-3">
-      <h3 className="text-sm font-semibold text-neutral-300">System Info & Thresholds</h3>
+      <h3 className="text-sm font-semibold text-text-soft">System Info & Thresholds</h3>
       <button onClick={load} disabled={loading} className="btn-primary">
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
         Load System Info
@@ -257,19 +257,19 @@ function SystemEval() {
       {info && (
         <div className="space-y-3">
           {info.engine && (
-            <div className="text-xs text-neutral-400">
-              Model: <span className="text-neutral-200">{info.engine.model}</span> |
-              Embedding dim: <span className="text-neutral-200">{info.engine.embedding_dim}</span> |
-              Active cameras: <span className="text-neutral-200">{info.active_cameras}</span>
+            <div className="text-xs text-text-soft">
+              Model: <span className="text-text">{info.engine.model}</span> |
+              Embedding dim: <span className="text-text">{info.engine.embedding_dim}</span> |
+              Active cameras: <span className="text-text">{info.active_cameras}</span>
             </div>
           )}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {Object.entries(info.thresholds).map(([key, val]) => (
               <div key={key} className="bg-bg-tertiary rounded-lg p-3">
-                <div className="text-[10px] uppercase tracking-wide text-neutral-500 mb-1">
+                <div className="text-[10px] uppercase tracking-wide text-text-muted mb-1">
                   {key.replace(/_/g, " ")}
                 </div>
-                <div className="text-lg font-bold text-neutral-200">{val}</div>
+                <div className="text-lg font-bold text-text">{val}</div>
               </div>
             ))}
           </div>
@@ -283,7 +283,7 @@ function MetricCard({ label, value, color }: { label: string; value: number; col
   const pct = Math.round(value * 100);
   return (
     <div className="bg-bg-tertiary rounded-lg p-3">
-      <div className="text-[10px] uppercase tracking-wide text-neutral-500 mb-1">{label}</div>
+      <div className="text-[10px] uppercase tracking-wide text-text-muted mb-1">{label}</div>
       <div className={`text-2xl font-bold text-${color}`}>{pct}%</div>
       <div className="h-1.5 bg-black/30 rounded mt-2 overflow-hidden">
         <div className={`h-full bg-${color} rounded`} style={{ width: `${pct}%` }} />

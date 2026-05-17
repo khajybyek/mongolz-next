@@ -60,7 +60,7 @@ export function HealthDashboard() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <div className={`w-3 h-3 rounded-full ${allOk ? "bg-success" : services.length === 0 ? "bg-neutral-500" : "bg-danger"} animate-pulse`} />
+        <div className={`w-3 h-3 rounded-full ${allOk ? "bg-success" : services.length === 0 ? "bg-text-muted" : "bg-danger"} animate-pulse`} />
         <span className="text-sm font-semibold">
           {allOk ? "All systems operational" : services.length === 0 ? "Checking..." : "Issues detected"}
         </span>
@@ -76,16 +76,16 @@ export function HealthDashboard() {
             {s.status === "ok" ? (
               <CheckCircle className="w-5 h-5 text-success shrink-0" />
             ) : s.status === "loading" ? (
-              <Loader2 className="w-5 h-5 text-neutral-500 animate-spin shrink-0" />
+              <Loader2 className="w-5 h-5 text-text-muted animate-spin shrink-0" />
             ) : (
               <XCircle className="w-5 h-5 text-danger shrink-0" />
             )}
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium">{s.name}</div>
-              <div className="text-xs text-neutral-500">{s.detail}</div>
+              <div className="text-xs text-text-muted">{s.detail}</div>
             </div>
             {s.latency_ms !== null && (
-              <span className="text-xs font-mono text-neutral-400">{s.latency_ms}ms</span>
+              <span className="text-xs font-mono text-text-soft">{s.latency_ms}ms</span>
             )}
           </div>
         ))}

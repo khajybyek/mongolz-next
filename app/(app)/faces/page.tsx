@@ -65,15 +65,15 @@ export default async function FacesPage() {
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
-                      <ImageOff className="w-4 h-4 text-neutral-600" />
+                      <ImageOff className="w-4 h-4 text-text-faint" />
                     </div>
                   )}
                 </div>
-                <div className="text-[10px] text-neutral-500 truncate">
+                <div className="text-[10px] text-text-muted truncate">
                   {formatDate(f.detected_at)}
                 </div>
                 {cam?.name && (
-                  <div className="text-[10px] text-neutral-600 truncate" title={cam.name}>
+                  <div className="text-[10px] text-text-faint truncate" title={cam.name}>
                     {cam.name}
                   </div>
                 )}

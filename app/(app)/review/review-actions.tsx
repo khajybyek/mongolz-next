@@ -16,7 +16,7 @@ export function ReviewActions({ faceId }: { faceId: string }) {
   if (pending) {
     return (
       <div className="flex justify-center py-1">
-        <Loader2 className="w-4 h-4 animate-spin text-neutral-500" />
+        <Loader2 className="w-4 h-4 animate-spin text-text-muted" />
       </div>
     );
   }

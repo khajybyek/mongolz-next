@@ -54,7 +54,7 @@ export function PrivacyDashboard() {
           <div className="text-xs text-danger bg-danger/10 rounded px-3 py-2">{error}</div>
         )}
 
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-text-soft">
           Tests multiple epsilon values against simulated face pairs to measure how differential
           privacy noise affects matching accuracy. Lower epsilon = stronger privacy, but lower F1.
         </p>
@@ -64,7 +64,7 @@ export function PrivacyDashboard() {
         <div className="card overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-bg-tertiary/50">
-              <tr className="text-xs uppercase tracking-wide text-neutral-400">
+              <tr className="text-xs uppercase tracking-wide text-text-soft">
                 <th className="px-4 py-2.5 text-left">ε (Epsilon)</th>
                 <th className="px-4 py-2.5 text-left">σ (Noise)</th>
                 <th className="px-4 py-2.5 text-left">Precision</th>
@@ -77,7 +77,7 @@ export function PrivacyDashboard() {
               {results.map((r) => (
                 <tr key={r.epsilon} className="hover:bg-white/[0.02]">
                   <td className="px-4 py-2.5 font-mono">{r.epsilon}</td>
-                  <td className="px-4 py-2.5 font-mono text-neutral-400">{r.sigma}</td>
+                  <td className="px-4 py-2.5 font-mono text-text-soft">{r.sigma}</td>
                   <td className="px-4 py-2.5">
                     <span className={r.precision >= 0.8 ? "text-success" : r.precision >= 0.5 ? "text-warning" : "text-danger"}>
                       {(r.precision * 100).toFixed(1)}%
@@ -93,7 +93,7 @@ export function PrivacyDashboard() {
                       {(r.f1 * 100).toFixed(1)}%
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-neutral-500">{r.privacy}</td>
+                  <td className="px-4 py-2.5 text-xs text-text-muted">{r.privacy}</td>
                 </tr>
               ))}
             </tbody>
@@ -101,14 +101,14 @@ export function PrivacyDashboard() {
         </div>
       )}
 
-      <div className="card bg-accent/5 border border-accent/20 text-xs text-neutral-400 leading-relaxed space-y-2">
+      <div className="card bg-accent/5 border border-accent/20 text-xs text-text-soft leading-relaxed space-y-2">
         <p>
-          <strong className="text-neutral-300">Differential Privacy</strong> adds calibrated Gaussian noise
+          <strong className="text-text-soft">Differential Privacy</strong> adds calibrated Gaussian noise
           to face embeddings before storage. This provides formal privacy guarantees — even if the
           database is compromised, individual face data cannot be reconstructed.
         </p>
         <p>
-          Recommended: <strong className="text-neutral-300">ε = 5.0</strong> balances privacy
+          Recommended: <strong className="text-text-soft">ε = 5.0</strong> balances privacy
           and matching accuracy for surveillance use cases. For maximum privacy, use ε ≤ 1.0.
         </p>
       </div>

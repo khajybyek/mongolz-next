@@ -39,7 +39,7 @@ export default async function SettingsPage({
 
         <div className="card space-y-3">
           <h3 className="text-sm font-semibold">{t("my_data_title")}</h3>
-          <p className="text-xs text-neutral-400 leading-relaxed">{t("my_data_text")}</p>
+          <p className="text-xs text-text-soft leading-relaxed">{t("my_data_text")}</p>
           <div className="flex flex-col sm:flex-row gap-2">
             <a href="/api/gdpr/export" className="btn-secondary text-sm flex-1 text-center">
               {t("my_data_download")}

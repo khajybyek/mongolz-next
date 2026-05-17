@@ -48,14 +48,14 @@ export function WebhookForm() {
           <Check className="w-4 h-4" />
           <strong className="text-sm">Webhook үүслээ</strong>
         </div>
-        <p className="text-xs text-neutral-300">
+        <p className="text-xs text-text-soft">
           Generic webhook-ийн HMAC signing secret. Энэ нь дахин харагдахгүй — одоо хадгална уу.
         </p>
         <div className="flex items-center gap-2 bg-bg-tertiary rounded p-2">
           <code className="text-xs font-mono text-accent flex-1 truncate">{secret}</code>
           <button
             onClick={() => navigator.clipboard?.writeText(secret)}
-            className="p-1.5 rounded hover:bg-white/5 text-neutral-400 hover:text-accent"
+            className="p-1.5 rounded hover:bg-white/5 text-text-soft hover:text-accent"
             title="Хуулах"
           >
             <Copy className="w-3.5 h-3.5" />
@@ -97,12 +97,12 @@ export function WebhookForm() {
       />
 
       <div>
-        <label className="text-[10px] uppercase tracking-wide text-neutral-500 block mb-1.5">
+        <label className="text-[10px] uppercase tracking-wide text-text-muted block mb-1.5">
           Сонгох event-ууд
         </label>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           {EVENTS.map((e) => (
-            <label key={e.key} className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+            <label key={e.key} className="flex items-center gap-2 text-xs text-text-soft cursor-pointer">
               <input
                 type="checkbox"
                 name={`event_${e.key}`}

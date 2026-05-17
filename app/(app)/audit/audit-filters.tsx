@@ -71,7 +71,7 @@ export function AuditFilters({
     <form onSubmit={applyFilters} className="card mb-4 space-y-3">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
         <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-3 text-neutral-500" />
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-3 text-text-muted" />
           <input
             type="text"
             placeholder={labels.q}
@@ -111,7 +111,7 @@ export function AuditFilters({
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 items-end">
         <div>
-          <label className="text-[10px] uppercase tracking-wide text-neutral-500 block mb-1">{labels.from}</label>
+          <label className="text-[10px] uppercase tracking-wide text-text-muted block mb-1">{labels.from}</label>
           <input
             type="datetime-local"
             value={from}
@@ -120,7 +120,7 @@ export function AuditFilters({
           />
         </div>
         <div>
-          <label className="text-[10px] uppercase tracking-wide text-neutral-500 block mb-1">{labels.to}</label>
+          <label className="text-[10px] uppercase tracking-wide text-text-muted block mb-1">{labels.to}</label>
           <input
             type="datetime-local"
             value={to}

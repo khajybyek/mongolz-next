@@ -76,19 +76,19 @@ export default async function RevealApprovalsPage() {
                   <div className="space-y-1 min-w-0">
                     <div className="flex items-center gap-2 text-xs">
                       <span className="badge bg-warning/15 text-warning">pending</span>
-                      <span className="font-mono text-neutral-400">{j.id.slice(0, 8)}</span>
+                      <span className="font-mono text-text-soft">{j.id.slice(0, 8)}</span>
                     </div>
                     <div className="text-sm">
-                      <span className="text-neutral-400">{t("requested_by")}: </span>
+                      <span className="text-text-soft">{t("requested_by")}: </span>
                       <span className="font-medium">{j.requested_email}</span>
                     </div>
                     {j.reason && (
-                      <p className="text-xs text-neutral-300 bg-bg-tertiary/50 rounded p-2 mt-1">
-                        <span className="text-neutral-500 mr-1">{t("reason")}:</span>
+                      <p className="text-xs text-text-soft bg-bg-tertiary/50 rounded p-2 mt-1">
+                        <span className="text-text-muted mr-1">{t("reason")}:</span>
                         {j.reason}
                       </p>
                     )}
-                    <div className="text-[11px] text-neutral-500 flex gap-3">
+                    <div className="text-[11px] text-text-muted flex gap-3">
                       <span>{formatDate(j.created_at)}</span>
                       {j.recording_id && (
                         <span className="font-mono">recording {j.recording_id.slice(0, 8)}</span>
@@ -140,7 +140,7 @@ export default async function RevealApprovalsPage() {
       )}
 
       {/* Recent decisions */}
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-400 mt-8 mb-3">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-text-soft mt-8 mb-3">
         {t("recent_decisions")}
       </h2>
       {recentRows.length === 0 ? (
@@ -149,7 +149,7 @@ export default async function RevealApprovalsPage() {
         <div className="card p-0 overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-bg-tertiary/50">
-              <tr className="text-xs uppercase tracking-wide text-neutral-400">
+              <tr className="text-xs uppercase tracking-wide text-text-soft">
                 <th className="px-4 py-2.5 text-left">Job</th>
                 <th className="px-4 py-2.5 text-left">Хүсэлт</th>
                 <th className="px-4 py-2.5 text-left">Шийдвэр</th>
@@ -160,7 +160,7 @@ export default async function RevealApprovalsPage() {
             <tbody className="divide-y divide-white/5">
               {recentRows.map((j) => (
                 <tr key={j.id} className="hover:bg-white/[0.02]">
-                  <td className="px-4 py-2.5 font-mono text-xs text-neutral-400">
+                  <td className="px-4 py-2.5 font-mono text-xs text-text-soft">
                     {j.id.slice(0, 8)}
                   </td>
                   <td className="px-4 py-2.5 text-xs">{j.requested_email ?? "—"}</td>
@@ -172,7 +172,7 @@ export default async function RevealApprovalsPage() {
                         ✗ {j.rejected_email}
                       </span>
                     ) : (
-                      <span className="text-neutral-500">—</span>
+                      <span className="text-text-muted">—</span>
                     )}
                   </td>
                   <td className="px-4 py-2.5">
@@ -188,7 +188,7 @@ export default async function RevealApprovalsPage() {
                       {j.status}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-right text-xs text-neutral-500">
+                  <td className="px-4 py-2.5 text-right text-xs text-text-muted">
                     {formatDate(j.created_at)}
                   </td>
                 </tr>

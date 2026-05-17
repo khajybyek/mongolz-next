@@ -66,13 +66,13 @@ export function SearchForm() {
 
       {matches && (
         <div>
-          <h2 className="text-sm uppercase tracking-wide text-neutral-400 mb-3">
+          <h2 className="text-sm uppercase tracking-wide text-text-soft mb-3">
             {matches.length ? `${matches.length} тааралт олдлоо` : "Тааралт олдсонгүй"}
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {matches.map((m) => {
               const pct = Math.round(m.similarity * 100);
-              const pctColor = pct >= 70 ? "text-success" : pct >= 50 ? "text-warning" : "text-neutral-400";
+              const pctColor = pct >= 70 ? "text-success" : pct >= 50 ? "text-warning" : "text-text-soft";
               return (
                 <div key={m.id} className="card p-2 space-y-2">
                   <div className="aspect-square bg-bg-tertiary rounded overflow-hidden relative">
@@ -86,14 +86,14 @@ export function SearchForm() {
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
-                        <ImageOff className="w-6 h-6 text-neutral-600" />
+                        <ImageOff className="w-6 h-6 text-text-faint" />
                       </div>
                     )}
                     <div className={`absolute top-1 right-1 px-1.5 py-0.5 rounded bg-black/60 text-xs font-mono ${pctColor}`}>
                       {pct}%
                     </div>
                   </div>
-                  <div className="space-y-1 text-[11px] text-neutral-400">
+                  <div className="space-y-1 text-[11px] text-text-soft">
                     <div className="flex items-center gap-1.5">
                       <Clock className="w-3 h-3 shrink-0" />
                       <span className="truncate">{formatDate(m.detected_at)}</span>

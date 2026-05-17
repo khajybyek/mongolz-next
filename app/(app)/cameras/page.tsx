@@ -73,12 +73,12 @@ export default async function CamerasPage() {
                         "badge",
                         c.enabled
                           ? "bg-success/15 text-success"
-                          : "bg-white/5 text-neutral-500"
+                          : "bg-white/5 text-text-muted"
                       )}
                     >
                       {c.enabled ? "ON" : "OFF"}
                     </span>
-                    <span className="badge bg-bg-tertiary text-neutral-400">
+                    <span className="badge bg-bg-tertiary text-text-soft">
                       {c.cam_type.toUpperCase()}
                     </span>
                     {c.consent_required && (
@@ -90,7 +90,7 @@ export default async function CamerasPage() {
                       </span>
                     )}
                   </div>
-                  <code className="text-xs text-neutral-500 break-all">{c.url}</code>
+                  <code className="text-xs text-text-muted break-all">{c.url}</code>
                   <form action={toggleConsentAction} className="mt-2">
                     <input type="hidden" name="id" value={c.id} />
                     <input
@@ -100,7 +100,7 @@ export default async function CamerasPage() {
                     />
                     <button
                       type="submit"
-                      className="text-[10px] uppercase tracking-wide text-neutral-500 hover:text-warning transition"
+                      className="text-[10px] uppercase tracking-wide text-text-muted hover:text-warning transition"
                     >
                       {c.consent_required ? t("consent_on") : t("consent_off")}
                     </button>

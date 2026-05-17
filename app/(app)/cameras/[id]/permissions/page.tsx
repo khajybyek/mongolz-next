@@ -69,7 +69,7 @@ export default async function CameraPermissionsPage({
     <>
       <Link
         href="/cameras"
-        className="text-sm text-neutral-400 hover:text-neutral-100 inline-flex items-center gap-1.5 mb-3"
+        className="text-sm text-text-soft hover:text-text inline-flex items-center gap-1.5 mb-3"
       >
         <ArrowLeft className="w-4 h-4" />
         {t("nav_cameras")}
@@ -85,7 +85,7 @@ export default async function CameraPermissionsPage({
           <div className="card p-0">
             <table className="w-full text-sm">
               <thead className="bg-bg-tertiary/50">
-                <tr className="text-xs uppercase tracking-wide text-neutral-400">
+                <tr className="text-xs uppercase tracking-wide text-text-soft">
                   <th className="px-4 py-2.5 text-left">{t("perm_col_email")}</th>
                   <th className="px-4 py-2.5 text-left">{t("perm_col_role")}</th>
                   <th className="px-4 py-2.5 text-left">{t("perm_col_permission")}</th>
@@ -97,7 +97,7 @@ export default async function CameraPermissionsPage({
                   <tr>
                     <td
                       colSpan={4}
-                      className="px-4 py-6 text-center text-xs text-neutral-500"
+                      className="px-4 py-6 text-center text-xs text-text-muted"
                     >
                       {t("perm_empty")}
                     </td>
@@ -113,7 +113,7 @@ export default async function CameraPermissionsPage({
                           className={`badge ${
                             r.user_role === "auditor"
                               ? "bg-warning/15 text-warning"
-                              : "bg-neutral-500/15 text-neutral-300"
+                              : "bg-text-muted/15 text-text-soft"
                           }`}
                         >
                           {r.user_role ?? "—"}
@@ -128,7 +128,7 @@ export default async function CameraPermissionsPage({
                           <input type="hidden" name="camera_id" value={camera.id} />
                           <button
                             type="submit"
-                            className="p-1.5 rounded hover:bg-danger/15 text-neutral-400 hover:text-danger"
+                            className="p-1.5 rounded hover:bg-danger/15 text-text-soft hover:text-danger"
                             title={t("delete")}
                           >
                             <Trash2 className="w-3.5 h-3.5" />

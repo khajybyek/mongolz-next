@@ -59,7 +59,7 @@ export default async function RetentionPage() {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-semibold">{meta?.mn ?? p.resource}</h3>
-                  <code className="text-[10px] text-neutral-500">{p.resource}</code>
+                  <code className="text-[10px] text-text-muted">{p.resource}</code>
                 </div>
                 {meta?.warn && (
                   <span className="badge bg-warning/15 text-warning text-[10px]">
@@ -71,7 +71,7 @@ export default async function RetentionPage() {
               <input type="hidden" name="resource" value={p.resource} />
 
               <div>
-                <label className="text-[10px] uppercase tracking-wide text-neutral-400 mb-1 block">
+                <label className="text-[10px] uppercase tracking-wide text-text-soft mb-1 block">
                   {t("retention_days")}
                 </label>
                 <input
@@ -97,7 +97,7 @@ export default async function RetentionPage() {
               </label>
 
               {p.last_swept_at && (
-                <div className="flex items-center gap-1.5 text-[10px] text-neutral-500 border-t border-white/5 pt-2">
+                <div className="flex items-center gap-1.5 text-[10px] text-text-muted border-t border-white/5 pt-2">
                   <Calendar className="w-3 h-3" />
                   {t("last_swept")}: {formatDate(p.last_swept_at)} ({p.last_swept_rows ?? 0})
                 </div>
@@ -111,8 +111,8 @@ export default async function RetentionPage() {
         })}
       </div>
 
-      <div className="card mt-4 text-xs text-neutral-400 leading-relaxed">
-        💡 <b className="text-neutral-200">Audit log</b> нь default-аар disabled (legal hold).
+      <div className="card mt-4 text-xs text-text-soft leading-relaxed">
+        💡 <b className="text-text">Audit log</b> нь default-аар disabled (legal hold).
         Зөвхөн хууль зүйн зөвлөгөөн дагуу идэвхжүүлнэ. Бусад resource-ыг өөрчилөхөд cron
         дараагийн өдөр устгана.
       </div>

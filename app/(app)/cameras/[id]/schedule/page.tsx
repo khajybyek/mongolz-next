@@ -82,7 +82,7 @@ export default async function CameraSchedulePage({
     <>
       <Link
         href="/cameras"
-        className="text-sm text-neutral-400 hover:text-neutral-100 inline-flex items-center gap-1.5 mb-3"
+        className="text-sm text-text-soft hover:text-text inline-flex items-center gap-1.5 mb-3"
       >
         <ArrowLeft className="w-4 h-4" />
         {t("nav_cameras")}
@@ -138,7 +138,7 @@ export default async function CameraSchedulePage({
               maxLength={200}
               className="input text-sm"
             />
-            <p className="text-[10px] text-neutral-500 leading-relaxed">
+            <p className="text-[10px] text-text-muted leading-relaxed">
               {t("schedule_weekdays_hint")}
             </p>
             <button type="submit" className="btn-primary w-full">
@@ -150,7 +150,7 @@ export default async function CameraSchedulePage({
           <div className="card p-0">
             <table className="w-full text-sm">
               <thead className="bg-bg-tertiary/50">
-                <tr className="text-xs uppercase tracking-wide text-neutral-400">
+                <tr className="text-xs uppercase tracking-wide text-text-soft">
                   <th className="px-4 py-2.5 text-left">{t("schedule_col_mode")}</th>
                   <th className="px-4 py-2.5 text-left">{t("schedule_col_time")}</th>
                   <th className="px-4 py-2.5 text-left">{t("schedule_col_weekdays")}</th>
@@ -161,7 +161,7 @@ export default async function CameraSchedulePage({
               <tbody className="divide-y divide-white/5">
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-xs text-neutral-500">
+                    <td colSpan={5} className="px-4 py-6 text-center text-xs text-text-muted">
                       {t("schedule_empty")} ({camera.mask_default})
                     </td>
                   </tr>
@@ -182,10 +182,10 @@ export default async function CameraSchedulePage({
                       <td className="px-4 py-2.5 text-xs font-mono">
                         {r.starts_at.slice(0, 5)} – {r.ends_at.slice(0, 5)}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-neutral-400">
+                      <td className="px-4 py-2.5 text-xs text-text-soft">
                         {weekdaysLabel(r.weekdays, lang)}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-neutral-500">
+                      <td className="px-4 py-2.5 text-xs text-text-muted">
                         {r.note ?? "—"}
                       </td>
                       <td className="px-4 py-2.5 text-right">
@@ -194,7 +194,7 @@ export default async function CameraSchedulePage({
                           <input type="hidden" name="camera_id" value={camera.id} />
                           <button
                             type="submit"
-                            className="p-1.5 rounded hover:bg-danger/15 text-neutral-400 hover:text-danger"
+                            className="p-1.5 rounded hover:bg-danger/15 text-text-soft hover:text-danger"
                             title={t("delete")}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -212,7 +212,7 @@ export default async function CameraSchedulePage({
         {/* Right side: default + current state */}
         <div className="space-y-4">
           <div className="card">
-            <h3 className="text-xs uppercase tracking-wide text-neutral-400 mb-2">
+            <h3 className="text-xs uppercase tracking-wide text-text-soft mb-2">
               {t("schedule_current_state")}
             </h3>
             <div
@@ -222,13 +222,13 @@ export default async function CameraSchedulePage({
             >
               {nowMode ?? "masked"}
             </div>
-            <p className="text-[10px] text-neutral-500 mt-1">
+            <p className="text-[10px] text-text-muted mt-1">
               {t("schedule_current_hint")}
             </p>
           </div>
 
           <form action={setMaskDefaultAction} className="card space-y-2">
-            <h3 className="text-xs uppercase tracking-wide text-neutral-400">
+            <h3 className="text-xs uppercase tracking-wide text-text-soft">
               {t("schedule_default_mode")}
             </h3>
             <input type="hidden" name="camera_id" value={camera.id} />
@@ -243,7 +243,7 @@ export default async function CameraSchedulePage({
             <button type="submit" className="btn-secondary w-full text-sm">
               {t("save")}
             </button>
-            <p className="text-[10px] text-neutral-500 leading-relaxed">
+            <p className="text-[10px] text-text-muted leading-relaxed">
               {t("schedule_default_warning")}
             </p>
           </form>

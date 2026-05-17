@@ -229,7 +229,7 @@ export function LiveRtcView({ labels }: { labels: Labels }) {
 function Stat({ label, value, good }: { label: string; value: string; good: boolean }) {
   return (
     <div className="card text-center">
-      <div className="text-[10px] uppercase tracking-wide text-neutral-500">{label}</div>
+      <div className="text-[10px] uppercase tracking-wide text-text-muted">{label}</div>
       <div className={`text-lg font-bold ${good ? "text-success" : "text-warning"}`}>{value}</div>
     </div>
   );

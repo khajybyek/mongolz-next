@@ -47,7 +47,7 @@ export function EraseForm({ email, role, totpEnabled }: Props) {
         <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
         <div className="text-sm leading-relaxed">
           <p className="font-semibold mb-1">⚠ Энэ үйлдэл буцаашгүй.</p>
-          <ul className="text-xs text-neutral-300 space-y-1 list-disc list-inside">
+          <ul className="text-xs text-text-soft space-y-1 list-disc list-inside">
             <li>Профайл устгагдана</li>
             <li>Auth row устгагдана (нэвтрэх боломжгүй)</li>
             <li>
@@ -67,14 +67,14 @@ export function EraseForm({ email, role, totpEnabled }: Props) {
       </div>
 
       <div>
-        <label className="text-xs uppercase tracking-wide text-neutral-400 mb-1.5 block">
+        <label className="text-xs uppercase tracking-wide text-text-soft mb-1.5 block">
           Имэйл (баталгаа)
         </label>
         <input value={email} disabled className="input opacity-60" />
       </div>
 
       <div>
-        <label className="text-xs uppercase tracking-wide text-neutral-400 mb-1.5 block">
+        <label className="text-xs uppercase tracking-wide text-text-soft mb-1.5 block">
           Үнэхээр устгахыг хүсэж байгаагаа баталгаажуулна уу
         </label>
         <input
@@ -89,7 +89,7 @@ export function EraseForm({ email, role, totpEnabled }: Props) {
 
       {totpEnabled && (
         <div>
-          <label className="text-xs uppercase tracking-wide text-neutral-400 mb-1.5 block">
+          <label className="text-xs uppercase tracking-wide text-text-soft mb-1.5 block">
             TOTP 6-digit код
           </label>
           <input

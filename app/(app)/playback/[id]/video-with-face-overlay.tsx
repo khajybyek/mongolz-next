@@ -166,7 +166,7 @@ export function VideoWithFaceOverlay({
         <div
           className={cn(
             "absolute top-3 right-3 px-2.5 py-1.5 rounded-md bg-black/60 backdrop-blur",
-            "text-[11px] text-neutral-300 flex items-center gap-1.5",
+            "text-[11px] text-text-soft flex items-center gap-1.5",
             "opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
           )}
         >

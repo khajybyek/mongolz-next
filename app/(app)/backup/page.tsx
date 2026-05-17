@@ -26,8 +26,8 @@ export default async function BackupPage() {
           </div>
         </div>
 
-        <div className="card text-xs text-neutral-400 leading-relaxed space-y-2">
-          <h3 className="text-sm font-semibold text-neutral-200">
+        <div className="card text-xs text-text-soft leading-relaxed space-y-2">
+          <h3 className="text-sm font-semibold text-text">
             What&apos;s in the ZIP
           </h3>
           <ul className="list-disc list-inside space-y-1 ml-2">
@@ -46,7 +46,7 @@ export default async function BackupPage() {
               restore instructions
             </li>
           </ul>
-          <p className="pt-2 border-t border-white/5 text-[10px] text-neutral-500">
+          <p className="pt-2 border-t border-white/5 text-[10px] text-text-muted">
             Action audited as{" "}
             <code className="text-warning">BACKUP_DOWNLOAD</code>.
           </p>

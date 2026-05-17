@@ -89,20 +89,20 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
       <div className="flex items-center gap-3">
         <div
           className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-            enabled ? "bg-success/15 text-success" : "bg-white/5 text-neutral-400"
+            enabled ? "bg-success/15 text-success" : "bg-white/5 text-text-soft"
           }`}
         >
           <Shield className="w-5 h-5" />
         </div>
         <div className="flex-1">
           <h3 className="font-semibold">TOTP 2-Factor Authentication</h3>
-          <p className="text-xs text-neutral-500 mt-0.5">
+          <p className="text-xs text-text-muted mt-0.5">
             Google Authenticator / Authy / 1Password зэрэг app-аар нууцлал нэмэх
           </p>
         </div>
         <span
           className={`badge ${
-            enabled ? "bg-success/15 text-success" : "bg-white/5 text-neutral-400"
+            enabled ? "bg-success/15 text-success" : "bg-white/5 text-text-soft"
           }`}
         >
           {enabled ? "ON" : "OFF"}
@@ -138,7 +138,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
       {/* VERIFY — QR + 6-digit code */}
       {step === "verify" && qr && secret && (
         <div className="space-y-3 border-t border-white/5 pt-3">
-          <p className="text-xs text-neutral-400 leading-relaxed">
+          <p className="text-xs text-text-soft leading-relaxed">
             1. <b>Google Authenticator</b> эсвэл <b>Authy</b>-аа нээ
             <br />
             2. + дарна → <b>Scan QR code</b>
@@ -149,8 +149,8 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={qr} alt="TOTP QR" className="w-48 h-48" />
           </div>
-          <details className="text-[11px] text-neutral-500">
-            <summary className="cursor-pointer hover:text-neutral-300">
+          <details className="text-[11px] text-text-muted">
+            <summary className="cursor-pointer hover:text-text-soft">
               QR ажиллахгүй бол энэ secret-ыг гараар оруул
             </summary>
             <code className="block mt-2 p-2 bg-bg-tertiary rounded break-all">
@@ -230,7 +230,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
         </div>
       )}
 
-      <p className="text-[10px] text-neutral-500 leading-relaxed border-t border-white/5 pt-3">
+      <p className="text-[10px] text-text-muted leading-relaxed border-t border-white/5 pt-3">
         Аккаунт: <b>{email}</b> · Role: <b>{role}</b>
       </p>
     </div>

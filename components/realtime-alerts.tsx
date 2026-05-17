@@ -119,7 +119,7 @@ export function RealtimeAlerts({
               <div className="text-sm font-bold text-danger truncate">
                 🚨 {a.suspect_name}
               </div>
-              <div className="text-[11px] text-neutral-400 mt-0.5">
+              <div className="text-[11px] text-text-soft mt-0.5">
                 {(a.similarity * 100).toFixed(1)}% · {a.camera_name ?? "—"}
               </div>
               <a
@@ -132,7 +132,7 @@ export function RealtimeAlerts({
             </div>
             <button
               onClick={() => dismiss(a.id)}
-              className="text-neutral-500 hover:text-neutral-200 shrink-0"
+              className="text-text-muted hover:text-text shrink-0"
               aria-label={labels.dismiss}
             >
               <X className="w-4 h-4" />
