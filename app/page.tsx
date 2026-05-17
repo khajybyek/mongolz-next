@@ -272,15 +272,17 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="mb-10 animate-fade-in-up">
+    <section id={id} className="mb-12 animate-fade-in-up">
       <div className="flex items-center gap-3 mb-3">
-        <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-accent/10 text-accent border border-accent/20 text-xs font-mono font-bold">
+        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10 text-accent border border-accent/20 text-sm font-mono font-bold">
           {String(index).padStart(2, "0")}
         </span>
-        <span className="section-title">{eyebrow}</span>
+        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+          {eyebrow}
+        </span>
       </div>
-      <h2 className="text-2xl font-bold tracking-tight text-text mb-1.5">{title}</h2>
-      <p className="text-sm text-text-soft mb-5 max-w-3xl text-balance">{body}</p>
+      <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-text mb-2">{title}</h2>
+      <p className="text-base text-text-soft mb-6 max-w-3xl text-balance leading-relaxed">{body}</p>
       {children}
     </section>
   );
@@ -303,11 +305,11 @@ function Tile({
       : "bg-accent/10 border-accent/20 text-accent";
   return (
     <div className="card">
-      <div className={`w-8 h-8 inline-flex items-center justify-center rounded-lg border mb-2.5 ${cls}`}>
+      <div className={`w-10 h-10 inline-flex items-center justify-center rounded-lg border mb-3 ${cls}`}>
         {icon}
       </div>
-      <h4 className="text-sm font-semibold tracking-tight text-text">{title}</h4>
-      <p className="text-xs text-text-soft mt-1 leading-relaxed">{body}</p>
+      <h4 className="text-base font-semibold tracking-tight text-text">{title}</h4>
+      <p className="text-sm text-text-soft mt-1.5 leading-relaxed">{body}</p>
     </div>
   );
 }
@@ -330,12 +332,12 @@ function ArchNode({
     default: "text-text",
   }[tone];
   return (
-    <div className="px-4 py-5 text-center">
-      <div className={`inline-flex items-center justify-center w-9 h-9 rounded-lg bg-white/[0.04] border border-border ${toneCls} mb-2`}>
+    <div className="px-4 py-6 text-center">
+      <div className={`inline-flex items-center justify-center w-11 h-11 rounded-lg bg-white/[0.04] border border-border ${toneCls} mb-2.5`}>
         {icon}
       </div>
-      <div className="text-sm font-semibold tracking-tight text-text">{label}</div>
-      <div className="text-2xs text-text-muted mt-0.5 font-mono">{meta}</div>
+      <div className="text-base font-semibold tracking-tight text-text">{label}</div>
+      <div className="text-xs text-text-muted mt-1 font-mono">{meta}</div>
     </div>
   );
 }
@@ -353,22 +355,22 @@ function DemoCard({
 }) {
   return (
     <div className={`${highlight ? "card-glow" : "card"} h-full`}>
-      <div className="w-10 h-10 rounded-xl bg-accent/15 text-accent border border-accent/20 inline-flex items-center justify-center mb-3">
+      <div className="w-12 h-12 rounded-xl bg-accent/15 text-accent border border-accent/20 inline-flex items-center justify-center mb-3.5">
         {icon}
       </div>
-      <h4 className="text-sm font-semibold tracking-tight text-text">{title}</h4>
-      <p className="text-xs text-text-soft mt-1 leading-relaxed">{body}</p>
+      <h4 className="text-base font-semibold tracking-tight text-text">{title}</h4>
+      <p className="text-sm text-text-soft mt-1.5 leading-relaxed">{body}</p>
     </div>
   );
 }
 
 function SecPill({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-surface-elevated border border-border">
-      <span className="w-7 h-7 rounded-md bg-accent/10 text-accent border border-accent/20 inline-flex items-center justify-center shrink-0">
+    <div className="flex items-center gap-2.5 px-3.5 py-3 rounded-lg bg-surface-elevated border border-border">
+      <span className="w-8 h-8 rounded-md bg-accent/10 text-accent border border-accent/20 inline-flex items-center justify-center shrink-0">
         {icon}
       </span>
-      <span className="text-xs text-text">{label}</span>
+      <span className="text-sm text-text">{label}</span>
     </div>
   );
 }
