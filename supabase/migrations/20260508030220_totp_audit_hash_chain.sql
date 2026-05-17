@@ -1,27 +1,14 @@
--- ════════════════════════════════════════════════════════════════
---  Production hardening migration:
---   • TOTP 2FA support (profiles.totp_secret + totp_enabled)
---   • Audit log hash chain (immutable forensic trail)
--- ════════════════════════════════════════════════════════════════
-
--- ── 1. TOTP 2FA (profiles) ────────────────────────────────────
+-- TOTP 2FA + Audit log hash chain
 alter table public.profiles
-  add column if not exists totp_secret text,        -- base32 secret (RFC 6238)
+  add column if not exists totp_secret text,
   add column if not exists totp_enabled boolean not null default false;
 
-comment on column public.profiles.totp_secret is
-  'TOTP base32 secret (RFC 6238). Setup-ийн үед үүсгэгдэх. enabled=false бол байх ёсгүй.';
-
--- ── 2. Audit log hash chain ─────────────────────────────────
 alter table public.audit_log
   add column if not exists prev_hash text,
   add column if not exists row_hash  text;
 
 create index if not exists audit_log_row_hash_idx on public.audit_log(row_hash);
 
--- Hash chain trigger — INSERT-ийн өмнө prev_hash болон row_hash тооцоолно.
--- Гарах: row_hash = sha256(prev_hash || action || detail || user_id || created_at).
--- Үүгээр audit log-ыг буцаж засварласан тохиолдолд chain эвдрэх → forensic үнэн.
 create or replace function public.audit_log_hash_trigger()
 returns trigger
 language plpgsql
@@ -31,7 +18,6 @@ declare
   last_hash text;
   payload   text;
 begin
-  -- Хамгийн сүүлийн audit row-ийн hash-ыг олно
   select row_hash into last_hash
   from public.audit_log
   order by id desc
@@ -40,7 +26,6 @@ begin
   new.prev_hash := coalesce(last_hash, repeat('0', 64));
   new.created_at := coalesce(new.created_at, now());
 
-  -- Concat critical fields (chain integrity-д хамгийн чухал)
   payload := concat_ws(
     '|',
     new.prev_hash,
@@ -61,13 +46,12 @@ create trigger audit_log_hash_chain
   before insert on public.audit_log
   for each row execute procedure public.audit_log_hash_trigger();
 
--- UPDATE/DELETE-ыг бүрмөсөн зогсоох (service_role ч өөрчилж болохгүй).
 create or replace function public.audit_log_immutable()
 returns trigger
 language plpgsql
 as $$
 begin
-  raise exception 'audit_log өөрчлөгдөшгүй (immutable). Чи яагаад үүнийг өөрчилж байгаа вэ?';
+  raise exception 'audit_log immutable - cannot modify or delete';
 end;
 $$;
 
@@ -81,9 +65,6 @@ create trigger audit_log_no_delete
   before delete on public.audit_log
   for each row execute procedure public.audit_log_immutable();
 
--- ── 3. Verify integrity helper RPC ─────────────────────────
--- SELECT * FROM public.verify_audit_chain() — buruu hash row-уудыг буцаана.
--- Хоосон жагсаалт = chain integrity-зөв.
 create or replace function public.verify_audit_chain()
 returns table (
   id bigint,
@@ -125,7 +106,4 @@ begin
     last_hash := rec.row_hash;
   end loop;
 end;
-$$;
-
-comment on function public.verify_audit_chain() is
-  'Audit log hash chain-ийн интегрити шалгана. Хоосон result = OK. Row буцвал tampered.';
+$$;;
