@@ -1174,9 +1174,9 @@ export const T = {
 
   // ─── public landing (home) ───
   home_pill: {
-    mn: "Capstone · 3B-26-1",
-    en: "Capstone · 3B-26-1",
-    kr: "Capstone · 3B-26-1",
+    mn: "2026-01-CD-03-07",
+    en: "2026-01-CD-03-07",
+    kr: "2026-01-CD-03-07",
   },
   home_footer_tagline: {
     mn: "Олон эрхийн mask + reveal боломжтой ухаалаг сүлжээний камер ба нэгдсэн удирдлагын сервер хөгжүүлэлт",
