@@ -20,9 +20,9 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
+
+import requests
 
 URL = "https://thispersondoesnotexist.com/"
 UA = "MongolzCapstoneBenchmark/1.0 (mongolz.vercel.app; admin@mongolz.local)"
@@ -47,16 +47,21 @@ def main():
 
     print(f"Have {have}, fetching {need} more from {URL}", file=sys.stderr)
     ok = have
+    session = requests.Session()
+    session.headers.update({"User-Agent": UA})
     for i in range(have, args.n):
         dest = args.out / f"{i:02d}.jpg"
         try:
-            req = urllib.request.Request(URL, headers={"User-Agent": UA})
-            with urllib.request.urlopen(req, timeout=args.timeout) as resp, dest.open("wb") as out:
-                out.write(resp.read())
+            resp = session.get(URL, timeout=args.timeout, stream=True)
+            resp.raise_for_status()
+            with dest.open("wb") as out:
+                for chunk in resp.iter_content(chunk_size=64 * 1024):
+                    if chunk:
+                        out.write(chunk)
             print(f"got  {dest.name}  ({dest.stat().st_size // 1024} KB)", file=sys.stderr)
             ok += 1
             time.sleep(args.sleep)
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
+        except (requests.RequestException, TimeoutError) as e:
             print(f"FAIL {dest.name}: {e}", file=sys.stderr)
             time.sleep(args.sleep * 2)
 
