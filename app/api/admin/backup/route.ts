@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import JSZip from "jszip";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { hasFreshReauth } from "@/lib/auth/step-up";
 
 /**
  * Admin backup endpoint — assembles a JSON snapshot of the application's
@@ -40,6 +41,12 @@ const BUCKETS = [
 export async function GET() {
   const auth = await requireAdminApi();
   if (isAuthErr(auth)) return auth.error;
+
+  // Backup нь audit_log агуулагдсан тул TOTP step-up шаардана: comprised
+  // admin session-аар audit мөрийг гадагшаа татах боломжгүй болгоно.
+  if (!(await hasFreshReauth(auth.user.id))) {
+    return NextResponse.json({ error: "REAUTH_REQUIRED" }, { status: 401 });
+  }
 
   const svc = createServiceClient();
   const zip = new JSZip();

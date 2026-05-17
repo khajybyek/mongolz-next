@@ -29,29 +29,26 @@ function buildCsp(nonce: string, isDev: boolean): string {
     ? `'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval' 'wasm-unsafe-eval'`
     : `'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval'`;
 
+  // SSRF / data-exfiltration hardening:
+  //   - `connect-src` HTTPS-only (token leak хаах).
+  //   - `img-src` / `media-src` http: үлдээв — гарын IP webcam (MJPEG / MP4 stream)
+  //     нь тухайн LAN-д HTTP-ээр ажилладаг бөгөөд эдгээр channel-ууд session token
+  //     дамжуулдаггүй (одоор үзэгдэх media data л).
   return [
     `default-src 'self'`,
     `script-src ${scriptSrc}`,
-    // Workers — ONNX Runtime Web blob: workers ашигладаг
     `worker-src 'self' blob:`,
-    // Style — Tailwind inject inline styles, 'unsafe-inline' хэрэгтэй (CSS XSS бараг боломжгүй)
     `style-src 'self' 'unsafe-inline'`,
-    // IP webcam / гар утасны MJPEG нь HTTP (https биш) учир http: бас оруулна
     `img-src 'self' data: blob: http: https://*.supabase.co https://*.supabase.in`,
     `media-src 'self' data: blob: http: https://*.supabase.co https://*.supabase.in https://*.up.railway.app`,
     `font-src 'self' data:`,
-    // connect-src бас HTTP zalгаж IP webcam (192.168.x.x:8080) дэмжих
-    `connect-src 'self' http: https://*.supabase.co https://*.supabase.in https://*.up.railway.app wss://*.supabase.co`,
+    `connect-src 'self' https://*.supabase.co https://*.supabase.in https://*.up.railway.app wss://*.supabase.co`,
     `frame-ancestors 'none'`,
     `base-uri 'self'`,
     `form-action 'self'`,
     `object-src 'none'`,
-    // CSP violation-уудыг /api/csp-report-руу post, тэрнээс Sentry-руу forward
     `report-uri /api/csp-report`,
     `report-to csp-endpoint`,
-    // upgrade-insecure-requests хасав — HTTP IP webcam-уудыг автоматаар HTTPS-руу
-    // upgrade хийгээд тасрах вэ гэдгийг сэргийлнэ. Бусад asset-уудыг HTTPS-аар
-    // өөрсдөө явуулна.
   ].join("; ");
 }
 
@@ -73,6 +70,14 @@ export async function proxy(request: NextRequest) {
   if (isRedirect) {
     baseRes.headers.set("Content-Security-Policy", buildCsp(nonce, isDev));
     baseRes.headers.set("Report-To", REPORT_TO_HEADER);
+    if (!isDev) {
+      baseRes.headers.set(
+        "Strict-Transport-Security",
+        "max-age=63072000; includeSubDomains; preload",
+      );
+    }
+    baseRes.headers.set("X-Content-Type-Options", "nosniff");
+    baseRes.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     return baseRes;
   }
 
@@ -93,6 +98,22 @@ export async function proxy(request: NextRequest) {
   // CSP + reporting headers
   response.headers.set("Content-Security-Policy", buildCsp(nonce, isDev));
   response.headers.set("Report-To", REPORT_TO_HEADER);
+
+  // Defense-in-depth security headers (only in production — dev-д HSTS preload
+  // нь localhost-д тасалдал үүсгэдэг).
+  if (!isDev) {
+    // HSTS: forces HTTPS for 2 years incl. subdomains; preload-eligible.
+    response.headers.set(
+      "Strict-Transport-Security",
+      "max-age=63072000; includeSubDomains; preload",
+    );
+  }
+  // Header-уудыг redirect path-д бас бичиж өгье (баатрууд proxy дайран явсаар
+  // буцах URL-уудад ч HSTS байгаасай).
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("Permissions-Policy",
+    "camera=(self), microphone=(), geolocation=(), payment=(), usb=()");
   return response;
 }
 

@@ -9,6 +9,7 @@ const PUBLIC_PATHS = [
   "/icon",
   "/apple-icon",
   "/logo.png",
+  "/.well-known/", // RFC 8615 reserved (security.txt, etc.)
   "/api/lang", // Login page-аас хэл сольж болохын тулд unauth-аар хүртээмжтэй
   "/monitoring", // Sentry tunnel route — anonymous beacons, no auth required
   "/manifest.webmanifest", // PWA manifest — installable without login

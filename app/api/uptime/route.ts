@@ -39,6 +39,21 @@ async function probeDb(): Promise<{ ok: boolean; ms: number }> {
   }
 }
 
+/**
+ * Bucket exact latency into coarse 100-ms tiers so external monitors get the
+ * up/down signal without giving timing-attack reconnaissance to anonymous
+ * visitors.
+ */
+function bucketMs(ms: number): string {
+  if (ms < 50) return "<50ms";
+  if (ms < 100) return "<100ms";
+  if (ms < 250) return "<250ms";
+  if (ms < 500) return "<500ms";
+  if (ms < 1000) return "<1s";
+  if (ms < 2000) return "<2s";
+  return ">=2s";
+}
+
 export async function GET() {
   const [ml, db] = await Promise.all([probeMl(), probeDb()]);
   const all_ok = ml.ok && db.ok;
@@ -47,7 +62,10 @@ export async function GET() {
     {
       status: all_ok ? "ok" : "degraded",
       ts: new Date().toISOString(),
-      checks: { ml, db },
+      checks: {
+        ml: { ok: ml.ok, latency: bucketMs(ml.ms) },
+        db: { ok: db.ok, latency: bucketMs(db.ms) },
+      },
     },
     {
       status: all_ok ? 200 : 503,

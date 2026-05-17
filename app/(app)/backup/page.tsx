@@ -1,7 +1,8 @@
-import { Download, AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
+import { BackupButton } from "./backup-button";
 
 export const dynamic = "force-dynamic";
 
@@ -14,13 +15,7 @@ export default async function BackupPage() {
       <PageHeader title={t("backup_title")} subtitle={t("backup_subtitle")} />
 
       <div className="max-w-2xl space-y-4 mt-4">
-        <a
-          href="/api/admin/backup"
-          className="btn-primary w-full text-center justify-center"
-        >
-          <Download className="w-4 h-4" />
-          {t("backup_download")}
-        </a>
+        <BackupButton label={t("backup_download")} />
 
         <div className="card border border-warning/30 bg-warning/[0.06]">
           <div className="flex items-start gap-2.5">
