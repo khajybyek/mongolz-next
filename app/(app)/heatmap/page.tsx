@@ -15,7 +15,6 @@ export default async function HeatmapPage() {
   const { data: cams } = await supabase
     .from("cameras")
     .select("id, name")
-    .eq("enabled", true)
     .order("name", { ascending: true });
 
   const cameras = (cams ?? []) as Array<{ id: string; name: string }>;

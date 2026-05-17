@@ -19,15 +19,16 @@ SECURITY DEFINER
 SET search_path = public, extensions, pg_temp
 STABLE
 AS $$
+#variable_conflict use_column
 BEGIN
   IF NOT private.is_admin() THEN
     RAISE EXCEPTION 'forbidden: admin only' USING ERRCODE = '42501';
   END IF;
   RETURN QUERY
   WITH source AS (
-    SELECT embedding, detected_at AS anchor_ts
-    FROM public.faces
-    WHERE id = p_face_id
+    SELECT f0.embedding, f0.detected_at AS anchor_ts
+    FROM public.faces f0
+    WHERE f0.id = p_face_id
   )
   SELECT
     f.id AS face_id,
@@ -54,4 +55,4 @@ REVOKE EXECUTE ON FUNCTION public.camera_trail(uuid, real, int, int) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION public.camera_trail(uuid, real, int, int) TO authenticated;
 
 COMMENT ON FUNCTION public.camera_trail IS
-  'Admin-gated (private.is_admin) cross-camera movement trail. SECURITY DEFINER required to read faces table without per-row RLS overhead.';
+  'Admin-gated cross-camera movement trail. #variable_conflict use_column makes detected_at unambiguous between OUT param and table column.';
