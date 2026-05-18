@@ -77,6 +77,12 @@ class RevealProcessor:
             await self._fail(job_id, "Recording холбоо тасарсан")
             return
 
+        # Privacy zones — never_reveal=true бүсэд орсон face-уудыг reveal-аас
+        # хасна (UI-ийн /privacy-zones хуудсаар админ тогтоосон). Pipeline-ийн
+        # privacy-promise-ийг бодит болгох loop closure.
+        camera_id_for_zones = recording.get("camera_id") if recording else None
+        privacy_zones = self._load_privacy_zones(camera_id_for_zones)
+
         # Recording UUID-ыг JOB-аас шууд авна (FK column).
         # Хуучин код `recording["id"]` ашигладаг байсан боловч PostgREST
         # embedded select-д PK заавал багтахгүй (зөвхөн заагдсан column-ууд
@@ -167,6 +173,7 @@ class RevealProcessor:
                     watermark_at=watermark_at,
                     target_start_sec=target_start_sec,
                     target_end_sec=target_end_sec,
+                    privacy_zones=privacy_zones,
                 )
             except Exception as e:
                 await self._fail(job_id, f"Боловсруулах алдаа: {e}")
@@ -276,6 +283,7 @@ class RevealProcessor:
         watermark_at: str | None = None,
         target_start_sec: float | None = None,
         target_end_sec: float | None = None,
+        privacy_zones: list[dict] | None = None,
     ) -> int:
         """Process video frame-by-frame, selectively un-masking target faces.
 
@@ -356,6 +364,13 @@ class RevealProcessor:
                         last_match_boxes = self._find_target_boxes(
                             frame, target_embeddings, threshold
                         )
+                        # Privacy zones filter — bbox center нь зон руу орсон
+                        # match-ыг reveal-аас хасна. ADR-0003 + privacy_zones
+                        # never_reveal=true row-уудаар.
+                        if privacy_zones and last_match_boxes:
+                            last_match_boxes = self._filter_by_privacy_zones(
+                                last_match_boxes, privacy_zones, w, h
+                            )
                     else:
                         # Scope-аас гадуур: бүх face-ыг блюртэй үлдээх → match-гүй
                         last_match_boxes = []
@@ -393,6 +408,68 @@ class RevealProcessor:
             encoder.wait(timeout=10)
 
         return int(frame_idx / fps) if fps else 0
+
+    def _load_privacy_zones(self, camera_id: str | None) -> list[dict]:
+        """Активт `never_reveal=true` зонуудыг камер бүрд татна. Reveal
+        pipeline-д face filter-дэх үндэс."""
+        if not camera_id or not self.storage.client:
+            return []
+        try:
+            res = (
+                self.storage.client.table("privacy_zones")
+                .select("x, y, w, h, name, never_reveal")
+                .eq("camera_id", camera_id)
+                .eq("enabled", True)
+                .eq("never_reveal", True)
+                .execute()
+            )
+            zones = res.data or []
+            if zones:
+                log.info(
+                    "Camera %s: %d privacy zone(s) active for reveal",
+                    camera_id, len(zones),
+                )
+            return zones
+        except Exception as e:
+            log.warning("Privacy zone load failed for %s: %s", camera_id, e)
+            return []
+
+    @staticmethod
+    def _box_center_in_zone(
+        bbox: tuple[int, int, int, int],
+        frame_w: int,
+        frame_h: int,
+        zone: dict,
+    ) -> bool:
+        """`bbox` (pixel coords) → normalized center → check inside `zone`
+        (normalized [0,1] coords)."""
+        if frame_w <= 0 or frame_h <= 0:
+            return False
+        x1, y1, x2, y2 = bbox
+        cx = (x1 + x2) / 2 / frame_w
+        cy = (y1 + y2) / 2 / frame_h
+        zx = float(zone.get("x", 0))
+        zy = float(zone.get("y", 0))
+        zw = float(zone.get("w", 0))
+        zh = float(zone.get("h", 0))
+        return zx <= cx <= (zx + zw) and zy <= cy <= (zy + zh)
+
+    def _filter_by_privacy_zones(
+        self,
+        boxes: list[tuple[int, int, int, int]],
+        zones: list[dict],
+        frame_w: int,
+        frame_h: int,
+    ) -> list[tuple[int, int, int, int]]:
+        """Зоны дотор bbox center-тэй match-ыг хасна — reveal-д үлдээхгүй."""
+        kept: list[tuple[int, int, int, int]] = []
+        for box in boxes:
+            blocked = any(
+                self._box_center_in_zone(box, frame_w, frame_h, z) for z in zones
+            )
+            if not blocked:
+                kept.append(box)
+        return kept
 
     def _find_target_boxes(
         self,

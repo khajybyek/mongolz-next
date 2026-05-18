@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
 import { getT } from "@/lib/i18n/server";
 import { formatDate, pct } from "@/lib/utils";
+import { LiveActivityFeed, type ActivityItem } from "./live-activity-feed";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -46,6 +47,82 @@ export default async function DashboardPage() {
       .order("created_at", { ascending: false })
       .limit(8),
   ]);
+
+  // Live-activity initial payload — last N alerts + audit rows merged.
+  const [{ data: feedAlerts }, { data: feedAudit }] = await Promise.all([
+    supabase
+      .from("alerts")
+      .select("id, created_at, type, suspect_name, similarity, camera_name, anomaly_z")
+      .order("created_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("audit_log")
+      .select("id, action, detail, user_email, created_at")
+      .in("action", [
+        "LOGIN",
+        "LOGIN_FAILED",
+        "LOGIN_BLOCKED",
+        "LOGOUT",
+        "REVEAL_REQUESTED",
+        "REVEAL_APPROVED",
+        "REVEAL_REJECTED",
+        "REVEAL_COMPLETED",
+      ])
+      .order("created_at", { ascending: false })
+      .limit(20),
+  ]);
+
+  const initialActivity: ActivityItem[] = [];
+  for (const a of (feedAlerts ?? []) as Array<{
+    id: string;
+    created_at: string;
+    type: "match" | "anomaly" | null;
+    suspect_name: string | null;
+    similarity: number | null;
+    camera_name: string | null;
+    anomaly_z: number | null;
+  }>) {
+    if ((a.type ?? "match") === "anomaly") {
+      const z = a.anomaly_z != null ? `z=${a.anomaly_z.toFixed(2)}` : "";
+      initialActivity.push({
+        id: `alert:${a.id}`,
+        kind: "alert_anomaly",
+        label: `Anomaly · ${a.camera_name ?? "Camera"}`,
+        detail: z,
+        ts: a.created_at,
+      });
+    } else {
+      const score = a.similarity != null ? `${Math.round(a.similarity * 100)}%` : "—";
+      initialActivity.push({
+        id: `alert:${a.id}`,
+        kind: "alert_match",
+        label: a.suspect_name ?? "Unknown suspect",
+        detail: `${a.camera_name ?? "—"} · ${score}`,
+        ts: a.created_at,
+      });
+    }
+  }
+  for (const r of (feedAudit ?? []) as Array<{
+    id: number;
+    action: string;
+    detail: string | null;
+    user_email: string | null;
+    created_at: string;
+  }>) {
+    const stripped = r.detail ? r.detail.split(" · ")[0] : null;
+    const k = r.action;
+    const id = `audit:${r.id}`;
+    if (k === "LOGIN") {
+      initialActivity.push({ id, kind: "login", label: "Login", actor: r.user_email, detail: stripped, ts: r.created_at });
+    } else if (k === "LOGIN_FAILED" || k === "LOGIN_BLOCKED") {
+      initialActivity.push({ id, kind: "login_failed", label: k === "LOGIN_BLOCKED" ? "Login blocked" : "Login failed", actor: r.user_email, detail: stripped, ts: r.created_at });
+    } else if (k === "LOGOUT") {
+      initialActivity.push({ id, kind: "logout", label: "Logout", actor: r.user_email, ts: r.created_at });
+    } else if (k.startsWith("REVEAL_")) {
+      initialActivity.push({ id, kind: "reveal", label: k.replace("_", " ").toLowerCase(), actor: r.user_email, detail: r.detail, ts: r.created_at });
+    }
+  }
+  initialActivity.sort((a, b) => b.ts.localeCompare(a.ts));
 
   return (
     <>
@@ -186,6 +263,11 @@ export default async function DashboardPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Live activity feed — realtime stream of alerts + audit events. */}
+      <div className="mt-4">
+        <LiveActivityFeed initial={initialActivity} />
       </div>
     </>
   );

@@ -1445,6 +1445,10 @@ export const T = {
   wall_last: { mn: "Сүүлд", en: "Last", kr: "마지막" },
   nav_wall: { mn: "Live хана", en: "Live Wall", kr: "라이브 월" },
 
+  // ── Dashboard live activity feed ──
+  dash_live_activity: { mn: "Бодит цаг үйл явдал", en: "Live activity", kr: "실시간 활동" },
+  dash_live_empty: { mn: "Дараагийн үйл явдлыг хүлээж байна…", en: "Waiting for the next event…", kr: "다음 이벤트를 기다리는 중…" },
+
   // ── Anomaly detection ──
   nav_anomaly: { mn: "Anomaly", en: "Anomaly", kr: "이상 감지" },
   anomaly_title: { mn: "Anomaly detection", en: "Anomaly Detection", kr: "이상 감지" },
