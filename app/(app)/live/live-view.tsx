@@ -10,6 +10,7 @@ import {
   Square,
   AlertTriangle,
   Loader2,
+  Upload,
 } from "lucide-react";
 import { HlsPlayer } from "@/components/hls-player";
 import { startCameraAction, stopCameraAction, getStreamTicketAction } from "./actions";
@@ -23,7 +24,7 @@ interface Camera {
   cam_type: string;
 }
 
-type Mode = "device" | "phone" | "cctv";
+type Mode = "device" | "phone" | "cctv" | "file";
 
 export function LiveCameraView({ cameras }: { cameras: Camera[] }) {
   const { t } = useT();
@@ -41,11 +42,15 @@ export function LiveCameraView({ cameras }: { cameras: Camera[] }) {
         <ModeBtn current={mode} value="cctv" onClick={setMode} icon={Cctv}>
           IP CCTV
         </ModeBtn>
+        <ModeBtn current={mode} value="file" onClick={setMode} icon={Upload}>
+          {t("live_mode_file") || "Файл upload"}
+        </ModeBtn>
       </div>
 
       {mode === "device" && <DeviceCameraView />}
       {mode === "phone" && <PhoneIpWebcamView />}
       {mode === "cctv" && <CctvView cameras={cameras} />}
+      {mode === "file" && <FileUploadView />}
     </div>
   );
 }
@@ -749,6 +754,224 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
             <span className="leading-relaxed">{error}</span>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────
+// 4. File Upload — өмнө бичсэн MP4-ийг chunked upload-аар production-д явуулна
+//    (жишээ нь Dahua/RTSP-аас ffmpeg-ээр бичсэн файл, эсвэл утасны бичлэг)
+// ────────────────────────────────────────────────────
+function FileUploadView() {
+  const { t } = useT();
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [chunksDone, setChunksDone] = useState(0);
+  const [chunksTotal, setChunksTotal] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  async function upload() {
+    if (!file) return;
+    setError(null);
+    setSavedMsg(null);
+    setUploading(true);
+    setProgress(0);
+
+    const MAX_CHUNK_BYTES = 3 * 1024 * 1024;
+    const sessionId = crypto.randomUUID();
+    const mime = file.type || "video/mp4";
+    const total = Math.max(1, Math.ceil(file.size / MAX_CHUNK_BYTES));
+    setChunksTotal(total);
+    setChunksDone(0);
+
+    try {
+      for (let i = 0; i < total; i++) {
+        const start = i * MAX_CHUNK_BYTES;
+        const end = Math.min(start + MAX_CHUNK_BYTES, file.size);
+        const blob = file.slice(start, end, mime);
+        const isFinal = i === total - 1;
+
+        const fd = new FormData();
+        const ext = mime.includes("mp4")
+          ? "mp4"
+          : mime.includes("webm")
+            ? "webm"
+            : "mp4";
+        fd.append("file", blob, `chunk-${i}.${ext}`);
+        fd.append("session_id", sessionId);
+        fd.append("chunk_index", String(i));
+        fd.append("is_final", String(isFinal));
+        fd.append("camera_name", file.name.replace(/\.[^.]+$/, "").slice(0, 60));
+
+        const res = await fetch("/api/recording/upload", {
+          method: "POST",
+          body: fd,
+        });
+        if (!res.ok) {
+          const ct = res.headers.get("content-type") ?? "";
+          let msg: string;
+          if (ct.includes("json")) {
+            const body = (await res.json().catch(() => null)) as {
+              error?: string;
+            } | null;
+            msg = body?.error ?? `HTTP ${res.status}`;
+          } else {
+            const text = await res.text().catch(() => "");
+            if (
+              text.includes("FUNCTION_INVOCATION_TIMEOUT") ||
+              text.includes("__next_error__")
+            ) {
+              msg =
+                res.status === 504
+                  ? "ML боловсруулалт хэт удсан (Vercel function timeout)"
+                  : `Server алдаа (HTTP ${res.status})`;
+            } else {
+              msg = `HTTP ${res.status}`;
+            }
+          }
+          throw new Error(`Chunk ${i + 1}/${total}: ${msg}`);
+        }
+        setChunksDone(i + 1);
+        setProgress(Math.round(((i + 1) / total) * 100));
+      }
+
+      const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+      setSavedMsg(
+        `✓ ${file.name} (${sizeMB} MB · ${total} chunks) upload амжилттай. ` +
+          `Server ML processing эхэлсэн — /playback дотроос ~30-60 сек дараа харагдана.`,
+      );
+      setFile(null);
+      if (inputRef.current) inputRef.current.value = "";
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload алдаа");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="card p-6 space-y-4 max-w-2xl">
+      <div>
+        <h3 className="font-semibold text-base flex items-center gap-2">
+          <Upload className="w-4 h-4 text-accent" />
+          {t("file_upload_title") || "MP4 / WebM upload"}
+        </h3>
+        <p className="text-sm text-text-soft mt-1">
+          {t("file_upload_desc") ||
+            "Өмнө бичсэн MP4-ийг сонгож upload хийнэ. Жишээ нь RTSP / IP камераас ffmpeg-ээр авсан файл. Chunked upload (3MB) ашиглаж Vercel 4.5MB лимитийг тойрно. Server ML processing автоматаар эхэлнэ — Cubist mosaic blur + ArcFace embedding + AES-256-GCM encryption."}
+        </p>
+      </div>
+
+      <label className="block">
+        <span className="block text-sm font-medium text-text-soft mb-2">
+          {t("file_upload_pick") || "Файл сонгох (MP4 / WebM / MOV)"}
+        </span>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="video/mp4,video/webm,video/quicktime,video/*"
+          disabled={uploading}
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null;
+            setFile(f);
+            setError(null);
+            setSavedMsg(null);
+          }}
+          className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md
+                     file:border-0 file:bg-accent/15 file:text-accent file:font-medium
+                     hover:file:bg-accent/25 file:cursor-pointer
+                     disabled:opacity-50"
+        />
+      </label>
+
+      {file && (
+        <div className="rounded-md bg-text-muted/5 border border-border p-3 text-sm space-y-1">
+          <div className="flex justify-between">
+            <span className="text-text-soft">Файл:</span>
+            <span className="font-mono text-xs truncate ml-2 max-w-[280px]">
+              {file.name}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-text-soft">Хэмжээ:</span>
+            <span className="font-mono">
+              {(file.size / 1024 / 1024).toFixed(2)} MB
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-text-soft">Chunks:</span>
+            <span className="font-mono">
+              {Math.max(1, Math.ceil(file.size / (3 * 1024 * 1024)))} × 3MB
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-text-soft">MIME:</span>
+            <span className="font-mono text-xs">{file.type || "—"}</span>
+          </div>
+        </div>
+      )}
+
+      {uploading && (
+        <div className="space-y-2">
+          <div className="flex justify-between text-xs text-text-soft">
+            <span>
+              Uploading chunk {chunksDone}/{chunksTotal}…
+            </span>
+            <span className="font-mono">{progress}%</span>
+          </div>
+          <div className="h-2 bg-text-muted/10 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-accent transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      <button
+        type="button"
+        disabled={!file || uploading}
+        onClick={upload}
+        className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+      >
+        {uploading ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Uploading…
+          </>
+        ) : (
+          <>
+            <Play className="w-4 h-4" />
+            {t("file_upload_btn") || "Upload + ML process"}
+          </>
+        )}
+      </button>
+
+      {savedMsg && (
+        <div className="rounded-md bg-success-soft border border-success/30 text-success text-sm p-3">
+          {savedMsg}
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-md bg-danger-soft border border-danger/30 text-danger text-sm p-3 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="text-xs text-text-faint border-t border-border pt-3 mt-2">
+        <strong>Tips:</strong> Vercel Hobby tier-ийн function timeout нь 60
+        секунд. 100MB-аас том файл upload хийвэл chunked процесс илүү
+        найдвартай. RTSP / IP cam-аас ffmpeg-ээр бичих нь тестлэхэд хялбар:
+        <code className="block bg-text-muted/5 rounded px-2 py-1 mt-1 font-mono text-2xs">
+          ffmpeg -rtsp_transport tcp -i rtsp://user:pass@ip/path -t 30 -c:v copy
+          out.mp4
+        </code>
       </div>
     </div>
   );
