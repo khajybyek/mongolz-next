@@ -58,20 +58,30 @@ if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
   # ── 2. TCP forwarder (only if forwarding spec defined) ────────────────
   if [ -n "${CAMERA_TAILNET_FWD:-}" ]; then
     echo "[entrypoint] Starting TCP forwarder: $CAMERA_TAILNET_FWD"
-    python /app/tcp_forward.py > /tmp/tcp_forward.log 2>&1 &
+    # NOTE: pipe directly to stderr so logs surface in `railway logs`.
+    # Previously we wrote to /tmp/tcp_forward.log which is invisible to
+    # Railway's log aggregator → makes SOCKS5 issues impossible to debug.
+    python -u /app/tcp_forward.py 2>&1 | sed 's/^/[tcp_forward] /' &
     FORWARDER_PID=$!
     sleep 1
     if kill -0 "$FORWARDER_PID" 2>/dev/null; then
       echo "[entrypoint] ✓ tcp_forward.py running (pid=$FORWARDER_PID)"
     else
-      echo "[entrypoint] ✗ tcp_forward.py died at startup. Log:"
-      tail -20 /tmp/tcp_forward.log || true
+      echo "[entrypoint] ✗ tcp_forward.py died at startup"
     fi
   fi
 else
   echo "[entrypoint] TAILSCALE_AUTHKEY not set — tailnet disabled (cloud-only mode)"
 fi
 
-# ── 3. FastAPI ──────────────────────────────────────────────────────────
+# ── 3. Force RTSP over TCP ──────────────────────────────────────────────
+# Tailscale userspace SOCKS5 only supports TCP, but OpenCV's libffmpeg
+# defaults to UDP transport for RTSP media. Pin transport=tcp so the entire
+# stream flows through the SOCKS5 tunnel cleanly. Without this, RTSP DESCRIBE
+# succeeds but media SETUP/PLAY produce 30s timeouts (zero frames received).
+export OPENCV_FFMPEG_CAPTURE_OPTIONS="rtsp_transport;tcp|stimeout;5000000|max_delay;500000"
+echo "[entrypoint] OPENCV_FFMPEG_CAPTURE_OPTIONS=$OPENCV_FFMPEG_CAPTURE_OPTIONS"
+
+# ── 4. FastAPI ──────────────────────────────────────────────────────────
 echo "[entrypoint] Launching app: $*"
 exec "$@"
