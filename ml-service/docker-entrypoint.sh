@@ -58,17 +58,35 @@ if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
   # ── 2. TCP forwarder (only if forwarding spec defined) ────────────────
   if [ -n "${CAMERA_TAILNET_FWD:-}" ]; then
     echo "[entrypoint] Starting TCP forwarder: $CAMERA_TAILNET_FWD"
-    # NOTE: pipe directly to stderr so logs surface in `railway logs`.
-    # Previously we wrote to /tmp/tcp_forward.log which is invisible to
-    # Railway's log aggregator → makes SOCKS5 issues impossible to debug.
-    python -u /app/tcp_forward.py 2>&1 | sed 's/^/[tcp_forward] /' &
+    # Avoid pipe-into-sed buffering issues — tcp_forward.py already
+    # prefixes its log lines via Python logging.basicConfig(format=...).
+    # Previously the pipe pid was sed's, not python's, so a python crash
+    # was invisible.
+    python -u /app/tcp_forward.py &
     FORWARDER_PID=$!
-    sleep 1
+    sleep 2
+
     if kill -0 "$FORWARDER_PID" 2>/dev/null; then
       echo "[entrypoint] ✓ tcp_forward.py running (pid=$FORWARDER_PID)"
     else
-      echo "[entrypoint] ✗ tcp_forward.py died at startup"
+      echo "[entrypoint] ✗ tcp_forward.py died at startup — re-running in fg to capture error:"
+      python -u /app/tcp_forward.py || true
+      echo "[entrypoint]   (above error means tcp_forward.py cannot start — fix and redeploy)"
     fi
+
+    # Verify the forwarder port is actually accepting TCP — catches the
+    # race where the listener hasn't bound by the time camera starts.
+    PORT=$(echo "$CAMERA_TAILNET_FWD" | cut -d: -f1)
+    for i in 1 2 3 4 5; do
+      if (echo > /dev/tcp/127.0.0.1/$PORT) 2>/dev/null; then
+        echo "[entrypoint] ✓ Port 127.0.0.1:$PORT accepts TCP"
+        break
+      fi
+      sleep 1
+      if [ "$i" = "5" ]; then
+        echo "[entrypoint] ✗ Port 127.0.0.1:$PORT NOT listening — tcp_forward.py broken"
+      fi
+    done
   fi
 else
   echo "[entrypoint] TAILSCALE_AUTHKEY not set — tailnet disabled (cloud-only mode)"
