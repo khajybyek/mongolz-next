@@ -673,6 +673,31 @@ export const T = {
     kr: "이 기기",
   },
   live_mode_phone: { mn: "Гар утас", en: "Phone", kr: "휴대폰" },
+  live_mode_file: {
+    mn: "Файл upload",
+    en: "File upload",
+    kr: "파일 업로드",
+  },
+  file_upload_title: {
+    mn: "MP4 / WebM upload",
+    en: "MP4 / WebM upload",
+    kr: "MP4 / WebM 업로드",
+  },
+  file_upload_desc: {
+    mn: "Өмнө бичсэн видеог сонгож upload хийнэ. Жишээ нь RTSP / IP камераас ffmpeg-ээр авсан файл. Chunked upload (3MB) ашиглаж Vercel 4.5MB лимитийг тойрно. Server ML processing автоматаар эхэлнэ — Cubist mosaic blur + ArcFace embedding + AES-256-GCM encryption.",
+    en: "Select a previously recorded video to upload. For example, an MP4 captured from an RTSP / IP camera via ffmpeg. Uses chunked upload (3MB) to bypass Vercel's 4.5MB limit. Server ML processing starts automatically — Cubist mosaic blur + ArcFace embedding + AES-256-GCM encryption.",
+    kr: "이전에 녹화된 비디오를 선택하여 업로드합니다. 예를 들어 ffmpeg를 통해 RTSP / IP 카메라에서 캡처한 MP4 파일. Vercel의 4.5MB 제한을 우회하기 위해 청크 업로드(3MB)를 사용합니다. 서버 ML 처리가 자동으로 시작됩니다 — 큐비스트 모자이크 블러 + ArcFace 임베딩 + AES-256-GCM 암호화.",
+  },
+  file_upload_pick: {
+    mn: "Файл сонгох (MP4 / WebM / MOV)",
+    en: "Pick a file (MP4 / WebM / MOV)",
+    kr: "파일 선택 (MP4 / WebM / MOV)",
+  },
+  file_upload_btn: {
+    mn: "Upload + ML process",
+    en: "Upload + ML process",
+    kr: "업로드 + ML 처리",
+  },
   live_perm_error: {
     mn: "Камер хандах эрх олгогдсонгүй",
     en: "Camera permission denied",
