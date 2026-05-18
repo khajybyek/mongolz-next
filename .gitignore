@@ -1,7 +1,8 @@
-node_modules/
-node_modules.nosync/
-*.nosync/
-.next/
+node_modules
+node_modules.nosync
+*.nosync
+.next
+.next.nosync
 out/
 .env
 .env.local
@@ -20,7 +21,8 @@ ml-service/.env.railway
 .idea/
 
 # Python ML service
-ml-service/venv/
+ml-service/venv
+ml-service/venv.nosync
 ml-service/__pycache__/
 ml-service/*.pyc
 **/__pycache__/
