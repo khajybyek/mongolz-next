@@ -358,9 +358,16 @@ body {
     @apply border-l border-border mx-2 h-full;
   }
 
-  /* ─────────── Dialog / Modal backdrop ─────────── */
+  /* ─────────── Dialog / Modal backdrop ───────────
+     NOTE: do NOT add z-50 here. The parent dialog container already
+     sets z-50 and creates a stacking context; inside that context
+     we want this backdrop to be the lowest-painted child so the
+     modal sibling appears on top. Adding an explicit z-index here
+     forces the backdrop above the auto-positioned modal panel and
+     ends up blurring the modal itself — i.e., the whole screen
+     turns into a frosted glass. */
   .backdrop {
-    @apply fixed inset-0 z-50 bg-black/60;
+    @apply fixed inset-0 bg-black/60;
     backdrop-filter: blur(8px);
   }
 

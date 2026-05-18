@@ -63,7 +63,9 @@ export function Dialog({
       />
       <div
         className={cn(
-          "relative w-full bg-surface-elevated border border-border-strong rounded-2xl shadow-overlay animate-scale-in",
+          // z-10 keeps the panel painted above .backdrop even if a
+          // future commit accidentally re-adds z-index to the backdrop.
+          "relative z-10 w-full bg-surface-elevated border border-border-strong rounded-2xl shadow-overlay animate-scale-in",
           sizeMap[size]
         )}
       >
