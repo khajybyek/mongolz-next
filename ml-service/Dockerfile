@@ -64,7 +64,11 @@ USER mongolz
 
 EXPOSE 8000
 ENV PORT=8000
-HEALTHCHECK --interval=30s --timeout=5s CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://localhost:{os.getenv(\"PORT\",\"8000\")}/').read()"
+# start-period gives the container time to: (a) start tailscaled, (b)
+# join the tailnet, (c) start tcp_forward.py, (d) download InsightFace
+# buffalo_l model on first run (~50MB), (e) initialise FaceEngine, before
+# healthcheck failures count toward the rollback threshold.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://localhost:{os.getenv(\"PORT\",\"8000\")}/').read()"
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

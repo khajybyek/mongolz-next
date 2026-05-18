@@ -69,23 +69,21 @@ if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
     if kill -0 "$FORWARDER_PID" 2>/dev/null; then
       echo "[entrypoint] ✓ tcp_forward.py running (pid=$FORWARDER_PID)"
     else
-      echo "[entrypoint] ✗ tcp_forward.py died at startup — re-running in fg to capture error:"
-      python -u /app/tcp_forward.py || true
-      echo "[entrypoint]   (above error means tcp_forward.py cannot start — fix and redeploy)"
+      # DO NOT re-run in foreground — tcp_forward.py is a server that
+      # never exits, so a fg invocation here would block exec uvicorn
+      # forever and trigger Railway's healthcheck rollback.
+      echo "[entrypoint] ✗ tcp_forward.py died at startup — continuing without forwarder"
     fi
 
-    # Verify the forwarder port is actually accepting TCP — catches the
-    # race where the listener hasn't bound by the time camera starts.
-    PORT=$(echo "$CAMERA_TAILNET_FWD" | cut -d: -f1)
-    for i in 1 2 3 4 5; do
-      if (echo > /dev/tcp/127.0.0.1/$PORT) 2>/dev/null; then
-        echo "[entrypoint] ✓ Port 127.0.0.1:$PORT accepts TCP"
+    # Verify the forwarder port is actually accepting TCP. Best-effort —
+    # don't fail startup if /dev/tcp isn't available or port not ready.
+    FWD_PORT=$(echo "$CAMERA_TAILNET_FWD" | cut -d: -f1)
+    for i in 1 2 3; do
+      if (echo > /dev/tcp/127.0.0.1/$FWD_PORT) 2>/dev/null; then
+        echo "[entrypoint] ✓ Port 127.0.0.1:$FWD_PORT accepts TCP"
         break
       fi
       sleep 1
-      if [ "$i" = "5" ]; then
-        echo "[entrypoint] ✗ Port 127.0.0.1:$PORT NOT listening — tcp_forward.py broken"
-      fi
     done
   fi
 else
