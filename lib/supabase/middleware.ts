@@ -37,9 +37,10 @@ type CookieItem = { name: string; value: string; options?: CookieOptions };
 
 // Hosts that should be locked to /wall — the kiosk subdomain rewrites any
 // request to the wall view so a control-room display can be pointed at it
-// without any chrome ever leaking through.
+// without any chrome ever leaking through. The default is empty; set
+// WALL_HOSTS to a comma-separated list to opt a subdomain in.
 const WALL_HOSTS = new Set(
-  (process.env.WALL_HOSTS ?? "live.mongolz.dev,live.mongolz.vercel.app")
+  (process.env.WALL_HOSTS ?? "")
     .split(",")
     .map((h) => h.trim().toLowerCase())
     .filter(Boolean),
