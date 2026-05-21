@@ -439,8 +439,10 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
         </>
       )}
 
-      {/* Desktop sidebar (≥768px) */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-surface/50 backdrop-blur">
+      {/* Desktop sidebar (≥768px) — sticky full-height so it never scrolls
+          away with the page. The inner <nav> keeps its own overflow-y-auto
+          for when the menu itself is taller than the viewport. */}
+      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-surface/50 backdrop-blur sticky top-0 self-start h-screen max-h-screen">
         {navContent}
       </aside>
     </>
