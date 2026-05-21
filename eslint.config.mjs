@@ -6,7 +6,12 @@ export default tseslint.config(
   {
     ignores: [
       ".next/**",
+      ".next.nosync/**",       // iCloud Drive .nosync mirror (local dev)
       "node_modules/**",
+      "node_modules.nosync/**", // iCloud Drive .nosync mirror — else eslint
+                                // scans the whole dependency tree locally
+      "**/*.nosync/**",        // any other iCloud-spawned .nosync dirs
+      ".claude/**",            // agent git worktrees — repo copies, not source
       "ml-service/**",
       "supabase/functions/**",
       "scripts/**",

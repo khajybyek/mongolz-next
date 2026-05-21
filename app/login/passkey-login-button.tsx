@@ -114,6 +114,9 @@ export function PasskeyLoginButton({ next, labels }: Props) {
       }
 
       // 4. Cookies set by /finish → reload into the protected area.
+      // Intentional full-page load (not router.push) so the server re-reads
+      // the freshly-set session cookie and renders the authed shell.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.assign(next || "/dashboard");
     } catch (e) {
       setError(e instanceof Error ? e.message : labels.generic);

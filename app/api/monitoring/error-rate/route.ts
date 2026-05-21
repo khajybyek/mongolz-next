@@ -81,7 +81,7 @@ export async function GET(req: NextRequest) {
             text: [
               `:rotating_light: *MONGOLZ failure-rate spike*`,
               `*spike ratio:* ${result.spike_ratio}x  *recent:* ${recentCount}/5m  *baseline:* ${baseCount}/55m`,
-              `<https://mongolz.vercel.app/audit?action=LOGIN_FAILED|Audit log>`,
+              `<https://aicctv.dev/audit?action=LOGIN_FAILED|Audit log>`,
             ].join("\n"),
           }),
         });

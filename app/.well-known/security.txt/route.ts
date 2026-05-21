@@ -8,7 +8,7 @@
 const SECURITY_TXT = `Contact: mailto:security@mongolz.local
 Expires: 2027-01-01T00:00:00.000Z
 Preferred-Languages: en, mn, ko
-Canonical: https://mongolz.vercel.app/.well-known/security.txt
+Canonical: https://aicctv.dev/.well-known/security.txt
 Policy: https://github.com/khajybyek/mongolz-next/blob/main/SECURITY.md
 Acknowledgments: https://github.com/khajybyek/mongolz-next/blob/main/SECURITY.md#acknowledgments
 `;

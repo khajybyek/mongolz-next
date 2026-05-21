@@ -127,7 +127,7 @@ export async function testWebhookAction(id: string) {
     similarity: 0.87,
     similarity_pct: 87,
     created_at: new Date().toISOString(),
-    url: "https://mongolz.vercel.app/alerts",
+    url: "https://aicctv.dev/alerts",
   });
 
   revalidatePath("/webhooks");

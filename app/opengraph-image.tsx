@@ -74,7 +74,7 @@ export default function OpengraphImage() {
             fontSize: "24px",
           }}
         >
-          mongolz.vercel.app
+          aicctv.dev
         </div>
       </div>
     ),

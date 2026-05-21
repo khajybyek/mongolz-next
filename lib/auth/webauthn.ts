@@ -21,7 +21,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 /** Relying-party config — derived from the production host. */
 export function getRpConfig(host: string | null) {
   // Strip port for rpId (the host without :port per WebAuthn spec).
-  const rpId = (host ?? "mongolz.vercel.app").split(":")[0]!;
+  const rpId = (host ?? "aicctv.dev").split(":")[0]!;
   const origin =
     process.env.NEXT_PUBLIC_WEBAUTHN_ORIGIN ?? `https://${rpId}`;
   return {

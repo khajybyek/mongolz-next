@@ -105,11 +105,11 @@ self.addEventListener("push", (event) => {
       const parsed = event.data.json();
       if (parsed && typeof parsed === "object") payload = parsed;
     }
-  } catch (_e) {
+  } catch {
     try {
       const text = event.data && event.data.text();
       if (text) payload.body = text;
-    } catch (_e2) {}
+    } catch {}
   }
 
   const options = {

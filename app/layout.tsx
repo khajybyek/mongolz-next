@@ -7,7 +7,7 @@ import { VitalsReporter } from "@/components/vitals-reporter";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://mongolz.vercel.app"),
+  metadataBase: new URL("https://aicctv.dev"),
   title: { default: "MONGOLZ Security", template: "%s · MONGOLZ Security" },
   description:
     "Multi-authority masking + reveal · intelligent network camera & integrated control server. Capstone 2026-01-CD-03-07.",
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     title: "MONGOLZ Security",
     description:
       "Multi-authority masking + reveal · intelligent network camera & integrated control server.",
-    url: "https://mongolz.vercel.app",
+    url: "https://aicctv.dev",
     locale: "mn_MN",
     alternateLocale: ["en_US", "ko_KR"],
   },

@@ -1,7 +1,7 @@
 /**
  * Centralized environment detection.
  *
- *   - `production`: Vercel `VERCEL_ENV === "production"` (i.e. alias = mongolz.vercel.app)
+ *   - `production`: Vercel `VERCEL_ENV === "production"` (i.e. alias = aicctv.dev)
  *   - `preview`: Vercel preview deploys (per-commit URLs, also includes `vercel deploy` without --prod)
  *   - `development`: local `npm run dev`
  */
