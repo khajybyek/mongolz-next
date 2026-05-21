@@ -141,6 +141,12 @@ def _master_prev() -> bytes | None:
     return _MASTER_KEY_PREV
 
 
+def master_key() -> bytes:
+    """Public accessor for the master key (used by hierarchical_keys chain
+    root derivation). Lazily initialises from env on first call."""
+    return _master()
+
+
 # ─────────────────────────────────────────────────────────────
 # Per-recording key derivation (HKDF-SHA256)
 # ─────────────────────────────────────────────────────────────

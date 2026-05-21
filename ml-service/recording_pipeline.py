@@ -17,6 +17,7 @@ RTSP/Webcam frame
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
 import shutil
@@ -33,7 +34,8 @@ from typing import TYPE_CHECKING
 import cv2
 import numpy as np
 
-from crypto_utils import encrypt_bytes
+from crypto_utils import encrypt_bytes, master_key
+from hierarchical_keys import key_at_index, encrypt_face as _seal_embedding
 
 # OpenCV built-in Haar cascade — MediaPipe-аас илүү найдвартай (Python 3.14
 # дээр mediapipe.solutions API-г арилгасан тул).
@@ -328,6 +330,10 @@ class RecordingSession:
         # Шинэ нүүр илэрвэл бүх элементтэй харьцуулах: cosine > DEDUP_THRESHOLD
         # (0.45) бол ижил хүн гэж тоомсорлож алгасна.
         self.session_embeddings: list[np.ndarray] = []
+        # Hash-chain position for hierarchical per-face keys (ADR 0009).
+        # Each saved face increments this; its embedding is sealed with
+        # K_index so a lower-authority reveal key can never unseal it.
+        self._face_chain_index = 0
         self.last_alert_at: dict[str, float] = {}
 
         # Suspect cache: загвар эхлэхэд DB-ээс татаж нэг л удаа кэшилнэ.
@@ -869,12 +875,32 @@ class RecordingSession:
             filename = f"{self.camera_id}_{int(now * 1000)}_{uuid.uuid4().hex[:8]}.jpg"
             path = f"{self.camera_id}/{filename}"
             self.storage.upload_bytes("faces", path, crop_bytes.tobytes(), "image/jpeg")
+
+            # ── Hierarchical key seal (ADR 0009) ──
+            # Seal this face's embedding with its chain key K_index. A reveal
+            # requester only obtains the embedding (and thus can target the
+            # face) if they hold a key at or above this chain level. Best-effort:
+            # any failure falls back to plain-embedding-only (legacy behaviour),
+            # so sealing can never break recording.
+            chain_index = self._face_chain_index
+            embedding_sealed: str | None = None
+            try:
+                k = key_at_index(self.recording_id, chain_index, master_key())
+                emb_bytes = np.asarray(f.embedding, dtype=np.float32).tobytes()
+                embedding_sealed = base64.b64encode(_seal_embedding(emb_bytes, k)).decode()
+            except Exception as e:  # noqa: BLE001 — never break capture on seal error
+                log.warning("Face %d embedding seal алдаа: %s", chain_index, e)
+                embedding_sealed = None
+            self._face_chain_index += 1
+
             face_id = await self.storage.insert_face(
                 filename=filename,
                 image_path=path,
                 embedding=f.embedding.tolist(),
                 camera_id=self.db_camera_id,
                 bbox=bbox,
+                chain_index=chain_index,
+                embedding_sealed=embedding_sealed,
             )
 
             # Suspect match → alert?

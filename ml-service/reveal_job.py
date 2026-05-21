@@ -21,6 +21,7 @@ Blurred recording-аас тодорхой нэг (эсвэл олон) хүни�
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import subprocess
@@ -31,7 +32,8 @@ from typing import TYPE_CHECKING
 import cv2
 import numpy as np
 
-from crypto_utils import decrypt_bytes
+from crypto_utils import decrypt_bytes, master_key
+from hierarchical_keys import key_at_index, next_key, decrypt_face
 # Recording pipeline-тэй ижил cubist algorithm import — нэг эх сурвалжаас
 from recording_pipeline import _cubist_anonymize, _mosaic_anonymize
 
@@ -98,8 +100,29 @@ class RevealProcessor:
             await self._fail(job_id, "Original бичлэг алга — reveal боломжгүй")
             return
 
-        # 1а. Target embedding-уудыг бүрдүүлнэ — олон бол multi, нэг бол single
-        target_embeddings = self._collect_targets(job)
+        # 1а. Target embedding-уудыг бүрдүүлнэ.
+        # Hierarchical reveal (ADR 0009): хэрэв requester-ийн reveal_level > 0
+        # бол зөвхөн chain_index >= level нүүрсийг hash-chain key-ээр unseal
+        # хийж target болгоно — доод түвшний (өндөр эрхтэй) нүүрсийг
+        # cryptographically нээж чадахгүй. level 0 (director) → хуучин зам,
+        # бүгдийг хардаг.
+        reveal_level = 0
+        try:
+            reveal_level = int(job.get("reveal_level") or 0)
+        except (TypeError, ValueError):
+            reveal_level = 0
+
+        if reveal_level > 0:
+            target_embeddings = self._collect_targets_sealed(job, rec_uuid, reveal_level)
+            if not target_embeddings:
+                await self._fail(
+                    job_id,
+                    f"Reveal level {reveal_level}: эрхийн хүрээнд target нүүр алга "
+                    f"(сонгосон нүүрс таны түвшнээс дээгүүр эсвэл sealed биш)",
+                )
+                return
+        else:
+            target_embeddings = self._collect_targets(job)
         if not target_embeddings:
             await self._fail(job_id, "Target embedding байхгүй")
             return
@@ -246,6 +269,74 @@ class RevealProcessor:
             except Exception as e:
                 log.warning("face_ids-аас embedding авч чадсангүй: %s", e)
 
+        return targets
+
+    def _collect_targets_sealed(
+        self, job: dict, recording_id: str, reveal_level: int
+    ) -> list[np.ndarray]:
+        """Hierarchical target collection (ADR 0009).
+
+        Requester holds K_level. For each requested face we fetch its
+        `chain_index` + `embedding_sealed`. Faces with chain_index < level
+        are off-limits — the forward hash chain cannot derive their key.
+        Faces with chain_index >= level are unsealed by walking the chain
+        forward from K_level, and only those embeddings become reveal
+        targets. This makes the authority gate *cryptographic*, not a mere
+        DB filter: a level-3 key literally cannot produce the plaintext
+        embedding of a level-0/1/2 face.
+        """
+        face_ids = job.get("face_ids") or (
+            [job.get("face_id")] if job.get("face_id") else []
+        )
+        face_ids = [fid for fid in face_ids if fid]
+        if not face_ids or not self.storage.client:
+            return []
+
+        try:
+            res = (
+                self.storage.client.table("faces")
+                .select("id, chain_index, embedding_sealed")
+                .in_("id", face_ids)
+                .execute()
+            )
+        except Exception as e:
+            log.warning("Sealed faces татахад алдаа: %s", e)
+            return []
+
+        rows = res.data or []
+        # K_level — requester-ийн эзэмших key (ML service master-аас derive).
+        k_level = key_at_index(recording_id, reveal_level, master_key())
+
+        targets: list[np.ndarray] = []
+        blocked = 0
+        for r in rows:
+            ci = r.get("chain_index")
+            sealed = r.get("embedding_sealed")
+            if ci is None or sealed is None:
+                blocked += 1  # legacy face (chain data байхгүй) → эрхгүй
+                continue
+            if ci < reveal_level:
+                blocked += 1  # доод index = өндөр эрх → хүрэхгүй
+                continue
+            # K_level-ээс урагшаа K_ci хүртэл алхах (forward-only)
+            k = k_level
+            for _ in range(ci - reveal_level):
+                k = next_key(k)
+            try:
+                emb_bytes = decrypt_face(base64.b64decode(sealed), k)
+                arr = np.frombuffer(emb_bytes, dtype=np.float32)
+                if arr.size > 0:
+                    targets.append(arr)
+            except Exception as e:
+                log.warning("Face %s unseal алдаа (level %d): %s", r.get("id"), reveal_level, e)
+                blocked += 1
+
+        if blocked:
+            log.info(
+                "Reveal level %d: %d/%d face(s) эрхээс гадуур (blocked)",
+                reveal_level, blocked, len(rows),
+            )
+        log.info("Reveal level %d: %d target unsealed", reveal_level, len(targets))
         return targets
 
     @staticmethod

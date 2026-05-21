@@ -163,6 +163,19 @@ export async function POST(request: NextRequest) {
     detail += ` · faces=${rows.length} (${rows.map((r) => r.filename).join(", ").slice(0, 120)})`;
   }
 
+  // Requester-ийн reveal authority level (ADR 0009). profiles.reveal_level
+  // нь шинэ багана тул PublicProfile type-д багтаагүй байж болзошгүй —
+  // service client-ээр шууд татна. Default 0 = director (бүгдийг хардаг).
+  let reveal_level = 0;
+  {
+    const { data: prof } = await svc
+      .from("profiles")
+      .select("reveal_level")
+      .eq("id", ctx.user.id)
+      .single();
+    reveal_level = (prof as { reveal_level?: number } | null)?.reveal_level ?? 0;
+  }
+
   // 1. reveal_jobs row үүсгэх
   const { data: job, error: jobErr } = await svc
     .from("reveal_jobs")
@@ -180,6 +193,7 @@ export async function POST(request: NextRequest) {
       requested_by: ctx.user.id,
       requested_email: ctx.user.email,
       reauth_at: new Date().toISOString(),
+      reveal_level,
     })
     .select("id")
     .single();

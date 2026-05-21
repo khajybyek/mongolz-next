@@ -216,11 +216,14 @@ export function RevealModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-5 border-b border-text-muted/5">
-          <h2 className="font-semibold flex items-center gap-2">
-            <Lock className="w-4 h-4 text-accent" />
-            Reveal хийх — нууцлалын журамтай
-          </h2>
-          <button onClick={onClose} className="text-text-soft hover:text-text">
+          <div className="flex items-center gap-3 min-w-0">
+            <h2 className="font-semibold flex items-center gap-2">
+              <Lock className="w-4 h-4 text-accent" />
+              Reveal хийх — нууцлалын журамтай
+            </h2>
+            <RevealAuthorityBadge />
+          </div>
+          <button onClick={onClose} className="text-text-soft hover:text-text shrink-0">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -796,5 +799,47 @@ function MethodCard({
       <div className="text-sm font-medium">{title}</div>
       <div className="text-[10px] text-text-muted mt-0.5">{desc}</div>
     </button>
+  );
+}
+
+/**
+ * Shows the operator's hierarchical reveal authority (ADR 0009). Purely
+ * informational — fetched from /api/reveal/my-level. Fully self-contained:
+ * if the fetch fails it renders nothing, so it can never break the modal.
+ *   level 0 → "Director (all)"   level N → "Level N" (scope-limited)
+ */
+function RevealAuthorityBadge() {
+  const [level, setLevel] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/reveal/my-level")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (alive && d && typeof d.reveal_level === "number") setLevel(d.reveal_level);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (level === null) return null;
+  const isDirector = level === 0;
+  return (
+    <span
+      className={cn(
+        "text-2xs font-medium px-2 py-0.5 rounded-full border inline-flex items-center gap-1 shrink-0",
+        isDirector
+          ? "bg-accent/10 text-accent border-accent/20"
+          : "bg-warning-soft text-warning border-warning/20",
+      )}
+      title={
+        isDirector
+          ? "Director — бүх нүүрийг reveal хийх эрхтэй (chain level 0)"
+          : `Reveal authority L${level} — зөвхөн chain_index ≥ ${level} нүүрсийг unseal хийнэ`
+      }
+    >
+      <Lock className="w-3 h-3" />
+      {isDirector ? "Director" : `Level ${level}`}
+    </span>
   );
 }

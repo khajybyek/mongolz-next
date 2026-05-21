@@ -111,23 +111,26 @@ class SupabaseStorage:
         camera_id: str | None,
         recording_id: str | None = None,
         bbox: dict | None = None,
+        chain_index: int | None = None,
+        embedding_sealed: str | None = None,
     ) -> str | None:
         if not self.client:
             return None
-        res = (
-            self.client.table("faces")
-            .insert(
-                {
-                    "filename": filename,
-                    "image_path": image_path,
-                    "embedding": embedding,
-                    "camera_id": camera_id,
-                    "recording_id": recording_id,
-                    "bbox": bbox,
-                }
-            )
-            .execute()
-        )
+        row = {
+            "filename": filename,
+            "image_path": image_path,
+            "embedding": embedding,
+            "camera_id": camera_id,
+            "recording_id": recording_id,
+            "bbox": bbox,
+        }
+        # Hierarchical key fields (ADR 0009) — only set when provided so the
+        # insert stays backward-compatible with pre-migration deployments.
+        if chain_index is not None:
+            row["chain_index"] = chain_index
+        if embedding_sealed is not None:
+            row["embedding_sealed"] = embedding_sealed
+        res = self.client.table("faces").insert(row).execute()
         return res.data[0]["id"] if res.data else None
 
     # ── Alert (rule-aware) ────────────────────────────────────

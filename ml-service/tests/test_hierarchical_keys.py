@@ -184,7 +184,75 @@ def test_tampered_blob_rejected(master):
 
 
 # ─────────────────────────────────────────────────────────────
-# 9. Self-test
+# 9. Embedding seal/unseal — pipeline ↔ reveal integration path
+# ─────────────────────────────────────────────────────────────
+def test_embedding_seal_unseal_roundtrip(master):
+    """
+    recording_pipeline seals a float32 embedding with K_index;
+    reveal_job unseals it by walking the chain from K_level.
+    Mirrors the real ml-service data path (numpy → bytes → AES → bytes).
+    """
+    import base64
+    import numpy as np
+
+    rec = "rec-emb-1"
+    embedding = np.random.rand(512).astype(np.float32)
+
+    # ── pipeline side: seal at chain_index = 4 ──
+    k4 = hk.key_at_index(rec, 4, master)
+    sealed_b64 = base64.b64encode(
+        hk.encrypt_face(embedding.tobytes(), k4)
+    ).decode()
+
+    # ── reveal side, level 4 (== index): walk 0 steps, unseal ──
+    k_level = hk.key_at_index(rec, 4, master)
+    out = hk.decrypt_face(base64.b64decode(sealed_b64), k_level)
+    recovered = np.frombuffer(out, dtype=np.float32)
+    assert np.allclose(recovered, embedding)
+
+
+def test_embedding_unseal_from_lower_level(master):
+    """Level 2 holder unseals an index-4 face by walking forward 2 steps."""
+    import base64
+    import numpy as np
+
+    rec = "rec-emb-2"
+    embedding = np.random.rand(512).astype(np.float32)
+    k4 = hk.key_at_index(rec, 4, master)
+    sealed = hk.encrypt_face(embedding.tobytes(), k4)
+
+    # Reveal at level 2: derive K2, walk forward to K4
+    k = hk.key_at_index(rec, 2, master)
+    for _ in range(4 - 2):
+        k = hk.next_key(k)
+    recovered = np.frombuffer(hk.decrypt_face(sealed, k), dtype=np.float32)
+    assert np.allclose(recovered, embedding)
+
+
+def test_embedding_unseal_blocked_above_level(master):
+    """
+    Level 4 holder CANNOT unseal an index-1 face (higher authority).
+    Walking forward from K4 never reaches K1, so decrypt must fail.
+    """
+    import numpy as np
+    from cryptography.exceptions import InvalidTag
+
+    rec = "rec-emb-3"
+    embedding = np.random.rand(512).astype(np.float32)
+    k1 = hk.key_at_index(rec, 1, master)
+    sealed = hk.encrypt_face(embedding.tobytes(), k1)
+
+    # Level-4 requester walks forward from K4 — never lands on K1.
+    k4 = hk.key_at_index(rec, 4, master)
+    probe = k4
+    for _ in range(50):
+        with pytest.raises(InvalidTag):
+            hk.decrypt_face(sealed, probe)
+        probe = hk.next_key(probe)
+
+
+# ─────────────────────────────────────────────────────────────
+# 10. Self-test
 # ─────────────────────────────────────────────────────────────
 def test_self_test_runs():
     hk.self_test()  # raises бол fail
