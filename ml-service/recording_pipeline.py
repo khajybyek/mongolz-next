@@ -292,11 +292,26 @@ class RecordingSession:
         # derivation-д ашиглана. Storage path-д бас оруулж encrypted блоб-уудыг
         # тэмдэглэх боломжтой болгоё.
         self.recording_id: str = str(uuid.uuid4())
+
+        # Blur strategy (#3 — one encrypted source).
+        # Default 'on_demand': no plaintext blurred MP4 is persisted; the
+        # playback view is derived at request time from the encrypted original
+        # via the ML /recording/{id}/view endpoint. Set BLUR_STRATEGY=baked to
+        # keep the legacy double-artifact behaviour (blurred MP4 + encrypted
+        # original) as an emergency rollback without a code deploy.
+        _bs = os.getenv("BLUR_STRATEGY", "on_demand").strip().lower()
+        self.blur_strategy: str = _bs if _bs in ("baked", "on_demand") else "on_demand"
+
         self.blurred_path = os.path.join(self.rec_dir, f"{ts}_blurred.mp4")
         self.original_path = os.path.join(self.rec_dir, f"{ts}_original.mp4")
         # `.enc` extension — Storage дээр encrypted blob гэдгийг тэмдэглэх
         self.filename_blurred = f"{camera_id}/{ts}_blurred.mp4"
         self.filename_original = f"{camera_id}/{ts}_original.mp4.enc"
+        # Display filename in DB row — neutral for on_demand (no _blurred / _original
+        # suffix since neither separate plaintext exists from the viewer's perspective).
+        self.display_filename = (
+            f"{ts}_blurred.mp4" if self.blur_strategy == "baked" else f"{ts}.mp4"
+        )
         self.started_at = datetime.now(timezone.utc)
 
         # OpenCV Haar cascade — нүүрийг хурдан илрүүлэх (per-frame blur-д)
@@ -546,18 +561,43 @@ class RecordingSession:
             return plaintext_size, len(ciphertext)
 
         try:
+            # In on_demand mode the blurred MP4 is never written to disk,
+            # so upload_plain returns None (no-op). In baked mode it uploads
+            # the plaintext blurred MP4 as before.
             blurred_size = await upload_plain(self.blurred_path, self.filename_blurred)
             original_plain, original_enc = await upload_encrypted(
                 self.original_path, self.filename_original, self.recording_id
             )
 
-            if blurred_size:
+            # Decide whether the session produced enough to persist:
+            #   • baked    — needs the blurred MP4 upload to succeed (legacy)
+            #   • on_demand — needs the encrypted original (the view is
+            #     derived from it at request time; no blurred MP4 exists)
+            have_artifact = (
+                (self.blur_strategy == "baked" and blurred_size is not None)
+                or (self.blur_strategy == "on_demand" and original_plain is not None)
+            )
+
+            if have_artifact:
+                if self.blur_strategy == "baked":
+                    row_filename = os.path.basename(self.blurred_path)
+                    row_storage_path = self.filename_blurred
+                    row_size_bytes = blurred_size
+                else:
+                    # On-demand: no separate playback artifact. Point
+                    # storage_path at the encrypted original so the row is
+                    # internally consistent; the playback page routes via
+                    # /api/recordings/{id}/view based on blur_strategy.
+                    row_filename = self.display_filename
+                    row_storage_path = self.filename_original
+                    row_size_bytes = original_plain
+
                 rec_id = await self.storage.insert_recording_returning_id(
                     recording_id=self.recording_id,
-                    filename=os.path.basename(self.blurred_path),
-                    storage_path=self.filename_blurred,
+                    filename=row_filename,
+                    storage_path=row_storage_path,
                     duration_sec=duration,
-                    size_bytes=blurred_size,
+                    size_bytes=row_size_bytes,
                     encrypted=True,  # original AES-256-GCM-аар хамгаалагдсан
                     has_original=bool(original_plain),
                     camera_id=self.db_camera_id,
@@ -565,6 +605,7 @@ class RecordingSession:
                     started_at=self.started_at.isoformat(),
                     ended_at=ended_at.isoformat(),
                     original_path=self.filename_original if original_plain else None,
+                    blur_strategy=self.blur_strategy,
                 )
                 if rec_id:
                     try:
@@ -582,13 +623,21 @@ class RecordingSession:
                     except Exception as e:
                         log.warning("Face → recording link failed: %s", e)
 
-                log.info(
-                    "✓ Recording finalized: %s (%dMB blurred · %s original [%s encrypted via AES-256-GCM])",
-                    self.filename_blurred,
-                    blurred_size // 1024 // 1024,
-                    f"{original_plain // 1024 // 1024}MB" if original_plain else "—",
-                    f"{original_enc // 1024 // 1024}MB" if original_enc else "—",
-                )
+                if self.blur_strategy == "baked":
+                    log.info(
+                        "✓ Recording finalized [baked]: %s (%dMB blurred · %s original [%s encrypted via AES-256-GCM])",
+                        self.filename_blurred,
+                        (blurred_size or 0) // 1024 // 1024,
+                        f"{original_plain // 1024 // 1024}MB" if original_plain else "—",
+                        f"{original_enc // 1024 // 1024}MB" if original_enc else "—",
+                    )
+                else:
+                    log.info(
+                        "✓ Recording finalized [on_demand]: %s (%sMB original → %sMB encrypted via AES-256-GCM; view derived at request time)",
+                        self.filename_original,
+                        f"{original_plain // 1024 // 1024}" if original_plain else "—",
+                        f"{original_enc // 1024 // 1024}" if original_enc else "—",
+                    )
         except Exception as e:
             log.error("Finalize failed: %s", e)
         finally:
@@ -649,7 +698,11 @@ class RecordingSession:
         # File mode-д HLS хэрэггүй (live preview-тэй холбоогүй)
         if not is_file_mode:
             self.hls = _ffmpeg_hls_writer(self.hls_dir, w, h, self.fps)
-        self.blurred_writer = _ffmpeg_mp4_writer(self.blurred_path, w, h, self.fps)
+        # On-demand mode: skip the blurred encoder pipe entirely. Frees an
+        # ffmpeg process + per-frame BGR write + the heavy _blur_with_mediapipe
+        # call below (~10-30% recording-time CPU saved).
+        if self.blur_strategy == "baked":
+            self.blurred_writer = _ffmpeg_mp4_writer(self.blurred_path, w, h, self.fps)
         self.original_writer = _ffmpeg_mp4_writer(self.original_path, w, h, self.fps)
 
         frame_idx = 0
@@ -673,17 +726,21 @@ class RecordingSession:
                 if frame_skip_ratio > 1 and (read_idx % frame_skip_ratio) != 0:
                     continue
 
-                # Per-frame: MediaPipe blur (fast)
-                blurred = await asyncio.to_thread(self._blur_with_mediapipe, frame)
+                # Per-frame: MediaPipe blur is only needed when baking a
+                # blurred MP4. On-demand mode skips this (the view is derived
+                # at request time from the encrypted original).
+                if self.blur_strategy == "baked":
+                    blurred = await asyncio.to_thread(self._blur_with_mediapipe, frame)
+                    self._draw_kst_timestamp(blurred, frame_idx)
 
-                # KST timestamp burn-in (blurred болон original хоёуланд)
-                # Recording-ийн жинхэнэ цаг харагдах нь видеоны forensic мэдээлэл
-                self._draw_kst_timestamp(blurred, frame_idx)
+                # KST timestamp burn-in on the original (also flows to HLS).
+                # Recording-ийн жинхэнэ цаг харагдах нь видеоны forensic мэдээлэл.
                 self._draw_kst_timestamp(frame, frame_idx)
 
                 # Pipes
                 self._write_safe(self.hls, frame)            # LIVE = unblurred
-                self._write_safe(self.blurred_writer, blurred)  # SAVED = blurred
+                if self.blur_strategy == "baked":
+                    self._write_safe(self.blurred_writer, blurred)  # SAVED = blurred
                 self._write_safe(self.original_writer, frame)   # ORIGINAL kept for reveal
 
                 # Periodic ArcFace match (alerts + insert face row)

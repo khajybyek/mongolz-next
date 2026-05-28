@@ -271,9 +271,17 @@ class SupabaseStorage:
         ended_at: str | None,
         original_path: str | None = None,
         recording_id: str | None = None,
+        blur_strategy: str = "baked",
     ) -> str | None:
         """Recording insert. `recording_id` өгсөн бол түүгээр хадгална
         (encryption-д key derivation-аас өмнө ID-г мэдэх шаардлагатай).
+
+        ``blur_strategy``:
+          * ``"baked"`` (legacy) — separate blurred MP4 persisted at
+            ``storage_path``; reveal flow + playback both use this artifact.
+          * ``"on_demand"`` (#3) — no blurred MP4; playback view is derived
+            from the encrypted original at request time via the ML
+            ``/recording/{id}/view`` endpoint.
         """
         if not self.client:
             return None
@@ -289,6 +297,7 @@ class SupabaseStorage:
             "camera_name": camera_name,
             "started_at": started_at,
             "ended_at": ended_at,
+            "blur_strategy": blur_strategy,
         }
         if recording_id:
             row["id"] = recording_id

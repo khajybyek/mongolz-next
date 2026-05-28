@@ -47,12 +47,13 @@ from pydantic import BaseModel, Field
 from face_engine import FaceEngine
 from camera_worker import CameraManager
 from storage import SupabaseStorage
-from crypto_utils import init_master_key, self_test as crypto_self_test
+from crypto_utils import init_master_key, self_test as crypto_self_test, decrypt_bytes
 from dp_embeddings import DPConfig, add_dp_noise, estimate_matching_accuracy, sweep_epsilon
 from zk_reveal import full_protocol_demo as zk_demo
 from anti_spoof import detect_spoof
 from embedding_fusion import FrameEmbedding, fuse_weighted_mean, fuse_median, cosine_similarity
 from telemetry import init_telemetry
+from view_renderer import render_blurred_view
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("mongolz-ml")
@@ -307,6 +308,127 @@ async def reveal_run_endpoint(req: RevealRunReq):
 
     asyncio.create_task(camera_manager.reveal_job(req.job_id))
     return {"ok": True, "job_id": req.job_id}
+
+
+# ── On-demand view derivation (#3: one encrypted source) ───────
+#
+# For recordings stored with `blur_strategy='on_demand'`, no plaintext
+# "blurred MP4" is persisted — only the AES-encrypted original. The playback
+# view shown to unauthorised viewers is derived at view-time: decrypt the
+# original, run Haar face detection per frame, paint cubist polygon mosaic
+# over every face, encode a fresh MP4. The result is cached in /tmp; second
+# and subsequent requests are zero-cost.
+#
+# The encrypted original is the single source of truth — reveal flow stays
+# unchanged (decrypt + selective-unblur via reveal_job.py).
+_VIEW_CACHE_DIR = "/tmp/mongolz-views"
+os.makedirs(_VIEW_CACHE_DIR, exist_ok=True)
+_view_locks: dict[str, asyncio.Lock] = {}
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _get_view_lock(recording_id: str) -> asyncio.Lock:
+    """Per-recording asyncio lock so concurrent cold-cache requests for the
+    same recording don't trigger redundant render work. The dict grows over
+    the container's lifetime — acceptable for capstone scale (~100s of IDs)."""
+    lock = _view_locks.get(recording_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _view_locks[recording_id] = lock
+    return lock
+
+
+@app.get(
+    "/recording/{recording_id}/view",
+    dependencies=[Depends(require_token)],
+)
+async def render_view_endpoint(recording_id: str):
+    """Derive the blurred playback view from the encrypted original MP4.
+
+    Result is cached at `/tmp/mongolz-views/{recording_id}.mp4`. Returns
+    `video/mp4`. On cache hit serves immediately; on cache miss generates
+    in-process (5–30s for typical clips) under a per-recording lock.
+    """
+    # UUID validation — also blocks `..` / path traversal via the cache key.
+    if not _UUID_RE.match(recording_id):
+        raise HTTPException(400, "invalid recording_id")
+    if not storage or not storage.client:
+        raise HTTPException(503, "service not ready")
+
+    cache_path = os.path.join(_VIEW_CACHE_DIR, f"{recording_id}.mp4")
+
+    # Fast path — cache hit
+    if os.path.exists(cache_path) and os.path.getsize(cache_path) > 1000:
+        return FileResponse(cache_path, media_type="video/mp4")
+
+    # Cold path — derive under per-recording lock so a thundering herd of
+    # concurrent requests only does the work once.
+    async with _get_view_lock(recording_id):
+        # Re-check after lock acquisition (sibling coroutine may have won)
+        if os.path.exists(cache_path) and os.path.getsize(cache_path) > 1000:
+            return FileResponse(cache_path, media_type="video/mp4")
+
+        # 1) Look up recording row → original_path
+        try:
+            res = (
+                storage.client.table("recordings")
+                .select("original_path, has_original")
+                .eq("id", recording_id)
+                .single()
+                .execute()
+            )
+        except Exception as e:
+            raise HTTPException(500, f"recording lookup failed: {e}")
+        if not res or not res.data:
+            raise HTTPException(404, "recording not found")
+        if not res.data.get("has_original"):
+            raise HTTPException(404, "no original available — cannot derive view")
+        original_path = res.data.get("original_path")
+        if not original_path:
+            raise HTTPException(404, "original_path empty")
+
+        # 2) Download encrypted original + decrypt
+        try:
+            blob = storage.client.storage.from_("recordings").download(original_path)
+            if isinstance(original_path, str) and original_path.endswith(".enc"):
+                blob = decrypt_bytes(blob, recording_id=recording_id)
+        except Exception as e:
+            raise HTTPException(500, f"download/decrypt failed: {e}")
+
+        # 3) Render via Haar + cubist (CPU-bound → off-loop thread).
+        # Write to a `.part` sibling first then atomic-rename so partial
+        # cache files never serve to clients.
+        import tempfile
+        tmp_out = cache_path + ".part"
+        with tempfile.TemporaryDirectory() as tmp:
+            input_mp4 = os.path.join(tmp, "in.mp4")
+            with open(input_mp4, "wb") as f:
+                f.write(blob)
+            try:
+                await asyncio.to_thread(render_blurred_view, input_mp4, tmp_out)
+            except Exception as e:
+                try:
+                    os.unlink(tmp_out)
+                except OSError:
+                    pass
+                raise HTTPException(500, f"render failed: {e}")
+
+        if not os.path.exists(tmp_out) or os.path.getsize(tmp_out) < 1000:
+            try:
+                os.unlink(tmp_out)
+            except OSError:
+                pass
+            raise HTTPException(500, "render produced empty output")
+        os.replace(tmp_out, cache_path)
+
+        log.info(
+            "view derived: recording=%s size=%dKB",
+            recording_id[:8], os.path.getsize(cache_path) // 1024,
+        )
+        return FileResponse(cache_path, media_type="video/mp4")
 
 
 # ── Upload-аас бичлэг боловсруулах ─────────────────────────────

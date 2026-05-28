@@ -65,6 +65,16 @@ export interface Alert {
   created_at: string;
 }
 
+/**
+ * How a recording's blurred playback view is produced.
+ *   • baked     — separate plaintext blurred MP4 was uploaded at recording
+ *                 time and lives at `storage_path` (legacy behaviour).
+ *   • on_demand — no blurred MP4 is persisted; the view is derived from the
+ *                 encrypted original at request time by the ML
+ *                 `/recording/{id}/view` endpoint (#3: one encrypted source).
+ */
+export type BlurStrategy = "baked" | "on_demand";
+
 export interface Recording {
   id: string;
   filename: string;
@@ -74,6 +84,7 @@ export interface Recording {
   size_bytes: number | null;
   encrypted: boolean;
   has_original: boolean;
+  blur_strategy: BlurStrategy;
   camera_id: string | null;
   camera_name: string | null;
   started_at: string;

@@ -41,18 +41,29 @@ export default async function PlaybackDetailPage({
   const { data: rec } = await supabase
     .from("recordings")
     .select(
-      "id, filename, storage_path, original_path, duration_sec, size_bytes, encrypted, has_original, camera_id, camera_name, started_at, ended_at"
+      "id, filename, storage_path, original_path, duration_sec, size_bytes, encrypted, has_original, blur_strategy, camera_id, camera_name, started_at, ended_at"
     )
     .eq("id", id)
     .single();
 
   if (!rec) notFound();
 
-  // Blurred бичлэгийн signed URL
-  const { data: signed } = await supabase.storage
-    .from("recordings")
-    .createSignedUrl(rec.storage_path, 60 * 30);
-  const blurredUrl = signed?.signedUrl ?? null;
+  // Choose the playback URL based on blur_strategy:
+  //   • baked     — signed link to the plaintext blurred MP4 in the `recordings`
+  //                 storage bucket (the legacy artifact).
+  //   • on_demand — points at /api/recordings/[id]/view, which proxies the
+  //                 ML service. The ML side decrypts the encrypted original
+  //                 and derives the blurred view at request time (#3: one
+  //                 encrypted source of truth — no plaintext blurred MP4 exists).
+  let blurredUrl: string | null = null;
+  if (rec.blur_strategy === "on_demand") {
+    blurredUrl = `/api/recordings/${rec.id}/view`;
+  } else {
+    const { data: signed } = await supabase.storage
+      .from("recordings")
+      .createSignedUrl(rec.storage_path, 60 * 30);
+    blurredUrl = signed?.signedUrl ?? null;
+  }
 
   // Face metadata — admin only. Viewer-д face илрүүлэлтийн өгөгдөл харагдахгүй
   // (RLS-ийн нэг хэсэг — privacy-preserving design).
