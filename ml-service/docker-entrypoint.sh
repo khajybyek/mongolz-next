@@ -52,7 +52,11 @@ if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
 
   if tailscale --socket="$STATE_DIR/tailscaled.sock" status > /dev/null 2>&1; then
     echo "[entrypoint] ✓ Tailscale tailnet joined:"
-    tailscale --socket="$STATE_DIR/tailscaled.sock" status | head -10
+    # `|| true` defuses SIGPIPE: `head -10` closes the pipe after 10 lines,
+    # `tailscale status` then exits 141, and `set -o pipefail` would
+    # otherwise kill the script before uvicorn ever starts. This bites once
+    # the tailnet has more than 10 devices (each redeploy adds one).
+    tailscale --socket="$STATE_DIR/tailscaled.sock" status | head -10 || true
   fi
 
   # ── 2. TCP forwarder (only if forwarding spec defined) ────────────────
