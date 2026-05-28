@@ -50,7 +50,7 @@ test.describe("Sentry ingest path", () => {
       headers: { "content-type": "application/csp-report" },
       data: {
         "csp-report": {
-          "document-uri": "https://mongolz.vercel.app/",
+          "document-uri": "https://aicctv.dev/",
           "violated-directive": "script-src",
           "blocked-uri": "https://evil.example.com/x.js",
         },

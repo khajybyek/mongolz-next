@@ -22,7 +22,7 @@ test.describe("Public surfaces", () => {
       {
         name: "mongolz-lang",
         value: "kr",
-        domain: new URL(process.env.PLAYWRIGHT_BASE_URL ?? "https://mongolz.vercel.app").hostname,
+        domain: new URL(process.env.PLAYWRIGHT_BASE_URL ?? "https://aicctv.dev").hostname,
         path: "/",
       },
     ]);

@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * Playwright E2E config — points by default at production
- * (https://mongolz.vercel.app). Override with PLAYWRIGHT_BASE_URL.
+ * (https://aicctv.dev). Override with PLAYWRIGHT_BASE_URL.
  *
  * Run:
  *   npx playwright install   # first time
@@ -19,7 +19,7 @@ export default defineConfig({
   timeout: 45_000,
 
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "https://mongolz.vercel.app",
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "https://aicctv.dev",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",

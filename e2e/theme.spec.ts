@@ -11,7 +11,7 @@ import { test, expect, type Page } from "@playwright/test";
  */
 
 async function setLangAndTheme(page: Page, lang: "mn" | "en" | "kr", theme: "dark" | "light") {
-  const host = new URL(test.info().project.use.baseURL ?? "https://mongolz.vercel.app").hostname;
+  const host = new URL(test.info().project.use.baseURL ?? "https://aicctv.dev").hostname;
   await page.context().addCookies([
     { name: "mongolz-lang", value: lang, domain: host, path: "/" },
     { name: "mongolz-theme", value: theme, domain: host, path: "/" },

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-const ORIGIN = new URL(process.env.PLAYWRIGHT_BASE_URL ?? "https://mongolz.vercel.app").hostname;
+const ORIGIN = new URL(process.env.PLAYWRIGHT_BASE_URL ?? "https://aicctv.dev").hostname;
 
 async function setLang(page: Page, lang: "mn" | "en" | "kr") {
   await page.context().addCookies([
