@@ -107,3 +107,77 @@ class TestRenderBlurredView:
         bad.write_bytes(b"")
         with pytest.raises(RuntimeError):
             view_renderer.render_blurred_view(str(bad), str(tmp_path / "out.mp4"))
+
+
+_SAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "samples")
+_HAVE_SAMPLES = all(
+    os.path.exists(os.path.join(_SAMPLES_DIR, f"0{i}.jpg")) for i in range(3)
+)
+
+
+@pytest.mark.skipif(not _HAVE_SAMPLES, reason="sample face images not present")
+class TestRealFaceBlur:
+    """The noise-only smoke test never triggers a detection, so it can't prove
+    the blur path actually fires. These use the bundled real face photos to
+    guarantee Haar detects → cubist mosaic is applied → pixels actually change.
+    """
+
+    def _build_face_clip(self, path: str, frames: int = 12) -> int:
+        faces = [
+            cv2.resize(cv2.imread(os.path.join(_SAMPLES_DIR, f"0{i}.jpg")), (640, 480))
+            for i in range(3)
+        ]
+        writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), 15, (640, 480))
+        assert writer.isOpened()
+        for i in range(frames):
+            writer.write(faces[i % 3])
+        writer.release()
+        return frames
+
+    def test_blur_actually_applied_to_real_faces(self, tmp_path):
+        src = str(tmp_path / "faces.mp4")
+        out = str(tmp_path / "view.mp4")
+        n_in = self._build_face_clip(src)
+
+        n = view_renderer.render_blurred_view(src, out)
+        assert n == n_in
+        assert os.path.getsize(out) > 1000
+
+        # Compare frame 0 src-vs-rendered: a real face → cubist mosaic must
+        # change a meaningful number of pixels. Pure passthrough would diff ~0.
+        cap_s, cap_o = cv2.VideoCapture(src), cv2.VideoCapture(out)
+        try:
+            ok_s, fs = cap_s.read()
+            ok_o, fo = cap_o.read()
+            assert ok_s and ok_o
+            diff = float(np.mean(np.abs(fs.astype(int) - fo.astype(int))))
+        finally:
+            cap_s.release()
+            cap_o.release()
+        assert diff > 1.0, f"blur did not fire — frame identical (diff={diff:.3f})"
+
+    def test_encrypt_decrypt_render_roundtrip(self, tmp_path):
+        """Mirror the production /recording/{id}/view path: an encrypted
+        original is downloaded, decrypted, then rendered. Byte-exact decrypt
+        + a valid rendered MP4 proves the endpoint's core is sound."""
+        import crypto_utils
+
+        crypto_utils._MASTER_KEY = None
+        crypto_utils.init_master_key()
+
+        src = str(tmp_path / "faces.mp4")
+        self._build_face_clip(src)
+        with open(src, "rb") as f:
+            plain = f.read()
+
+        rec_id = "11111111-1111-1111-1111-111111111111"
+        enc = crypto_utils.encrypt_bytes(plain, recording_id=rec_id)
+        dec = crypto_utils.decrypt_bytes(enc, recording_id=rec_id)
+        assert dec == plain, "decrypt round-trip must be byte-exact"
+
+        dec_path = str(tmp_path / "dec.mp4")
+        with open(dec_path, "wb") as f:
+            f.write(dec)
+        out = str(tmp_path / "view.mp4")
+        n = view_renderer.render_blurred_view(dec_path, out)
+        assert n > 0 and os.path.getsize(out) > 1000

@@ -324,18 +324,39 @@ async def reveal_run_endpoint(req: RevealRunReq):
 _VIEW_CACHE_DIR = "/tmp/mongolz-views"
 os.makedirs(_VIEW_CACHE_DIR, exist_ok=True)
 _view_locks: dict[str, asyncio.Lock] = {}
+_MAX_VIEW_LOCKS = 512  # bound the dict so a viewer can't grow it without limit
 _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     re.IGNORECASE,
 )
 
+# Global cold-render concurrency cap. Each miss spawns ffmpeg + per-frame
+# OpenCV decode/blur — multi-second CPU on the single Railway box. Without a
+# ceiling, a viewer fanning out across many distinct recording IDs (each a
+# fresh per-recording lock, so they DON'T serialise) could saturate CPU and
+# starve live recording. This semaphore bounds total concurrent renders;
+# excess requests queue and are served from cache once a sibling finishes.
+_MAX_CONCURRENT_RENDERS = 2
+_render_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_RENDERS)
+
 
 def _get_view_lock(recording_id: str) -> asyncio.Lock:
     """Per-recording asyncio lock so concurrent cold-cache requests for the
-    same recording don't trigger redundant render work. The dict grows over
-    the container's lifetime — acceptable for capstone scale (~100s of IDs)."""
+    same recording don't trigger redundant render work.
+
+    The dict is bounded at `_MAX_VIEW_LOCKS`: when it grows past the cap we
+    evict entries that are not currently held. Eviction is race-free because
+    `_get_view_lock` runs synchronously (no await) before the caller's
+    `async with`, so a freshly-returned lock can't be evicted mid-use; and
+    even if an evicted id is re-requested, the cache-recheck + atomic
+    `os.replace` keep a duplicate render harmless (just wasteful)."""
     lock = _view_locks.get(recording_id)
     if lock is None:
+        if len(_view_locks) >= _MAX_VIEW_LOCKS:
+            for k in [k for k, lk in _view_locks.items() if not lk.locked()]:
+                del _view_locks[k]
+                if len(_view_locks) < _MAX_VIEW_LOCKS:
+                    break
         lock = asyncio.Lock()
         _view_locks[recording_id] = lock
     return lock
@@ -372,6 +393,8 @@ async def render_view_endpoint(recording_id: str):
             return FileResponse(cache_path, media_type="video/mp4")
 
         # 1) Look up recording row → original_path
+        # Error detail is logged server-side only; the client gets a generic
+        # message so internal paths / stack detail never leak to a viewer.
         try:
             res = (
                 storage.client.table("recordings")
@@ -381,7 +404,8 @@ async def render_view_endpoint(recording_id: str):
                 .execute()
             )
         except Exception as e:
-            raise HTTPException(500, f"recording lookup failed: {e}")
+            log.warning("view: recording lookup failed (%s): %s", recording_id[:8], e)
+            raise HTTPException(500, "recording lookup failed")
         if not res or not res.data:
             raise HTTPException(404, "recording not found")
         if not res.data.get("has_original"):
@@ -396,11 +420,14 @@ async def render_view_endpoint(recording_id: str):
             if isinstance(original_path, str) and original_path.endswith(".enc"):
                 blob = decrypt_bytes(blob, recording_id=recording_id)
         except Exception as e:
-            raise HTTPException(500, f"download/decrypt failed: {e}")
+            log.warning("view: download/decrypt failed (%s): %s", recording_id[:8], e)
+            raise HTTPException(500, "could not prepare recording")
 
         # 3) Render via Haar + cubist (CPU-bound → off-loop thread).
         # Write to a `.part` sibling first then atomic-rename so partial
-        # cache files never serve to clients.
+        # cache files never serve to clients. The global semaphore caps how
+        # many renders run at once so a fan-out of distinct IDs can't
+        # exhaust the box.
         import tempfile
         tmp_out = cache_path + ".part"
         with tempfile.TemporaryDirectory() as tmp:
@@ -408,13 +435,15 @@ async def render_view_endpoint(recording_id: str):
             with open(input_mp4, "wb") as f:
                 f.write(blob)
             try:
-                await asyncio.to_thread(render_blurred_view, input_mp4, tmp_out)
+                async with _render_semaphore:
+                    await asyncio.to_thread(render_blurred_view, input_mp4, tmp_out)
             except Exception as e:
+                log.warning("view: render failed (%s): %s", recording_id[:8], e)
                 try:
                     os.unlink(tmp_out)
                 except OSError:
                     pass
-                raise HTTPException(500, f"render failed: {e}")
+                raise HTTPException(500, "render failed")
 
         if not os.path.exists(tmp_out) or os.path.getsize(tmp_out) < 1000:
             try:

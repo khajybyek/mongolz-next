@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
-import { Eye, MousePointerClick, Check } from "lucide-react";
+import { Eye, MousePointerClick, Check, Loader2, AlertTriangle, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface FaceBox {
@@ -53,6 +53,20 @@ export function VideoWithFaceOverlay({
   const [currentTime, setCurrentTime] = useState(0);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
+  // Load status — surfaces the on_demand cold-render wait + failures instead
+  // of a silent black box. For blur_strategy='on_demand' the src is
+  // /api/recordings/[id]/view, which on the first hit decrypts + renders the
+  // blurred view (5–30s) and on error returns a non-media JSON body. Without
+  // this, the <video> would just sit black with no feedback.
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  // Bumping this re-mounts the <video> with a cache-busting query so "Retry"
+  // re-requests the view (served instantly from the ML cache once it renders).
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const effectiveSrc =
+    reloadNonce > 0
+      ? `${src}${src.includes("?") ? "&" : "?"}retry=${reloadNonce}`
+      : src;
+
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -72,6 +86,11 @@ export function VideoWithFaceOverlay({
     };
   }, [videoRef, onTimeChange]);
 
+  // Reset to loading whenever the source (or retry nonce) changes.
+  useEffect(() => {
+    setStatus("loading");
+  }, [effectiveSrc]);
+
   const visible = faces.filter(
     (f) =>
       f.bbox &&
@@ -81,12 +100,48 @@ export function VideoWithFaceOverlay({
   return (
     <div className="relative aspect-video bg-black rounded-xl overflow-hidden group">
       <video
+        key={effectiveSrc}
         ref={videoRef}
-        src={src}
+        src={effectiveSrc}
         controls
         playsInline
         className="absolute inset-0 w-full h-full object-contain"
+        onLoadStart={() => setStatus("loading")}
+        onLoadedData={() => setStatus("ready")}
+        onError={() => setStatus("error")}
       />
+
+      {/* Loading overlay — covers the cold-render wait for on_demand views.
+          Disappears on first frame (onLoadedData). Harmless brief flash for
+          fast (baked / cached) loads. */}
+      {status === "loading" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-black/40 backdrop-blur-sm pointer-events-none">
+          <Loader2 className="w-7 h-7 text-accent animate-spin" />
+          <p className="text-xs text-text-soft">Бичлэг бэлтгэж байна…</p>
+        </div>
+      )}
+
+      {/* Error overlay — on_demand render failed / ML down / no original.
+          Without this the user would see a silent black box. */}
+      {status === "error" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-sm">
+          <AlertTriangle className="w-8 h-8 text-warning" />
+          <div className="text-center px-4">
+            <p className="text-sm font-medium text-text">Бичлэг тоглуулах боломжгүй</p>
+            <p className="text-xs text-text-muted mt-1">
+              Сервер бичлэгийг бэлтгэж чадсангүй. Дахин оролдоно уу.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReloadNonce((n) => n + 1)}
+            className="btn-secondary text-xs"
+          >
+            <RotateCw className="w-3.5 h-3.5" />
+            Дахин оролдох
+          </button>
+        </div>
+      )}
 
       {/* Overlay layer — pointer-events: none гэхдээ box-уудад өгнө */}
       <div className="absolute inset-0 pointer-events-none">
