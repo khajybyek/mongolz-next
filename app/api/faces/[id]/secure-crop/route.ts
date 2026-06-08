@@ -1,21 +1,23 @@
 /**
- * Per-face crop decryption proxy (ADR 0009 — pixel-level hash-chain seal).
+ * Unified face-crop endpoint (ADR 0009 — one encrypted source for crops).
  *
- * Demonstrates that a face crop's PIXELS — not just its embedding — are sealed
- * at rest with the per-face hash-chain key K_index. A request returns the crop
- * only when the requester's reveal_level ≤ the face's chain_index (ci < level
- * → 403).
+ * Every gallery fetches a face crop through here, so the storage layer can be
+ * encrypt-only without any display site knowing the difference:
+ *   • crop_sealed = true  → the crop lives only as `<image_path>.enc`
+ *     (AES-256-GCM with the per-face hash-chain key K_index). Proxied to the
+ *     ML service which decrypts it, authority-gated by the caller's
+ *     reveal_level (ci < level → 403; ADR 0009 forward chain).
+ *   • crop_sealed = false → legacy plaintext crop at `image_path` (these
+ *     predate the chain and have no chain_index, so they cannot be sealed).
+ *     Streamed directly from the faces bucket. Admin-gated only.
  *
- * Honest threat model: this is an AUTHORIZATION gate enforced here + at the ML
- * service (which holds the master key and is the trusted decryptor) — not a
- * cryptographic impossibility against the service itself. The forward hash
- * chain matters for storage-at-rest / out-of-band delegated-key compromise
- * (a holder of only K_level can derive ≥level but never below). See the ML
- * endpoint docstring + ADR 0009.
+ * Honest threat model: the ML service holds the master key and is the trusted
+ * decryptor; the level gate is authorization enforced here + at ML, not a
+ * cryptographic wall against the service itself (see ADR 0009).
  *
- * Admin-only: face crops are admin-scoped data (viewers never see face
- * metadata per the privacy design). The requester's reveal_level is read
- * server-side and passed to ML — the client cannot forge it.
+ * Admin-only: face crops are admin-scoped (viewers never see face metadata;
+ * the /wall kiosk only fetches crops for admins). reveal_level is read
+ * server-side and is not client-forgeable.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -40,16 +42,40 @@ export async function GET(
   const auth = await requireAdminApi();
   if (isAuthErr(auth)) return auth.error;
 
+  const svc = createServiceClient();
+  const { data: face } = await svc
+    .from("faces")
+    .select("image_path, crop_sealed")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!face || !face.image_path) {
+    return NextResponse.json({ error: "face not found" }, { status: 404 });
+  }
+
+  // ── Legacy plaintext crop: stream directly from storage (admin-gated). ──
+  if (!(face as { crop_sealed?: boolean }).crop_sealed) {
+    const { data: blob, error } = await svc.storage
+      .from("faces")
+      .download(face.image_path as string);
+    if (error || !blob) {
+      return NextResponse.json({ error: "crop unavailable" }, { status: 404 });
+    }
+    const buf = Buffer.from(await blob.arrayBuffer());
+    return new NextResponse(buf, {
+      status: 200,
+      headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=300" },
+    });
+  }
+
+  // ── Sealed crop: authority-gated decrypt via ML. ──
   if (!ML_URL) {
     return NextResponse.json({ error: "ML service unavailable" }, { status: 502 });
   }
 
-  // The requester's authority level (ADR 0009). profiles.reveal_level is a
-  // newer column not in PublicProfile — read it via the service client.
-  // Default 0 = director (can decrypt every face's crop).
+  // Requester's authority level (ADR 0009); default 0 = director (sees all).
   let level = 0;
   try {
-    const svc = createServiceClient();
     const { data: prof } = await svc
       .from("profiles")
       .select("reveal_level")
@@ -73,20 +99,17 @@ export async function GET(
     return NextResponse.json({ error: "ML service unreachable" }, { status: 502 });
   }
 
-  // 403 = below the requester's authority (forward-chain block) — pass it
-  // through so the UI can render a "locked" placeholder. 404 = not sealed.
   if (!upstream.ok || !upstream.body) {
+    // 403 = below the caller's authority (forward-chain block) — the UI
+    // renders a lock. 404 = not sealed / missing.
     return NextResponse.json(
-      { error: `secure crop unavailable (${upstream.status})` },
+      { error: `crop unavailable (${upstream.status})` },
       { status: upstream.status === 403 ? 403 : upstream.status === 404 ? 404 : 502 },
     );
   }
 
   return new NextResponse(upstream.body, {
     status: 200,
-    headers: {
-      "Content-Type": "image/jpeg",
-      "Cache-Control": "private, max-age=60",
-    },
+    headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=300" },
   });
 }
