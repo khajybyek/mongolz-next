@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { hasFreshReauth } from "@/lib/auth/step-up";
-import { mlEmbed, mlTriggerReveal, MLError } from "@/lib/ml-client";
+import { mlEmbed, MLError } from "@/lib/ml-client";
 import { checkRateLimit, REVEAL_LIMIT } from "@/lib/rate-limit";
 import type { RevealMethod } from "@/lib/database.types";
 
@@ -182,7 +182,11 @@ export async function POST(request: NextRequest) {
     reveal_level = (prof as { reveal_level?: number } | null)?.reveal_level ?? 0;
   }
 
-  // 1. reveal_jobs row үүсгэх
+  // 1. reveal_jobs row үүсгэх — 4-eyes: ALWAYS pending_approval.
+  // The job does NOT run until a SECOND admin approves it via
+  // /reveal-approvals (approveRevealAction sets queued + triggers ML). The ML
+  // side (reveal_job.run) also refuses any status outside queued/approved/
+  // processing, so this gate is enforced at three layers.
   const { data: job, error: jobErr } = await svc
     .from("reveal_jobs")
     .insert({
@@ -200,6 +204,7 @@ export async function POST(request: NextRequest) {
       requested_email: ctx.user.email,
       reauth_at: new Date().toISOString(),
       reveal_level,
+      status: "pending_approval",
     })
     .select("id")
     .single();
@@ -208,25 +213,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: jobErr?.message ?? "DB insert failed" }, { status: 500 });
   }
 
-  // 2. Audit
+  // 2. Audit — request logged now; the actual decrypt is gated on approval.
   await svc.from("audit_log").insert({
     action: "REVEAL_REQUEST",
-    detail,
+    detail: `${detail} · awaiting 4-eyes approval`,
     user_id: ctx.user.id,
     user_email: ctx.user.email,
   });
 
-  // 3. Python ML service-руу trigger
-  try {
-    await mlTriggerReveal(job.id);
-  } catch (e) {
-    const msg = e instanceof MLError ? e.message : "ML service хүрсэнгүй";
-    await svc
-      .from("reveal_jobs")
-      .update({ status: "failed", error_message: msg })
-      .eq("id", job.id);
-    return NextResponse.json({ error: msg, job_id: job.id }, { status: 502 });
-  }
-
-  return NextResponse.json({ job_id: job.id, status: "queued" });
+  // NOTE: ML is intentionally NOT triggered here — see approveRevealAction.
+  return NextResponse.json({ job_id: job.id, status: "pending_approval" });
 }

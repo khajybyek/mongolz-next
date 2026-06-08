@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Download,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -558,8 +559,24 @@ export function RevealModal({
             </form>
           )}
 
-          {/* ─── STEP 3: Processing ─── */}
-          {step === "processing" && (
+          {/* ─── STEP 3: Processing / Awaiting approval ─── */}
+          {step === "processing" && job?.status === "pending_approval" && (
+            <div className="space-y-3 py-6 text-center">
+              <ShieldCheck className="w-10 h-10 text-warning mx-auto" />
+              <div>
+                <div className="font-medium">2 дахь админы баталгаажуулалт хүлээж байна</div>
+                <div className="text-xs text-text-soft mt-1 max-w-sm mx-auto leading-relaxed">
+                  4-eyes зарчим: нүүр илчлэхээс өмнө <b>өөр нэг админ</b>{" "}
+                  <span className="font-mono">/reveal-approvals</span> хуудаснаас энэ
+                  хүсэлтийг батлах ёстой. Батлагдсаны дараа ML автоматаар ажиллана.
+                </div>
+              </div>
+              <div className="text-[10px] text-text-muted font-mono">
+                job {job.id.slice(0, 8)} · status: pending_approval
+              </div>
+            </div>
+          )}
+          {step === "processing" && job?.status !== "pending_approval" && (
             <div className="space-y-3 py-6 text-center">
               <Loader2 className="w-10 h-10 animate-spin text-accent mx-auto" />
               <div>

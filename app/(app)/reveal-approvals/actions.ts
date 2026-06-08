@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { mlTriggerReveal, MLError } from "@/lib/ml-client";
 
 const approveSchema = z.object({
   job_id: z.string().uuid(),
@@ -63,9 +64,29 @@ export async function approveRevealAction(formData: FormData): Promise<void> {
     .eq("id", job.id);
   if (error) throw new Error(error.message);
 
+  // Now that a second admin has approved, actually kick off the ML decrypt.
+  // (start/route deliberately does NOT trigger — the 4-eyes gate lives here.)
+  try {
+    await mlTriggerReveal(job.id);
+  } catch (e) {
+    const msg = e instanceof MLError ? e.message : "ML service unreachable";
+    await svc
+      .from("reveal_jobs")
+      .update({ status: "failed", error_message: msg })
+      .eq("id", job.id);
+    await audit(
+      "REVEAL_APPROVE_FAILED",
+      `job ${job.id} approved but ML trigger failed: ${msg}`,
+      ctx.user.id,
+      ctx.user.email,
+    );
+    revalidatePath("/reveal-approvals");
+    throw new Error(`Approved, but ML trigger failed: ${msg}`);
+  }
+
   await audit(
     "REVEAL_APPROVE",
-    `job ${job.id} (requested_by=${job.requested_email})`,
+    `job ${job.id} (requested_by=${job.requested_email}) → ML triggered`,
     ctx.user.id,
     ctx.user.email,
   );
