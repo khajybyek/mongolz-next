@@ -16,16 +16,20 @@
 
 import { cookies } from "next/headers";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { pickHmacSecret } from "@/lib/auth/hmac-secret";
 
 const COOKIE_NAME = "mongolz-pre-totp";
 const TTL_SECONDS = 120;
 const SEP = "|";
 
 function signingSecret(): string | null {
-  return process.env.REAUTH_COOKIE_SECRET
-    ?? process.env.SESSION_PIN_SECRET
-    ?? process.env.SUPABASE_SERVICE_ROLE_KEY
-    ?? null;
+  // Fail-closed in production: REAUTH_COOKIE_SECRET must be set explicitly.
+  // SESSION_PIN_SECRET / SERVICE_ROLE_KEY fallback retained for dev only.
+  return pickHmacSecret(
+    "REAUTH_COOKIE_SECRET",
+    "SESSION_PIN_SECRET",
+    "SUPABASE_SERVICE_ROLE_KEY",
+  );
 }
 
 function sign(payload: string): string {

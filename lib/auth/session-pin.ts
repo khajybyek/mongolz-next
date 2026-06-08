@@ -14,16 +14,20 @@
 
 import { cookies, headers } from "next/headers";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { pickHmacSecret } from "@/lib/auth/hmac-secret";
 
 const COOKIE_NAME = "mongolz-session-pin";
 const TTL_DAYS = 7;
 const SEP = "|";
 
 function signingSecret(): string | null {
-  return process.env.SESSION_PIN_SECRET
-    ?? process.env.REAUTH_COOKIE_SECRET
-    ?? process.env.SUPABASE_SERVICE_ROLE_KEY
-    ?? null;
+  // Fail-closed in production: SESSION_PIN_SECRET must be set explicitly.
+  // REAUTH_COOKIE_SECRET / SERVICE_ROLE_KEY fallback retained for dev only.
+  return pickHmacSecret(
+    "SESSION_PIN_SECRET",
+    "REAUTH_COOKIE_SECRET",
+    "SUPABASE_SERVICE_ROLE_KEY",
+  );
 }
 
 function clientIpFromHeader(h: Headers): string {

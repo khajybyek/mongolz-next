@@ -16,8 +16,19 @@
 # a symlink so npm / Next.js / tools find everything as usual.
 #
 # Idempotent — re-run after any npm install that clobbers the symlink.
+# Wired as `postinstall` in package.json so a fresh `npm install`
+# self-heals; CI (Vercel/Railway) is Linux and short-circuits below.
 
 set -euo pipefail
+
+# Guard: iCloud Drive only exists on macOS. On Linux build agents
+# (Vercel, Railway) this script no-ops so postinstall stays a tax-free
+# default. Without the guard we'd be renaming node_modules in CI for
+# no benefit — and a symlinked node_modules trips some buildpacks.
+if [ "$(uname -s)" != "Darwin" ]; then
+  echo "heal:icloud: $(uname -s) host, skipping (macOS-only)"
+  exit 0
+fi
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"

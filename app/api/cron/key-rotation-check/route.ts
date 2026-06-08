@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { authorizeCron } from "@/lib/auth/cron";
 
 /**
  * Weekly key-rotation reminder cron.
@@ -32,18 +33,8 @@ const POLICIES: KeyPolicy[] = [
   { name: "SUPABASE_SERVICE_ROLE_KEY", maxAgeDays: 365 },
 ];
 
-function authorized(req: NextRequest): boolean {
-  const sec = process.env.CRON_SECRET ?? process.env.MONITORING_CRON_SECRET;
-  if (!sec) {
-    // Fail-closed in production.
-    return process.env.VERCEL_ENV !== "production" && process.env.NODE_ENV !== "production";
-  }
-  const got = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  return got === sec;
-}
-
 export async function GET(req: NextRequest) {
-  if (!authorized(req)) {
+  if (!authorizeCron(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

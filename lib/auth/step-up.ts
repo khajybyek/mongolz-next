@@ -1,11 +1,14 @@
 import { cookies } from "next/headers";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { pickHmacSecret } from "@/lib/auth/hmac-secret";
 
 const COOKIE = "mongolz-reauth";
 const SEP = "|";
 
 function signingSecret(): string | null {
-  return process.env.REAUTH_COOKIE_SECRET ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
+  // Fail-closed in production: REAUTH_COOKIE_SECRET must be set explicitly.
+  // SERVICE_ROLE_KEY fallback retained for local dev only.
+  return pickHmacSecret("REAUTH_COOKIE_SECRET", "SUPABASE_SERVICE_ROLE_KEY");
 }
 
 function sign(userId: string, expiresAt: string): string | null {

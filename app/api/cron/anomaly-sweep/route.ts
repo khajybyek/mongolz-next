@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isPushConfigured, sendPushToAllAdmins } from "@/lib/push";
+import { authorizeCron } from "@/lib/auth/cron";
 
 /**
  * Anomaly sweep — runs once a day via Vercel Cron (Hobby tier limit).
@@ -8,14 +9,6 @@ import { isPushConfigured, sendPushToAllAdmins } from "@/lib/push";
  * and emits a single alert per (camera, hour-bucket) thanks to the dedup
  * helper. Upgrade to Pro to switch the cron to hourly if needed.
  */
-function authorized(req: NextRequest): boolean {
-  const sec = process.env.CRON_SECRET ?? process.env.MONITORING_CRON_SECRET;
-  if (!sec) {
-    return process.env.VERCEL_ENV !== "production" && process.env.NODE_ENV !== "production";
-  }
-  const got = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  return got === sec;
-}
 
 const Z_THRESHOLD = Number(process.env.ANOMALY_THRESHOLD ?? "3");
 
@@ -30,7 +23,7 @@ type AnomalyRow = {
 };
 
 export async function GET(req: NextRequest) {
-  if (!authorized(req)) {
+  if (!authorizeCron(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
