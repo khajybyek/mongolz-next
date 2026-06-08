@@ -44,6 +44,22 @@ export async function GET(
     return NextResponse.json({ error: "camera not found" }, { status: 404 });
   }
 
+  // Per-camera authorization (Phase 2 allow-list). user_can_see_camera runs as
+  // the calling user (auth.uid()): admins always pass; a camera with no
+  // permission rows is unrestricted; otherwise only listed users may stream.
+  // This is the real gate — the optional ?ticket above is defence-in-depth and
+  // hls.js segment requests can't carry it, so authorization must not depend
+  // on the ticket. Enforced on BOTH playlist and segment requests.
+  const { data: canSee, error: permErr } = await supabase.rpc("user_can_see_camera", {
+    p_camera_id: cameraId,
+  });
+  if (permErr || canSee === false) {
+    return NextResponse.json(
+      { error: "forbidden: no access to this camera" },
+      { status: 403 },
+    );
+  }
+
   const headers: Record<string, string> = {};
   if (ML_TOKEN) headers.Authorization = `Bearer ${ML_TOKEN}`;
 
