@@ -17,6 +17,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import { formatDate } from "@/lib/utils";
 import { getT } from "@/lib/i18n/server";
 import { PlaybackPlayer } from "./playback-player";
+import { SecureFaceCrop } from "./secure-face-crop";
 
 // Cache хийхгүй — faces background processing-аар нэмэгддэг тул хэзээ нээгдсэн
 // үед хамгийн сүүлийн өгөгдлийг харуулах ёстой.
@@ -222,23 +223,13 @@ export default async function PlaybackDetailPage({
               ) : (
                 <div className="grid grid-cols-4 gap-1.5 max-h-60 overflow-y-auto">
                   {detectedFaces.map((f) => (
-                    <div
+                    <SecureFaceCrop
                       key={f.id}
-                      className="relative aspect-square rounded overflow-hidden bg-bg-tertiary"
-                      title={`#${f.display_no} · ${f.filename}`}
-                    >
-                      {f.signed ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={f.signed}
-                          alt={f.filename}
-                          className="absolute inset-0 w-full h-full object-cover"
-                        />
-                      ) : null}
-                      <span className="absolute top-0.5 left-0.5 text-[10px] font-bold leading-none px-1 py-0.5 rounded bg-black/70 text-accent">
-                        #{f.display_no}
-                      </span>
-                    </div>
+                      faceId={f.id}
+                      plainSrc={f.signed}
+                      alt={f.filename}
+                      displayNo={f.display_no}
+                    />
                   ))}
                 </div>
               )}

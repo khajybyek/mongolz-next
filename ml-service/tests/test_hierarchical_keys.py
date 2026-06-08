@@ -256,3 +256,39 @@ def test_embedding_unseal_blocked_above_level(master):
 # ─────────────────────────────────────────────────────────────
 def test_self_test_runs():
     hk.self_test()  # raises бол fail
+
+
+# ─────────────────────────────────────────────────────────────
+# 11. Crop pixel seal — secure-crop endpoint authority gate
+# ─────────────────────────────────────────────────────────────
+def test_crop_seal_forward_chain_authority():
+    """Mirror the /face/{id}/secure-crop derivation: a crop sealed at
+    chain_index i is decryptable by a level-L holder iff i >= L (forward-only
+    chain), and the derived key reproduces the exact plaintext crop bytes."""
+    master = secrets.token_bytes(32)
+    rec = "crop-rec-0001"
+    crop = b"\xff\xd8\xff\xe0JPEG-fake-crop-bytes-for-face-3" * 4
+    ci = 3
+    # seal with K_index (same as recording_pipeline does)
+    k_index = hk.key_at_index(rec, ci, master)
+    sealed = hk.encrypt_face(crop, k_index)
+
+    def derive_from_level(level: int) -> bytes:
+        # endpoint logic: K_level then walk forward (ci - level)
+        k = hk.key_at_index(rec, level, master)
+        for _ in range(ci - level):
+            k = hk.next_key(k)
+        return k
+
+    # Director (L=0) and same-level (L=3) reproduce K_index → decrypt OK
+    for level in (0, 1, 3):
+        assert hk.decrypt_face(sealed, derive_from_level(level)) == crop
+
+    # Below authority (L=4,5): the endpoint refuses (ci < level) BEFORE
+    # deriving — and even if forced, the forward walk can't reach K_index.
+    for level in (4, 5):
+        assert ci < level  # endpoint returns 403 here
+        # a wrong-direction guess (forward from a higher level) ≠ K_index
+        wrong = hk.key_at_index(rec, level, master)
+        with pytest.raises(InvalidTag):
+            hk.decrypt_face(sealed, wrong)

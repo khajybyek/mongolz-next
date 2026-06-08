@@ -951,10 +951,25 @@ class RecordingSession:
             # so sealing can never break recording.
             chain_index = self._face_chain_index
             embedding_sealed: str | None = None
+            crop_sealed = False
             try:
                 k = key_at_index(self.recording_id, chain_index, master_key())
                 emb_bytes = np.asarray(f.embedding, dtype=np.float32).tobytes()
                 embedding_sealed = base64.b64encode(_seal_embedding(emb_bytes, k)).decode()
+                # Per-face crop PIXEL encryption (PoC): seal the JPEG crop with
+                # the SAME chain key K_index and store it alongside the plain
+                # crop as `<path>.enc`. The plain crop stays for the existing
+                # gallery display sites; the sealed copy is served only through
+                # /face/{id}/secure-crop after a forward-chain authority check.
+                try:
+                    sealed_crop = _seal_embedding(crop_bytes.tobytes(), k)
+                    self.storage.upload_bytes(
+                        "faces", f"{path}.enc", sealed_crop, "application/octet-stream"
+                    )
+                    crop_sealed = True
+                except Exception as e:  # noqa: BLE001
+                    log.warning("Face %d crop seal алдаа: %s", chain_index, e)
+                    crop_sealed = False
             except Exception as e:  # noqa: BLE001 — never break capture on seal error
                 log.warning("Face %d embedding seal алдаа: %s", chain_index, e)
                 embedding_sealed = None
@@ -968,6 +983,7 @@ class RecordingSession:
                 bbox=bbox,
                 chain_index=chain_index,
                 embedding_sealed=embedding_sealed,
+                crop_sealed=crop_sealed,
             )
 
             # Suspect match → alert?

@@ -41,13 +41,14 @@ import cv2
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from face_engine import FaceEngine
 from camera_worker import CameraManager
 from storage import SupabaseStorage
-from crypto_utils import init_master_key, self_test as crypto_self_test, decrypt_bytes
+from crypto_utils import init_master_key, self_test as crypto_self_test, decrypt_bytes, master_key
+from hierarchical_keys import key_at_index, next_key, decrypt_face
 from dp_embeddings import DPConfig, add_dp_noise, estimate_matching_accuracy, sweep_epsilon
 from zk_reveal import full_protocol_demo as zk_demo
 from anti_spoof import detect_spoof
@@ -458,6 +459,78 @@ async def render_view_endpoint(recording_id: str):
             recording_id[:8], os.path.getsize(cache_path) // 1024,
         )
         return FileResponse(cache_path, media_type="video/mp4")
+
+
+# ── Per-face crop decryption (ADR 0009 — pixel-level hash-chain seal) ──
+@app.get("/face/{face_id}/secure-crop", dependencies=[Depends(require_token)])
+async def secure_crop_endpoint(face_id: str, level: int = 0):
+    """Decrypt a per-face crop sealed with the hash-chain key K_index.
+
+    `level` = the requester's reveal_level, supplied by the trusted Next.js
+    proxy after it has authenticated an admin. Authority is the SAME
+    forward-hash-chain gate as the reveal flow: a holder of K_level can only
+    derive K_index for index >= level (SHA-256 is one-way), so crops below the
+    requester's level are cryptographically unreachable → 403.
+    """
+    if not _UUID_RE.match(face_id):
+        raise HTTPException(400, "invalid face_id")
+    if not storage or not storage.client:
+        raise HTTPException(503, "service not ready")
+
+    try:
+        res = (
+            storage.client.table("faces")
+            .select("recording_id, chain_index, image_path, crop_sealed")
+            .eq("id", face_id)
+            .single()
+            .execute()
+        )
+    except Exception as e:
+        log.warning("secure-crop: face lookup failed (%s): %s", face_id[:8], e)
+        raise HTTPException(500, "face lookup failed")
+
+    row = res.data if res else None
+    if not row:
+        raise HTTPException(404, "face not found")
+    if not row.get("crop_sealed"):
+        raise HTTPException(404, "crop not sealed")
+    rec_id = row.get("recording_id")
+    ci = row.get("chain_index")
+    image_path = row.get("image_path")
+    if rec_id is None or ci is None or not image_path:
+        raise HTTPException(404, "face missing chain data")
+
+    try:
+        level = max(0, int(level))
+    except (TypeError, ValueError):
+        level = 0
+
+    # Forward-only authority: K_level cannot derive K_index when index < level.
+    if ci < level:
+        raise HTTPException(403, "insufficient authority for this face")
+
+    # Derive K_index by walking the chain forward from K_level (models a real
+    # level-holder who only possesses K_level, not the master).
+    try:
+        k = key_at_index(rec_id, level, master_key())
+        for _ in range(ci - level):
+            k = next_key(k)
+    except Exception as e:
+        log.warning("secure-crop: key derive failed (%s): %s", face_id[:8], e)
+        raise HTTPException(500, "key derivation failed")
+
+    try:
+        blob = storage.client.storage.from_("faces").download(f"{image_path}.enc")
+        jpeg = decrypt_face(blob, k)
+    except Exception as e:
+        log.warning("secure-crop: download/decrypt failed (%s): %s", face_id[:8], e)
+        raise HTTPException(500, "could not decrypt crop")
+
+    return Response(
+        content=jpeg,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=60"},
+    )
 
 
 # ── Upload-аас бичлэг боловсруулах ─────────────────────────────

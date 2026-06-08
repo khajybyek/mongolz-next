@@ -51,6 +51,11 @@ export interface Face {
   embedding: number[];
   camera_id: string | null;
   detected_at: string;
+  /** Hash-chain position for hierarchical per-face keys (ADR 0009). */
+  chain_index?: number | null;
+  /** When true, an AES-256-GCM crop sealed with K_index exists at
+   *  image_path + ".enc" (decrypt via /api/faces/[id]/secure-crop). */
+  crop_sealed?: boolean;
 }
 
 export interface Alert {

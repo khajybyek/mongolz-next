@@ -113,6 +113,7 @@ class SupabaseStorage:
         bbox: dict | None = None,
         chain_index: int | None = None,
         embedding_sealed: str | None = None,
+        crop_sealed: bool = False,
     ) -> str | None:
         if not self.client:
             return None
@@ -130,6 +131,11 @@ class SupabaseStorage:
             row["chain_index"] = chain_index
         if embedding_sealed is not None:
             row["embedding_sealed"] = embedding_sealed
+        # When true, an encrypted crop sealed with K_index lives at
+        # image_path + ".enc" (the plain crop at image_path is kept for
+        # backward-compatible gallery display).
+        if crop_sealed:
+            row["crop_sealed"] = True
         res = self.client.table("faces").insert(row).execute()
         return res.data[0]["id"] if res.data else None
 
