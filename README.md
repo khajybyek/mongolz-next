@@ -1,264 +1,297 @@
-# MONGOLZ Security — Next.js + Supabase
+# MONGOLZ Security
 
-AI-Powered Surveillance — нүүр таних CCTV систем.
-Хуучин Streamlit Python app-аас бүрэн **Next.js 15 + Supabase + Python ML service** архитектур руу шилжүүлсэн.
+> Privacy-preserving CCTV face recognition with hierarchical reveal authority,
+> hash-chained audit trail, and end-to-end encrypted recordings.
+>
+> Live at **[aicctv.dev](https://aicctv.dev)** · capstone project (3B-26-1).
 
----
-
-## Архитектур
-
-```
-┌──────────────────────────────┐
-│   Next.js 15 (Vercel-ready)   │  App Router · TypeScript · Tailwind
-└──────────┬───────────────────┘
-           │
-   ┌───────┴────────────────────────────────┐
-   ▼                ▼                       ▼
-┌──────────┐   ┌────────────────────┐   ┌──────────────────────┐
-│ Supabase │   │  Python ML         │   │ Supabase Edge Func   │
-│  Auth    │   │  Service (FastAPI) │   │ → Claude Opus 4.7    │
-│  DB      │   │  + InsightFace     │   │   (AI Analysis)      │
-│  Storage │   │  + OpenCV          │   └──────────────────────┘
-│  pgvector│   │  + FFmpeg + HLS    │
-└──────────┘   └────────────────────┘
-```
-
-| Layer | Tech | Файлууд |
-|-------|------|---------|
-| **Frontend** | Next.js 15 · React 19 · TS · Tailwind 3 · Recharts · hls.js | `app/`, `components/`, `lib/` |
-| **Auth** | Supabase Auth (email/password + step-up reauth) | `lib/supabase/`, `app/login/`, `app/api/auth/reauth/` |
-| **DB** | Postgres + **pgvector(512)** + RLS (admin/viewer) | `supabase/migrations/` |
-| **Storage** | Supabase Storage (4 bucket — RLS-тай) | `suspects/ faces/ recordings/ revealed/` |
-| **ML / CV** | Python FastAPI · InsightFace ArcFace · MediaPipe · FFmpeg | `ml-service/` |
-| **AI** | Claude Opus 4.7 (Edge Function-аар) | `supabase/functions/claude-analysis/` |
-| **Streaming** | RTSP → FFmpeg → HLS → hls.js | `recording_pipeline.py`, `components/hls-player.tsx` |
+Saved recordings store ONE encrypted MP4 of the original footage; every viewer
+sees a derived, on-demand blurred render. Per-face crops are sealed with a
+hash-chain key (ADR 0009) so a "Level N" operator can unblur faces ≥ N but
+not below. Reveals require 4-eyes approval; HLS streams are per-camera
+authorised. No plaintext face crop is persisted at rest for any new
+detection — only the AES-256-GCM blob.
 
 ---
 
-## 🎬 Гол боломжууд
+## Architecture
 
-### 1. Live (3 mode)
-- **💻 Энэ тоног** — `getUserMedia` (laptop webcam, camera dropdown)
-- **📱 Гар утас** — IP Webcam app URL (MJPEG/MP4)
-- **📹 IP CCTV** — RTSP → Python ML → HLS player
-
-### 2. Recording pipeline (live=clear, saved=blurred, original=stored)
 ```
-RTSP frame
-  ├─→ HLS m3u8 (LIVE — un-blurred)
-  ├─→ blurred.mp4 (нийтлэх — MediaPipe per-frame Gaussian blur)
-  └─→ original.mp4 (RLS-тай — reveal-д зориулсан)
+Browser ──► Vercel (Next.js 16 / sin1) ──► Supabase Cloud (ap-southeast-1)
+                    │                            │ Postgres 17 + pgvector
+                    ▼                            │ Auth / Storage / RLS
+            Railway (Python ML)                  │ Edge Functions
+            asia-southeast1                      ▼
+       InsightFace + OpenCV + FFmpeg     Claude · Telegram (pg_net async)
 ```
 
-### 3. **Click-to-Reveal** ⭐ (гол үнэт feature)
-1. Playback дотор blurred бичлэг тоглоно
-2. Detect-сэн нүүр бүр video дээр **cyan хүрээтэй clickable box**
-3. Click → modal шууд **step-up auth (нууц үг)**-руу
-4. Auth → Python `/reveal/run` job эхэлнэ
-5. Frame бүрд target embedding-тэй харьцуулж зөвхөн тэр нэг хүн дээр **selectively unblur**
-6. 15 минут TTL signed URL-аар revealed video харуулна
-
-### 4. Reveal — 3 method-той
-- **📤 Upload** — зураг → ArcFace embedding → reveal
-- **🕵️ Сэжигтэн** — DB-ээс сонгох → embedding нь хадгалагдсан
-- **👥 Илрүүлсэн** — энэ бичлэгт detect болсон nүүрнүүд (modal-аас эсвэл video-н дээр шууд)
-
-### 5. AI Analysis (Claude Opus 4.7)
-- Summary mode — DB statistics-ээс security score 1-10
-- Anomaly mode — шөнийн цаг, давтагдсан сэжигтэн илрүүлэх
-- Chat mode — free-form Mongolian Q&A
-
-### 6. Audit + Step-up Auth
-| Action | Бичигдэх үед |
-|--------|-------------|
-| `LOGIN`/`LOGOUT` | nэвтрэх/гарах |
-| `REAUTH_OK`/`REAUTH_FAILED` | нууц үг дахин баталгаажуулах |
-| `REVEAL_REQUEST` | reveal job эхлүүлэх |
-| `SUSPECT_ADD`/`SUSPECT_DELETE` | сэжигтэн нэмэх/устгах |
-| `CAMERA_ADD`/`CAMERA_DELETE` | камер удирдах |
-| `AI_ANALYSIS` | Claude дуудах |
+| Layer | Tech | Region |
+|---|---|---|
+| Frontend | Next.js 16 · React 19 · TypeScript · Tailwind · hls.js · ONNX (WebGPU+WASM) | Vercel sin1 |
+| Auth + DB + Storage | Supabase (Postgres 17 · pgvector · 14 tables · 6 buckets · RLS) | Supabase ap-southeast-1 |
+| ML service | Python 3.11 · FastAPI · InsightFace (buffalo_l) · OpenCV · FFmpeg | Railway asia-southeast1 |
+| AI insights | Claude (anomaly/summary/chat) via Supabase Edge | Cloudflare |
+| Observability | Sentry (`@sentry/nextjs`) · OpenTelemetry SDK | — |
 
 ---
 
-## 📁 Файл бүтэц
+## Headline features
+
+### Privacy-preserving recording (ADR 0010)
+- One artifact per recording: `*_original.mp4.enc` (AES-256-GCM)
+- The blurred playback view is **derived on demand** at `GET /recording/{id}/view`
+  — ML decrypts, renders Cubist mosaic over each face, caches on disk
+- Legacy `baked` recordings (stored blurred MP4) continue to play unchanged via a
+  per-recording `blur_strategy ∈ {baked, on_demand}` discriminator
+- Rollback: set Railway `BLUR_STRATEGY=baked` to revert without redeploy
+
+### Hash-chain reveal authority (ADR 0009)
+- Each face's pixel crop + ArcFace embedding are sealed with `K_index`, derived
+  forward-only along a per-recording hash chain
+- `profiles.reveal_level ∈ [0..99]`: an operator at level N can unseal faces
+  with `chain_index ≥ N` and only those — a "director" (level 0) sees all
+- `/users` admin UI sets `reveal_level` per profile; super-admin is pinned to 0
+- Unified `/api/faces/[id]/secure-crop` proxies sealed crops through ML
+  (authority-gated) or streams the 41 pre-chain legacy plaintext crops
+
+### 4-eyes reveal (Tier 1, enforced)
+- `/reveal/start` inserts `status='pending_approval'`; ML does NOT trigger
+- Second admin approves at `/reveal-approvals` (approver ≠ requester)
+- `reveal_job.run()` refuses any status outside {queued, approved, processing}
+- Every reveal logs requester + approver + scope (time window + face ids) to
+  the audit hash-chain
+
+### Encrypt-only face crops (Tier 2, T2.4)
+- `recording_pipeline.py` no longer writes plaintext crops — every new face
+  is sealed with `K_index` and uploaded ONLY as `<image_path>.enc`
+- Seal failure ⇒ face is dropped (fail-closed, the chain index still
+  advances)
+- All gallery sites (`/faces`, `/review`, `/reid`, `/search`, `/wall`,
+  `/playback`, reveal modal) consume crops through `<FaceThumb faceId>` →
+  the unified endpoint
+
+### Per-camera authorisation (Tier 1, T1.4)
+- HLS playlist + every segment fetch calls `user_can_see_camera()` RPC
+- Viewer/non-admin cannot stream a camera they have no permission for, even
+  if they know its UUID and forge a ticket
+
+### Live + recording (3 modes)
+- 💻 Device — `getUserMedia` (laptop / external webcam)
+- 📱 Phone — IP Webcam app URL (MJPEG / snapshot)
+- 📹 IP CCTV — RTSP → ML → HLS via hls.js
+
+Recording uploads chunk into 3 MB segments (`session_id` + `chunk_index`)
+to stay within Vercel's 4.5 MB body cap on Hobby.
+
+### Other
+- TOTP 2FA + SHA-256 hashed recovery codes (regenerate requires fresh TOTP)
+- WebAuthn passkeys (counter-regression + UV enforced)
+- Per-suspect alert rules: dedup window, burst smoothing, KST quiet hours
+- All-faces DBSCAN clustering (`/clusters`)
+- Face re-id trail (`/reid`) — cosine match across cameras over time
+- ML benchmarks (`/benchmarks` — p50/p95/p99 + effective FPS)
+- Active learning labels (`/active-learning`) → F1-optimal threshold suggester
+- Webhooks (Slack / Discord / HMAC-signed) + test-fire UI
+- GDPR Art.15 export + Art.17 erasure self-service (`/privacy`)
+- Multi-camera wall (`/wall`) with auto-refresh (10s)
+- WebRTC self-loopback latency demo (`/live-rtc`)
+- Admin user CRUD + last-admin protection + super-admin (DB-locked)
+- Audit log CSV export with hash-chain integrity check
+- AI insights (Claude — anomaly / summary / chat)
+- i18n: mn / en / kr (server-resolved cookie + client `useT()` hook)
+- PWA manifest, skip-to-content link, `prefers-reduced-motion`, dark/light
+- OpenGraph image (Satori-rendered)
+
+---
+
+## Security model
+
+| Layer | Mechanism |
+|---|---|
+| 1. UI | role-aware sidebar (admin / viewer / auditor) |
+| 2. Server gate | `requireAdmin()` / `requireUser()` redirect in every protected route |
+| 3. Middleware | auditor allow-list (only `/audit*`); per-camera redirect |
+| 4. RLS | every table; super-admin row protected by BEFORE trigger |
+| 5. Step-up reauth | password OR fresh TOTP, 15-min cookie TTL |
+| 6. Session pinning | IP/16 + UA fingerprint, HMAC-signed cookie, 7-day TTL |
+| 7. 4-eyes reveal | approver ≠ requester, defended at 3 layers |
+| 8. Reveal authority | hash-chain `K_index` forward-only (ADR 0009) |
+| 9. Crops encrypt-only | new faces never persist plaintext (Tier 2) |
+| 10. Audit hash-chain | tamper-evident; `verify_audit_chain()` SQL helper |
+| 11. Storage RLS | every bucket private; signed URLs ≤30min where needed |
+| 12. CSP + nonce | strict; violations forwarded to Sentry via `/api/csp-report` |
+| 13. FastAPI `/docs` | disabled in production (`ALLOW_API_DOCS=1` to re-enable) |
+| 14. Dual-key crypto | `ML_ENCRYPTION_KEY_PREV` fallback during rotation |
+| 15. Webhook HMAC | SHA-256 signing for generic destinations |
+
+---
+
+## Project layout
 
 ```
 mongolz-next/
 ├── app/
-│   ├── (app)/                       # protected layout
-│   │   ├── layout.tsx              # sidebar + i18n
-│   │   ├── dashboard/              # statistics + recent alerts
-│   │   ├── live/
-│   │   │   ├── page.tsx            # server: cameras list
-│   │   │   ├── live-view.tsx       # 3 mode (device/phone/cctv)
-│   │   │   └── actions.ts          # ML start/stop
-│   │   ├── playback/
-│   │   │   ├── page.tsx            # recordings grouped by date
-│   │   │   └── [id]/
-│   │   │       ├── page.tsx        # recording detail
-│   │   │       ├── playback-player.tsx  # video + overlay + modal root
-│   │   │       ├── video-with-face-overlay.tsx  ⭐ clickable face boxes
-│   │   │       └── reveal-modal.tsx  # 4-step flow
-│   │   ├── search/                 # face search via /api/search
-│   │   ├── suspects/               # CRUD with photo upload → ArcFace
-│   │   ├── alerts/                 # paginated alerts table + CSV
-│   │   ├── analytics/              # 4 charts (faces by hour/day, alerts, top)
-│   │   ├── ai/                     # Claude chat UI
-│   │   ├── audit/                  # audit log filtered by action
-│   │   ├── faces/                  # captured faces gallery
-│   │   └── cameras/                # manage RTSP/HTTP/USB cameras
-│   ├── login/                      # Supabase signin
-│   ├── auth/{callback,logout}/
-│   └── api/
-│       ├── auth/reauth/            # step-up password verify
-│       ├── reveal/{start,[jobId]}/ # reveal lifecycle
-│       ├── ai/                     # Claude proxy
-│       ├── search/                 # ML embed + match_faces RPC
-│       ├── alerts/csv/             # export
-│       └── lang/                   # cookie-based i18n
-├── components/
-│   ├── sidebar.tsx                 # role-aware nav
-│   ├── language-switcher.tsx       # mn/en/kr
-│   ├── hls-player.tsx              # hls.js wrapper
-│   └── ui/{stat-card,page-header,empty}.tsx
+│   ├── (app)/                       # auth-gated
+│   │   ├── dashboard/ alerts/ alerts-live/ analytics/ ai/
+│   │   ├── audit/ active-learning/ alert-rules/
+│   │   ├── backup/ benchmarks/ cameras/ clusters/ compare/
+│   │   ├── db-monitor/ edge-detect/ eval/ faces/ grid/
+│   │   ├── health/ jobs/ live/ live-rtc/ playback/
+│   │   ├── privacy/ reid/ retention/ reveal-approvals/
+│   │   ├── review/ schedule/ search/ settings/ suspects/
+│   │   ├── thresholds/ users/ webhooks/ zk-reveal/
+│   │   └── layout.tsx               # sidebar + i18n + Sentry boot
+│   ├── login/                       # email/username + TOTP
+│   ├── wall/                        # admin kiosk grid
+│   ├── auth/ setup/
+│   ├── api/
+│   │   ├── auth/{reauth,totp/...,webauthn/...}/
+│   │   ├── faces/[id]/secure-crop/  # unified crop endpoint (ADR 0009)
+│   │   ├── recordings/[id]/view/    # on-demand blurred view proxy
+│   │   ├── reveal/{start,my-level,[jobId]}/
+│   │   ├── ml/{stream,bench}/  search/  reid/trail/
+│   │   ├── admin/{backup,...}/  gdpr/{export,delete}/
+│   │   ├── monitoring/error-rate/  csp-report/
+│   │   └── uptime/                  # public health probe
+│   └── opengraph-image.tsx          # Satori OG image
+├── components/                      # FaceThumb, Dialog, Camera dialog, …
+│   └── ui/                          # Button, Input, Card, Tabs, Skeleton…
 ├── lib/
 │   ├── supabase/{client,server,middleware,auth}.ts
-│   ├── auth/step-up.ts             # 15min reauth cookie
-│   ├── i18n/{translations,server}.ts
-│   ├── ml-client.ts                # Python service caller
-│   ├── database.types.ts
-│   └── utils.ts
-├── middleware.ts                   # auth guard
+│   ├── auth/{step-up,session-pin,webauthn,totp-recovery,…}.ts
+│   ├── i18n/{translations,server,client}.ts
+│   ├── ml-client.ts                 # FastAPI proxy helpers
+│   ├── camera-crypto.ts             # AES-GCM wrap/unwrap for RTSP URLs
+│   ├── stream-ticket.ts             # HMAC-signed HLS access
+│   ├── webhooks.ts                  # Slack / Discord / generic HMAC
+│   └── database.types.ts
+├── ml-service/                      # FastAPI + InsightFace + FFmpeg
+│   ├── main.py
+│   ├── recording_pipeline.py        # Tier 2: encrypt-only crops
+│   ├── view_renderer.py             # ADR 0010: on-demand blurred view
+│   ├── reveal_job.py
+│   ├── hierarchical_keys.py         # ADR 0009: K_index chain + decrypt_face
+│   ├── crypto_utils.py              # AES-256-GCM + dual-key rotation
+│   ├── anti_spoof.py / embedding_fusion.py / dp_embeddings.py
+│   ├── zk_reveal.py / telemetry.py / storage.py / camera_worker.py
+│   ├── tests/                       # 103 pytest cases
+│   └── Dockerfile + railway.json
 ├── supabase/
 │   ├── config.toml
-│   ├── migrations/
-│   │   ├── 20260427000001_initial_schema.sql      # core tables + pgvector
-│   │   ├── 20260427000002_rls_policies.sql        # admin/viewer RLS
-│   │   ├── 20260427000003_reveal.sql              # reveal_jobs + bucket
-│   │   └── 20260428000004_face_bbox.sql           # bbox + recording_id
-│   ├── seed.sql                    # demo cameras
-│   └── functions/claude-analysis/  # Deno Edge Function
-├── ml-service/
-│   ├── main.py                     # FastAPI endpoints
-│   ├── face_engine.py              # InsightFace wrapper (ArcFace 512-dim)
-│   ├── recording_pipeline.py       # 3-pipe ffmpeg + bbox storage
-│   ├── reveal_job.py               # frame-by-frame selective unblur
-│   ├── camera_worker.py            # CameraManager + reveal trigger
-│   ├── storage.py                  # Supabase service-role wrapper
-│   ├── Dockerfile + railway.json   # deploy
-│   └── requirements.txt
-├── scripts/create-admin.ts         # admin/viewer user create
-├── package.json, tsconfig.json, tailwind.config.ts, next.config.ts
-└── README.md
+│   ├── migrations/                  # 43 migrations, repo == cloud
+│   └── functions/{claude-analysis,telegram-alerts}/
+├── e2e/                             # Playwright (public probes, i18n)
+└── scripts/                         # create-admin / create-viewer / …
 ```
 
 ---
 
-## 🚀 Setup (local dev)
+## Local dev
 
 ```bash
-# 1. Supabase local
+# 1. Supabase local (optional — production work uses cloud project)
 brew install supabase/tap/supabase
 cd mongolz-next
 supabase start                       # ~5 min on first run
 
-# 2. .env.local — supabase status-аас key хуулна
-# NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-# NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
-# SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
+# 2. .env.local — see CLAUDE.md for the full Vercel env list
+# NEXT_PUBLIC_SUPABASE_URL=...
+# NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+# SUPABASE_SERVICE_ROLE_KEY=...
 # NEXT_PUBLIC_ML_SERVICE_URL=http://localhost:8000
-# ANTHROPIC_API_KEY=sk-ant-...   (Edge Function-руу secrets set)
+# ML_SERVICE_TOKEN=...
+# CAMERA_URL_KEY=... STREAM_TICKET_SECRET=... REAUTH_COOKIE_SECRET=... SESSION_PIN_SECRET=...
 
 # 3. Frontend
 npm install
-npm run create-admin     # default seed: admin@mongolz.local (set USER_PASSWORD env)
-npm run create-viewer    # default seed: viewer@mongolz.local (set USER_PASSWORD env)
-npm run create-auditor   # default seed: auditor@mongolz.local (set USER_PASSWORD env)
-npm run dev              # → http://localhost:3000
+npm run create-admin                 # set USER_PASSWORD env first
+npm run dev                          # → http://localhost:3000
 
-# 4. Python ML service (RTSP recording-д л шаардана)
+# 4. ML service
 cd ml-service
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env     # SUPABASE_URL/SERVICE_ROLE_KEY оруул
+cp .env.example .env                 # fill SUPABASE_*, ML_SERVICE_TOKEN, ML_ENCRYPTION_KEY
 uvicorn main:app --reload --port 8000
 
-# 5. Edge Function (AI Analysis-д)
-supabase functions deploy claude-analysis
-supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
-```
-
-## 🌍 Production deploy
-
-| Service | Tool | Команд |
-|---------|------|--------|
-| Frontend | Vercel | `vercel --prod` |
-| DB / Auth / Storage | Supabase Cloud | Studio-аас project үүсгээд `supabase link` + `supabase db push` |
-| Edge Function | Supabase | `supabase functions deploy claude-analysis` |
-| ML Service | Railway / Modal / Render | `railway up` (Dockerfile auto-detect) |
-
----
-
-## 🆚 Хуучин MONGOLZ-той харьцуулалт
-
-| Feature | Хуучин (Streamlit) | Шинэ (Next.js + Supabase) |
-|---------|--------------------|---------------------------|
-| Auth | bcrypt + TOTP 2FA | Supabase Auth + step-up password reauth |
-| DB | SQLite + AES-256 BLOB | Postgres + pgvector + RLS |
-| Storage | Local files (`recordings/`) | Supabase Storage (encryption-at-rest) |
-| Face detect | InsightFace in-process | Python FastAPI service (decoupled) |
-| AI Analysis | Ollama llama3.2 (local) | **Claude Opus 4.7** (Edge Function) |
-| Live stream | OpenCV+FFmpeg pipe | FFmpeg HLS → hls.js |
-| **Reveal** | Manual page navigation | **Click on blurred face in playback** ⭐ |
-| Telegram alert | requests sync | Edge Function via `pg_net` async trigger |
-| Хэл | mn/en/kr | mn/en/kr (75+ key) |
-
----
-
-## 📐 Аюулгүй байдлын давхаргууд
-
-```
-┌─────────────────────────────────────────────────────┐
-│ 1. Sidebar UI         — admin-only nav-ыг нуудаг    │
-│ 2. requireAdmin()     — Server Component redirect    │
-│ 3. RLS policies       — Postgres row-level deny      │
-│ 4. Step-up reauth     — нууц үг 15min cookie TTL     │
-│ 5. Audit log          — бүх чухал үйлдэл бичигдэнэ   │
-│ 6. Storage RLS        — admin-only buckets           │
-│ 7. Signed URLs        — 15-30 min TTL                │
-└─────────────────────────────────────────────────────┘
+# 5. Edge functions (AI insights + Telegram)
+npx supabase functions deploy claude-analysis --project-ref <ref>
+npx supabase functions deploy telegram-alerts --project-ref <ref>
 ```
 
 ---
 
-## ✅ Хэрэгжүүлсэн полиш (2026-05)
+## Production deploy
 
-- [x] Telegram alert — `pg_net` async DB trigger → Edge Function
-- [x] All-faces clustering — DBSCAN cosine, `faces.cluster_id` + `/clusters` UI
-- [x] Backup/restore — `/backup` admin page + `/api/admin/backup` JSZip (12 tables)
-- [x] Recording chunking — 3MB session chunks, `session_id` + `chunk_index`
-- [x] WebRTC live — `/live-rtc` loopback RTCPeerConnection + RTT/jitter/FPS stats
-- [x] Mobile-friendly sidebar — drawer, body-scroll lock, i18n aria
-- [x] E2E tests — Playwright (`e2e/public.spec.ts` + `e2e/i18n.spec.ts`)
+```bash
+# Frontend + API (Vercel auto-deploys from main; manual override below)
+npm run deploy:prod                  # vercel deploy --prod --yes
+npm run deploy:staging               # preview build
 
----
+# ML service (Railway)
+cd ml-service && railway up --detach
 
-## 👥 Default credentials
-
-| Username | Email | Role |
-|----------|-------|------|
-| `khajybyek` | `khajybyek@gmail.com` | Admin (primary) |
-| `admin` | `admin@mongolz.local` | Admin (backup) |
-| `viewer` | `viewer@mongolz.local` | Viewer |
-| `auditor` | `auditor@mongolz.local` | Auditor (audit log only) |
-
-Login form accepts either username OR email. Username-only inputs resolve to
-the underlying email via the `email_for_username()` RPC. Admin accounts have
-TOTP-2FA enabled — step 2 prompt appears after password.
-
-> Production-д **зайлшгүй солих**. `npm run create-admin` / `create-viewer` /
-> `create-auditor` ашигла.
+# Edge functions
+npx supabase functions deploy claude-analysis --project-ref ulybenitqmqjfxtaregp
+npx supabase functions deploy telegram-alerts --project-ref ulybenitqmqjfxtaregp
+```
 
 ---
 
-**Multi-authority masking + 4-eyes reveal + audit hash-chain · 33 page · 3 microservice · pgvector + step-up auth + WebRTC**
+## Quality gates
+
+```bash
+npm run typecheck                    # tsc --noEmit
+npm run lint                         # eslint .
+npm test                             # jest — 74 tests
+cd ml-service && venv/bin/pytest -q  # 103 tests
+npm run lint:db                      # supabase db lint --linked
+npx playwright test                  # e2e (override base URL via PLAYWRIGHT_BASE_URL)
+
+# Operations
+npm run backup:verify                # sample recordings → /reveal/verify-blob decrypt smoke test
+npm run rotate:keys -- --key=<NAME>  # ML_ENCRYPTION_KEY · CAMERA_URL_KEY · STREAM_TICKET_SECRET · REAUTH_COOKIE_SECRET · SESSION_PIN_SECRET
+npm run demo:seed / npm run demo:wipe
+```
+
+---
+
+## ADR index
+
+- **0009 — Hash-chain reveal authority** (`docs/adr/0009-*.md` if added,
+  otherwise see CLAUDE.md "Tier 1" + "Tier 2" sections): per-face
+  `K_index` derived by HKDF forward chain; forward-only access; sealed
+  embedding + sealed crop pixels share the same `K_index`.
+- **0010 — One encrypted source per recording**: `*_original.mp4.enc` is the
+  sole artifact; the blurred view is derived at request time. Legacy `baked`
+  recordings continue via the strategy discriminator. Rollback via
+  `BLUR_STRATEGY=baked`.
+
+---
+
+## Test users
+
+Created via `npm run create-{admin,viewer,auditor}` — passwords are read from
+`USER_PASSWORD` at creation. Production credentials are NOT shipped with the
+repo; rotate immediately after first login. Admin accounts require TOTP 2FA on
+every sign-in. Username-only login resolves via the `email_for_username()`
+RPC, so `khajybyek` and `khajybyek@gmail.com` both work.
+
+| Role | Scope |
+|---|---|
+| `admin` | full CRUD; reveal_level set per profile (0 = director) |
+| `viewer` | recordings + live; no face metadata; no reveal |
+| `auditor` | only `/audit*`; middleware blocks every other path |
+| `super_admin` | DB-locked flag; cannot be demoted/deleted via app or SQL by anyone except postgres / service_role / supabase_admin |
+
+---
+
+## Stack at a glance
+
+Next.js 16 · React 19 · TypeScript 5 · Tailwind · Recharts · hls.js · ONNX
+Runtime Web (WebGPU + WASM) · Supabase (Postgres 17 · pgvector · Auth ·
+Storage · Edge Functions) · Python 3.11 · FastAPI · InsightFace ArcFace
+(buffalo_l, 512-dim) · OpenCV · FFmpeg · AES-256-GCM · pg_net · Claude
+(anomaly/summary/chat) · Sentry · Playwright · Jest 30 · pytest.
+
+103 pytest + 74 jest = **177 tests**, all green at the time of this README.

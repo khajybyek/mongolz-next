@@ -82,6 +82,35 @@ export async function mlStopCamera(cameraId: string): Promise<void> {
   });
 }
 
+/**
+ * Quick reachability probe — admin-аас камер нэмэх/засах үед URL хүрэх
+ * эсэхийг шалгахад. ML side timeout ~8s. Үргэлж resolved JSON буцаана
+ * (200-аас өөр статусыг ML side-ээс гаргадаггүй, no-throw гэрээгээр UI
+ * нь { ok: false, error } гэдэг payload-оор алдааг харуулна).
+ */
+export interface CameraTestResult {
+  ok: boolean;
+  error?: string;
+  info?: { width: number; height: number; fps: number };
+}
+
+export async function mlTestCamera(
+  url: string,
+  camType: string,
+): Promise<CameraTestResult> {
+  try {
+    const res = await mlFetch("/camera/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, cam_type: camType }),
+    });
+    return (await res.json()) as CameraTestResult;
+  } catch (e) {
+    const msg = e instanceof MLError ? `ML ${e.status ?? ""}`.trim() : "ML холбогдсонгүй";
+    return { ok: false, error: msg };
+  }
+}
+
 /** Reveal job-ийг ML service-руу trigger хийнэ. job_id өмнө нь DB-д үүссэн байна. */
 export async function mlTriggerReveal(jobId: string): Promise<void> {
   await mlFetch("/reveal/run", {

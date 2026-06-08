@@ -3,11 +3,11 @@ import { Power, Clock, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { DeleteWithTotp } from "@/components/delete-with-totp";
+import { CameraDialog } from "@/components/camera-edit-dialog";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import {
-  addCameraAction,
   deleteCameraAction,
   toggleCameraAction,
   toggleConsentAction,
@@ -62,23 +62,11 @@ export default async function CamerasPage() {
 
   return (
     <>
-      <PageHeader title={t("manage_cameras")} subtitle={t("nav_cameras")} />
-
-      <div className="card mb-6">
-        <form action={addCameraAction} className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <input name="name" placeholder={t("camera_name")} required className="input" />
-          <input name="url" placeholder={t("camera_url")} required className="input md:col-span-2" />
-          <select name="cam_type" defaultValue="rtsp" className="input">
-            <option value="rtsp">RTSP</option>
-            <option value="http">HTTP</option>
-            <option value="usb">USB</option>
-            <option value="webcam">Webcam</option>
-          </select>
-          <button type="submit" className="btn-primary md:col-span-4">
-            {t("add_camera")}
-          </button>
-        </form>
-      </div>
+      <PageHeader
+        title={t("manage_cameras")}
+        subtitle={t("nav_cameras")}
+        actions={<CameraDialog mode="add" />}
+      />
 
       {!cameras.length ? (
         <Empty message={t("empty")} />
@@ -192,6 +180,10 @@ export default async function CamerasPage() {
                   >
                     <Users className="w-3.5 h-3.5" />
                   </Link>
+                  <CameraDialog
+                    mode="edit"
+                    camera={{ id: c.id, name: c.name, url: c.url, cam_type: c.cam_type }}
+                  />
                   <form action={toggleCameraAction}>
                     <input type="hidden" name="id" value={c.id} />
                     <input type="hidden" name="enabled" value={String(!c.enabled)} />

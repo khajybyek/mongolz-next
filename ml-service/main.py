@@ -255,6 +255,78 @@ async def camera_stop(req: CameraStopReq):
     return {"ok": True}
 
 
+# ── /camera/test — quick reachability probe before saving a config ──
+class CameraTestReq(BaseModel):
+    url: str
+    cam_type: str = Field(default="rtsp")
+
+
+_CAMERA_TEST_TIMEOUT_SEC = 8.0
+
+
+def _probe_camera_sync(url: str) -> dict:
+    """
+    Blocking helper — open the URL via cv2.VideoCapture, grab one frame,
+    return width/height/fps. Run inside a thread executor with an
+    asyncio timeout (cv2 itself won't honour the timeout reliably; the
+    enclosing task cancel is what saves the request from hanging).
+    """
+    cap = cv2.VideoCapture(url)
+    try:
+        if not cap.isOpened():
+            return {"ok": False, "error": "VideoCapture нээгдсэнгүй (URL/credentials шалга)"}
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            return {"ok": False, "error": "Холбогдсон ч frame унших боломжгүй (codec/permission)"}
+        h, w = frame.shape[:2]
+        fps_raw = cap.get(cv2.CAP_PROP_FPS) or 0.0
+        try:
+            fps = round(float(fps_raw), 1)
+        except (TypeError, ValueError):
+            fps = 0.0
+        return {"ok": True, "info": {"width": int(w), "height": int(h), "fps": fps}}
+    finally:
+        try:
+            cap.release()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+@app.post("/camera/test", dependencies=[Depends(require_token)])
+async def camera_test(req: CameraTestReq):
+    """Admin-аас камер нэмэх/засах үед URL хүрэх эсэхийг түргэн шалгана.
+
+    USB / webcam — browser/host-side, энэ endpoint-оор шалгах боломжгүй
+    (буцаалт нь UI-руу clear-error string).
+    """
+    cam_type = (req.cam_type or "").lower().strip()
+    url = (req.url or "").strip()
+    if not url:
+        return {"ok": False, "error": "URL хоосон"}
+    if cam_type in ("usb", "webcam"):
+        return {
+            "ok": False,
+            "error": "Энэ төрлийг ML-аас шалгах боломжгүй (browser/локал төхөөрөмж)",
+        }
+
+    loop = asyncio.get_event_loop()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, _probe_camera_sync, url),
+            timeout=_CAMERA_TEST_TIMEOUT_SEC,
+        )
+    except asyncio.TimeoutError:
+        return {
+            "ok": False,
+            "error": f"{int(_CAMERA_TEST_TIMEOUT_SEC)} секундын дотор холбогдсонгүй",
+        }
+    except Exception as e:  # noqa: BLE001
+        log.warning("camera_test internal error: %s", e)
+        return {"ok": False, "error": "ML-ийн дотоод алдаа"}
+
+    return result
+
+
 # ── HLS Stream ──────────────────────────────────────────────────
 _HLS_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
