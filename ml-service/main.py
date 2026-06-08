@@ -988,7 +988,10 @@ async def anti_spoof_endpoint(file: UploadFile = File(...)):
     if face_engine is not None:
         faces = face_engine.detect_all(data)
         if faces:
-            x1, y1, x2, y2 = (int(v) for v in faces[0]["bbox"])
+            # detect_all() returns DetectedFace dataclasses, not dicts —
+            # access .bbox (subscripting would raise TypeError on every
+            # image that actually contains a face).
+            x1, y1, x2, y2 = (int(v) for v in faces[0].bbox)
             h, w = img.shape[:2]
             x1, y1 = max(0, x1), max(0, y1)
             x2, y2 = min(w, x2), min(h, y2)

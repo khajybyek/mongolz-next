@@ -177,18 +177,31 @@ export async function finishAuthentication(args: {
       counter: Number(cred.counter),
       transports: (cred.transports ?? []) as ("internal" | "hybrid" | "usb" | "ble" | "nfc")[],
     },
-    requireUserVerification: false,
+    // Require user verification on login (PIN / biometric). Platform
+    // authenticators (Touch ID, Windows Hello) always satisfy this; it stops
+    // a stolen-but-unlocked key from authenticating with mere presence.
+    requireUserVerification: true,
   });
 
   if (!verification.verified) {
     throw new Error("WebAuthn assertion verification failed");
   }
 
+  // Clone detection: a genuine authenticator's signature counter strictly
+  // increases. If the reported counter didn't advance past what we stored
+  // (and isn't the always-zero case some authenticators use), the assertion
+  // is likely replayed or from a cloned credential — reject it.
+  const newCounter = verification.authenticationInfo.newCounter;
+  const storedCounter = Number(cred.counter);
+  if (newCounter !== 0 && newCounter <= storedCounter) {
+    throw new Error("Passkey counter regression — possible cloned credential");
+  }
+
   // Bump counter + touch last_used_at (best-effort).
   await svc
     .from("webauthn_credentials")
     .update({
-      counter: verification.authenticationInfo.newCounter,
+      counter: newCounter,
       last_used_at: new Date().toISOString(),
     })
     .eq("id", cred.id);

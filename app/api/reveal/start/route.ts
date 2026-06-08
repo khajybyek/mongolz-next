@@ -31,9 +31,15 @@ export async function POST(request: NextRequest) {
   const fd = await request.formData();
   const recording_id = String(fd.get("recording_id") ?? "");
   const method = String(fd.get("method") ?? "") as RevealMethod;
-  const threshold = Number(fd.get("threshold") ?? 0.45);
+  const rawThreshold = Number(fd.get("threshold") ?? 0.45);
+  // Clamp to a valid cosine-similarity range so a crafted value can't make
+  // the reveal trivially match-everything (0) or match-nothing (>1).
+  const threshold = Number.isFinite(rawThreshold)
+    ? Math.min(1, Math.max(0, rawThreshold))
+    : 0.45;
 
-  if (!recording_id || !["upload", "suspect", "detected_face"].includes(method)) {
+  const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  if (!UUID_RE.test(recording_id) || !["upload", "suspect", "detected_face"].includes(method)) {
     return NextResponse.json({ error: "invalid params" }, { status: 400 });
   }
 

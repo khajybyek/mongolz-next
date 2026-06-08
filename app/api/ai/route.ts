@@ -5,7 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 export async function POST(request: NextRequest) {
   const auth = await requireAdminApi();
   if (isAuthErr(auth)) return auth.error;
-  const body = await request.json();
+  const body = await request.json().catch(() => null);
+  if (body === null) {
+    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
+  }
 
   const supabase = await createClient();
   const {

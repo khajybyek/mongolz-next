@@ -74,6 +74,19 @@ class RevealProcessor:
             log.warning("Reveal job %s олдсонгүй — алгасъя", job_id)
             return
 
+        # Defence-in-depth for the 4-eyes approval workflow (ADR 0003): the ML
+        # side must never decrypt+unblur a job that hasn't been cleared to run.
+        # The Next.js trigger only fires for queued jobs today, but if a job is
+        # still awaiting a second admin (pending_approval) or was rejected,
+        # refuse it here so a stray /reveal/run call can't bypass approval.
+        status = (job.get("status") or "queued")
+        if status not in ("queued", "approved", "processing"):
+            log.warning(
+                "Reveal job %s status=%s — эрхгүй (approval хүлээгдэж буй/татгалзсан), алгасъя",
+                job_id, status,
+            )
+            return
+
         recording = job.get("recordings")
         if not recording:
             await self._fail(job_id, "Recording холбоо тасарсан")

@@ -39,7 +39,28 @@ const REDACT_KEYS = new Set([
   "session_pin_secret",
   "push_dispatch_secret",
   "cron_secret",
+  "access_token",
+  "refresh_token",
+  "id_token",
+  "secret",
+  "token",
+  "jwt",
+  "bearer",
+  "apikey",
+  "api_key",
 ]);
+
+// Substring patterns — catch secret-shaped keys we didn't enumerate
+// (e.g. "stripe_token", "my_password", "webhook_secret"). Deliberately
+// excludes the bare word "key" (too many false positives: "keyboard",
+// "publishable_key", "keyword").
+const REDACT_SUBSTRINGS = ["password", "passwd", "secret", "token", "jwt", "apikey", "api_key"];
+
+function keyIsSensitive(key: string): boolean {
+  const k = key.toLowerCase();
+  if (REDACT_KEYS.has(k)) return true;
+  return REDACT_SUBSTRINGS.some((p) => k.includes(p));
+}
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -66,7 +87,7 @@ function redact(obj: unknown, depth = 0, seen?: WeakSet<object>): unknown {
   set.add(obj);
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (REDACT_KEYS.has(k.toLowerCase())) {
+    if (keyIsSensitive(k)) {
       out[k] = redactValue(v);
     } else {
       out[k] = redact(v, depth + 1, set);

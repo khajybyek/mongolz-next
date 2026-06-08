@@ -345,6 +345,11 @@ class RecordingSession:
         # Шинэ нүүр илэрвэл бүх элементтэй харьцуулах: cosine > DEDUP_THRESHOLD
         # (0.45) бол ижил хүн гэж тоомсорлож алгасна.
         self.session_embeddings: list[np.ndarray] = []
+        # Serialises the dedup-check-and-append + DB writes across overlapping
+        # _process_arcface tasks (the capture loop spawns one every N frames
+        # without awaiting the prior one). Without this, two tasks both see
+        # "no match", both append, and emit duplicate faces/alerts.
+        self._arcface_lock = asyncio.Lock()
         # Hash-chain position for hierarchical per-face keys (ADR 0009).
         # Each saved face increments this; its embedding is sealed with
         # K_index so a lower-authority reveal key can never unseal it.
@@ -902,7 +907,12 @@ class RecordingSession:
             return
 
         now = time.time()
-        for f in faces:
+        # Serialise the read-modify-write on session_embeddings (+ DB inserts)
+        # so concurrent arcface tasks can't both miss-then-append the same
+        # person. Detection (the CPU-heavy to_thread above) already ran
+        # outside the lock, so parallelism where it matters is preserved.
+        async with self._arcface_lock:
+          for f in faces:
             # Session-wide dedup: cosine sim > DEDUP_THRESHOLD (0.45) бол
             # ижил хүн гэж тоомсорлож алгасна (faces row үүсгэхгүй).
             # ArcFace empirical scale-ийн дагуу 0.45 нь "same person across
@@ -966,6 +976,13 @@ class RecordingSession:
             )
             if matches:
                 m = matches[0]
+                # Coerce similarity once: the PostgREST RPC can return it as a
+                # string or None, which would crash the "%.2f" logger
+                # ("must be real number, not str") and corrupt the alert row.
+                try:
+                    sim = float(m["similarity"])
+                except (TypeError, ValueError):
+                    sim = 0.0
                 last = self.last_alert_at.get(m["id"], 0)
                 if now - last >= ALERT_COOLDOWN_SEC:
                     self.last_alert_at[m["id"]] = now
@@ -973,9 +990,9 @@ class RecordingSession:
                         suspect_id=m["id"],
                         suspect_name=m["name"],
                         face_id=face_id,
-                        similarity=m["similarity"],
+                        similarity=sim,
                         screenshot_path=path,
                         camera_id=self.db_camera_id,
                         camera_name=self.camera_name,
                     )
-                    log.warning("🚨 ALERT: %s (%.2f)", m["name"], m["similarity"])
+                    log.warning("🚨 ALERT: %s (%.2f)", m["name"], sim)

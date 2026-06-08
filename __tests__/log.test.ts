@@ -57,6 +57,23 @@ describe("structured logger", () => {
     expect(String(parsed.Authorization)).toContain("[redacted]");
   });
 
+  it("redacts secret-shaped keys by substring (token/secret/password/jwt)", () => {
+    log.info("ext", {
+      access_token: "ya29.aaaaaaaaaaaaaaaa",
+      stripe_secret: "sk_live_bbbbbbbbbbbb",
+      user_password: "hunter2-very-long-value",
+      id_jwt: "eyJhbGciOi.cccccccccccc",
+      // not secret-shaped → must pass through untouched
+      monkey: "keyboard-not-a-secret",
+    });
+    const parsed = JSON.parse(lines[0]);
+    expect(String(parsed.access_token)).toContain("[redacted]");
+    expect(String(parsed.stripe_secret)).toContain("[redacted]");
+    expect(String(parsed.user_password)).toContain("[redacted]");
+    expect(String(parsed.id_jwt)).toContain("[redacted]");
+    expect(parsed.monkey).toBe("keyboard-not-a-secret");
+  });
+
   it("redacts nested keys", () => {
     log.warn("payload", {
       user: { email: "x@y.test", session: "deeply-nested-secret-cookie-value" },

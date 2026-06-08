@@ -8,7 +8,10 @@ export async function POST(request: NextRequest) {
   const auth = await requireAdminApi();
   if (isAuthErr(auth)) return auth.error;
 
-  const body = await request.json();
+  const body = await request.json().catch(() => null);
+  if (body === null) {
+    return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
+  }
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (ML_TOKEN) headers.Authorization = `Bearer ${ML_TOKEN}`;
 
