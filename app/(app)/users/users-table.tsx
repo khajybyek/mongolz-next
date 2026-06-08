@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { Shield, ShieldOff, KeyRound, Trash2, Loader2, AlertCircle, Check, Crown, Lock } from "lucide-react";
-import { changeRoleAction, deleteUserAction, resetPasswordAction } from "./actions";
+import { Shield, ShieldOff, KeyRound, Trash2, Loader2, AlertCircle, Check, Crown, Lock, Layers } from "lucide-react";
+import { changeRoleAction, deleteUserAction, resetPasswordAction, setRevealLevelAction } from "./actions";
 import { TotpPrompt } from "@/components/totp-prompt";
 import { useT } from "@/lib/i18n/client";
 
@@ -15,13 +15,15 @@ interface User {
   role: "admin" | "viewer" | "auditor";
   totp_enabled: boolean;
   is_super_admin: boolean;
+  reveal_level: number;
   created_at: string;
 }
 
 type PendingAction =
   | { kind: "role"; user: User; newRole: "admin" | "viewer" | "auditor" }
   | { kind: "delete"; user: User }
-  | { kind: "reset"; user: User; password: string };
+  | { kind: "reset"; user: User; password: string }
+  | { kind: "level"; user: User; level: number };
 
 export function UsersTable({ users, currentUserId }: { users: User[]; currentUserId: string }) {
   const { t } = useT();
@@ -32,6 +34,8 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
   );
   const [resetUserId, setResetUserId] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
+  const [levelUserId, setLevelUserId] = useState<string | null>(null);
+  const [levelValue, setLevelValue] = useState("0");
   const [needsTotp, setNeedsTotp] = useState(false);
   const pendingActionRef = useRef<PendingAction | null>(null);
 
@@ -53,6 +57,10 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
       } else if (action.kind === "delete") {
         fd.append("user_id", action.user.id);
         res = await deleteUserAction(fd);
+      } else if (action.kind === "level") {
+        fd.append("user_id", action.user.id);
+        fd.append("reveal_level", String(action.level));
+        res = await setRevealLevelAction(fd);
       } else {
         fd.append("user_id", action.user.id);
         fd.append("password", action.password);
@@ -75,6 +83,9 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
           setResetUserId(null);
           setNewPassword("");
           showFeedback(action.user.id, "ok", t("users_pwd_updated"));
+        } else if (action.kind === "level") {
+          setLevelUserId(null);
+          showFeedback(action.user.id, "ok", `Reveal level → ${action.level}`);
         }
       }
     });
@@ -108,6 +119,15 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
       return;
     }
     runPending({ kind: "reset", user, password: newPassword });
+  }
+
+  function saveLevel(user: User) {
+    const n = Number(levelValue);
+    if (!Number.isInteger(n) || n < 0 || n > 99) {
+      showFeedback(user.id, "err", "Reveal level 0–99 байх ёстой");
+      return;
+    }
+    runPending({ kind: "level", user, level: n });
   }
 
   return (
@@ -164,6 +184,15 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                         >
                           {u.is_super_admin ? "super_admin" : u.role}
                         </span>
+                        {(u.role === "admin" || u.is_super_admin) && (
+                          <span
+                            className="ml-1.5 inline-flex items-center gap-0.5 text-2xs font-mono text-text-muted"
+                            title="Reveal authority (ADR 0009): 0 = director (бүх нүүр), N = зөвхөн chain_index ≥ N"
+                          >
+                            <Layers className="w-3 h-3" />
+                            {u.reveal_level === 0 ? "director" : `L${u.reveal_level}`}
+                          </span>
+                        )}
                       </td>
                       <td>
                         {u.totp_enabled ? (
@@ -197,6 +226,19 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                                   <Shield className="w-3.5 h-3.5" />
                                 )}
                               </button>
+                              {u.role === "admin" && (
+                                <button
+                                  disabled={pending && busyId === u.id}
+                                  onClick={() => {
+                                    setLevelUserId(u.id);
+                                    setLevelValue(String(u.reveal_level));
+                                  }}
+                                  title="Reveal authority level (ADR 0009)"
+                                  className="p-1.5 rounded hover:bg-text-muted/5 text-text-soft hover:text-accent"
+                                >
+                                  <Layers className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               <button
                                 disabled={pending && busyId === u.id}
                                 onClick={() => {
@@ -250,6 +292,41 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                                 setResetUserId(null);
                                 setNewPassword("");
                               }}
+                              className="btn-ghost btn-sm"
+                            >
+                              {t("cancel_btn")}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {levelUserId === u.id && (
+                      <tr className="bg-surface-elevated/40">
+                        <td colSpan={6} className="px-4 py-3">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs text-text-soft">
+                              Reveal authority level —{" "}
+                              <span className="text-text-muted">
+                                0 = director (бүх нүүр), N = зөвхөн chain_index ≥ N
+                              </span>
+                            </span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={99}
+                              value={levelValue}
+                              onChange={(e) => setLevelValue(e.target.value)}
+                              className="input text-xs w-20"
+                            />
+                            <button
+                              onClick={() => saveLevel(u)}
+                              disabled={pending && busyId === u.id}
+                              className="btn-primary btn-sm"
+                            >
+                              {t("save_btn")}
+                            </button>
+                            <button
+                              onClick={() => setLevelUserId(null)}
                               className="btn-ghost btn-sm"
                             >
                               {t("cancel_btn")}

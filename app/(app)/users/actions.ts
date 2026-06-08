@@ -117,6 +117,57 @@ export async function changeRoleAction(formData: FormData): Promise<ActionError 
   return { ok: true };
 }
 
+const revealLevelSchema = z.object({
+  user_id: z.string().uuid(),
+  // 0 = director (sees/decrypts every face); higher = more restricted —
+  // a level-N holder can only reveal/decrypt faces with chain_index >= N
+  // (ADR 0009 forward hash chain).
+  reveal_level: z.coerce.number().int().min(0).max(99),
+});
+
+export async function setRevealLevelAction(
+  formData: FormData,
+): Promise<ActionError | ActionOk> {
+  const ctx = await requireAdmin();
+  const reauthErr = await ensureReauth(ctx.user.id);
+  if (reauthErr) return reauthErr;
+
+  const parsed = revealLevelSchema.safeParse({
+    user_id: formData.get("user_id"),
+    reveal_level: formData.get("reveal_level"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid reveal level" };
+  }
+
+  const svc = createServiceClient();
+  const { data: target } = await svc
+    .from("profiles")
+    .select("email, is_super_admin")
+    .eq("id", parsed.data.user_id)
+    .single();
+
+  // The super admin is the break-glass director — keep them at level 0.
+  if (target?.is_super_admin && parsed.data.reveal_level !== 0) {
+    return { error: "Super admin must remain director (level 0)" };
+  }
+
+  const { error } = await svc
+    .from("profiles")
+    .update({ reveal_level: parsed.data.reveal_level })
+    .eq("id", parsed.data.user_id);
+  if (error) return { error: error.message };
+
+  await audit(
+    "USER_REVEAL_LEVEL",
+    `${target?.email ?? parsed.data.user_id} → reveal_level ${parsed.data.reveal_level}`,
+    ctx.user.id,
+    ctx.user.email,
+  );
+  revalidatePath("/users");
+  return { ok: true };
+}
+
 const deleteSchema = z.object({ user_id: z.string().uuid() });
 
 export async function deleteUserAction(formData: FormData): Promise<ActionError | ActionOk> {
