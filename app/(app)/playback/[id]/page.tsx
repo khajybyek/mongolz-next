@@ -81,21 +81,11 @@ export default async function PlaybackDetailPage({
     : { data: null };
   const facesInRec = (facesRaw ?? []) as FaceRow[];
 
-  // Face crop signed URL-уудыг batch (admin л)
-  const facesWithSigned = isAdmin
-    ? await Promise.all(
-        facesInRec.map(async (f) => {
-          const { data } = await supabase.storage
-            .from("faces")
-            .createSignedUrl(f.image_path, 60 * 30);
-          return { ...f, signed: data?.signedUrl ?? null };
-        })
-      )
-    : [];
-
   // Бүх илэрсэн нүүрд detected_at-аар sorted дугаар (#1..#N) өгнө —
   // playback-ын overlay болон reveal modal хоёр ижил дугаартай байна.
-  const numberedFaces = facesWithSigned.map((f, idx) => ({
+  // Crop thumbnail-ыг client дотроос <FaceThumb faceId> унш — серверээс signed
+  // URL бэлдэхгүй (ADR 0009 / Tier 2: бүх crop unified endpoint-оор явна).
+  const numberedFaces = facesInRec.map((f, idx) => ({
     ...f,
     display_no: idx + 1,
   }));
@@ -107,7 +97,6 @@ export default async function PlaybackDetailPage({
       id: f.id,
       display_no: f.display_no,
       filename: f.filename,
-      signed: f.signed,
       time_in_video_sec: f.time_in_video_sec as number,
       bbox: f.bbox,
     }));
@@ -119,7 +108,6 @@ export default async function PlaybackDetailPage({
     display_no: f.display_no,
     filename: f.filename,
     detected_at: f.detected_at,
-    signed: f.signed,
     time_in_video_sec: f.time_in_video_sec,
   }));
 

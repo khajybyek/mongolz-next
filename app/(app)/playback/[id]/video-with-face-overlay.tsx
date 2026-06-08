@@ -9,7 +9,6 @@ export interface FaceBox {
   /** UI-д харуулах sequential дугаар (1..N) — playback болон reveal modal-д ижил */
   display_no: number;
   filename: string;
-  signed: string | null;          // crop preview URL
   time_in_video_sec: number;       // recording start-аас хойш секунд
   bbox: { x: number; y: number; w: number; h: number } | null; // 0-1 ratios
 }

@@ -4,12 +4,12 @@ import { useMemo, useRef } from "react";
 import { Eye, Scissors } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
+import { FaceThumb } from "@/components/face-thumb";
 
 export interface TimelineFace {
   id: string;
   display_no: number;
   filename: string;
-  signed: string | null;
   time_in_video_sec: number | null;
 }
 
@@ -204,24 +204,18 @@ export function FaceTimeline({
                       : "border-transparent hover:border-accent/60",
                   )}
                 >
+                  <FaceThumb
+                    faceId={f.id}
+                    alt={`Face ${f.display_no}`}
+                    className="absolute inset-0"
+                  />
                   <button
                     type="button"
                     onClick={() => onSeek(f.time_in_video_sec)}
                     className="absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     title={`#${f.display_no} · ${fmt(f.time_in_video_sec)} · seek`}
                     aria-current={isActive ? "true" : undefined}
-                  >
-                    {f.signed ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={f.signed}
-                        alt={`Face ${f.display_no}`}
-                        className="absolute inset-0 w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 bg-bg-tertiary" />
-                    )}
-                  </button>
+                  />
                   <span
                     className={cn(
                       "absolute top-0.5 left-0.5 text-[10px] font-bold leading-none px-1 py-0.5 rounded pointer-events-none",

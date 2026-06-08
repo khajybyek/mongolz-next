@@ -131,9 +131,12 @@ class SupabaseStorage:
             row["chain_index"] = chain_index
         if embedding_sealed is not None:
             row["embedding_sealed"] = embedding_sealed
-        # When true, an encrypted crop sealed with K_index lives at
-        # image_path + ".enc" (the plain crop at image_path is kept for
-        # backward-compatible gallery display).
+        # When true, the ONLY crop on storage is the encrypted blob at
+        # image_path + ".enc" — sealed with the chain key K_index. No
+        # plaintext crop exists for new faces (ADR 0009 / Tier 2 T2.4).
+        # Legacy rows (chain_index NULL) still have plaintext crops at
+        # image_path and are served as-is by the unified secure-crop
+        # endpoint.
         if crop_sealed:
             row["crop_sealed"] = True
         res = self.client.table("faces").insert(row).execute()

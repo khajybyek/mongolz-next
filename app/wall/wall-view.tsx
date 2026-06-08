@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Cctv, ImageOff, Maximize2, Minimize2, LogOut, Power } from "lucide-react";
+import { FaceThumb } from "@/components/face-thumb";
 import { useT } from "@/lib/i18n/client";
 import { formatDate } from "@/lib/utils";
 
@@ -14,7 +15,7 @@ type WallCamera = {
   last_seen: string | null;
   faces_24h: number;
   faces_1h: number;
-  latest_face_url: string | null;
+  latest_face_id: string | null;
 };
 
 const REFRESH_MS = 10_000;
@@ -166,12 +167,11 @@ function CameraTile({
         (focused ? " min-h-[calc(100vh-100px)]" : "")
       }
     >
-      {cam.latest_face_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={cam.latest_face_url}
+      {cam.latest_face_id ? (
+        <FaceThumb
+          faceId={cam.latest_face_id}
           alt={cam.name}
-          className="w-full h-full object-cover opacity-90"
+          className="absolute inset-0 opacity-90"
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center text-text-faint">

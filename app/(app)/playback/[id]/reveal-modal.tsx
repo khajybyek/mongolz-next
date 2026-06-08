@@ -14,6 +14,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FaceThumb } from "@/components/face-thumb";
 
 interface Suspect {
   id: string;
@@ -26,7 +27,6 @@ export interface DetectedFace {
   display_no: number;
   filename: string;
   detected_at: string;
-  signed: string | null;
 }
 
 type Step = "method" | "reauth" | "processing" | "done";
@@ -331,16 +331,11 @@ export function RevealModal({
                           )}
                           title={`#${f.display_no}`}
                         >
-                          {f.signed ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={f.signed}
-                              alt={f.filename}
-                              className="w-full h-full object-cover rounded"
-                            />
-                          ) : (
-                            <div className="w-full h-full bg-bg-tertiary rounded" />
-                          )}
+                          <FaceThumb
+                            faceId={f.id}
+                            alt={f.filename}
+                            className="absolute inset-0 rounded"
+                          />
                           <span
                             className={cn(
                               "absolute top-1 left-1 text-[10px] font-bold px-1 py-0.5 rounded leading-none",
@@ -489,15 +484,12 @@ export function RevealModal({
                         className="relative w-12 h-12 rounded-md overflow-hidden bg-bg-tertiary"
                         title={`#${f.display_no} · ${f.filename}`}
                       >
-                        {f.signed ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={f.signed}
-                            alt=""
-                            className="absolute inset-0 w-full h-full object-cover"
-                          />
-                        ) : null}
-                        <span className="absolute top-0 left-0 text-[9px] font-bold leading-none px-1 py-0.5 bg-accent text-bg rounded-br">
+                        <FaceThumb
+                          faceId={f.id}
+                          alt=""
+                          className="absolute inset-0"
+                        />
+                        <span className="absolute top-0 left-0 z-10 text-[9px] font-bold leading-none px-1 py-0.5 bg-accent text-bg rounded-br">
                           #{f.display_no}
                         </span>
                       </div>

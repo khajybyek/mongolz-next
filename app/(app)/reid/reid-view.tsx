@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Cctv, Clock, ImageOff, Search, Sparkles } from "lucide-react";
+import { Cctv, Clock, Search, Sparkles } from "lucide-react";
 import { Empty } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
+import { FaceThumb } from "@/components/face-thumb";
 import { useT } from "@/lib/i18n/client";
 import { formatDate } from "@/lib/utils";
 
 type Thumb = {
   id: string;
-  image_url: string | null;
   detected_at: string;
   camera_name: string | null;
 };
@@ -20,7 +20,6 @@ type TrailItem = {
   camera_name: string;
   detected_at: string;
   similarity: number;
-  image_url: string | null;
   recording_id: string | null;
 };
 
@@ -103,16 +102,11 @@ export function ReidView({ initialThumbs }: { initialThumbs: Thumb[] }) {
               {t("reid_source")}
             </div>
             <div className="flex gap-2">
-              <div className="w-16 h-16 shrink-0 rounded overflow-hidden border border-accent/40">
-                {selectedThumb.image_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={selectedThumb.image_url} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-bg-tertiary">
-                    <ImageOff className="w-4 h-4 text-text-faint" />
-                  </div>
-                )}
-              </div>
+              <FaceThumb
+                faceId={selectedThumb.id}
+                alt=""
+                className="w-16 h-16 shrink-0 rounded overflow-hidden border border-accent/40"
+              />
               <div className="min-w-0 flex-1">
                 <div className="text-xs truncate text-text" title={selectedThumb.camera_name ?? ""}>
                   {selectedThumb.camera_name ?? "—"}
@@ -151,14 +145,7 @@ export function ReidView({ initialThumbs }: { initialThumbs: Thumb[] }) {
                   }
                   title={thumb.camera_name ?? ""}
                 >
-                  {thumb.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={thumb.image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-bg-tertiary">
-                      <ImageOff className="w-4 h-4 text-text-faint" />
-                    </div>
-                  )}
+                  <FaceThumb faceId={thumb.id} alt="" className="absolute inset-0" />
                 </button>
               );
             })}
@@ -261,15 +248,8 @@ export function ReidView({ initialThumbs }: { initialThumbs: Thumb[] }) {
                         className="block aspect-square overflow-hidden rounded border border-border hover:border-accent/40 relative group"
                         title={`${formatDate(it.detected_at)} · sim ${(it.similarity * 100).toFixed(0)}%`}
                       >
-                        {it.image_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={it.image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-bg-tertiary">
-                            <ImageOff className="w-3 h-3 text-text-faint" />
-                          </div>
-                        )}
-                        <span className="absolute bottom-0 inset-x-0 bg-bg/80 text-[9px] text-text px-1 py-0.5 truncate">
+                        <FaceThumb faceId={it.face_id} alt="" className="absolute inset-0" />
+                        <span className="absolute bottom-0 inset-x-0 z-10 bg-bg/80 text-[9px] text-text px-1 py-0.5 truncate">
                           {(it.similarity * 100).toFixed(0)}%
                         </span>
                       </a>

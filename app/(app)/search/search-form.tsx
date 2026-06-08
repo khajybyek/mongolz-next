@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Loader2, ImageOff, Video, Camera, Clock } from "lucide-react";
+import { Search, Loader2, Video, Camera, Clock } from "lucide-react";
+import { FaceThumb } from "@/components/face-thumb";
 import { formatDate } from "@/lib/utils";
 
 interface Match {
@@ -10,7 +11,6 @@ interface Match {
   image_path: string;
   detected_at: string;
   similarity: number;
-  image_url: string | null;
   recording_filename: string | null;
   camera_name: string | null;
 }
@@ -76,20 +76,12 @@ export function SearchForm() {
               return (
                 <div key={m.id} className="card p-2 space-y-2">
                   <div className="aspect-square bg-bg-tertiary rounded overflow-hidden relative">
-                    {m.image_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={m.image_url}
-                        alt={m.filename}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <ImageOff className="w-6 h-6 text-text-faint" />
-                      </div>
-                    )}
-                    <div className={`absolute top-1 right-1 px-1.5 py-0.5 rounded bg-black/60 text-xs font-mono ${pctColor}`}>
+                    <FaceThumb
+                      faceId={m.id}
+                      alt={m.filename}
+                      className="absolute inset-0"
+                    />
+                    <div className={`absolute top-1 right-1 z-10 px-1.5 py-0.5 rounded bg-black/60 text-xs font-mono ${pctColor}`}>
                       {pct}%
                     </div>
                   </div>

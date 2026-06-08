@@ -11,8 +11,6 @@ interface MatchRow {
   similarity: number;
 }
 
-const SIGNED_URL_TTL_SEC = 600;
-
 export async function POST(request: NextRequest) {
   const auth = await requireAdminApi();
   if (isAuthErr(auth)) return auth.error;
@@ -39,25 +37,23 @@ export async function POST(request: NextRequest) {
   if (matches.length === 0) return NextResponse.json({ matches: [] });
 
   const ids = matches.map((m) => m.id);
-  const paths = [...new Set(matches.map((m) => m.image_path).filter(Boolean))];
 
-  const [metaRes, signedRes] = await Promise.all([
-    svc
-      .from("faces")
-      .select("id, recording_id, camera_id, bbox, recordings:recordings(filename), cameras:cameras(name)")
-      .in("id", ids),
-    svc.storage.from("faces").createSignedUrls(paths, SIGNED_URL_TTL_SEC),
-  ]);
+  // ADR 0009 / Tier 2: client-ийн <FaceThumb faceId> нь crop-уудыг өөрөө
+  // unified endpoint-аас унших тул signed URL бэлдэхгүй. Зөвхөн metadata-г
+  // буцаана (camera/recording badge).
+  const { data: metaRows, error: metaErr } = await svc
+    .from("faces")
+    .select("id, recording_id, camera_id, bbox, recordings:recordings(filename), cameras:cameras(name)")
+    .in("id", ids);
 
-  if (metaRes.error) return NextResponse.json({ error: metaRes.error.message }, { status: 500 });
-  if (signedRes.error) return NextResponse.json({ error: signedRes.error.message }, { status: 500 });
+  if (metaErr) return NextResponse.json({ error: metaErr.message }, { status: 500 });
 
   const metaById = new Map<string, {
     recording_filename: string | null;
     camera_name: string | null;
     bbox: unknown;
   }>();
-  for (const row of metaRes.data ?? []) {
+  for (const row of metaRows ?? []) {
     const r = row as {
       id: string;
       bbox: unknown;
@@ -73,16 +69,10 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const urlByPath = new Map<string, string>();
-  for (const item of signedRes.data ?? []) {
-    if (item.path && item.signedUrl) urlByPath.set(item.path, item.signedUrl);
-  }
-
   const enriched = matches.map((m) => {
     const meta = metaById.get(m.id);
     return {
       ...m,
-      image_url: urlByPath.get(m.image_path) ?? null,
       recording_filename: meta?.recording_filename ?? null,
       camera_name: meta?.camera_name ?? null,
       bbox: meta?.bbox ?? null,

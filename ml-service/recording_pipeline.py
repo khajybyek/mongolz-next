@@ -941,39 +941,37 @@ class RecordingSession:
 
             filename = f"{self.camera_id}_{int(now * 1000)}_{uuid.uuid4().hex[:8]}.jpg"
             path = f"{self.camera_id}/{filename}"
-            self.storage.upload_bytes("faces", path, crop_bytes.tobytes(), "image/jpeg")
 
-            # ── Hierarchical key seal (ADR 0009) ──
-            # Seal this face's embedding with its chain key K_index. A reveal
-            # requester only obtains the embedding (and thus can target the
-            # face) if they hold a key at or above this chain level. Best-effort:
-            # any failure falls back to plain-embedding-only (legacy behaviour),
-            # so sealing can never break recording.
+            # ── Hierarchical key seal (ADR 0009 / Tier 2: encrypt-only) ──
+            # Seal this face's embedding AND crop pixels with the per-face
+            # chain key K_index, then upload ONLY the sealed crop at
+            # `<path>.enc`. The plain crop is intentionally NOT written —
+            # no plaintext face image is persisted at rest. Display sites
+            # fetch it through /api/faces/[id]/secure-crop, which proxies
+            # the ML decryption gated by the requester's reveal_level.
+            #
+            # Fail-closed: if any step of the seal / upload fails, skip
+            # this face entirely (advancing the chain index so other
+            # concurrent faces still derive distinct keys). We refuse
+            # to fall back to a plaintext upload — that would defeat the
+            # whole point of Tier 2.
             chain_index = self._face_chain_index
-            embedding_sealed: str | None = None
-            crop_sealed = False
+            self._face_chain_index += 1
             try:
                 k = key_at_index(self.recording_id, chain_index, master_key())
                 emb_bytes = np.asarray(f.embedding, dtype=np.float32).tobytes()
                 embedding_sealed = base64.b64encode(_seal_embedding(emb_bytes, k)).decode()
-                # Per-face crop PIXEL encryption (PoC): seal the JPEG crop with
-                # the SAME chain key K_index and store it alongside the plain
-                # crop as `<path>.enc`. The plain crop stays for the existing
-                # gallery display sites; the sealed copy is served only through
-                # /face/{id}/secure-crop after a forward-chain authority check.
-                try:
-                    sealed_crop = _seal_embedding(crop_bytes.tobytes(), k)
-                    self.storage.upload_bytes(
-                        "faces", f"{path}.enc", sealed_crop, "application/octet-stream"
-                    )
-                    crop_sealed = True
-                except Exception as e:  # noqa: BLE001
-                    log.warning("Face %d crop seal алдаа: %s", chain_index, e)
-                    crop_sealed = False
-            except Exception as e:  # noqa: BLE001 — never break capture on seal error
-                log.warning("Face %d embedding seal алдаа: %s", chain_index, e)
-                embedding_sealed = None
-            self._face_chain_index += 1
+                sealed_crop = _seal_embedding(crop_bytes.tobytes(), k)
+                self.storage.upload_bytes(
+                    "faces", f"{path}.enc", sealed_crop, "application/octet-stream"
+                )
+            except Exception as e:  # noqa: BLE001 — fail-closed: drop the face, never persist plaintext
+                log.warning(
+                    "Face %d seal/upload алдаа — face алгасав (encrypt-only): %s",
+                    chain_index,
+                    e,
+                )
+                continue
 
             face_id = await self.storage.insert_face(
                 filename=filename,
@@ -983,7 +981,7 @@ class RecordingSession:
                 bbox=bbox,
                 chain_index=chain_index,
                 embedding_sealed=embedding_sealed,
-                crop_sealed=crop_sealed,
+                crop_sealed=True,
             )
 
             # Suspect match → alert?

@@ -7,7 +7,6 @@ import { ReidView } from "./reid-view";
 
 export const dynamic = "force-dynamic";
 
-const SIGNED_URL_TTL = 600;
 const THUMB_LIMIT = 36;
 
 export default async function ReidPage() {
@@ -15,34 +14,25 @@ export default async function ReidPage() {
   const { t } = await getT();
   const supabase = await createClient();
 
+  // ADR 0009 / Tier 2: face crop-уудыг client дотроос <FaceThumb faceId>
+  // unified endpoint-оор унш — server-аас signed URL bake хийхгүй (storage
+  // layer encrypt-only болоход thumbnail тооцоо хийгдэхгүй).
   const { data: faces } = await supabase
     .from("faces")
-    .select("id, image_path, detected_at, cameras:cameras(name)")
+    .select("id, detected_at, cameras:cameras(name)")
     .order("detected_at", { ascending: false })
     .limit(THUMB_LIMIT);
 
   const rows = (faces ?? []) as Array<{
     id: string;
-    image_path: string;
     detected_at: string;
     cameras: { name: string } | { name: string }[] | null;
   }>;
-
-  const urlByPath = new Map<string, string>();
-  if (rows.length > 0) {
-    const { data: signed } = await supabase.storage
-      .from("faces")
-      .createSignedUrls(rows.map((r) => r.image_path), SIGNED_URL_TTL);
-    for (const item of signed ?? []) {
-      if (item.path && item.signedUrl) urlByPath.set(item.path, item.signedUrl);
-    }
-  }
 
   const thumbs = rows.map((r) => {
     const cam = Array.isArray(r.cameras) ? r.cameras[0] : r.cameras;
     return {
       id: r.id,
-      image_url: urlByPath.get(r.image_path) ?? null,
       detected_at: r.detected_at,
       camera_name: cam?.name ?? null,
     };

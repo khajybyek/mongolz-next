@@ -5,6 +5,7 @@ import { Eye, MousePointerClick, ListChecks, X } from "lucide-react";
 import { VideoWithFaceOverlay, type FaceBox } from "./video-with-face-overlay";
 import { FaceTimeline } from "./face-timeline";
 import { RevealModal } from "./reveal-modal";
+import { FaceThumb } from "@/components/face-thumb";
 import { cn } from "@/lib/utils";
 
 interface Suspect {
@@ -18,7 +19,6 @@ interface DetectedFace {
   display_no: number;
   filename: string;
   detected_at: string;
-  signed: string | null;
   /** Seconds from recording start. Null when no started_at on the recording. */
   time_in_video_sec: number | null;
 }
@@ -304,16 +304,11 @@ export function PlaybackPlayer({
                       )}
                       title={`#${f.display_no}`}
                     >
-                      {f.signed ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={f.signed}
-                          alt={f.filename}
-                          className="absolute inset-0 w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="absolute inset-0 bg-bg-tertiary" />
-                      )}
+                      <FaceThumb
+                        faceId={f.id}
+                        alt={f.filename}
+                        className="absolute inset-0"
+                      />
                       <span
                         className={cn(
                           "absolute top-0.5 left-0.5 text-[10px] font-bold px-1 py-0.5 rounded leading-none",

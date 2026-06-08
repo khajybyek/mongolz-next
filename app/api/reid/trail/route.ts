@@ -3,7 +3,6 @@ import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SIGNED_URL_TTL = 600;
 
 export const dynamic = "force-dynamic";
 
@@ -37,22 +36,12 @@ export async function GET(req: Request) {
     camera_name: string | null;
     detected_at: string;
     similarity: number;
-    image_path: string;
     bbox: unknown;
     recording_id: string | null;
   }>;
 
-  const paths = rows.map((r) => r.image_path).filter(Boolean);
-  const urlByPath = new Map<string, string>();
-  if (paths.length > 0) {
-    const { data: signed } = await supabase.storage
-      .from("faces")
-      .createSignedUrls(paths, SIGNED_URL_TTL);
-    for (const item of signed ?? []) {
-      if (item.path && item.signedUrl) urlByPath.set(item.path, item.signedUrl);
-    }
-  }
-
+  // ADR 0009 / Tier 2: crop thumbnail-уудыг хариунд орохгүй — UI <FaceThumb
+  // faceId> ашиглан unified endpoint-аас унш.
   return NextResponse.json({
     threshold,
     windowHours,
@@ -63,7 +52,6 @@ export async function GET(req: Request) {
       camera_name: r.camera_name ?? "—",
       detected_at: r.detected_at,
       similarity: Number(r.similarity.toFixed(4)),
-      image_url: urlByPath.get(r.image_path) ?? null,
       recording_id: r.recording_id,
     })),
   });
