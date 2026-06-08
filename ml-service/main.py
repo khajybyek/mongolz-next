@@ -264,6 +264,21 @@ class CameraTestReq(BaseModel):
 _CAMERA_TEST_TIMEOUT_SEC = 8.0
 
 
+_LOOPBACK_HOST_RE = re.compile(r"//(?:127\.0\.0\.1|localhost)(?::|/)")
+
+
+def _is_loopback_forwarder_url(url: str) -> bool:
+    """True if the URL targets the in-container tcp_forward listener.
+
+    Local home cameras reach the ML container through Tailscale userspace
+    + tcp_forward, so their URLs look like `rtsp://user:pass@127.0.0.1:5554/…`.
+    A probe failure on these URLs is most often a tailnet/subnet-router
+    issue (home laptop offline), not bad credentials — we use this to
+    return a clearer hint instead of the generic "check URL".
+    """
+    return bool(_LOOPBACK_HOST_RE.search(url))
+
+
 def _probe_camera_sync(url: str) -> dict:
     """
     Blocking helper — open the URL via cv2.VideoCapture, grab one frame,
@@ -271,12 +286,30 @@ def _probe_camera_sync(url: str) -> dict:
     asyncio timeout (cv2 itself won't honour the timeout reliably; the
     enclosing task cancel is what saves the request from hanging).
     """
+    is_forwarder = _is_loopback_forwarder_url(url)
     cap = cv2.VideoCapture(url)
     try:
         if not cap.isOpened():
+            if is_forwarder:
+                return {
+                    "ok": False,
+                    "error": (
+                        "Холбогдсонгүй (loopback forwarder). Home laptop "
+                        "subnet router идэвхтэй эсэх болон tailnet status-ыг "
+                        "шалгана уу."
+                    ),
+                }
             return {"ok": False, "error": "VideoCapture нээгдсэнгүй (URL/credentials шалга)"}
         ok, frame = cap.read()
         if not ok or frame is None:
+            if is_forwarder:
+                return {
+                    "ok": False,
+                    "error": (
+                        "Forwarder холбогдсон ч frame ирэхгүй — tailnet "
+                        "доош / RTSP transport (TCP) шалгана уу."
+                    ),
+                }
             return {"ok": False, "error": "Холбогдсон ч frame унших боломжгүй (codec/permission)"}
         h, w = frame.shape[:2]
         fps_raw = cap.get(cv2.CAP_PROP_FPS) or 0.0

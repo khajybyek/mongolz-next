@@ -99,7 +99,14 @@ def handle_client(client: socket.socket, fwd: Forward, proxy_host: str, proxy_po
     try:
         upstream.connect((fwd.remote_host, fwd.remote_port))
     except (socks.GeneralProxyError, socks.ProxyConnectionError, OSError) as e:
-        log.error("SOCKS5 → %s:%d failed: %s", fwd.remote_host, fwd.remote_port, e)
+        # WARN, not ERROR — the local TCP accept already succeeded; this is an
+        # upstream/runtime condition (tailnet subnet router offline, target
+        # camera unreachable, transient network blip). ERROR-level here drives
+        # alerts on every container restart because docker-entrypoint.sh
+        # probes the forwarder port with `echo > /dev/tcp/127.0.0.1/$PORT`,
+        # which lights up this exact path even when nothing is wrong with
+        # the code or the deploy.
+        log.warning("SOCKS5 → %s:%d failed: %s", fwd.remote_host, fwd.remote_port, e)
         client.close()
         return
 
