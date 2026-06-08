@@ -92,3 +92,36 @@ Implementation: `ml-service/hierarchical_keys.py`
 - **Attribute-based encryption (ABE)**: the "correct" general answer but
   needs a pairing library + policy engine — out of scope for a $0
   capstone.
+
+## Honest threat model — what this protects (and what it does NOT)
+
+> Added 2026-05-28 after a security review flagged over-claiming.
+
+This is **storage-at-rest + delegated-key** access control, enforced as an
+**authorization gate** by the trusted services — *not* a cryptographic
+impossibility against our own backend.
+
+- The **ML service holds the master key** and can derive any `Kᵢ`. It is the
+  trusted decryptor. The `chain_index < level → 403` gate (in `reveal_job`
+  and the `/face/{id}/secure-crop` endpoint) is **authorization**, supplied by
+  the Next.js proxy after it authenticates an admin and reads their
+  `reveal_level` server-side (not client-forgeable through the normal path).
+- The **forward hash chain is meaningful** for two real threats:
+  1. **Stolen storage blobs** — an attacker who exfiltrates the `*.enc`
+     face crops/embeddings plus a single leaked `K_level` can open faces
+     `≥ level` but never below (SHA-256 preimage resistance).
+  2. **Out-of-band delegated keys** — if a per-level key is handed to a
+     party directly (instead of going through the proxy), that party is
+     forward-only bounded.
+- It does **NOT** protect against a holder of `ML_SERVICE_TOKEN` (who can
+  call the endpoint with `level=0`) or against the ML service itself.
+
+### Deployment status (be accurate in the defense)
+
+`profiles.reveal_level` exists and is honoured end-to-end, **but no admin UI
+currently sets it** — every admin keeps the default `0` (director), so in the
+*current* deployment every admin can reveal/decrypt every face. The hierarchy
+is fully wired and testable; it is simply not yet populated. To make it a
+live control, expose `reveal_level` in `/users` (deferred — see CLAUDE.md).
+Do not claim "least-privilege enforced in production" until that ships; do
+claim "hierarchical per-face key scheme implemented + verified (22 tests)."

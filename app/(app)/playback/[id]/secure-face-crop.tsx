@@ -65,12 +65,17 @@ export function SecureFaceCrop({
             if (mode === "secure") void onSecureError();
           }}
         />
-      ) : mode === "locked" ? (
+      ) : (
+        // No displayable image: either above-authority (locked) or a legacy
+        // face with neither a sealed crop nor a signed URL. Show a lock
+        // placeholder rather than a blank box so the cell never renders empty.
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-text-faint">
           <Lock className="w-4 h-4" />
-          <span className="text-[8px] leading-none">эрхгүй</span>
+          <span className="text-[8px] leading-none">
+            {mode === "locked" ? "эрхгүй" : "—"}
+          </span>
         </div>
-      ) : null}
+      )}
 
       {secureOk && (
         <span className="absolute bottom-0.5 right-0.5 flex items-center gap-0.5 text-[8px] font-bold leading-none px-1 py-0.5 rounded bg-success/85 text-bg">

@@ -2,9 +2,16 @@
  * Per-face crop decryption proxy (ADR 0009 — pixel-level hash-chain seal).
  *
  * Demonstrates that a face crop's PIXELS — not just its embedding — are sealed
- * with the per-face hash-chain key K_index. The crop is decryptable only by a
- * requester whose reveal_level ≤ the face's chain_index (forward-only chain):
- * the ML service enforces this cryptographically and returns 403 otherwise.
+ * at rest with the per-face hash-chain key K_index. A request returns the crop
+ * only when the requester's reveal_level ≤ the face's chain_index (ci < level
+ * → 403).
+ *
+ * Honest threat model: this is an AUTHORIZATION gate enforced here + at the ML
+ * service (which holds the master key and is the trusted decryptor) — not a
+ * cryptographic impossibility against the service itself. The forward hash
+ * chain matters for storage-at-rest / out-of-band delegated-key compromise
+ * (a holder of only K_level can derive ≥level but never below). See the ML
+ * endpoint docstring + ADR 0009.
  *
  * Admin-only: face crops are admin-scoped data (viewers never see face
  * metadata per the privacy design). The requester's reveal_level is read

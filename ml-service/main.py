@@ -466,11 +466,19 @@ async def render_view_endpoint(recording_id: str):
 async def secure_crop_endpoint(face_id: str, level: int = 0):
     """Decrypt a per-face crop sealed with the hash-chain key K_index.
 
-    `level` = the requester's reveal_level, supplied by the trusted Next.js
-    proxy after it has authenticated an admin. Authority is the SAME
-    forward-hash-chain gate as the reveal flow: a holder of K_level can only
-    derive K_index for index >= level (SHA-256 is one-way), so crops below the
-    requester's level are cryptographically unreachable → 403.
+    THREAT MODEL — read honestly:
+    The ML service holds the master key and can derive ANY K_index, so it is
+    the *trusted decryption authority*. The `level` gate (ci < level → 403) is
+    enforced HERE and at the Next proxy that supplies `level` after admin auth —
+    it is authorization, not a cryptographic impossibility against this service.
+    What the forward hash chain *does* buy: if per-level keys are ever handed
+    out out-of-band (a party gets only K_level, not the master), that holder can
+    derive K_level..N but NEVER below level (SHA-256 preimage resistance); and a
+    thief of the `.enc` storage blobs + one K_level can only open faces ≥ level.
+    So the seal is meaningful for storage-at-rest / delegated-key compromise,
+    NOT against a holder of ML_SERVICE_TOKEN (who can already call this with
+    level=0). `level` is server-supplied by the proxy and not client-forgeable
+    through the normal path.
     """
     if not _UUID_RE.match(face_id):
         raise HTTPException(400, "invalid face_id")

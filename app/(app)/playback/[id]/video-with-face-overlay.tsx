@@ -84,7 +84,10 @@ export function VideoWithFaceOverlay({
       v.removeEventListener("seeked", onTime);
       v.removeEventListener("loadedmetadata", onMeta);
     };
-  }, [videoRef, onTimeChange]);
+    // `effectiveSrc` is a dep because the <video> is keyed on it (key={effectiveSrc})
+    // — a Retry remounts the element to a NEW DOM node, so the listeners must
+    // rebind or the timeline/overlay would silently stop updating after Retry.
+  }, [videoRef, onTimeChange, effectiveSrc]);
 
   // Reset to loading whenever the source (or retry nonce) changes.
   useEffect(() => {
