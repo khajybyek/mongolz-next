@@ -1,16 +1,16 @@
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
-import { ImageOff, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { hasFreshReauth } from "@/lib/auth/step-up";
 import { getT } from "@/lib/i18n/server";
 import { formatDate } from "@/lib/utils";
 import { ReauthGate } from "@/components/reauth-gate";
+import { FaceThumb } from "@/components/face-thumb";
 
 export const dynamic = "force-dynamic";
 
-const SIGNED_URL_TTL_SEC = 600;
 const PAGE_LIMIT = 120;
 
 export default async function FacesPage() {
@@ -51,16 +51,6 @@ export default async function FacesPage() {
     cameras: { name: string } | { name: string }[] | null;
   }>;
 
-  const urlByPath = new Map<string, string>();
-  if (rows.length > 0) {
-    const { data: signed } = await supabase.storage
-      .from("faces")
-      .createSignedUrls(rows.map((f) => f.image_path), SIGNED_URL_TTL_SEC);
-    for (const item of signed ?? []) {
-      if (item.path && item.signedUrl) urlByPath.set(item.path, item.signedUrl);
-    }
-  }
-
   return (
     <>
       <PageHeader title={t("faces_title")} subtitle={`${rows.length} · ${t("faces_subtitle")}`} />
@@ -70,27 +60,16 @@ export default async function FacesPage() {
       ) : (
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
           {rows.map((f) => {
-            const url = urlByPath.get(f.image_path);
             const cam = Array.isArray(f.cameras) ? f.cameras[0] : f.cameras;
             const href = f.recording_id ? `/playback/${f.recording_id}?face=${f.id}` : null;
 
             const inner = (
               <>
-                <div className="aspect-square bg-bg-tertiary rounded mb-1.5 overflow-hidden">
-                  {url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={url}
-                      alt={f.filename}
-                      className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <ImageOff className="w-4 h-4 text-text-faint" />
-                    </div>
-                  )}
-                </div>
+                <FaceThumb
+                  faceId={f.id}
+                  alt={f.filename}
+                  className="aspect-square rounded mb-1.5"
+                />
                 <div className="text-[10px] text-text-muted truncate">
                   {formatDate(f.detected_at)}
                 </div>
