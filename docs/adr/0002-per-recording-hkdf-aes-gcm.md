@@ -24,7 +24,7 @@ Encryption requirements:
 key.**
 
 * Master key: `ML_ENCRYPTION_KEY` (32-byte base64-url), Railway env.
-* Per recording: `key = HKDF(master, salt=recording_uuid, info="mongolz/recording/v1")`.
+* Per recording: `key = HKDF(master, salt="mongolz-recording-v1" (fixed), info=recording_uuid  — see ml-service/crypto_utils.py)`.
 * Encrypt: `AES-GCM(key, plaintext, nonce=12-byte-random, aad=recording_uuid)`.
 * Stored on disk: `nonce || ciphertext || tag`.
 * Dual-key support: `ML_ENCRYPTION_KEY_PREV` is consulted on

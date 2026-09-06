@@ -37,7 +37,7 @@ async function main() {
 
   const { data: recordings, error } = await sb
     .from("recordings")
-    .select("id, filename, storage_path, encrypted, started_at")
+    .select("id, filename, storage_path, original_path, encrypted, started_at")
     .eq("encrypted", true)
     .order("started_at", { ascending: false })
     .limit(SAMPLE);
@@ -61,7 +61,9 @@ async function main() {
           Authorization: `Bearer ${ML_TOKEN}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ recording_id: r.id, storage_path: r.storage_path }),
+        // The ciphertext is `original_path`; for legacy (baked) rows storage_path
+        // is the plaintext blurred MP4 and would always fail to decrypt.
+        body: JSON.stringify({ recording_id: r.id, storage_path: r.original_path ?? r.storage_path }),
       });
       if (!res.ok) {
         const body = await res.text().catch(() => "");

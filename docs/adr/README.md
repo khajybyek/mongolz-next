@@ -27,3 +27,5 @@ constraints that shaped each choice.
 | [0006](0006-step-up-totp-reauth.md) | Step-up TOTP re-authentication for sensitive views | Accepted |
 | [0007](0007-edge-agent-scaling.md) | On-prem edge agent for >5 cameras | Accepted |
 | [0008](0008-arc-face-cosine-thresholds.md) | ArcFace + pgvector cosine thresholds (0.45 / 0.35) | Accepted |
+| 0009 | [Hierarchical per-face keys](0009-hierarchical-per-face-keys.md) | Accepted |
+| 0010 | [On-demand blurred view](0010-on-demand-blurred-view.md) | Accepted |

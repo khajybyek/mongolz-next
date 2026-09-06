@@ -15,7 +15,7 @@
 
 ## 30-second pitch (KR)
 
-> "MONGOLZ Security는 다중 권한 마스킹 및 복원이 가능한 지능형 네트워크 카메라 통합관제 서버입니다. 캡처 시점에 모든 얼굴이 Voronoi 모자이크로 마스킹되고 AES-256-GCM으로 암호화 저장됩니다. 4-eyes 승인 흐름만 원본을 복원할 수 있고, 각 대상의 프라이버시 등급(VIP/standard/relaxed)에 따라 마스크 강도가 자동 조정됩니다."
+> "MONGOLZ Security는 다중 권한 마스킹 및 복원이 가능한 지능형 네트워크 카메라 통합관제 서버입니다. 원본은 AES-256-GCM으로 암호화 저장되고, 열람 시점에 모든 얼굴이 Voronoi 모자이크로 마스킹됩니다(평문 프레임이나 얼굴 조각은 저장되지 않습니다). 4-eyes 승인 흐름만 원본을 복원할 수 있고, 각 대상의 프라이버시 등급(VIP/standard/relaxed)에 따라 마스크 강도가 자동 조정됩니다."
 
 ---
 
@@ -139,7 +139,7 @@ curl -s https://mongolz.vercel.app/api/uptime | jq
 # Audit chain integrity
 # (Supabase SQL editor)
 SELECT count(*) FROM verify_audit_chain();
-SELECT * FROM verify_audit_chain() WHERE row_hash IS NULL OR prev_hash IS NULL;
+SELECT count(*) FROM verify_audit_chain();   -- 0 broken rows = intact
 ```
 
 ---

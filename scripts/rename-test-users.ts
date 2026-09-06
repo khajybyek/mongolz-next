@@ -40,7 +40,11 @@ const svc = createClient(url, key, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const PASSWORD = process.env.NEW_PASSWORD ?? "aicctvdev";
+const PASSWORD = process.env.NEW_PASSWORD ?? "";
+if (PASSWORD.length < 12) {
+  console.error("NEW_PASSWORD (>=12 chars) is required — this script resets production passwords.");
+  process.exit(1);
+}
 const PAIRS: Array<{ from: string; to: string }> = [
   { from: "admin@mongolz.local", to: "admin@aicctv.dev" },
   { from: "viewer@mongolz.local", to: "viewer@aicctv.dev" },

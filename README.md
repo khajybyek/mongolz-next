@@ -28,7 +28,7 @@ Browser ──► Vercel (Next.js 16 / sin1) ──► Supabase Cloud (ap-southe
 | Layer | Tech | Region |
 |---|---|---|
 | Frontend | Next.js 16 · React 19 · TypeScript · Tailwind · hls.js · ONNX (WebGPU+WASM) | Vercel sin1 |
-| Auth + DB + Storage | Supabase (Postgres 17 · pgvector · 14 tables · 6 buckets · RLS) | Supabase ap-southeast-1 |
+| Auth + DB + Storage | Supabase (Postgres 17 · pgvector · 20 tables · 6 buckets · RLS on every table) | Supabase ap-southeast-1 |
 | ML service | Python 3.11 · FastAPI · InsightFace (buffalo_l) · OpenCV · FFmpeg | Railway asia-southeast1 |
 | AI insights | Claude (anomaly/summary/chat) via Supabase Edge | Cloudflare |
 | Observability | Sentry (`@sentry/nextjs`) · OpenTelemetry SDK | — |
@@ -174,14 +174,14 @@ mongolz-next/
 │   ├── crypto_utils.py              # AES-256-GCM + dual-key rotation
 │   ├── anti_spoof.py / embedding_fusion.py / dp_embeddings.py
 │   ├── zk_reveal.py / telemetry.py / storage.py / camera_worker.py
-│   ├── tests/                       # 103 pytest cases
+│   ├── tests/                       # 135 pytest cases
 │   └── Dockerfile + railway.json
 ├── supabase/
 │   ├── config.toml
-│   ├── migrations/                  # 43 migrations, repo == cloud
+│   ├── migrations/                  # 76 migrations — files mirror cloud history 1:1 (`supabase migration list --linked`)
 │   └── functions/{claude-analysis,telegram-alerts}/
 ├── e2e/                             # Playwright (public probes, i18n)
-└── scripts/                         # create-admin / create-viewer / …
+└── scripts/                         # create-admin / demo-seed / rotate-keys / backup:restore / …
 ```
 
 ---
@@ -194,7 +194,7 @@ brew install supabase/tap/supabase
 cd mongolz-next
 supabase start                       # ~5 min on first run
 
-# 2. .env.local — see CLAUDE.md for the full Vercel env list
+# 2. .env.local — every variable is documented in .env.example
 # NEXT_PUBLIC_SUPABASE_URL=...
 # NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 # SUPABASE_SERVICE_ROLE_KEY=...
@@ -243,9 +243,11 @@ npx supabase functions deploy telegram-alerts --project-ref ulybenitqmqjfxtaregp
 ```bash
 npm run typecheck                    # tsc --noEmit
 npm run lint                         # eslint .
-npm test                             # jest — 74 tests
-cd ml-service && venv/bin/pytest -q  # 103 tests
+npm test                             # jest — 107 tests
+cd ml-service && venv/bin/pytest -q  # 135 tests
 npm run lint:db                      # supabase db lint --linked
+npm run lint:migrations              # migration filename + safety-waiver lint
+npm run gen:types                    # regenerate lib/database.generated.ts after every migration
 npx playwright test                  # e2e (override base URL via PLAYWRIGHT_BASE_URL)
 
 # Operations
@@ -253,6 +255,29 @@ npm run backup:verify                # sample recordings → /reveal/verify-blob
 npm run rotate:keys -- --key=<NAME>  # ML_ENCRYPTION_KEY · CAMERA_URL_KEY · STREAM_TICKET_SECRET · REAUTH_COOKIE_SECRET · SESSION_PIN_SECRET
 npm run demo:seed / npm run demo:wipe
 ```
+
+---
+
+## Hardening pass — 2026-09-06
+
+Full start-to-finish audit (DB → auth → API → UI → ML). Highlights:
+
+- Migration history mirrors the cloud project 1:1 (76 files). `npm run gen:types`
+  regenerates `lib/database.generated.ts`; every Supabase client is typed.
+- Self-signup is blocked at the DB (`handle_new_user` requires a confirmed
+  identity and always assigns `viewer`); the super-admin guard reads JWT
+  claims; `profiles` columns are least-privilege; the audit hash chain is
+  serialised with an advisory lock in UTC.
+- HMAC cookies are purpose-bound (`:v2`), session pinning is enforced for
+  TOTP-enabled users, passkeys require user verification, recovery codes work
+  at the TOTP login step, and redirect targets are sanitised centrally.
+- 4-eyes reveal approvals use compare-and-swap + step-up auth; backups use
+  per-table column allow-lists; CSV exports neutralise spreadsheet formulas;
+  the retention sweep deletes storage objects and honours the audit-log hold.
+- ML: one `FaceMasker` (Haar + periodic InsightFace) serves the recording
+  pipeline, the on-demand view and reveal; recordings finalise crash-safe;
+  chunked uploads are assembled server-side with abandoned-session sweeps;
+  reveal jobs are claimed by CAS under a global render slot.
 
 ---
 
@@ -294,4 +319,4 @@ Storage · Edge Functions) · Python 3.11 · FastAPI · InsightFace ArcFace
 (buffalo_l, 512-dim) · OpenCV · FFmpeg · AES-256-GCM · pg_net · Claude
 (anomaly/summary/chat) · Sentry · Playwright · Jest 30 · pytest.
 
-103 pytest + 74 jest = **177 tests**, all green at the time of this README.
+135 pytest + 107 jest = **242 tests**, all green at the time of this README.

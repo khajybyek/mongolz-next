@@ -36,7 +36,7 @@ interface KeySpec {
 
 const SPECS: Record<string, KeySpec> = {
   ML_ENCRYPTION_KEY: { name: "ML_ENCRYPTION_KEY", provider: "railway", encoding: "base64url", bytes: 32, prevName: "ML_ENCRYPTION_KEY_PREV" },
-  CAMERA_URL_KEY: { name: "CAMERA_URL_KEY", provider: "vercel", encoding: "base64", bytes: 32 },
+  CAMERA_URL_KEY: { name: "CAMERA_URL_KEY", provider: "vercel", encoding: "base64", bytes: 32, prevName: "CAMERA_URL_KEY_PREV" },
   STREAM_TICKET_SECRET: { name: "STREAM_TICKET_SECRET", provider: "vercel", encoding: "base64url", bytes: 32 },
   REAUTH_COOKIE_SECRET: { name: "REAUTH_COOKIE_SECRET", provider: "vercel", encoding: "base64url", bytes: 32 },
   SESSION_PIN_SECRET: { name: "SESSION_PIN_SECRET", provider: "vercel", encoding: "base64url", bytes: 32 },
@@ -137,7 +137,7 @@ function main() {
   }
 
   const newValue = generate(spec.bytes, spec.encoding);
-  console.log(`  new value: ${newValue.slice(0, 6)}…${newValue.slice(-4)}`);
+  console.log(`  new value generated (${newValue.length} chars; not printed).`);
 
   if (spec.prevName && current) {
     console.log(`  preserving previous value as ${spec.prevName} (dual-key rotation).`);
@@ -152,6 +152,9 @@ function main() {
     console.log("  vercel deploy --prod --yes");
   } else {
     console.log("  cd ml-service && railway up --detach");
+  }
+  if (spec.name === "CAMERA_URL_KEY") {
+    console.log("  npm run encrypt:camera-urls -- --reencrypt   # re-seal rows under the retired key (repeat until 0)");
   }
   if (spec.prevName) {
     console.log(`  # After all old data re-encrypted, run with --finalize to drop ${spec.prevName}`);

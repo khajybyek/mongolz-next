@@ -52,3 +52,16 @@ CLAUDE.md
 thesis/
 
 .claude/
+
+# iCloud Drive "name 2" duplicates (see scripts/heal-icloud.sh)
+* 2
+* 2.*
+* 2/
+**/* 2
+**/* 2.*
+**/* 2/
+
+# Test artefacts
+playwright-report/
+test-results/
+coverage/

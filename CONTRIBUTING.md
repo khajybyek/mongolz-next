@@ -92,7 +92,7 @@ the existing 0001-0008 as templates. ADRs are immutable once merged.
 ## Code style
 
 - TypeScript: `eslint .` + `tsc --noEmit` clean.
-- Python: `ruff` (config in `ml-service/pyproject.toml`) + `pytest`.
+- Python: `python -m pyflakes` (ruff is not wired into CI yet) (config in `ml-service/pyproject.toml`) + `pytest`.
 - SQL: lower-case keywords in migrations, indented by 2 spaces.
 - No `// TODO` without a linked issue number.
 - No `console.log` — use `lib/log.ts` so logs end up structured.
@@ -143,4 +143,4 @@ their respective `*.nosync` siblings and re-creates the symlinks.
 
 - Defense panel feedback / capstone questions: open an issue.
 - Security issue: **do not** open a public issue. Email
-  `admin@mongolz.local` (see `app/.well-known/security.txt`).
+  `khajybyek@gmail.com` (see `app/.well-known/security.txt`).

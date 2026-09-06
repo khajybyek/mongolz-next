@@ -78,7 +78,7 @@ controlled test devices.
 |---|---|
 | Is processing strictly necessary for the stated purpose? | Yes — masked video alone proves the algorithm works; encrypted-original retention is necessary only because the use case requires post-hoc selective reveal |
 | Are there less intrusive ways to achieve the purpose? | No — k-anonymity-only solutions cannot demonstrate a recovery workflow which is the project's thesis |
-| Is data minimised? | Yes — masked-at-capture means raw frames never persist outside encryption; embeddings stored only for the suspects feature; audit log only stores what's needed for accountability |
+| Is data minimised? | Yes — the original is persisted only AES-256-GCM encrypted and the blurred view is derived at request time (ADR 0010); face crops are sealed per face (ADR 0009); embeddings stored only for the suspects feature; audit log only stores what's needed for accountability |
 | How long is data retained? | Configurable per `retention_policies` table; default 90 days for masked recordings + revealed outputs; sweep cron `sweep_retention()` enforces |
 | Is consent collected? | Camera consent table (`camera_consent` migration 20260516070053) records explicit consent per camera deployment; capstone deployment is on private test devices belonging to the project owner |
 

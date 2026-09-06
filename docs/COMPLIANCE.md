@@ -12,7 +12,7 @@ qualified DPO and conduct a full audit.
 
 | Data category | Source | Purpose | Retention |
 |---|---|---|---|
-| Facial images (raw) | Camera capture | One-time embedding extraction | **Never stored** — discarded after embedding |
+| Facial images (raw) | Camera capture | Encrypted original for lawful reveal (4-eyes); per-face crop sealed with a hash-chain key | **Encrypted at rest only** (AES-256-GCM; no plaintext frame or crop persisted since Tier 2) |
 | Facial embeddings (512-dim ArcFace) | Derived | Suspect matching, dedup | Until subject erasure (GDPR Art. 17) |
 | Encrypted recordings | Camera capture | Evidence trail | Default 30 days, configurable per retention policy |
 | Alerts (suspect match events) | System-generated | Operator review | Default 90 days |
@@ -32,10 +32,10 @@ qualified DPO and conduct a full audit.
 | **Art. 13/14** Information | Privacy notice at signup | Provided on the public landing (`/`) — Korean title + tagline. Full notice TBD |
 | **Art. 15** Access | Subject access request | `/api/gdpr/export` endpoint returns all rows tagged with the requester's email |
 | **Art. 16** Rectification | Update incorrect data | `/users` admin form |
-| **Art. 17** Erasure | "Right to be forgotten" | `/privacy` self-service page + `/api/gdpr/erase` |
+| **Art. 17** Erasure | "Right to be forgotten" | `/privacy` self-service page + `/api/gdpr/delete` |
 | **Art. 20** Portability | Machine-readable export | `/api/gdpr/export` returns JSON; CSV available via `/api/audit/export` (admin) |
 | **Art. 22** Automated decisions | Human-in-the-loop on alerts | Reveal flow requires 4-eyes approval; no automated enforcement |
-| **Art. 25** Privacy by design | Mask-then-encrypt pipeline | Cubist mosaic applied before storage; AES-256-GCM on originals |
+| **Art. 25** Privacy by design | Encrypt-at-rest + mask-at-view pipeline (ADR 0010) | Originals AES-256-GCM encrypted; the blurred view is derived at request time and never persisted; face crops sealed per face (ADR 0009) |
 | **Art. 30** Records of processing | This document + `audit_log` | Maintained |
 | **Art. 32** Security of processing | RLS, AES-256, TOTP, audit hash-chain | See [SECURITY.md](../SECURITY.md) + CLAUDE.md `Security Features` |
 | **Art. 33/34** Breach notification | 72-hour rule | Process documented in [docs/BREAK_GLASS.md](BREAK_GLASS.md). 3rd-party SIEM not yet integrated |
@@ -67,7 +67,7 @@ qualified DPO and conduct a full audit.
 | **Art. 39-7** Right not to be subject to automated decisions | 4-eyes reveal | Implemented |
 
 **Capstone defense talking points (in Korean panel):**
-- "익명화는 캡처 시점에 수행됩니다" — anonymization is performed at capture time, not retrospectively.
+- "원본은 암호화되어 저장되고, 열람 시점에 비식별화됩니다" — the original is stored encrypted and anonymised at view time (ADR 0010); un-blurring requires 4-eyes approval and is audit-logged.
 - "원본은 AES-256-GCM 으로 암호화되며, 4-eyes 승인 후에만 복원됩니다" — originals are encrypted; only revealed after 4-eyes approval.
 - "모든 권한 있는 액세스는 해시 체인 감사 로그에 기록됩니다" — every privileged access is recorded in a hash-chained audit log.
 

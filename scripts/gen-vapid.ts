@@ -6,7 +6,7 @@
 import webpush from "web-push";
 
 const keys = webpush.generateVAPIDKeys();
-const subject = process.env.VAPID_SUBJECT ?? "mailto:admin@mongolz.local";
+const subject = process.env.VAPID_SUBJECT ?? "mailto:khajybyek@gmail.com";
 
 process.stdout.write(`# Copy these into Vercel env (Production scope):\n`);
 process.stdout.write(`NEXT_PUBLIC_VAPID_PUBLIC_KEY=${keys.publicKey}\n`);

@@ -68,7 +68,7 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 
 ### Q10. "How does the AES-256 key derivation work?"
 
-> "Per-recording HKDF derivation. The master key `ML_ENCRYPTION_KEY` is a 256-bit symmetric key from Railway env. For each new recording, the ML service derives a unique sub-key via HKDF-SHA256 with a random 16-byte salt stored in the recording metadata. So even with the master key compromised + access to one recording's salt, the attacker only decrypts that one recording.
+> "Per-recording HKDF derivation. The master key `ML_ENCRYPTION_KEY` is a 256-bit symmetric key from Railway env. For each new recording, the ML service derives a unique sub-key via HKDF-SHA256 with a fixed application salt (`mongolz-recording-v1`) and the recording UUID as `info` — deterministic, so nothing key-related is stored next to the ciphertext. So even with the master key compromised + access to one recording's salt, the attacker only decrypts that one recording.
 >
 > Key rotation procedure is dual-key — `ML_ENCRYPTION_KEY_PREV` holds the previous key so old recordings remain decryptable while new ones use the new key. Cron at `/api/cron/key-rotation-check` reminds operators weekly via audit + Slack alert."
 
@@ -80,7 +80,7 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 
 > "Capstone-scope compliance documented in `docs/COMPLIANCE.md`. Mapped to GDPR Articles:
 > - **Art. 5** (data minimization) — raw frames discarded after embedding extraction.
-> - **Art. 15 / 17 / 20** (access / erasure / portability) — `/privacy` self-service page + `/api/gdpr/export` + `/api/gdpr/erase`.
+> - **Art. 15 / 17 / 20** (access / erasure / portability) — `/privacy` self-service page + `/api/gdpr/export` + `/api/gdpr/delete`.
 > - **Art. 25** (privacy by design) — Cubist mosaic at capture, AES-256-GCM on originals.
 > - **Art. 30** (records of processing) — hash-chained `audit_log`.
 > - **Art. 32** (security of processing) — full security stack documented.
@@ -92,7 +92,7 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 ### Q12. "Korean PIPA compliance?"
 
 > "Same `docs/COMPLIANCE.md` maps to PIPA Articles 15 / 17 / 23 / 28-2 / 29 / 35 / 36 / 39. Three Korean talking points:
-> - 익명화는 캡처 시점에 수행됩니다 (anonymization at capture time).
+> - 원본은 암호화되어 저장되고 열람 시점에 비식별화됩니다 (encrypted at rest, anonymised at view time — ADR 0010).
 > - 원본은 AES-256-GCM 으로 암호화되며, 4-eyes 승인 후에만 복원됩니다 (originals encrypted, 4-eyes reveal).
 > - 모든 권한 있는 액세스는 해시 체인 감사 로그에 기록됩니다 (privileged access in hash-chained audit log)."
 

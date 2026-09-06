@@ -10,6 +10,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   lint-and-build:
     name: Lint & Build (Next.js)
@@ -23,7 +26,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci --legacy-peer-deps
+      - run: npm ci
 
       - name: Lint
         run: npm run lint
@@ -31,8 +34,10 @@ jobs:
       - name: Migration safety lint
         run: npm run lint:migrations
 
+      # Same command as local `npm run typecheck`: `next typegen` first so
+      # typedRoutes errors are caught here, not only by `next build`.
       - name: Type check
-        run: npx tsc --noEmit --incremental false
+        run: npm run typecheck
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
@@ -58,10 +63,10 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci --legacy-peer-deps
+      - run: npm ci
 
       - name: Run tests
-        run: npx jest --ci --passWithNoTests
+        run: npx jest --ci
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
@@ -92,5 +97,5 @@ jobs:
           SUPABASE_URL: https://placeholder.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: placeholder
           ML_SERVICE_TOKEN: test-token
-          ML_ENCRYPTION_KEY: dGVzdGtleXRlc3RrZXl0ZXN0a2V5dGVzdGtleXk=
+          ML_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
           HLS_DIR: /tmp/mongolz-hls

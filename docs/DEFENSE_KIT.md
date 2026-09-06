@@ -56,7 +56,7 @@ Lead with these if the panel gives you a wide-open question:
 
 ### Pillar 1 — Privacy by design, not retrofit
 
-"Anonymization happens **at capture time**, not in post-processing. The Cubist Mosaic is applied before the bytes ever hit storage. There's no window where a raw frame exists on disk."
+"Anonymization happens **at capture time**, not in post-processing. The Cubist Mosaic is applied before the bytes ever hit storage. There's raw frames exist only transiently in the ML worker; nothing plaintext is persisted (encrypted original + view-time masking, ADR 0010)."
 
 ### Pillar 2 — Defense in depth
 

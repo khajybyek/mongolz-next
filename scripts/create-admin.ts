@@ -44,16 +44,22 @@ if (ROLE !== "admin" && ROLE !== "viewer" && ROLE !== "auditor") {
   process.exit(1);
 }
 
-// Default-уудыг role-ээс хамаарч сонгоно
+// Default e-mails per role; the password is NEVER defaulted (a known
+// default is a credential leak the moment the repo is readable).
 const DEFAULTS = {
-  admin: { email: "admin@mongolz.local", password: "Mongolz!", name: "Admin" },
-  viewer: { email: "viewer@mongolz.local", password: "viewer123", name: "Viewer" },
-  auditor: { email: "auditor@mongolz.local", password: "auditor123", name: "Auditor" },
+  admin: { email: "admin@mongolz.local", name: "Admin" },
+  viewer: { email: "viewer@mongolz.local", name: "Viewer" },
+  auditor: { email: "auditor@mongolz.local", name: "Auditor" },
 }[ROLE];
 
 const USER_EMAIL = process.env.USER_EMAIL ?? process.env.ADMIN_EMAIL ?? DEFAULTS.email;
-const USER_PASSWORD = process.env.USER_PASSWORD ?? process.env.ADMIN_PASSWORD ?? DEFAULTS.password;
+const USER_PASSWORD = process.env.USER_PASSWORD ?? process.env.ADMIN_PASSWORD ?? "";
 const FULL_NAME = process.env.FULL_NAME ?? DEFAULTS.name;
+
+if (USER_PASSWORD.length < 12) {
+  console.error("❌ USER_PASSWORD (≥12 тэмдэгт) заавал: USER_PASSWORD='…' npm run create-admin");
+  process.exit(1);
+}
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   console.error("❌ NEXT_PUBLIC_SUPABASE_URL болон SUPABASE_SERVICE_ROLE_KEY-ээ .env.local-д тохируул");

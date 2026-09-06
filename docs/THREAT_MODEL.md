@@ -49,7 +49,7 @@ This document applies STRIDE to MONGOLZ Security's three trust zones:
 | Username enumeration | `email_for_username` RPC service-role only (revoked from anon/authenticated), generic 400 on /login | ✓ |
 | ML-service identity spoofing | `hmac.compare_digest` on `ML_SERVICE_TOKEN` bearer, dual-key rotation supported | ✓ |
 | Webhook destination poisoning | DNS-rebinding defense (pre + post lookup, private-IP regex), HTTPS-only | ✓ |
-| Spoofed Telegram bot | `TELEGRAM_WEBHOOK_SECRET` HMAC-signed payload check | ✓ |
+| Spoofed Telegram bot | Edge function accepts only a gateway-verified service-role JWT (DB trigger) or the static `x-webhook-secret` (constant-time compare) | ✓ |
 
 ### Tampering
 
@@ -132,7 +132,7 @@ This document applies STRIDE to MONGOLZ Security's three trust zones:
 
 | # | Risk | Why accepted | Mitigation |
 |---|---|---|---|
-| R1 | Service-role key in Vercel env | Standard Vercel pattern; rotation procedure documented | `npm run rotate:keys -- --key=ML_SERVICE_TOKEN`, `BREAK_GLASS.md` §4 |
+| R1 | Service-role key in Vercel env | Standard Vercel pattern; rotation procedure documented | manual procedure in CLAUDE.md "ML_SERVICE_TOKEN rotation" (Railway + Vercel), `BREAK_GLASS.md` §4 |
 | R2 | No external annual pentest | Capstone budget; replaced by continuous SAST (Semgrep 681 rules) + secret scanning (trufflehog) + DAST (Nuclei + ZAP weekly) + multi-agent code review | `PENTEST_REPORT.pdf` 9-page consolidated |
 | R3 | Supabase Pro "leaked password" check disabled | Free tier limitation | Strong-password policy (8+ chars, complexity) + rate limit + lockout alert |
 | R4 | No multi-tenant org_id | Out of capstone scope | Tracked in `docs/FUTURE.md`; super-admin DB trigger pattern is the first step toward role isolation |

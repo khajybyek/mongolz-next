@@ -13,7 +13,7 @@ and [COMPLIANCE.md](COMPLIANCE.md) (legal mapping).
 | **RPO** (data loss tolerance) | ≤ 24 h | Supabase Postgres | Daily Vercel-Cron `backup-verify` + Supabase point-in-time backup (Pro tier feature; falls back to manual `pg_dump` on Free). |
 | **RPO** — alerts only | ≤ 5 min | Realtime + audit_log | Hash-chained audit means tampering is detectable even mid-window. |
 | **RTO** (downtime tolerance) | ≤ 60 min | Vercel + Supabase + Railway | Restore from backup ZIP + redeploy each tier. Drill timed at 35-50 min on staging copy. |
-| **MTTD** (detect) | ≤ 5 min | Sentry + `/api/uptime` + `/api/cron/error-rate` | External monitor pings uptime; Sentry catches `Sentry.captureRequestError` on every server error. |
+| **MTTD** (detect) | ≤ 5 min | Sentry + `/api/uptime` + `/api/monitoring/error-rate` | External monitor pings uptime; Sentry catches `Sentry.captureRequestError` on every server error. |
 | **MTTR** (resolve) | ≤ 30 min for P1 | Operator + this runbook |  |
 
 P1 = "users cannot log in" OR "live recording paused" OR "audit chain broken".
@@ -32,7 +32,7 @@ Signals that should trigger a response:
 - `/api/uptime` external probe → `503` for ≥ 2 consecutive checks
 - `audit_log` row with action starting `BREAK_GLASS_*`, `ADMIN_COUNT_ZERO`,
   `REAUTH_TOTP_REPLAY_BLOCKED`, `KEY_ROTATION_DUE`
-- User report via security@mongolz.local (security.txt)
+- User report via khajybyek@gmail.com (security.txt)
 
 ### 2.2 Triage (within 5 min)
 
@@ -82,7 +82,7 @@ Per-incident playbooks:
 #### d. Audit chain broken
 
 ```sql
-SELECT * FROM verify_audit_chain() WHERE NOT chain_ok LIMIT 20;
+SELECT * FROM verify_audit_chain() LIMIT 20;   -- returns ONLY broken rows; empty = healthy
 ```
 
 Preserve as evidence — **do not backfill**. See [BREAK_GLASS.md §5](BREAK_GLASS.md).
@@ -161,7 +161,7 @@ Run on a staging copy every semester.
 3. **Load rows** (in dependency order)
 
    ```bash
-   npx tsx scripts/restore-from-backup.ts ./restore
+   npx tsx scripts/restore-from-backup.ts ./restore --apply   # dry-run without --apply
    ```
 
    The script inserts in this order:
@@ -191,7 +191,7 @@ Run on a staging copy every semester.
 6. **Verify**
 
    ```sql
-   SELECT count(*) FROM verify_audit_chain() WHERE NOT chain_ok;
+   SELECT count(*) FROM verify_audit_chain();   -- 0 = healthy
    -- expect 0
    ```
 
@@ -252,7 +252,7 @@ To trigger a one-off DAST scan: GitHub Actions → Security workflow → `Run wo
 | Role | Contact |
 |---|---|
 | Owner | khajybyek@gmail.com |
-| Security disclosure | security@mongolz.local → see SECURITY.md |
+| Security disclosure | khajybyek@gmail.com → see SECURITY.md |
 | Supabase support | Supabase Dashboard → Help |
 | Railway support | Railway Dashboard → Help |
 | Vercel support | Vercel Dashboard → Help |

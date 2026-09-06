@@ -86,7 +86,7 @@ After rotation, optionally re-encrypt historical recordings with a maintenance s
 If `verify_audit_chain()` returns ANY mismatch:
 
 ```sql
-SELECT * FROM verify_audit_chain() WHERE NOT chain_ok;
+SELECT * FROM verify_audit_chain();   -- returns ONLY broken rows; empty = healthy
 ```
 
 Each mismatch row is a tampering indicator. Preserve forensic state:
