@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import math
 import os
 import shutil
 import subprocess
@@ -269,6 +270,10 @@ def _ffmpeg_hls_writer(out_dir: str, width: int, height: int, fps: int) -> subpr
             "-i", "-",
             "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
             "-pix_fmt", "yuv420p",
+            # HLS can only cut segments at keyframes; x264's default GOP (250
+            # frames ≈ 16 s at 15 fps) made the first playlist appear after
+            # ~20 s with 8 s segments. A 2 s GOP matches hls_time.
+            "-g", str(max(1, fps * 2)), "-keyint_min", str(max(1, fps * 2)), "-sc_threshold", "0",
             "-f", "hls",
             "-hls_time", "2",
             "-hls_list_size", "6",
@@ -1025,6 +1030,11 @@ class RecordingSession:
                     sim = float(m["similarity"])
                 except (TypeError, ValueError):
                     sim = 0.0
+                # A suspect with a zero / corrupt embedding yields NaN cosine
+                # similarity from the RPC and would "match" every face.
+                if not math.isfinite(sim) or sim < ALERT_THRESHOLD:
+                    log.warning("Suspect %s: non-finite or sub-threshold similarity (%r) — ignored", m.get("id"), m.get("similarity"))
+                    continue
                 last = self.last_alert_at.get(m["id"], 0)
                 if now - last >= ALERT_COOLDOWN_SEC:
                     self.last_alert_at[m["id"]] = now
