@@ -5,6 +5,7 @@ import { ShellProvider } from "@/components/shell-context";
 import { ToastProvider } from "@/components/ui/toast";
 import { RealtimeAlerts } from "@/components/realtime-alerts";
 import { CommandPalette } from "@/components/command-palette";
+import { VitalsReporter } from "@/components/vitals-reporter";
 import { requireUser } from "@/lib/supabase/auth";
 import { getServerLang } from "@/lib/i18n/server";
 import { LangProvider } from "@/lib/i18n/client";
@@ -76,6 +77,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               />
             )}
             <CommandPalette role={profile.role} />
+            {/* Web-vitals beacon needs a session (/api/vitals is auth-gated), so it
+                lives inside the shell instead of the public root layout. */}
+            <VitalsReporter />
           </div>
         </ToastProvider>
       </ShellProvider>

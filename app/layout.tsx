@@ -5,7 +5,6 @@ import { ThemeProvider } from "@/lib/theme/client";
 import { getServerTheme } from "@/lib/theme/server";
 import { getServerLang } from "@/lib/i18n/server";
 import { ServiceWorkerRegister } from "@/components/sw-register";
-import { VitalsReporter } from "@/components/vitals-reporter";
 import "./globals.css";
 
 // Self-hosted at build time by next/font (no runtime request to Google, so
@@ -67,7 +66,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <ThemeProvider initial={theme}>{children}</ThemeProvider>
         <SpeedInsights />
         <ServiceWorkerRegister />
-        <VitalsReporter />
       </body>
     </html>
   );
