@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
+import { useT } from "@/lib/i18n/client";
 
 interface Props {
   email: string;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function EraseForm({ email, role, totpEnabled }: Props) {
+  const { t } = useT();
   const router = useRouter();
   const [confirm, setConfirm] = useState("");
   const [totp, setTotp] = useState("");
@@ -31,11 +33,11 @@ export function EraseForm({ email, role, totpEnabled }: Props) {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed");
+      if (!res.ok) throw new Error(data.error ?? t("set_erase_failed"));
       // Logged out — go to login
       router.push(("/login?error=" + encodeURIComponent("Account erased")) as never);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? e.message : t("ui_error_title"));
     } finally {
       setBusy(false);
     }
@@ -46,42 +48,30 @@ export function EraseForm({ email, role, totpEnabled }: Props) {
       <div className="flex items-start gap-2.5 text-warning">
         <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
         <div className="text-sm leading-relaxed">
-          <p className="font-semibold mb-1">⚠ Энэ үйлдэл буцаашгүй.</p>
+          <p className="font-semibold mb-1">{t("set_erase_irreversible")}</p>
           <ul className="text-xs text-text-soft space-y-1 list-disc list-inside">
-            <li>Профайл устгагдана</li>
-            <li>Auth row устгагдана (нэвтрэх боломжгүй)</li>
-            <li>
-              Audit log нь хадгалагдана — гэхдээ user_id NULL болж anonymise
-              хийгдэнэ
-            </li>
-            <li>Тоглуулсан labels болон reveal job-ууд хадгалагдаж SET NULL</li>
-            <li>Camera permission бүгд цуцлагдана</li>
-            {role === "admin" && (
-              <li>
-                Хэрэв та сүүлчийн admin бол өөр admin томилох хүртэл устгах
-                боломжгүй.
-              </li>
-            )}
+            <li>{t("set_erase_li_profile")}</li>
+            <li>{t("set_erase_li_auth")}</li>
+            <li>{t("set_erase_li_audit")}</li>
+            <li>{t("set_erase_li_labels")}</li>
+            <li>{t("set_erase_li_perms")}</li>
+            {role === "admin" && <li>{t("set_erase_li_last_admin")}</li>}
           </ul>
         </div>
       </div>
 
       <div>
-        <label className="text-xs uppercase tracking-wide text-text-soft mb-1.5 block">
-          Имэйл (баталгаа)
-        </label>
-        <input value={email} disabled className="input opacity-60" />
+        <label className="label">{t("set_erase_email_label")}</label>
+        <input value={email} disabled className="input" />
       </div>
 
       <div>
-        <label className="text-xs uppercase tracking-wide text-text-soft mb-1.5 block">
-          Үнэхээр устгахыг хүсэж байгаагаа баталгаажуулна уу
-        </label>
+        <label className="label">{t("set_erase_confirm_label")}</label>
         <input
           required
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
-          placeholder="DELETE MY ACCOUNT гэж бичнэ үү"
+          placeholder={t("set_erase_confirm_placeholder")}
           className="input"
           autoComplete="off"
         />
@@ -89,9 +79,7 @@ export function EraseForm({ email, role, totpEnabled }: Props) {
 
       {totpEnabled && (
         <div>
-          <label className="text-xs uppercase tracking-wide text-text-soft mb-1.5 block">
-            TOTP 6-digit код
-          </label>
+          <label className="label">{t("set_totp_code_label")}</label>
           <input
             required
             value={totp}
@@ -117,7 +105,7 @@ export function EraseForm({ email, role, totpEnabled }: Props) {
         className="btn-danger w-full"
       >
         {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-        Бүртгэлийг устгах
+        {t("erase_title")}
       </button>
     </form>
   );

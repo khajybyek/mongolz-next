@@ -43,7 +43,7 @@ export function LiveCameraView({ cameras }: { cameras: Camera[] }) {
           IP CCTV
         </ModeBtn>
         <ModeBtn current={mode} value="file" onClick={setMode} icon={Upload}>
-          {t("live_mode_file") || "Файл upload"}
+          {t("live_mode_file")}
         </ModeBtn>
       </div>
 
@@ -71,11 +71,10 @@ function ModeBtn({
   const active = current === value;
   return (
     <button
+      type="button"
       onClick={() => onClick(value)}
-      className={cn(
-        "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition",
-        active ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-text-muted/5"
-      )}
+      aria-pressed={active}
+      className={cn("btn-sm", active ? "btn-secondary text-accent" : "btn-ghost text-text-soft")}
     >
       <Icon className="w-4 h-4" />
       {children}
@@ -300,7 +299,7 @@ function DeviceCameraView() {
     try {
       rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 1_500_000 });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "MediaRecorder дэмжигдээгүй");
+      setError(e instanceof Error ? e.message : t("live_recorder_unsupported"));
       return;
     }
 
@@ -330,7 +329,7 @@ function DeviceCameraView() {
       uploadQueue = uploadQueue
         .then(() => uploadChunk(blob, mime, sessionId, idx, isFinal))
         .catch((e) => {
-          setError(e instanceof Error ? e.message : "Chunk upload алдаа");
+          setError(e instanceof Error ? e.message : t("live_chunk_upload_failed"));
         });
       return uploadQueue;
     };
@@ -353,7 +352,7 @@ function DeviceCameraView() {
         await flushChunk(true);
         setSavedMsg(
           `✓ Session ${sessionId.slice(0, 8)} — ${chunkIndex} chunk · ${duration}s. ` +
-          `Боловсруулалт ажиллаж байна.`,
+          t("live_processing_started"),
         );
       } finally {
         setUploading(false);
@@ -376,9 +375,7 @@ function DeviceCameraView() {
   ) {
     const sizeMB = blob.size / 1024 / 1024;
     if (blob.size > 4 * 1024 * 1024) {
-      throw new Error(
-        `Chunk хэт том (${sizeMB.toFixed(1)}MB). Vercel 4MB лимит.`,
-      );
+      throw new Error(`${t("live_chunk_too_big")} (${sizeMB.toFixed(1)}MB)`);
     }
     const fd = new FormData();
     const ext = mime.includes("mp4") ? "mp4" : "webm";
@@ -402,13 +399,13 @@ function DeviceCameraView() {
         if (text.includes("FUNCTION_INVOCATION_TIMEOUT") || text.includes("__next_error__")) {
           msg =
             res.status === 504
-              ? "ML боловсруулалт хэт удсан (Vercel function timeout). Chunk-ийн size-ыг багасгах эсвэл Pro tier шилжих хэрэгтэй."
-              : `Server алдаа (HTTP ${res.status})`;
+              ? t("live_ml_timeout_long")
+              : `${t("live_server_error")} (HTTP ${res.status})`;
         } else {
           msg = `HTTP ${res.status}`;
         }
       }
-      throw new Error(`Chunk ${chunkIndex} failed: ${msg}`);
+      throw new Error(`Chunk ${chunkIndex} ${t("live_chunk_failed")}: ${msg}`);
     }
   }
 
@@ -454,7 +451,7 @@ function DeviceCameraView() {
           <div className="absolute top-3 right-3 text-2xs font-medium px-2.5 py-1 rounded-full bg-surface/80 backdrop-blur border border-border-strong flex items-center gap-1.5">
             <span className={detectorReady ? "text-accent" : "text-text-muted"}>●</span>
             <span className="text-text-soft">
-              {detectorReady ? `${faceCount} ${t("faces_count_label")}` : "loading…"}
+              {detectorReady ? `${faceCount} ${t("faces_count_label")}` : t("loading_label")}
             </span>
             <span className="text-text-muted uppercase">{detectorBackend}</span>
           </div>
@@ -468,7 +465,7 @@ function DeviceCameraView() {
             value={deviceId}
             onChange={(e) => setDeviceId(e.target.value)}
             disabled={active || !devices.length}
-            className="input"
+            className="select"
           >
             {devices.length === 0 && <option>{t("live_no_devices")}</option>}
             {devices.map((d) => (
@@ -515,7 +512,7 @@ function DeviceCameraView() {
               <button
                 onClick={startRecording}
                 disabled={uploading}
-                className="btn-primary w-full bg-danger hover:bg-danger/90"
+                className="btn-danger w-full"
               >
                 <span className="w-2.5 h-2.5 rounded-full bg-white" />
                 {t("live_rec_start_btn")}
@@ -593,10 +590,10 @@ function PhoneIpWebcamView() {
             value={streamType}
             onChange={(e) => setStreamType(e.target.value as "mjpeg" | "mp4")}
             disabled={active}
-            className="input"
+            className="select"
           >
-            <option value="mjpeg">MJPEG (IP Webcam app default)</option>
-            <option value="mp4">MP4 / WebM stream</option>
+            <option value="mjpeg">{t("live_opt_mjpeg")}</option>
+            <option value="mp4">{t("live_opt_mp4")}</option>
           </select>
         </div>
 
@@ -607,7 +604,7 @@ function PhoneIpWebcamView() {
             onChange={(e) => setUrl(e.target.value)}
             disabled={active}
             placeholder="http://192.168.x.y:8080/video"
-            className="input text-xs"
+            className="input"
           />
         </div>
 
@@ -629,14 +626,13 @@ function PhoneIpWebcamView() {
           </summary>
           <ul className="mt-2 space-y-1 pl-3 list-disc">
             <li>
-              <strong>Android:</strong> "IP Webcam" app (Pavel Khlebovich) суулгаж "Start
-              server" дар → http://phone-ip:8080/video
+              <strong>Android:</strong> {t("live_hint_android")}
             </li>
             <li>
-              <strong>iPhone:</strong> "EpocCam" эсвэл "iVCam" app
+              <strong>iPhone:</strong> {t("live_hint_iphone")}
             </li>
-            <li>Утас болон компьютер нэг WiFi-д байх ёстой</li>
-            <li>App-аас гарч буй URL-ийг яг тэр хэлбэрээр оруулна</li>
+            <li>{t("live_hint_same_wifi")}</li>
+            <li>{t("live_hint_exact_url")}</li>
           </ul>
         </details>
       </div>
@@ -698,12 +694,12 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
       </div>
 
       <div className="card space-y-2">
-        <h2 className="text-2xs uppercase tracking-wide text-text-muted mb-2 flex items-center justify-between">
+        <h3 className="section-title mb-2 flex items-center justify-between">
           {t("live_registered_cctv")}
-          <a href="/cameras" className="text-2xs text-accent hover:underline normal-case">
+          <a href="/cameras" className="link text-2xs normal-case">
             {t("manage_btn")}
           </a>
-        </h2>
+        </h3>
 
         {cameras.length === 0 && (
           <p className="text-xs text-text-muted py-4 text-center">
@@ -727,9 +723,12 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
             </div>
             {active === c.id ? (
               <button
+                type="button"
                 onClick={() => stop(c)}
                 disabled={busy}
-                className="btn-danger text-xs p-1.5"
+                className="btn-icon text-danger"
+                aria-label={t("stop")}
+                title={t("stop")}
               >
                 {busy ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -739,9 +738,12 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
               </button>
             ) : (
               <button
+                type="button"
                 onClick={() => start(c)}
                 disabled={busy}
-                className="btn-primary text-xs p-1.5"
+                className="btn-icon text-accent"
+                aria-label={t("start")}
+                title={t("start")}
               >
                 {busy ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -832,8 +834,8 @@ function FileUploadView() {
             ) {
               msg =
                 res.status === 504
-                  ? "ML боловсруулалт хэт удсан (Vercel function timeout)"
-                  : `Server алдаа (HTTP ${res.status})`;
+                  ? t("live_ml_timeout")
+                  : `${t("live_server_error")} (HTTP ${res.status})`;
             } else {
               msg = `HTTP ${res.status}`;
             }
@@ -846,13 +848,12 @@ function FileUploadView() {
 
       const sizeMB = (file.size / 1024 / 1024).toFixed(1);
       setSavedMsg(
-        `✓ ${file.name} (${sizeMB} MB · ${total} chunks) upload амжилттай. ` +
-          `Server ML processing эхэлсэн — /playback дотроос ~30-60 сек дараа харагдана.`,
+        `✓ ${file.name} (${sizeMB} MB · ${total} chunks) — ${t("live_upload_done")} ${t("live_upload_done_hint")}`,
       );
       setFile(null);
       if (inputRef.current) inputRef.current.value = "";
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload алдаа");
+      setError(e instanceof Error ? e.message : t("live_upload_failed"));
     } finally {
       setUploading(false);
     }
@@ -861,19 +862,18 @@ function FileUploadView() {
   return (
     <div className="card p-6 space-y-4 max-w-2xl">
       <div>
-        <h3 className="font-semibold text-base flex items-center gap-2">
+        <h3 className="section-title flex items-center gap-2">
           <Upload className="w-4 h-4 text-accent" />
-          {t("file_upload_title") || "MP4 / WebM upload"}
+          {t("file_upload_title")}
         </h3>
         <p className="text-sm text-text-soft mt-1">
-          {t("file_upload_desc") ||
-            "Өмнө бичсэн MP4-ийг сонгож upload хийнэ. Жишээ нь RTSP / IP камераас ffmpeg-ээр авсан файл. Chunked upload (3MB) ашиглаж Vercel 4.5MB лимитийг тойрно. Server ML processing автоматаар эхэлнэ — Cubist mosaic blur + ArcFace embedding + AES-256-GCM encryption."}
+          {t("file_upload_desc")}
         </p>
       </div>
 
       <label className="block">
-        <span className="block text-sm font-medium text-text-soft mb-2">
-          {t("file_upload_pick") || "Файл сонгох (MP4 / WebM / MOV)"}
+        <span className="label">
+          {t("file_upload_pick")}
         </span>
         <input
           ref={inputRef}
@@ -886,23 +886,20 @@ function FileUploadView() {
             setError(null);
             setSavedMsg(null);
           }}
-          className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md
-                     file:border-0 file:bg-accent/15 file:text-accent file:font-medium
-                     hover:file:bg-accent/25 file:cursor-pointer
-                     disabled:opacity-50"
+          className="input file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:bg-accent/15 file:text-accent file:font-medium hover:file:bg-accent/25 file:cursor-pointer"
         />
       </label>
 
       {file && (
         <div className="rounded-md bg-text-muted/5 border border-border p-3 text-sm space-y-1">
           <div className="flex justify-between">
-            <span className="text-text-soft">Файл:</span>
+            <span className="text-text-soft">{t("live_file_label")}:</span>
             <span className="font-mono text-xs truncate ml-2 max-w-[280px]">
               {file.name}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-text-soft">Хэмжээ:</span>
+            <span className="text-text-soft">{t("live_size_label")}:</span>
             <span className="font-mono">
               {(file.size / 1024 / 1024).toFixed(2)} MB
             </span>
@@ -924,7 +921,7 @@ function FileUploadView() {
         <div className="space-y-2">
           <div className="flex justify-between text-xs text-text-soft">
             <span>
-              Uploading chunk {chunksDone}/{chunksTotal}…
+              {t("live_uploading_chunk")} {chunksDone}/{chunksTotal}…
             </span>
             <span className="font-mono">{progress}%</span>
           </div>
@@ -941,17 +938,17 @@ function FileUploadView() {
         type="button"
         disabled={!file || uploading}
         onClick={upload}
-        className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        className="btn-primary w-full"
       >
         {uploading ? (
           <>
             <Loader2 className="w-4 h-4 animate-spin" />
-            Uploading…
+            {t("live_uploading")}
           </>
         ) : (
           <>
             <Play className="w-4 h-4" />
-            {t("file_upload_btn") || "Upload + ML process"}
+            {t("file_upload_btn")}
           </>
         )}
       </button>
@@ -970,9 +967,7 @@ function FileUploadView() {
       )}
 
       <div className="text-xs text-text-faint border-t border-border pt-3 mt-2">
-        <strong>Tips:</strong> Vercel Hobby tier-ийн function timeout нь 60
-        секунд. 100MB-аас том файл upload хийвэл chunked процесс илүү
-        найдвартай. RTSP / IP cam-аас ffmpeg-ээр бичих нь тестлэхэд хялбар:
+        <strong>{t("live_tips_label")}</strong> {t("live_tips_text")}
         <code className="block bg-text-muted/5 rounded px-2 py-1 mt-1 font-mono text-2xs">
           ffmpeg -rtsp_transport tcp -i rtsp://user:pass@ip/path -t 30 -c:v copy
           out.mp4

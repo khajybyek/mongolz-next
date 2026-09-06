@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Shield, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 import { TotpPrompt } from "@/components/totp-prompt";
+import { useT } from "@/lib/i18n/client";
 
 interface Props {
   email: string;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
+  const { t } = useT();
   const [enabled, setEnabled] = useState(initialEnabled);
   const [step, setStep] = useState<"idle" | "setup" | "verify" | "disable">("idle");
   const [qr, setQr] = useState<string | null>(null);
@@ -31,12 +33,12 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
     try {
       const res = await fetch("/api/auth/totp/setup", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Setup алдаа");
+      if (!res.ok) throw new Error(data.error ?? t("set_totp_setup_failed"));
       setQr(data.qr_data_uri);
       setSecret(data.secret);
       setStep("verify");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Алдаа");
+      setError(e instanceof Error ? e.message : t("ai_error_generic"));
     } finally {
       setBusy(false);
     }
@@ -52,17 +54,17 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
         body: JSON.stringify({ code }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Шалгах алдаа");
+      if (!res.ok) throw new Error(data.error ?? t("set_totp_verify_failed"));
       setEnabled(true);
       setStep("idle");
       setQr(null);
       setSecret(null);
       setCode("");
-      setSuccess("✓ TOTP 2FA идэвхжсэн!");
+      setSuccess(t("set_totp_enabled_msg"));
       // Server-rendered "must set up TOTP" banner + middleware gate re-evaluate.
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Алдаа");
+      setError(e instanceof Error ? e.message : t("ai_error_generic"));
     } finally {
       setBusy(false);
     }
@@ -83,13 +85,13 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
         setNeedsTotp(true);
         return;
       }
-      if (!res.ok) throw new Error(data.error ?? "Унтраах алдаа");
+      if (!res.ok) throw new Error(data.error ?? t("set_totp_disable_failed"));
       setEnabled(false);
       setStep("idle");
       setPassword("");
-      setSuccess("TOTP унтраагдлаа");
+      setSuccess(t("set_totp_disabled_msg"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Алдаа");
+      setError(e instanceof Error ? e.message : t("ai_error_generic"));
     } finally {
       setBusy(false);
     }
@@ -114,9 +116,9 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
           <Shield className="w-5 h-5" />
         </div>
         <div className="flex-1">
-          <h3 className="font-semibold">TOTP 2-Factor Authentication</h3>
+          <h3 className="section-title">{t("set_totp_title")}</h3>
           <p className="text-xs text-text-muted mt-0.5">
-            Google Authenticator / Authy / 1Password зэрэг app-аар нууцлал нэмэх
+            {t("set_totp_desc")}
           </p>
         </div>
         <span
@@ -124,7 +126,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
             enabled ? "bg-success/15 text-success" : "bg-text-muted/5 text-text-soft"
           }`}
         >
-          {enabled ? "ON" : "OFF"}
+          {enabled ? t("on") : t("off")}
         </span>
       </div>
 
@@ -145,12 +147,12 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
       {step === "idle" && !enabled && (
         <button onClick={startSetup} disabled={busy} className="btn-primary w-full">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
-          Идэвхжүүлэх
+          {t("zones_enable")}
         </button>
       )}
       {step === "idle" && enabled && (
         <button onClick={() => setStep("disable")} className="btn-ghost w-full">
-          Унтраах
+          {t("set_disable")}
         </button>
       )}
 
@@ -158,11 +160,11 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
       {step === "verify" && qr && secret && (
         <div className="space-y-3 border-t border-text-muted/5 pt-3">
           <p className="text-xs text-text-soft leading-relaxed">
-            1. <b>Google Authenticator</b> эсвэл <b>Authy</b>-аа нээ
+            {t("set_totp_step1")}
             <br />
-            2. + дарна → <b>Scan QR code</b>
+            {t("set_totp_step2")}
             <br />
-            3. Доорх QR-ыг сэкэн хийгээд харагдсан 6-digit код тавь
+            {t("set_totp_step3")}
           </p>
           <div className="flex justify-center bg-white p-3 rounded-lg">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -170,7 +172,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
           </div>
           <details className="text-[11px] text-text-muted">
             <summary className="cursor-pointer hover:text-text-soft">
-              QR ажиллахгүй бол энэ secret-ыг гараар оруул
+              {t("set_totp_manual_secret")}
             </summary>
             <code className="block mt-2 p-2 bg-bg-tertiary rounded break-all">
               {secret}
@@ -183,7 +185,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
             maxLength={6}
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-            placeholder="6-digit код"
+            placeholder={t("set_totp_code_placeholder")}
             className="input text-center text-lg tracking-widest"
             autoFocus
           />
@@ -198,7 +200,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
               className="btn-ghost flex-1"
               disabled={busy}
             >
-              Болих
+              {t("cancel")}
             </button>
             <button
               onClick={submitVerify}
@@ -206,7 +208,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
               className="btn-primary flex-1"
             >
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Баталгаажуулах
+              {t("confirm")}
             </button>
           </div>
         </div>
@@ -216,13 +218,13 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
       {step === "disable" && (
         <div className="space-y-3 border-t border-text-muted/5 pt-3">
           <p className="text-xs text-warning">
-            ⚠️ TOTP-г унтрааснаар таны бүртгэл нь нууц үгээр л хамгаалагдана.
+            {t("set_totp_disable_warning")}
           </p>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Нууц үг (баталгаажуулахад)"
+            placeholder={t("set_password_confirm_placeholder")}
             className="input"
             autoFocus
           />
@@ -235,7 +237,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
               className="btn-ghost flex-1"
               disabled={busy}
             >
-              Болих
+              {t("cancel")}
             </button>
             <button
               onClick={submitDisable}
@@ -243,14 +245,14 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
               className="btn-danger flex-1"
             >
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Унтраах
+              {t("set_disable")}
             </button>
           </div>
         </div>
       )}
 
       <p className="text-[10px] text-text-muted leading-relaxed border-t border-text-muted/5 pt-3">
-        Аккаунт: <b>{email}</b> · Role: <b>{role}</b>
+        {t("menu_account")}: <b>{email}</b> · {t("users_role")}: <b>{role}</b>
       </p>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { Eye, MousePointerClick, Check, Loader2, AlertTriangle, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/client";
 
 export interface FaceBox {
   id: string;
@@ -47,6 +48,7 @@ export function VideoWithFaceOverlay({
   /** Notifies the parent when currentTime / duration change. */
   onTimeChange?: (currentTime: number, duration: number) => void;
 }) {
+  const { t } = useT();
   const internalRef = useRef<HTMLVideoElement | null>(null);
   const videoRef = videoElementRef ?? internalRef;
   const [currentTime, setCurrentTime] = useState(0);
@@ -119,7 +121,7 @@ export function VideoWithFaceOverlay({
       {status === "loading" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-black/40 backdrop-blur-sm pointer-events-none">
           <Loader2 className="w-7 h-7 text-accent animate-spin" />
-          <p className="text-xs text-text-soft">Бичлэг бэлтгэж байна…</p>
+          <p className="text-xs text-text-soft">{t("pb_preparing")}</p>
         </div>
       )}
 
@@ -129,18 +131,18 @@ export function VideoWithFaceOverlay({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-sm">
           <AlertTriangle className="w-8 h-8 text-warning" />
           <div className="text-center px-4">
-            <p className="text-sm font-medium text-text">Бичлэг тоглуулах боломжгүй</p>
+            <p className="text-sm font-medium text-text">{t("pb_play_failed")}</p>
             <p className="text-xs text-text-muted mt-1">
-              Сервер бичлэгийг бэлтгэж чадсангүй. Дахин оролдоно уу.
+              {t("pb_play_failed_desc")}
             </p>
           </div>
           <button
             type="button"
             onClick={() => setReloadNonce((n) => n + 1)}
-            className="btn-secondary text-xs"
+            className="btn-secondary btn-sm"
           >
             <RotateCw className="w-3.5 h-3.5" />
-            Дахин оролдох
+            {t("ui_retry")}
           </button>
         </div>
       )}
@@ -186,9 +188,9 @@ export function VideoWithFaceOverlay({
               title={
                 selectMode
                   ? isSelected
-                    ? `#${f.display_no} — сонголтоос хасах`
-                    : `#${f.display_no} — сонгох`
-                  : `#${f.display_no} — энэ хүнийг reveal хийх`
+                    ? `#${f.display_no} — ${t("pb_deselect")}`
+                    : `#${f.display_no} — ${t("pb_select")}`
+                  : `#${f.display_no} — ${t("pb_reveal_this_face")}`
               }
             >
               {/* Дугаар (зүүн дээд буланд) */}
@@ -223,9 +225,9 @@ export function VideoWithFaceOverlay({
                 <Eye className="w-3 h-3 inline mr-0.5" />
                 {selectMode
                   ? isSelected
-                    ? "Хасах"
-                    : "Сонгох"
-                  : "Reveal"}
+                    ? t("pb_deselect")
+                    : t("pb_select")
+                  : t("pb_reveal_btn")}
               </span>
             </button>
           );
@@ -243,8 +245,8 @@ export function VideoWithFaceOverlay({
         >
           <MousePointerClick className="w-3.5 h-3.5 text-accent" />
           {selectMode
-            ? "Олон нүүр сонгож reveal хийх"
-            : "Нүүр дээр click → reveal"}
+            ? t("pb_select_many_title")
+            : t("pb_click_face_hint")}
         </div>
       )}
     </div>

@@ -7,6 +7,8 @@ import { requireAdmin } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { dispatchEvent } from "@/lib/webhooks";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
+import { getT } from "@/lib/i18n/server";
+import { T, type TranslationKey } from "@/lib/i18n/translations";
 
 const EVENTS = ["alert_created", "reveal_completed", "system_health", "audit_critical"] as const;
 
@@ -48,28 +50,31 @@ function isPrivateHost(hostname: string): boolean {
   return PRIVATE_HOST_PATTERNS.some((p) => p.test(h));
 }
 
+// Issue messages are translation keys; createWebhookAction resolves them in
+// the caller's language before returning them to the form.
 function publicHttpsUrl(raw: unknown, ctx: z.RefinementCtx): void {
   if (typeof raw !== "string") {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "URL must be a string" });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "wh_err_url_invalid" });
     return;
   }
   let parsed: URL;
   try {
     parsed = new URL(raw);
   } catch {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid URL" });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "wh_err_url_invalid" });
     return;
   }
   if (parsed.protocol !== "https:") {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "URL must use HTTPS" });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "wh_err_url_https" });
     return;
   }
   if (isPrivateHost(parsed.hostname)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "URL points to a private / internal host (blocked for SSRF)",
-    });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "wh_err_url_private" });
   }
+}
+
+function isTranslationKey(m: unknown): m is TranslationKey {
+  return typeof m === "string" && Object.prototype.hasOwnProperty.call(T, m);
 }
 
 const createSchema = z.object({
@@ -93,7 +98,11 @@ export async function createWebhookAction(formData: FormData) {
     url: formData.get("url"),
     events,
   });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  if (!parsed.success) {
+    const { t } = await getT();
+    const m = parsed.error.issues[0]?.message;
+    return { error: isTranslationKey(m) ? t(m) : t("wh_err_invalid") };
+  }
 
   const signing_secret =
     parsed.data.kind === "generic" ? randomBytes(32).toString("base64url") : null;
@@ -108,7 +117,10 @@ export async function createWebhookAction(formData: FormData) {
     })
     .select("id")
     .single();
-  if (error) return { error: "Could not create webhook" };
+  if (error) {
+    const { t } = await getT();
+    return { error: t("wh_err_create") };
+  }
   await audit(
     "WEBHOOK_CREATE",
     `${created?.id ?? "?"} "${parsed.data.name}" kind=${parsed.data.kind} host=${new URL(parsed.data.url).hostname} events=${parsed.data.events.join(",")}`,

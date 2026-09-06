@@ -87,7 +87,7 @@ export default async function PlaybackPage() {
                           {!r.has_original && (
                             <>
                               <span>·</span>
-                              <span className="text-text-faint">no reveal</span>
+                              <span className="text-text-faint">{t("pb_no_reveal")}</span>
                             </>
                           )}
                         </div>

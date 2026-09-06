@@ -171,7 +171,7 @@ export default async function PlaybackDetailPage({
 
         <div className="space-y-4">
           <div className="card space-y-2">
-            <h3 className="text-xs uppercase tracking-wide text-text-soft mb-2">
+            <h3 className="section-title mb-2">
               {t("rec_info")}
             </h3>
             <Row icon={Calendar} label={t("rec_started")}>{formatDate(rec.started_at)}</Row>
@@ -193,7 +193,7 @@ export default async function PlaybackDetailPage({
 
           {isAdmin ? (
             <div className="card space-y-2">
-              <h3 className="text-xs uppercase tracking-wide text-text-soft mb-2">
+              <h3 className="section-title mb-2">
                 {t("detected_faces_count")} ({detectedFaces.length})
               </h3>
               {detectedFaces.length === 0 ? (
@@ -231,7 +231,7 @@ export default async function PlaybackDetailPage({
               <div className="flex items-start gap-2.5">
                 <Lock className="w-4 h-4 text-warning mt-0.5 shrink-0" />
                 <div className="space-y-1">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-warning">
+                  <h3 className="section-title text-warning">
                     {t("admin_only_label")}
                   </h3>
                   <p className="text-xs text-text-soft leading-relaxed">
@@ -253,7 +253,7 @@ export default async function PlaybackDetailPage({
 
           {isAdmin && revealHistory.length > 0 && (
             <div className="card space-y-2">
-              <h3 className="text-xs uppercase tracking-wide text-text-soft mb-2 flex items-center gap-1.5">
+              <h3 className="section-title mb-2 flex items-center gap-1.5">
                 <History className="w-3.5 h-3.5" />
                 {t("pb_reveal_history_title")} ({revealHistory.length})
               </h3>
@@ -296,16 +296,16 @@ export default async function PlaybackDetailPage({
                     <div className="text-text-muted">
                       {h.requested_email}
                       {h.approved_email && h.approved_email !== h.requested_email && (
-                        <span className="text-success"> · approved by {h.approved_email}</span>
+                        <span className="text-success"> · {t("pb_approved_by")} {h.approved_email}</span>
                       )}
                       {h.rejected_email && (
-                        <span className="text-danger"> · rejected by {h.rejected_email}</span>
+                        <span className="text-danger"> · {t("pb_rejected_by")} {h.rejected_email}</span>
                       )}
                     </div>
                     <div className="text-text-faint">
                       {formatDate(h.created_at)}
                       {h.threshold !== null && (
-                        <span className="text-text-muted"> · threshold {h.threshold}</span>
+                        <span className="text-text-muted"> · {t("pb_threshold")} {h.threshold}</span>
                       )}
                     </div>
                   </li>

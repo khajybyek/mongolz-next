@@ -61,7 +61,7 @@ export function PushSettings() {
     try {
       const keyResp = await fetch("/api/push/public-key");
       const keyJson = await keyResp.json();
-      if (!keyResp.ok) throw new Error(keyJson?.error ?? "no-vapid");
+      if (!keyResp.ok) throw new Error(keyJson?.error ?? t("set_push_no_vapid"));
       const pub = keyJson.publicKey as string;
 
       const reg = await navigator.serviceWorker.ready;
@@ -79,7 +79,7 @@ export function PushSettings() {
 
       const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
       if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
-        throw new Error("invalid subscription");
+        throw new Error(t("set_push_invalid_sub"));
       }
       const post = await fetch("/api/push/subscribe", {
         method: "POST",
@@ -91,7 +91,7 @@ export function PushSettings() {
         }),
       });
       const postJson = await post.json();
-      if (!post.ok) throw new Error(postJson?.error ?? "subscribe failed");
+      if (!post.ok) throw new Error(postJson?.error ?? t("set_push_subscribe_failed"));
       setSuccess(t("push_status_enabled"));
       await refresh();
     } catch (e) {
@@ -108,11 +108,11 @@ export function PushSettings() {
     try {
       const r = await fetch("/api/push/test", { method: "POST" });
       const j = await r.json();
-      if (!r.ok) throw new Error(j?.error ?? "test failed");
+      if (!r.ok) throw new Error(j?.error ?? t("set_push_test_failed"));
       if ((j.delivered ?? 0) === 0) {
-        setError("No deliverable subscriptions yet.");
+        setError(t("set_push_none_deliverable"));
       } else {
-        setSuccess(`Test sent · delivered=${j.delivered}`);
+        setSuccess(`${t("set_push_test_sent")} · delivered=${j.delivered}`);
       }
     } catch (e) {
       setError((e as Error).message);
@@ -130,7 +130,7 @@ export function PushSettings() {
         method: "DELETE",
       });
       const j = await r.json();
-      if (!r.ok) throw new Error(j?.error ?? "delete failed");
+      if (!r.ok) throw new Error(j?.error ?? t("set_push_delete_failed"));
       try {
         const reg = await navigator.serviceWorker.ready;
         const cur = await reg.pushManager.getSubscription();
@@ -151,7 +151,7 @@ export function PushSettings() {
       <div className="flex items-start gap-2">
         <BellRing className="w-4 h-4 mt-0.5 text-accent" />
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold">{t("push_title")}</h3>
+          <h3 className="section-title">{t("push_title")}</h3>
           <p className="text-xs text-text-soft leading-relaxed">{t("push_desc")}</p>
         </div>
       </div>
@@ -169,19 +169,19 @@ export function PushSettings() {
               type="button"
               onClick={enroll}
               disabled={busy === "enroll"}
-              className="btn-primary text-sm"
+              className="btn-primary"
             >
               {busy === "enroll" ? <Loader2 className="w-4 h-4 animate-spin" /> : <BellRing className="w-4 h-4" />}
-              <span className="ml-1.5">{t("push_enable")}</span>
+              <span>{t("push_enable")}</span>
             </button>
             <button
               type="button"
               onClick={sendTest}
               disabled={busy === "test" || subs.filter((s) => s.enabled).length === 0}
-              className="btn-secondary text-sm"
+              className="btn-secondary"
             >
               {busy === "test" ? <Loader2 className="w-4 h-4 animate-spin" /> : <BellOff className="w-4 h-4 rotate-12" />}
-              <span className="ml-1.5">{t("push_test")}</span>
+              <span>{t("push_test")}</span>
             </button>
           </div>
 
@@ -192,9 +192,9 @@ export function PushSettings() {
           {success && <div className="text-xs text-success-ring flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{success}</div>}
 
           {loading ? (
-            <div className="text-xs text-text-muted">…</div>
+            <div className="text-xs text-text-muted">{t("loading_dots")}</div>
           ) : subs.length === 0 ? (
-            <div className="text-xs text-text-muted">—</div>
+            <div className="text-xs text-text-muted">{t("set_push_none")}</div>
           ) : (
             <ul className="divide-y divide-border border border-border rounded">
               {subs.map((s) => (
@@ -209,8 +209,9 @@ export function PushSettings() {
                     type="button"
                     onClick={() => removeSub(s.endpoint, s.id)}
                     disabled={busy === s.id}
-                    className="text-text-muted hover:text-danger-ring p-1"
-                    aria-label="Remove"
+                    className="btn-icon hover:text-danger"
+                    aria-label={t("remove")}
+                    title={t("remove")}
                   >
                     {busy === s.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                   </button>

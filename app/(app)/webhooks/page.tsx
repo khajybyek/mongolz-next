@@ -1,3 +1,4 @@
+import { Webhook } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { requireAdmin } from "@/lib/supabase/auth";
@@ -24,13 +25,13 @@ export default async function WebhooksPage() {
     <>
       <PageHeader
         title={t("webhooks_title")}
-        subtitle={`${hooks?.length ?? 0} · Slack / Discord / generic`}
+        subtitle={`${hooks?.length ?? 0} · ${t("webhooks_subtitle")}`}
       />
 
       <WebhookForm />
 
       {!hooks?.length ? (
-        <Empty message={t("empty")} />
+        <Empty icon={Webhook} message={t("wh_empty")} description={t("wh_empty_desc")} />
       ) : (
         <WebhooksTable
           hooks={hooks.map((h) => ({

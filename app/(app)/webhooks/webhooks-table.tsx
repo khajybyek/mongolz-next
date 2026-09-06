@@ -47,7 +47,7 @@ export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
   }
 
   function remove(h: Hook) {
-    if (!confirm(`"${h.name}" — ${t("delete_confirm")}`)) return;
+    if (!confirm(`"${h.name}" — ${t("wh_delete_confirm")}`)) return;
     runDelete(h.id);
   }
 
@@ -60,8 +60,8 @@ export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
   }
 
   function statusBadge(h: Hook) {
-    if (!h.last_fired_at) return <span className="text-xs text-text-muted">never</span>;
-    if (h.fail_count > 0) return <span className="badge bg-danger/15 text-danger">{h.fail_count} fail</span>;
+    if (!h.last_fired_at) return <span className="text-xs text-text-muted">{t("wh_never")}</span>;
+    if (h.fail_count > 0) return <span className="badge bg-danger/15 text-danger">{h.fail_count} {t("wh_fail")}</span>;
     if (h.last_status && h.last_status >= 200 && h.last_status < 300) {
       return <span className="badge bg-success/15 text-success">{h.last_status}</span>;
     }
@@ -70,47 +70,49 @@ export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
 
   return (
     <>
-    <div className="card overflow-x-auto p-0">
-      <table className="w-full text-sm">
-        <thead className="bg-bg-tertiary/50">
-          <tr className="text-xs uppercase tracking-wide text-text-soft">
-            <th className="px-4 py-2.5 text-left">Нэр</th>
-            <th className="px-4 py-2.5 text-left">Төрөл</th>
-            <th className="px-4 py-2.5 text-left">Event-ууд</th>
-            <th className="px-4 py-2.5 text-left">Сүүлд</th>
-            <th className="px-4 py-2.5 text-left">Статус</th>
-            <th className="px-4 py-2.5 text-right">Үйлдэл</th>
+    <div className="tbl-wrap">
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th>{t("col_name")}</th>
+            <th>{t("camera_type")}</th>
+            <th>{t("wh_col_events")}</th>
+            <th>{t("wh_col_last")}</th>
+            <th>{t("col_status")}</th>
+            <th className="text-right">{t("col_actions")}</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-text-muted/5">
+        <tbody>
           {hooks.map((h) => (
-            <tr key={h.id} className="hover:bg-text-muted/[0.02]">
-              <td className="px-4 py-2.5">
+            <tr key={h.id}>
+              <td>
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${h.enabled ? "bg-success" : "bg-text-faint"}`} />
-                  <span className="font-medium">{h.name}</span>
+                  <span className="font-medium text-text">{h.name}</span>
                 </div>
                 <div className="text-[10px] text-text-muted font-mono truncate max-w-xs">{h.url}</div>
               </td>
-              <td className="px-4 py-2.5">
+              <td>
                 <span className={`badge ${KIND_BG[h.kind]}`}>{h.kind}</span>
               </td>
-              <td className="px-4 py-2.5">
+              <td>
                 <div className="flex flex-wrap gap-1">
                   {h.events.map((e) => (
                     <span key={e} className="badge bg-text-muted/5 text-text-soft text-[10px]">{e}</span>
                   ))}
                 </div>
               </td>
-              <td className="px-4 py-2.5 text-xs text-text-muted">{h.last_fired_at ?? "—"}</td>
-              <td className="px-4 py-2.5">{statusBadge(h)}</td>
-              <td className="px-4 py-2.5">
+              <td className="text-xs text-text-muted">{h.last_fired_at ?? "—"}</td>
+              <td>{statusBadge(h)}</td>
+              <td>
                 <div className="flex items-center justify-end gap-1.5">
                   <button
+                    type="button"
                     disabled={pending}
                     onClick={() => test(h)}
-                    title="Тест явуулах"
-                    className="p-1.5 rounded hover:bg-accent/15 text-text-soft hover:text-accent"
+                    title={t("wh_test")}
+                    aria-label={t("wh_test")}
+                    className="btn-icon hover:text-accent"
                   >
                     {pending && busy?.id === h.id && busy.action === "test" ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -119,10 +121,12 @@ export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
                     )}
                   </button>
                   <button
+                    type="button"
                     disabled={pending}
                     onClick={() => remove(h)}
-                    title="Устгах"
-                    className="p-1.5 rounded hover:bg-danger/15 text-text-soft hover:text-danger"
+                    title={t("delete")}
+                    aria-label={t("delete")}
+                    className="btn-icon hover:text-danger"
                   >
                     {pending && busy?.id === h.id && busy.action === "delete" ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />

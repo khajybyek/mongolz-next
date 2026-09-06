@@ -231,14 +231,14 @@ export function PlaybackPlayer({
               <>
                 <button
                   onClick={() => setSelectMode(true)}
-                  className="btn-ghost text-xs shrink-0"
+                  className="btn-ghost btn-sm shrink-0"
                   disabled={detectedFaces.length === 0}
                   title={detectedFaces.length === 0 ? t("pb_no_faces") : t("pb_select_many_title")}
                 >
                   <ListChecks className="w-3.5 h-3.5" />
                   {t("pb_select_mode_btn")}
                 </button>
-                <button onClick={openManual} className="btn-primary text-xs shrink-0">
+                <button onClick={openManual} className="btn-primary btn-sm shrink-0">
                   <Eye className="w-3.5 h-3.5" />
                   {t("pb_reveal_btn")}
                 </button>
@@ -247,7 +247,7 @@ export function PlaybackPlayer({
               <>
                 <button
                   onClick={exitSelectMode}
-                  className="btn-ghost text-xs shrink-0"
+                  className="btn-ghost btn-sm shrink-0"
                 >
                   <X className="w-3.5 h-3.5" />
                   {t("pb_cancel_btn")}
@@ -255,7 +255,7 @@ export function PlaybackPlayer({
                 <button
                   onClick={openSelected}
                   disabled={selectedIds.size === 0}
-                  className="btn-primary text-xs shrink-0"
+                  className="btn-primary btn-sm shrink-0"
                 >
                   <Eye className="w-3.5 h-3.5" />
                   {t("pb_reveal_btn")} {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}
@@ -268,13 +268,13 @@ export function PlaybackPlayer({
           {selectMode && detectedFaces.length > 0 && (
             <div className="card mt-3">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs uppercase tracking-wide text-text-soft">
+                <h3 className="section-title">
                   {t("pb_all_faces_title")} ({detectedFaces.length}) — {t("pb_click_to_select")}
                 </h3>
                 {selectedIds.size > 0 && (
                   <button
                     type="button"
-                    className="text-[10px] text-text-muted hover:text-text underline"
+                    className="btn-ghost btn-sm"
                     onClick={() => setSelectedIds(new Set())}
                   >
                     {t("pb_clear_selection")}

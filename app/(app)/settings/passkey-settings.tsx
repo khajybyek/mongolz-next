@@ -62,10 +62,10 @@ export function PasskeySettings() {
     try {
       const r = await fetch("/api/auth/passkey");
       const j = await r.json();
-      if (!r.ok) throw new Error(j?.error ?? "Failed to load");
+      if (!r.ok) throw new Error(j?.error ?? t("set_pk_load_failed"));
       setCreds(j.credentials ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
+      setError(e instanceof Error ? e.message : t("set_pk_load_failed"));
     } finally {
       setLoading(false);
     }
@@ -89,7 +89,7 @@ export function PasskeySettings() {
         requireStepUp(enroll);
         return;
       }
-      if (!beginRes.ok) throw new Error(opts?.error ?? "Cannot start");
+      if (!beginRes.ok) throw new Error(opts?.error ?? t("set_pk_cannot_start"));
 
       // 2. Call the browser API. Convert base64url → ArrayBuffer for
       //    `challenge` + `user.id` + each excludeCredentials.id.
@@ -107,7 +107,7 @@ export function PasskeySettings() {
       const cred = (await navigator.credentials.create({ publicKey })) as
         | PublicKeyCredential
         | null;
-      if (!cred) throw new Error("User cancelled");
+      if (!cred) throw new Error(t("set_pk_user_cancelled"));
 
       const att = cred.response as AuthenticatorAttestationResponse;
       const clientDataJSON = bufToB64u(att.clientDataJSON);
@@ -139,11 +139,11 @@ export function PasskeySettings() {
         }),
       });
       const finishJson = await finishRes.json();
-      if (!finishRes.ok) throw new Error(finishJson?.error ?? "Verify failed");
-      setSuccess("Passkey бүртгэгдсэн");
+      if (!finishRes.ok) throw new Error(finishJson?.error ?? t("set_pk_verify_failed"));
+      setSuccess(t("set_pk_enrolled"));
       void load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Enrollment failed");
+      setError(e instanceof Error ? e.message : t("set_pk_enroll_failed"));
     } finally {
       setEnrolling(false);
     }
@@ -160,11 +160,11 @@ export function PasskeySettings() {
         requireStepUp(() => remove(id));
         return;
       }
-      if (!r.ok) throw new Error(j?.error ?? "Delete failed");
-      setSuccess("Passkey устгасан");
+      if (!r.ok) throw new Error(j?.error ?? t("set_pk_delete_failed"));
+      setSuccess(t("set_pk_deleted"));
       void load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Delete failed");
+      setError(e instanceof Error ? e.message : t("set_pk_delete_failed"));
     } finally {
       setDeleting(null);
     }
@@ -178,10 +178,9 @@ export function PasskeySettings() {
           <AlertCircle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
           <div>
             <div className="font-semibold text-warning mb-1">
-              Энэ browser passkey дэмждэггүй
+              {t("set_pk_unsupported_title")}
             </div>
-            WebAuthn API байхгүй — Safari 15+, Chrome 108+, Firefox 122+
-            эсвэл Edge ашиглана уу.
+            {t("set_pk_unsupported_desc")}
           </div>
         </div>
       </div>
@@ -205,15 +204,12 @@ export function PasskeySettings() {
       />
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold flex items-center gap-2">
+          <h3 className="section-title flex items-center gap-2">
             <Fingerprint className="w-4 h-4 text-accent" />
             Passkey
           </h3>
           <p className="text-xs text-text-soft mt-1 max-w-md leading-relaxed">
-            Phishing-эсэргүүцэх hardware-backed login — iCloud Keychain,
-            Windows Hello, Android, YubiKey. PIN / biometric шаардлагатай тул
-            passkey нь өөрөө хоёр дахь фактор болно; нэмэх, устгахад шинэ TOTP
-            баталгаажуулалт ({t("step_up_required")}).
+            {t("set_pk_desc")}
           </p>
         </div>
         <button
@@ -223,7 +219,7 @@ export function PasskeySettings() {
           className="btn-primary btn-sm shrink-0"
         >
           {enrolling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-          Passkey нэмэх
+          {t("set_pk_add")}
         </button>
       </div>
 
@@ -242,11 +238,11 @@ export function PasskeySettings() {
 
       {loading ? (
         <div className="text-xs text-text-muted py-4 text-center">
-          <Loader2 className="w-4 h-4 animate-spin inline" /> Уншиж байна…
+          <Loader2 className="w-4 h-4 animate-spin inline" /> {t("loading_dots")}
         </div>
       ) : creds.length === 0 ? (
         <p className="text-xs text-text-muted py-3 text-center border border-dashed border-border rounded">
-          Passkey бүртгэгдээгүй
+          {t("set_pk_none")}
         </p>
       ) : (
         <ul className="space-y-2">
@@ -258,7 +254,7 @@ export function PasskeySettings() {
               <Fingerprint className="w-4 h-4 text-accent shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-text truncate">
-                  {c.device_name ?? "Unnamed passkey"}
+                  {c.device_name ?? t("set_pk_unnamed")}
                 </div>
                 <div className="text-text-muted">
                   {new Date(c.created_at).toLocaleDateString()} ·{" "}
@@ -269,8 +265,9 @@ export function PasskeySettings() {
                 type="button"
                 onClick={() => remove(c.id)}
                 disabled={deleting === c.id}
-                className="text-text-muted hover:text-danger p-1.5 rounded"
-                title="Устгах"
+                className="btn-icon hover:text-danger"
+                title={t("delete")}
+                aria-label={t("delete")}
               >
                 {deleting === c.id ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />

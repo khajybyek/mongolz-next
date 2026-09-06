@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FaceThumb } from "@/components/face-thumb";
+import { useT } from "@/lib/i18n/client";
 
 interface Suspect {
   id: string;
@@ -61,6 +62,7 @@ export function RevealModal({
   initialTimeWindow?: { start: number; end: number } | null;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const hasInitial = (initialFaceIds?.length ?? 0) > 0;
 
   const [step, setStep] = useState<Step>(hasInitial ? "reauth" : "method");
@@ -142,12 +144,12 @@ export function RevealModal({
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error ?? "Нэвтрэлт амжилтгүй");
+        throw new Error(j.error ?? t("pb_reauth_failed"));
       }
       setPassword("");
       await startRevealJob();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Алдаа");
+      setError(e instanceof Error ? e.message : t("ai_error_generic"));
     } finally {
       setBusy(false);
     }
@@ -178,10 +180,10 @@ export function RevealModal({
     try {
       const res = await fetch("/api/reveal/start", { method: "POST", body: fd });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Reveal эхлүүлж чадсангүй");
+      if (!res.ok) throw new Error(data.error ?? t("pb_reveal_start_failed"));
       setJob({ id: data.job_id, status: data.status, progress: 0 });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Алдаа");
+      setError(e instanceof Error ? e.message : t("ai_error_generic"));
       setStep("method");
     } finally {
       setBusy(false);
@@ -202,7 +204,7 @@ export function RevealModal({
         if (!res.ok) return;
         const data = await res.json();
         if (data.status === "rejected" && !data.error_message) {
-          data.error_message = `Rejected${data.rejected_email ? ` by ${data.rejected_email}` : ""}${data.rejected_reason ? `: ${data.rejected_reason}` : ""}`;
+          data.error_message = `${data.rejected_email ? `${t("pb_rejected_by")} ${data.rejected_email}` : t("pb_rejected")}${data.rejected_reason ? `: ${data.rejected_reason}` : ""}`;
         }
         setJob((prev) => ({ ...prev!, ...data }));
         if (TERMINAL.has(data.status)) {
@@ -229,11 +231,17 @@ export function RevealModal({
           <div className="flex items-center gap-3 min-w-0">
             <h2 className="font-semibold flex items-center gap-2">
               <Lock className="w-4 h-4 text-accent" />
-              Reveal хийх — нууцлалын журамтай
+              {t("pb_modal_title")}
             </h2>
             <RevealAuthorityBadge />
           </div>
-          <button onClick={onClose} className="text-text-soft hover:text-text shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-icon shrink-0"
+            aria-label={t("rt_dismiss")}
+            title={t("rt_dismiss")}
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -250,29 +258,29 @@ export function RevealModal({
                   active={method === "upload"}
                   onClick={() => setMethod("upload")}
                   icon={Upload}
-                  title="Зураг upload"
-                  desc="Хайх хүний зургийг оруулна"
+                  title={t("pb_method_upload")}
+                  desc={t("pb_method_upload_desc")}
                 />
                 <MethodCard
                   active={method === "suspect"}
                   onClick={() => setMethod("suspect")}
                   icon={UserSearch}
-                  title="Сэжигтэн"
-                  desc="Бүртгэлтэй хүнээс сонгох"
+                  title={t("col_suspect")}
+                  desc={t("pb_method_suspect_desc")}
                 />
                 <MethodCard
                   active={method === "detected_face"}
                   onClick={() => setMethod("detected_face")}
                   icon={Users}
-                  title="Илрүүлсэн"
-                  desc="Олон сонгож болно"
+                  title={t("pb_method_detected")}
+                  desc={t("pb_method_detected_desc")}
                 />
               </div>
 
               {method === "upload" && (
                 <div>
-                  <label className="text-xs uppercase tracking-wide text-text-soft mb-1.5 block">
-                    Хайх хүний зураг
+                  <label className="label">
+                    {t("pb_upload_label")}
                   </label>
                   <input
                     type="file"
@@ -287,7 +295,7 @@ export function RevealModal({
                 <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto">
                   {suspects.length === 0 && (
                     <p className="col-span-2 text-xs text-text-muted py-6 text-center">
-                      Сэжигтэн бүртгэгдээгүй. /suspects хуудаснаас нэмнэ үү.
+                      {t("pb_no_suspects")}
                     </p>
                   )}
                   {suspects.map((s) => (
@@ -309,23 +317,23 @@ export function RevealModal({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-text-soft">
-                      Олон ID сонгож зэрэг reveal хийнэ үү{" "}
+                      {t("pb_pick_many_hint")}{" "}
                       <span className="text-accent">({faceIds.size}/{detectedFaces.length})</span>
                     </span>
                     {faceIds.size > 0 && (
                       <button
                         type="button"
                         onClick={() => setFaceIds(new Set())}
-                        className="text-text-muted hover:text-text underline"
+                        className="btn-ghost btn-sm"
                       >
-                        Цэвэрлэх
+                        {t("compare_clear")}
                       </button>
                     )}
                   </div>
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-72 overflow-y-auto">
                     {detectedFaces.length === 0 && (
                       <p className="col-span-full text-xs text-text-muted py-6 text-center">
-                        Энэ бичлэгийн хугацаанд нүүр илрээгүй.
+                        {t("detected_faces_empty")}
                       </p>
                     )}
                     {detectedFaces.map((f) => {
@@ -375,8 +383,8 @@ export function RevealModal({
               )}
 
               <div>
-                <label className="text-xs uppercase tracking-wide text-text-soft mb-1.5 block">
-                  Тааралтын босго: {threshold.toFixed(2)}
+                <label className="label">
+                  {t("threshold")}: {threshold.toFixed(2)}
                 </label>
                 <input
                   type="range"
@@ -387,26 +395,24 @@ export function RevealModal({
                   onChange={(e) => setThreshold(Number(e.target.value))}
                   className="w-full"
                 />
-                <p className="text-[10px] text-text-muted mt-1">
-                  Бага = илүү олон тааралт (false positive магадлал ↑) · Их = чанд тааралт
+                <p className="helper">
+                  {t("pb_threshold_hint")}
                 </p>
               </div>
 
               {recordingDurationSec && recordingDurationSec > 1 && (
                 <div className="space-y-2">
-                  <label className="text-xs uppercase tracking-wide text-text-soft flex items-center justify-between">
-                    <span>Хугацааны хязгаар</span>
+                  <label className="label flex items-center justify-between">
+                    <span>{t("reid_window")}</span>
                     <button
                       type="button"
                       onClick={() => setWindowEnabled((v) => !v)}
                       className={cn(
-                        "text-[10px] px-2 py-0.5 rounded-full transition",
-                        windowEnabled
-                          ? "bg-accent/15 text-accent border border-accent/30"
-                          : "bg-text-muted/5 text-text-muted hover:text-text",
+                        "btn-sm",
+                        windowEnabled ? "btn-success" : "btn-ghost",
                       )}
                     >
-                      {windowEnabled ? "Идэвхтэй" : "Идэвхгүй"}
+                      {windowEnabled ? t("enabled") : t("disabled")}
                     </button>
                   </label>
                   {windowEnabled ? (
@@ -414,7 +420,7 @@ export function RevealModal({
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <div className="text-[10px] text-text-muted mb-1">
-                            Эхлэх — {fmtSec(windowStart)}
+                            {t("pb_window_start")} — {fmtSec(windowStart)}
                           </div>
                           <input
                             type="range"
@@ -432,7 +438,7 @@ export function RevealModal({
                         </div>
                         <div>
                           <div className="text-[10px] text-text-muted mb-1">
-                            Дуусах — {fmtSec(windowEnd)}
+                            {t("pb_window_end")} — {fmtSec(windowEnd)}
                           </div>
                           <input
                             type="range"
@@ -445,18 +451,18 @@ export function RevealModal({
                           />
                         </div>
                       </div>
-                      <p className="text-[10px] text-text-muted">
-                        Энэ хүрээнээс гадуурх frame-ууд бүхэлдээ блюртэй
-                        үлдэнэ — &quot;principle of least privilege&quot;.
-                        Сонгосон хүрээ: <span className="text-accent font-mono">
+                      <p className="helper">
+                        {t("pb_window_note")}{" "}
+                        {t("pb_window_selected")}{" "}
+                        <span className="text-accent font-mono">
                           {fmtSec(windowStart)} → {fmtSec(windowEnd)}
                         </span>{" "}
                         ({windowEnd - windowStart}s / {Math.ceil(recordingDurationSec)}s)
                       </p>
                     </>
                   ) : (
-                    <p className="text-[10px] text-text-muted">
-                      Идэвхгүй үед бичлэгийн бүх хугацаанд reveal хийгдэнэ.
+                    <p className="helper">
+                      {t("pb_window_off_note")}
                     </p>
                   )}
                 </div>
@@ -464,14 +470,14 @@ export function RevealModal({
 
               <div className="flex gap-2 pt-2">
                 <button onClick={onClose} className="btn-ghost flex-1">
-                  Болих
+                  {t("pb_cancel_btn")}
                 </button>
                 <button
                   onClick={continueToReauth}
                   disabled={!canContinue}
                   className="btn-primary flex-1"
                 >
-                  Үргэлжлүүлэх
+                  {t("pb_continue")}
                 </button>
               </div>
             </div>
@@ -483,9 +489,9 @@ export function RevealModal({
               {hasInitial && initialFaces.length > 0 && (
                 <div className="card p-3 bg-accent/5 border-accent/20 space-y-2">
                   <div className="text-xs text-accent font-medium">
-                    Видеоноос сонгосон{" "}
-                    <span className="font-bold">{initialFaces.length}</span> нүүр
-                    дээр reveal хийгдэнэ
+                    {t("pb_selected_from_video")}{" "}
+                    <span className="font-bold">{initialFaces.length}</span>{" "}
+                    {t("pb_faces_will_reveal")}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {initialFaces.map((f) => (
@@ -512,8 +518,7 @@ export function RevealModal({
               <div className="bg-warning/5 border border-warning/30 rounded-lg p-3 text-xs flex gap-2">
                 <Lock className="w-4 h-4 text-warning shrink-0 mt-0.5" />
                 <div className="leading-relaxed">
-                  Reveal хийх нь нууцлалын журамтай үйлдэл. Үргэлжлүүлэхийн тулд
-                  нууц үгээ дахин оруулна уу. Дараагийн 15 минутад дахин асуухгүй.
+                  {t("pb_reauth_note")}
                 </div>
               </div>
 
@@ -521,7 +526,7 @@ export function RevealModal({
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Нууц үг"
+                placeholder={t("login_pass")}
                 autoFocus
                 className="input"
                 disabled={busy}
@@ -541,7 +546,7 @@ export function RevealModal({
                     className="btn-ghost flex-1"
                     disabled={busy}
                   >
-                    Буцах
+                    {t("back")}
                   </button>
                 )}
                 {hasInitial && (
@@ -551,12 +556,12 @@ export function RevealModal({
                     className="btn-ghost flex-1"
                     disabled={busy}
                   >
-                    Болих
+                    {t("pb_cancel_btn")}
                   </button>
                 )}
                 <button type="submit" disabled={busy || !password} className="btn-primary flex-1">
                   {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-                  Баталгаажуулах
+                  {t("confirm")}
                 </button>
               </div>
             </form>
@@ -567,11 +572,9 @@ export function RevealModal({
             <div className="space-y-3 py-6 text-center">
               <ShieldCheck className="w-10 h-10 text-warning mx-auto" />
               <div>
-                <div className="font-medium">2 дахь админы баталгаажуулалт хүлээж байна</div>
+                <div className="font-medium">{t("pb_awaiting_approval")}</div>
                 <div className="text-xs text-text-soft mt-1 max-w-sm mx-auto leading-relaxed">
-                  4-eyes зарчим: нүүр илчлэхээс өмнө <b>өөр нэг админ</b>{" "}
-                  <span className="font-mono">/reveal-approvals</span> хуудаснаас энэ
-                  хүсэлтийг батлах ёстой. Батлагдсаны дараа ML автоматаар ажиллана.
+                  {t("pb_four_eyes_note")}
                 </div>
               </div>
               <div className="text-[10px] text-text-muted font-mono">
@@ -583,9 +586,9 @@ export function RevealModal({
             <div className="space-y-3 py-6 text-center">
               <Loader2 className="w-10 h-10 animate-spin text-accent mx-auto" />
               <div>
-                <div className="font-medium">Reveal боловсруулж байна...</div>
+                <div className="font-medium">{t("pb_processing")}</div>
                 <div className="text-xs text-text-muted mt-1">
-                  Frame бүрд нүүр detect → embedding → блюр харьцуулалт хийнэ
+                  {t("pb_processing_hint")}
                 </div>
               </div>
               {job && (
@@ -612,9 +615,9 @@ export function RevealModal({
                   <div className="bg-success/5 border border-success/30 rounded-lg p-3 flex gap-2 text-sm">
                     <CheckCircle2 className="w-5 h-5 text-success shrink-0" />
                     <div>
-                      <div className="font-medium text-success">Reveal амжилттай!</div>
+                      <div className="font-medium text-success">{t("pb_reveal_success")}</div>
                       <div className="text-xs text-text-soft mt-0.5">
-                        Зөвхөн сонгосон хүний нүүр илэрхий, бусад нь blur-тэй хэвээр
+                        {t("pb_reveal_success_desc")}
                       </div>
                     </div>
                   </div>
@@ -637,10 +640,10 @@ export function RevealModal({
                       className="btn-ghost flex-1"
                     >
                       <Download className="w-4 h-4" />
-                      Татаж авах
+                      {t("download")}
                     </a>
                     <button onClick={onClose} className="btn-primary flex-1">
-                      Хаах
+                      {t("rt_dismiss")}
                     </button>
                   </div>
                 </>
@@ -648,9 +651,9 @@ export function RevealModal({
                 <div className="bg-danger/5 border border-danger/30 rounded-lg p-4 flex gap-2">
                   <AlertTriangle className="w-5 h-5 text-danger shrink-0" />
                   <div>
-                    <div className="font-medium text-danger">Reveal амжилтгүй</div>
+                    <div className="font-medium text-danger">{t("pb_reveal_failed")}</div>
                     <div className="text-xs text-text-soft mt-0.5">
-                      {job.error_message ?? "Тодорхойгүй алдаа"}
+                      {job.error_message ?? t("ui_error_title")}
                     </div>
                   </div>
                 </div>
@@ -664,11 +667,12 @@ export function RevealModal({
 }
 
 function Stepper({ current }: { current: Step }) {
+  const { t } = useT();
   const steps: { key: Step; label: string }[] = [
-    { key: "method", label: "1. Хүн сонгох" },
-    { key: "reauth", label: "2. Auth" },
-    { key: "processing", label: "3. Боловсруулах" },
-    { key: "done", label: "4. Дуусаx" },
+    { key: "method", label: t("pb_step_pick") },
+    { key: "reauth", label: t("pb_step_auth") },
+    { key: "processing", label: t("pb_step_process") },
+    { key: "done", label: t("pb_step_done") },
   ];
   const idx = steps.findIndex((s) => s.key === current);
 
@@ -703,6 +707,7 @@ function SideBySidePlayer({
   maskedUrl: string;
   revealedUrl: string;
 }) {
+  const { t } = useT();
   const maskedRef = useRef<HTMLVideoElement | null>(null);
   const revealedRef = useRef<HTMLVideoElement | null>(null);
   const lockRef = useRef(false);
@@ -758,8 +763,8 @@ function SideBySidePlayer({
   return (
     <div className="grid grid-cols-2 gap-2">
       <div className="space-y-1">
-        <div className="text-[10px] uppercase tracking-wide text-text-muted font-medium">
-          Masked (original)
+        <div className="section-title">
+          {t("pb_masked_label")}
         </div>
         <video
           ref={maskedRef}
@@ -771,8 +776,8 @@ function SideBySidePlayer({
         />
       </div>
       <div className="space-y-1">
-        <div className="text-[10px] uppercase tracking-wide text-success font-medium">
-          Revealed
+        <div className="section-title text-success">
+          {t("pb_revealed_label")}
         </div>
         <video
           ref={revealedRef}
@@ -829,6 +834,7 @@ function MethodCard({
  *   level 0 → "Director (all)"   level N → "Level N" (scope-limited)
  */
 function RevealAuthorityBadge() {
+  const { t } = useT();
   const [level, setLevel] = useState<number | null>(null);
   useEffect(() => {
     let alive = true;
@@ -854,12 +860,12 @@ function RevealAuthorityBadge() {
       )}
       title={
         isDirector
-          ? "Director — бүх нүүрийг reveal хийх эрхтэй (chain level 0)"
-          : `Reveal authority L${level} — зөвхөн chain_index ≥ ${level} нүүрсийг unseal хийнэ`
+          ? t("pb_authority_director_hint")
+          : `${t("pb_authority_level")} L${level} — ${t("pb_authority_min_chain")} ${level}`
       }
     >
       <Lock className="w-3 h-3" />
-      {isDirector ? "Director" : `Level ${level}`}
+      {isDirector ? "Director" : `${t("pb_level")} ${level}`}
     </span>
   );
 }

@@ -108,8 +108,8 @@ export function FaceTimeline({
   return (
     <div className="card mt-3 space-y-3">
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
-        <h3 className="text-xs uppercase tracking-wide text-text-soft">
-          {title ?? "Face timeline"}
+        <h3 className="section-title">
+          {title ?? t("pb_face_timeline")}
         </h3>
         <div className="flex items-center gap-2">
           {onRevealRange && sortedFaces.length >= 1 && (
@@ -127,7 +127,7 @@ export function FaceTimeline({
                 );
               }}
               title={t("pb_reveal_range_hint")}
-              className="inline-flex items-center gap-1 text-2xs px-2 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20 transition"
+              className="btn-outline btn-sm"
             >
               <Scissors className="w-3 h-3" />
               {t("pb_reveal_range_btn")}
@@ -145,7 +145,7 @@ export function FaceTimeline({
         onClick={handleTrackClick}
         role="slider"
         tabIndex={0}
-        aria-label="Seek timeline"
+        aria-label={t("pb_seek_timeline")}
         aria-valuemin={0}
         aria-valuemax={effectiveDuration}
         aria-valuenow={currentTime}
@@ -170,7 +170,7 @@ export function FaceTimeline({
                 onSeek(f.time_in_video_sec);
               }}
               title={`#${f.display_no} · ${fmt(f.time_in_video_sec)}`}
-              aria-label={`Jump to face ${f.display_no} at ${fmt(f.time_in_video_sec)}`}
+              aria-label={`${t("pb_jump_to_face")} #${f.display_no} · ${fmt(f.time_in_video_sec)}`}
               className={cn(
                 "absolute top-0.5 bottom-0.5 w-1 rounded-full transition",
                 activeFaceId === f.id
@@ -207,7 +207,7 @@ export function FaceTimeline({
                 >
                   <FaceThumb
                     faceId={f.id}
-                    alt={`Face ${f.display_no}`}
+                    alt={`${t("pb_face")} ${f.display_no}`}
                     className="absolute inset-0"
                     sealed={f.crop_sealed}
                   />
@@ -215,7 +215,7 @@ export function FaceTimeline({
                     type="button"
                     onClick={() => onSeek(f.time_in_video_sec)}
                     className="absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                    title={`#${f.display_no} · ${fmt(f.time_in_video_sec)} · seek`}
+                    title={`${t("pb_jump_to_face")} #${f.display_no} · ${fmt(f.time_in_video_sec)}`}
                     aria-current={isActive ? "true" : undefined}
                   />
                   <span
@@ -236,8 +236,8 @@ export function FaceTimeline({
                         e.stopPropagation();
                         onRevealFace(f);
                       }}
-                      title={`Энэ хүний нүүрийг reveal хийх — #${f.display_no}`}
-                      aria-label={`Reveal face ${f.display_no}`}
+                      title={`${t("pb_reveal_this_face")} — #${f.display_no}`}
+                      aria-label={`${t("pb_reveal_this_face")} #${f.display_no}`}
                       className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-accent text-bg inline-flex items-center justify-center opacity-0 group-hover/face:opacity-100 focus:opacity-100 transition shadow-overlay"
                     >
                       <Eye className="w-3 h-3" strokeWidth={2.5} />

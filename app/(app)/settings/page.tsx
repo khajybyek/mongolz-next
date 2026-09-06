@@ -44,13 +44,13 @@ export default async function SettingsPage({
         <PushSettings />
 
         <div className="card space-y-3">
-          <h3 className="text-sm font-semibold">{t("my_data_title")}</h3>
+          <h3 className="section-title">{t("my_data_title")}</h3>
           <p className="text-xs text-text-soft leading-relaxed">{t("my_data_text")}</p>
           <div className="flex flex-col sm:flex-row gap-2">
-            <a href="/api/gdpr/export" className="btn-secondary text-sm flex-1 text-center">
+            <a href="/api/gdpr/export" className="btn-secondary flex-1">
               {t("my_data_download")}
             </a>
-            <a href="/settings/erase" className="btn-danger text-sm flex-1 text-center">
+            <a href="/settings/erase" className="btn-danger flex-1">
               {t("my_data_erase")}
             </a>
           </div>
