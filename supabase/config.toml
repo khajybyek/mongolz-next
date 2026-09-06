@@ -10,7 +10,7 @@ max_rows = 1000
 [db]
 port = 54322
 shadow_port = 54320
-major_version = 15
+major_version = 17
 
 [studio]
 enabled = true
@@ -34,3 +34,9 @@ enable_confirmations = false
 [storage]
 enabled = true
 file_size_limit = "100MiB"
+
+[functions.telegram-alerts]
+verify_jwt = true
+
+[functions.claude-analysis]
+verify_jwt = true

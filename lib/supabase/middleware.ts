@@ -1,5 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import type { Database } from "@/lib/database.generated";
+import { flag } from "@/lib/flags";
 
 const PUBLIC_PATHS = [
   "/login",
@@ -55,6 +57,7 @@ function wallHostCandidates(request: NextRequest): string[] {
 }
 
 function isWallHost(request: NextRequest): boolean {
+  if (!flag("wall_subdomain")) return false;
   // Vercel sometimes preserves the deployment URL in `host` and exposes
   // the user-facing alias only via `x-forwarded-host`. Check both, plus
   // the parsed nextUrl host as a last resort, before deciding. Match by
@@ -93,7 +96,7 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  const supabase = createServerClient(
+  const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {

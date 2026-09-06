@@ -5,6 +5,7 @@
 ALTER TABLE public.recordings
   ADD COLUMN IF NOT EXISTS blur_strategy text NOT NULL DEFAULT 'baked';
 
+-- safety: ok — idempotent re-create of the CHECK on a column added in this same migration (no data affected)
 ALTER TABLE public.recordings DROP CONSTRAINT IF EXISTS recordings_blur_strategy_check;
 
 ALTER TABLE public.recordings

@@ -1,12 +1,13 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
+import type { Database } from "@/lib/database.generated";
 
 type CookieItem = { name: string; value: string; options?: CookieOptions };
 
 export async function createClient() {
   const cookieStore = await cookies();
-  return createServerClient(
+  return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -33,7 +34,7 @@ export async function createClient() {
  * Зөвхөн server-side (Server Action / Route Handler)-аас ашиглах.
  */
 export function createServiceClient() {
-  return createSupabaseClient(
+  return createSupabaseClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } }

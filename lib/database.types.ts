@@ -1,150 +1,100 @@
-// Supabase generated types-ийг тогтмол: `npx supabase gen types typescript --local > lib/database.types.ts`
-// Доорх нь schema-тай тохируулсан manual stub.
-
-export type UserRole = "admin" | "viewer" | "auditor";
-export type CameraType = "rtsp" | "http" | "usb" | "webcam";
-export type SuspectPrivacyTier = "vip" | "standard" | "relaxed";
-
-export interface Profile {
-  id: string;
-  email: string;
-  full_name: string | null;
-  role: UserRole;
-  totp_secret: string | null;
-  totp_enabled: boolean;
-  totp_recovery_codes: string[];
-  /** When true, the row is protected by the protect_super_admin DB trigger.
-   *  App-level callers cannot demote, delete or revoke this flag — only
-   *  service_role / Supabase Studio can. There is at most one super admin
-   *  in the system (enforced by partial unique index). */
-  is_super_admin: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export type PublicProfile = Omit<Profile, "totp_secret">;
-
-export interface Camera {
-  id: string;
-  name: string;
-  url: string;
-  cam_type: CameraType;
-  enabled: boolean;
-  created_at: string;
-  created_by: string | null;
-}
-
-export interface Suspect {
-  id: string;
-  name: string;
-  image_path: string;
-  embedding: number[];
-  notes: string | null;
-  created_at: string;
-  created_by: string | null;
-}
-
-export interface Face {
-  id: string;
-  filename: string;
-  image_path: string;
-  embedding: number[];
-  camera_id: string | null;
-  detected_at: string;
-  /** Hash-chain position for hierarchical per-face keys (ADR 0009). */
-  chain_index?: number | null;
-  /** When true, an AES-256-GCM crop sealed with K_index exists at
-   *  image_path + ".enc" (decrypt via /api/faces/[id]/secure-crop). */
-  crop_sealed?: boolean;
-}
-
-export interface Alert {
-  id: string;
-  suspect_id: string;
-  suspect_name: string;
-  face_id: string | null;
-  similarity: number;
-  screenshot_path: string | null;
-  camera_id: string | null;
-  camera_name: string | null;
-  created_at: string;
-}
-
 /**
- * How a recording's blurred playback view is produced.
- *   • baked     — separate plaintext blurred MP4 was uploaded at recording
- *                 time and lives at `storage_path` (legacy behaviour).
+ * App-facing database types.
+ *
+ * Everything here is DERIVED from `lib/database.generated.ts` (regenerate with
+ * `npm run gen:types` after every migration). The Supabase clients in
+ * `lib/supabase/*.ts` are instantiated with `Database`, so `.from()` /
+ * `.rpc()` results are typed against the live schema and column drift is a
+ * compile error instead of a runtime 400 (this is how the phantom
+ * `faces.reviewed` column and the private-schema `user_can_see_camera` RPC
+ * were caught).
+ *
+ * Hand-written narrowing is limited to what the generator cannot express:
+ * CHECK-constrained text columns and pgvector (see `lib/pgvector.ts`).
+ */
+import type {
+  Database,
+  Enums,
+  Json,
+  Tables,
+  TablesInsert,
+  TablesUpdate,
+} from "./database.generated";
+
+export type { Database, Enums, Json, Tables, TablesInsert, TablesUpdate };
+
+// ── Postgres enums ────────────────────────────────────────────────────
+export type UserRole = Enums<"user_role">;
+export type SuspectPrivacyTier = Enums<"suspect_privacy_tier">;
+export type RevealMethod = Enums<"reveal_method">;
+export type RevealStatus = Enums<"reveal_status">;
+export type AlertLabel = Enums<"alert_label">;
+
+// ── CHECK-constrained text columns (not Postgres enums) ───────────────
+/** cameras.cam_type */
+export type CameraType = "rtsp" | "http" | "usb" | "webcam";
+/**
+ * recordings.blur_strategy — how the blurred playback view is produced.
+ *   • baked     — a separate plaintext blurred MP4 was written at recording
+ *                 time and lives at `storage_path` (legacy).
  *   • on_demand — no blurred MP4 is persisted; the view is derived from the
  *                 encrypted original at request time by the ML
- *                 `/recording/{id}/view` endpoint (#3: one encrypted source).
+ *                 `/recording/{id}/view` endpoint (ADR 0010).
  */
 export type BlurStrategy = "baked" | "on_demand";
+/** faces.review_label — verdict recorded on /review. */
+export type ReviewLabel = "confirmed" | "rejected" | "uncertain";
+/** webhooks.kind */
+export type WebhookKind = "slack" | "discord" | "generic";
 
-export interface Recording {
-  id: string;
-  filename: string;
-  storage_path: string;
-  original_path: string | null;
-  duration_sec: number | null;
-  size_bytes: number | null;
-  encrypted: boolean;
-  has_original: boolean;
+// ── Rows ──────────────────────────────────────────────────────────────
+export type Profile = Tables<"profiles">;
+
+/**
+ * Columns the auth helpers select for every request. Kept as a const tuple so
+ * `PublicProfile` and the select string cannot drift apart; `totp_secret` and
+ * `totp_recovery_codes` are deliberately never loaded into request context.
+ */
+export const PUBLIC_PROFILE_COLUMNS = [
+  "id",
+  "email",
+  "full_name",
+  "role",
+  "totp_enabled",
+  "is_super_admin",
+  "created_at",
+  "updated_at",
+] as const satisfies readonly (keyof Profile)[];
+
+export type PublicProfile = Pick<Profile, (typeof PUBLIC_PROFILE_COLUMNS)[number]>;
+
+export type Camera = Omit<Tables<"cameras">, "cam_type"> & { cam_type: CameraType };
+export type Suspect = Tables<"suspects">;
+export type Face = Tables<"faces">;
+export type Alert = Tables<"alerts">;
+export type Recording = Omit<Tables<"recordings">, "blur_strategy"> & {
   blur_strategy: BlurStrategy;
-  camera_id: string | null;
-  camera_name: string | null;
-  started_at: string;
-  ended_at: string | null;
-}
+};
+export type AuditLog = Tables<"audit_log">;
+export type RevealJob = Tables<"reveal_jobs">;
+export type Webhook = Omit<Tables<"webhooks">, "kind"> & { kind: WebhookKind };
 
-export interface AuditLog {
-  id: number;
-  action: string;
-  detail: string | null;
-  user_id: string | null;
-  user_email: string | null;
-  ip: string | null;
-  created_at: string;
-}
+// ── RPC results ───────────────────────────────────────────────────────
+type Fn<N extends keyof Database["public"]["Functions"]> =
+  Database["public"]["Functions"][N]["Returns"];
 
-export type RevealMethod = "upload" | "suspect" | "detected_face";
-export type RevealStatus = "queued" | "processing" | "completed" | "failed";
+export type MatchSuspectResult = Fn<"match_suspects">[number];
+export type MatchFaceResult = Fn<"match_faces">[number];
 
-export interface RevealJob {
-  id: string;
-  recording_id: string;
-  method: RevealMethod;
-  suspect_id: string | null;
-  face_id: string | null;
-  /** Multi-face reveal-д сонгогдсон faces.id массив (1-Н ширхэг) */
-  face_ids: string[] | null;
-  query_embedding: number[] | null;
-  /** Multi-target embedding-ууд (jsonb массив). 2+ бол multi-target reveal */
-  query_embeddings: number[][] | null;
-  threshold: number;
-  status: RevealStatus;
-  progress: number;
-  output_path: string | null;
-  output_duration_sec: number | null;
-  error_message: string | null;
-  requested_by: string | null;
-  requested_email: string | null;
-  reauth_at: string | null;
-  created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-}
+/** Relative frame coordinates (0–1 ratios) stored in faces.bbox. */
+export type FaceBbox = { x: number; y: number; w: number; h: number };
 
-export interface MatchSuspectResult {
-  id: string;
-  name: string;
-  image_path: string;
-  similarity: number;
-}
-
-export interface MatchFaceResult {
-  id: string;
-  filename: string;
-  image_path: string;
-  detected_at: string;
-  similarity: number;
-}
+/**
+ * faces_in_recording() row. `chain_index` is NULL for faces detected before
+ * the hash-chain rollout (ADR 0009) — the generator marks RETURNS TABLE
+ * columns non-null, so it is widened here.
+ */
+export type FaceInRecording = Omit<Fn<"faces_in_recording">[number], "chain_index" | "bbox"> & {
+  chain_index: number | null;
+  bbox: FaceBbox | null;
+};

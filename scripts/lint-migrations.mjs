@@ -31,15 +31,23 @@ const PATTERNS = [
 
 const WAIVER_RE = /--\s*safety:\s*ok\b/i;
 
+// Only real migration files (NNNNNNNNNNNNNN_name.sql) — iCloud's "x 2.sql"
+// duplicates and editor scratch files must not be linted or counted.
 const files = fs
   .readdirSync(migrationsDir)
-  .filter((f) => f.endsWith(".sql"))
+  .filter((f) => /^\d{14}_[^ ]+\.sql$/.test(f))
   .sort();
+
+/** Strip `-- …` line comments so commented-out SQL cannot trip a pattern. */
+function stripComments(sql) {
+  return sql.replace(/--[^\n]*/g, "");
+}
 
 let problems = 0;
 for (const f of files) {
-  const body = fs.readFileSync(path.join(migrationsDir, f), "utf8");
-  const hasWaiver = WAIVER_RE.test(body);
+  const raw = fs.readFileSync(path.join(migrationsDir, f), "utf8");
+  const hasWaiver = WAIVER_RE.test(raw);
+  const body = stripComments(raw);
   for (const p of PATTERNS) {
     if (p.re.test(body) && !hasWaiver) {
       const line = body.split("\n").findIndex((l) => p.re.test(l)) + 1 || 1;
