@@ -39,8 +39,13 @@ ml-service/mongolz.db
 # Edge agent runtime
 edge-agent/.env
 
-# Benchmark sample faces — fetched by eval/fetch_face_samples.py
-ml-service/samples/
+# Benchmark sample faces — fetched by eval/fetch_face_samples.py (AI-generated,
+# thispersondoesnotexist). The three shipped ones feed the demo:// camera clips
+# and the pytest suite, so they are tracked; the rest of a large fetch is not.
+ml-service/samples/*
+!ml-service/samples/00.jpg
+!ml-service/samples/01.jpg
+!ml-service/samples/02.jpg
 
 # Supabase
 supabase/.branches
