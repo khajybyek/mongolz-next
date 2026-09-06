@@ -132,233 +132,231 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
 
   return (
     <>
-      <div className="card p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>{t("users_col_email")}</th>
-                <th>{t("users_col_name")}</th>
-                <th>Role</th>
-                <th>2FA</th>
-                <th>{t("users_col_created")}</th>
-                <th className="text-right">{t("col_action")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => {
-                const isSelf = u.id === currentUserId;
-                const fb = feedback?.id === u.id ? feedback : null;
-                return (
-                  <Fragment key={u.id}>
-                    <tr className={u.is_super_admin ? "bg-accent/[0.03]" : ""}>
-                      <td>
-                        <span className="font-medium text-text">{u.email}</span>
-                        {isSelf && (
-                          <span className="ml-2 text-2xs text-accent">
-                            ({t("users_self_label")})
-                          </span>
-                        )}
-                        {u.is_super_admin && (
-                          <span
-                            className="ml-2 inline-flex items-center gap-1 text-2xs font-semibold uppercase tracking-wider text-accent"
-                            title="Зөвхөн Supabase Studio-аас устгана"
-                          >
-                            <Crown className="w-3 h-3" />
-                            Super admin
-                          </span>
-                        )}
-                      </td>
-                      <td>{u.full_name ?? "—"}</td>
-                      <td>
-                        <span
-                          className={`badge ${
-                            u.is_super_admin
-                              ? "badge-accent"
-                              : u.role === "admin"
-                              ? "badge-accent"
-                              : u.role === "auditor"
-                              ? "badge-warning"
-                              : "badge-muted"
-                          }`}
-                        >
-                          {u.is_super_admin ? "super_admin" : u.role}
+      <div className="tbl-wrap">
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>{t("users_col_email")}</th>
+              <th>{t("users_col_name")}</th>
+              <th>Role</th>
+              <th>2FA</th>
+              <th>{t("users_col_created")}</th>
+              <th className="text-right">{t("col_action")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => {
+              const isSelf = u.id === currentUserId;
+              const fb = feedback?.id === u.id ? feedback : null;
+              return (
+                <Fragment key={u.id}>
+                  <tr className={u.is_super_admin ? "bg-accent/[0.03]" : ""}>
+                    <td>
+                      <span className="font-medium text-text">{u.email}</span>
+                      {isSelf && (
+                        <span className="ml-2 text-2xs text-accent">
+                          ({t("users_self_label")})
                         </span>
-                        {(u.role === "admin" || u.is_super_admin) && (
+                      )}
+                      {u.is_super_admin && (
+                        <span
+                          className="ml-2 inline-flex items-center gap-1 text-2xs font-semibold uppercase tracking-wider text-accent"
+                          title="Зөвхөн Supabase Studio-аас устгана"
+                        >
+                          <Crown className="w-3 h-3" />
+                          Super admin
+                        </span>
+                      )}
+                    </td>
+                    <td>{u.full_name ?? "—"}</td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          u.is_super_admin
+                            ? "badge-accent"
+                            : u.role === "admin"
+                            ? "badge-accent"
+                            : u.role === "auditor"
+                            ? "badge-warning"
+                            : "badge-muted"
+                        }`}
+                      >
+                        {u.is_super_admin ? "super_admin" : u.role}
+                      </span>
+                      {(u.role === "admin" || u.is_super_admin) && (
+                        <span
+                          className="ml-1.5 inline-flex items-center gap-0.5 text-2xs font-mono text-text-muted"
+                          title="Reveal authority (ADR 0009): 0 = director (бүх нүүр), N = зөвхөн chain_index ≥ N"
+                        >
+                          <Layers className="w-3 h-3" />
+                          {u.reveal_level === 0 ? "director" : `L${u.reveal_level}`}
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {u.totp_enabled ? (
+                        <span className="badge-success">enabled</span>
+                      ) : (
+                        <span className="badge-muted">disabled</span>
+                      )}
+                    </td>
+                    <td className="text-xs">{u.created_at}</td>
+                    <td>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {u.is_super_admin ? (
                           <span
-                            className="ml-1.5 inline-flex items-center gap-0.5 text-2xs font-mono text-text-muted"
-                            title="Reveal authority (ADR 0009): 0 = director (бүх нүүр), N = зөвхөн chain_index ≥ N"
+                            className="inline-flex items-center gap-1 text-2xs text-text-muted"
+                            title="Зөвхөн Supabase Studio-аас засна"
                           >
-                            <Layers className="w-3 h-3" />
-                            {u.reveal_level === 0 ? "director" : `L${u.reveal_level}`}
+                            <Lock className="w-3 h-3" />
+                            Protected
                           </span>
-                        )}
-                      </td>
-                      <td>
-                        {u.totp_enabled ? (
-                          <span className="badge-success">enabled</span>
-                        ) : (
-                          <span className="badge-muted">disabled</span>
-                        )}
-                      </td>
-                      <td className="text-xs">{u.created_at}</td>
-                      <td>
-                        <div className="flex items-center justify-end gap-1.5">
-                          {u.is_super_admin ? (
-                            <span
-                              className="inline-flex items-center gap-1 text-2xs text-text-muted"
-                              title="Зөвхөн Supabase Studio-аас засна"
+                        ) : !isSelf ? (
+                          <>
+                            <button
+                              disabled={pending && busyId === u.id}
+                              onClick={() => changeRole(u, nextRoleCycle(u.role))}
+                              title={`admin → viewer → auditor → admin (${u.role})`}
+                              className="btn-icon hover:text-accent"
                             >
-                              <Lock className="w-3 h-3" />
-                              Protected
-                            </span>
-                          ) : !isSelf ? (
-                            <>
-                              <button
-                                disabled={pending && busyId === u.id}
-                                onClick={() => changeRole(u, nextRoleCycle(u.role))}
-                                title={`admin → viewer → auditor → admin (${u.role})`}
-                                className="p-1.5 rounded hover:bg-text-muted/5 text-text-soft hover:text-accent"
-                              >
-                                {u.role === "admin" ? (
-                                  <ShieldOff className="w-3.5 h-3.5" />
-                                ) : (
-                                  <Shield className="w-3.5 h-3.5" />
-                                )}
-                              </button>
-                              {u.role === "admin" && (
-                                <button
-                                  disabled={pending && busyId === u.id}
-                                  onClick={() => {
-                                    setLevelUserId(u.id);
-                                    setLevelValue(String(u.reveal_level));
-                                  }}
-                                  title="Reveal authority level (ADR 0009)"
-                                  className="p-1.5 rounded hover:bg-text-muted/5 text-text-soft hover:text-accent"
-                                >
-                                  <Layers className="w-3.5 h-3.5" />
-                                </button>
+                              {u.role === "admin" ? (
+                                <ShieldOff className="w-3.5 h-3.5" />
+                              ) : (
+                                <Shield className="w-3.5 h-3.5" />
                               )}
+                            </button>
+                            {u.role === "admin" && (
                               <button
                                 disabled={pending && busyId === u.id}
                                 onClick={() => {
-                                  setResetUserId(u.id);
-                                  setNewPassword("");
+                                  setLevelUserId(u.id);
+                                  setLevelValue(String(u.reveal_level));
                                 }}
-                                title={t("users_pwd_reset_tip")}
-                                className="p-1.5 rounded hover:bg-text-muted/5 text-text-soft hover:text-warning"
+                                title="Reveal authority level (ADR 0009)"
+                                className="btn-icon hover:text-accent"
                               >
-                                <KeyRound className="w-3.5 h-3.5" />
+                                <Layers className="w-3.5 h-3.5" />
                               </button>
-                              <button
-                                disabled={pending && busyId === u.id}
-                                onClick={() => removeUser(u)}
-                                title={t("delete_btn")}
-                                className="p-1.5 rounded hover:bg-danger-soft text-text-soft hover:text-danger"
-                              >
-                                {pending && busyId === u.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                )}
-                              </button>
-                            </>
-                          ) : null}
+                            )}
+                            <button
+                              disabled={pending && busyId === u.id}
+                              onClick={() => {
+                                setResetUserId(u.id);
+                                setNewPassword("");
+                              }}
+                              title={t("users_pwd_reset_tip")}
+                              className="btn-icon hover:text-warning"
+                            >
+                              <KeyRound className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              disabled={pending && busyId === u.id}
+                              onClick={() => removeUser(u)}
+                              title={t("delete_btn")}
+                              className="btn-icon hover:bg-danger-soft hover:text-danger"
+                            >
+                              {pending && busyId === u.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                  {resetUserId === u.id && (
+                    <tr className="bg-surface-elevated/40">
+                      <td colSpan={6} className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="password"
+                            placeholder={t("users_new_pwd_placeholder")}
+                            minLength={8}
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            className="input text-xs flex-1 max-w-sm"
+                            autoComplete="new-password"
+                          />
+                          <button
+                            onClick={() => resetPassword(u)}
+                            disabled={pending && busyId === u.id}
+                            className="btn-primary btn-sm"
+                          >
+                            {t("save_btn")}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setResetUserId(null);
+                              setNewPassword("");
+                            }}
+                            className="btn-ghost btn-sm"
+                          >
+                            {t("cancel_btn")}
+                          </button>
                         </div>
                       </td>
                     </tr>
-                    {resetUserId === u.id && (
-                      <tr className="bg-surface-elevated/40">
-                        <td colSpan={6} className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="password"
-                              placeholder={t("users_new_pwd_placeholder")}
-                              minLength={8}
-                              value={newPassword}
-                              onChange={(e) => setNewPassword(e.target.value)}
-                              className="input text-xs flex-1 max-w-sm"
-                              autoComplete="new-password"
-                            />
-                            <button
-                              onClick={() => resetPassword(u)}
-                              disabled={pending && busyId === u.id}
-                              className="btn-primary btn-sm"
-                            >
-                              {t("save_btn")}
-                            </button>
-                            <button
-                              onClick={() => {
-                                setResetUserId(null);
-                                setNewPassword("");
-                              }}
-                              className="btn-ghost btn-sm"
-                            >
-                              {t("cancel_btn")}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                    {levelUserId === u.id && (
-                      <tr className="bg-surface-elevated/40">
-                        <td colSpan={6} className="px-4 py-3">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs text-text-soft">
-                              Reveal authority level —{" "}
-                              <span className="text-text-muted">
-                                0 = director (бүх нүүр), N = зөвхөн chain_index ≥ N
-                              </span>
+                  )}
+                  {levelUserId === u.id && (
+                    <tr className="bg-surface-elevated/40">
+                      <td colSpan={6} className="px-4 py-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs text-text-soft">
+                            Reveal authority level —{" "}
+                            <span className="text-text-muted">
+                              0 = director (бүх нүүр), N = зөвхөн chain_index ≥ N
                             </span>
-                            <input
-                              type="number"
-                              min={0}
-                              max={99}
-                              value={levelValue}
-                              onChange={(e) => setLevelValue(e.target.value)}
-                              className="input text-xs w-20"
-                            />
-                            <button
-                              onClick={() => saveLevel(u)}
-                              disabled={pending && busyId === u.id}
-                              className="btn-primary btn-sm"
-                            >
-                              {t("save_btn")}
-                            </button>
-                            <button
-                              onClick={() => setLevelUserId(null)}
-                              className="btn-ghost btn-sm"
-                            >
-                              {t("cancel_btn")}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                    {fb && (
-                      <tr>
-                        <td colSpan={6} className="px-4 py-1.5">
-                          <div
-                            className={`text-xs flex items-center gap-1.5 ${
-                              fb.type === "ok" ? "text-success" : "text-danger"
-                            }`}
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={99}
+                            value={levelValue}
+                            onChange={(e) => setLevelValue(e.target.value)}
+                            className="input text-xs w-20"
+                          />
+                          <button
+                            onClick={() => saveLevel(u)}
+                            disabled={pending && busyId === u.id}
+                            className="btn-primary btn-sm"
                           >
-                            {fb.type === "ok" ? (
-                              <Check className="w-3 h-3" />
-                            ) : (
-                              <AlertCircle className="w-3 h-3" />
-                            )}
-                            {fb.msg}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                            {t("save_btn")}
+                          </button>
+                          <button
+                            onClick={() => setLevelUserId(null)}
+                            className="btn-ghost btn-sm"
+                          >
+                            {t("cancel_btn")}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {fb && (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-1.5">
+                        <div
+                          className={`text-xs flex items-center gap-1.5 ${
+                            fb.type === "ok" ? "text-success" : "text-danger"
+                          }`}
+                        >
+                          {fb.type === "ok" ? (
+                            <Check className="w-3 h-3" />
+                          ) : (
+                            <AlertCircle className="w-3 h-3" />
+                          )}
+                          {fb.msg}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       <TotpPrompt

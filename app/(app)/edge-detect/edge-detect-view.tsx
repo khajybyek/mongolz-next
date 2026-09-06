@@ -86,7 +86,7 @@ export function EdgeDetectView() {
   return (
     <div className="max-w-3xl space-y-4">
       <div className="card space-y-3">
-        <h3 className="text-sm font-medium flex items-center gap-2">
+        <h3 className="section-title flex items-center gap-2">
           <Cpu className="w-4 h-4 text-accent" />
           Inference Engine
         </h3>
@@ -96,7 +96,7 @@ export function EdgeDetectView() {
             <button
               onClick={() => handleInit(true)}
               disabled={loading}
-              className="btn-primary text-sm flex items-center gap-2"
+              className="btn-primary"
             >
               {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
               Init WebGPU
@@ -104,7 +104,7 @@ export function EdgeDetectView() {
             <button
               onClick={() => handleInit(false)}
               disabled={loading}
-              className="btn-ghost text-sm flex items-center gap-2"
+              className="btn-ghost"
             >
               {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Cpu className="w-3.5 h-3.5" />}
               Init WASM
@@ -151,7 +151,7 @@ export function EdgeDetectView() {
 
       {ready && (
         <div className="card space-y-3">
-          <label className="flex items-center gap-2 cursor-pointer text-sm text-accent hover:text-accent/80 transition">
+          <label className="btn-secondary">
             <Upload className="w-4 h-4" />
             Upload image for detection
             <input

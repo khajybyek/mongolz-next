@@ -301,7 +301,7 @@ function FusionPanel() {
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
       <div className="card space-y-5">
         <div>
-          <h3 className="text-sm font-semibold mb-1">{t("ml_lab_fusion_sim_title")}</h3>
+          <h3 className="section-title mb-1">{t("ml_lab_fusion_sim_title")}</h3>
           <p className="text-2xs text-text-muted">{t("ml_lab_fusion_sim_desc")}</p>
         </div>
 
@@ -332,7 +332,7 @@ function FusionPanel() {
             onChange={(e) => setNoise(Number(e.target.value))}
             className="w-full accent-accent"
           />
-          <p className="text-2xs text-text-muted mt-1">{t("ml_lab_noise_hint")}</p>
+          <p className="helper">{t("ml_lab_noise_hint")}</p>
         </div>
 
         <div>

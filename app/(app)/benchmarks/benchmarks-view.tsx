@@ -58,7 +58,7 @@ export function BenchmarksView() {
       <div className="card space-y-3">
         <div className="flex items-center gap-2">
           <Icon className="w-4 h-4 text-accent" />
-          <h3 className="text-sm font-medium">{label}</h3>
+          <h3 className="section-title">{label}</h3>
           <span className="text-[10px] text-text-muted ml-auto">{stats.n} samples</span>
         </div>
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
@@ -78,7 +78,7 @@ export function BenchmarksView() {
       <div className="card space-y-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h3 className="text-sm font-medium flex items-center gap-2">
+            <h3 className="section-title flex items-center gap-2">
               <Activity className="w-4 h-4 text-accent" />
               Microbenchmark configuration
             </h3>
@@ -98,7 +98,7 @@ export function BenchmarksView() {
                 {n} iter
               </button>
             ))}
-            <button onClick={run} disabled={loading} className="btn-primary text-sm">
+            <button onClick={run} disabled={loading} className="btn-primary">
               {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
               Run
             </button>

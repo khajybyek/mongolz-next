@@ -27,7 +27,7 @@ export default async function BackupPage() {
         </div>
 
         <div className="card text-xs text-text-soft leading-relaxed space-y-2">
-          <h3 className="text-sm font-semibold text-text">
+          <h3 className="section-title">
             What&apos;s in the ZIP
           </h3>
           <ul className="list-disc list-inside space-y-1 ml-2">

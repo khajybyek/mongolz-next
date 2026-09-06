@@ -50,7 +50,7 @@ export function RuleForm({ suspects, cameras }: { suspects: Option[]; cameras: O
 
   return (
     <form action={onSubmit} className="card mb-4 space-y-4">
-      <h3 className="text-sm font-semibold">{t("ar_form_title")}</h3>
+      <h3 className="section-title">{t("ar_form_title")}</h3>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
         <input
@@ -69,7 +69,7 @@ export function RuleForm({ suspects, cameras }: { suspects: Option[]; cameras: O
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         <div>
           <label className="label">{t("ar_suspect_label")}</label>
-          <select name="suspect_id" defaultValue="" className="input text-sm">
+          <select name="suspect_id" defaultValue="" className="select text-sm">
             <option value="">{t("ar_all_suspects")}</option>
             {suspects.map((s) => (
               <option key={s.id} value={s.id}>
@@ -80,7 +80,7 @@ export function RuleForm({ suspects, cameras }: { suspects: Option[]; cameras: O
         </div>
         <div>
           <label className="label">{t("ar_camera_label")}</label>
-          <select name="camera_id" defaultValue="" className="input text-sm">
+          <select name="camera_id" defaultValue="" className="select text-sm">
             <option value="">{t("ar_all_cameras")}</option>
             {cameras.map((c) => (
               <option key={c.id} value={c.id}>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Upload, BarChart3, Loader2, AlertTriangle } from "lucide-react";
+import { Tabs } from "@/components/ui/tabs";
 
 type Tab = "detection" | "blur" | "system";
 
@@ -37,19 +38,15 @@ export function EvalDashboard() {
 
   return (
     <div className="space-y-4">
-      <div className="card flex gap-2 p-2 w-fit">
-        {(["detection", "blur", "system"] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-3 py-1.5 rounded-md text-sm transition ${
-              tab === t ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-text-muted/5"
-            }`}
-          >
-            {t === "detection" ? "Detection F1" : t === "blur" ? "Blur SSIM" : "System"}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        value={tab}
+        onChange={(v) => setTab(v as Tab)}
+        tabs={[
+          { value: "detection", label: "Detection F1" },
+          { value: "blur", label: "Blur SSIM" },
+          { value: "system", label: "System" },
+        ]}
+      />
 
       {tab === "detection" && <DetectionEval />}
       {tab === "blur" && <BlurEval />}
@@ -86,7 +83,7 @@ function DetectionEval() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className="card space-y-3">
-        <h3 className="text-sm font-semibold text-text-soft">Detection Accuracy Test</h3>
+        <h3 className="section-title">Detection Accuracy Test</h3>
         <input
           type="file"
           accept="image/*"
@@ -94,7 +91,7 @@ function DetectionEval() {
           className="input file:bg-accent/15 file:text-accent file:border-0 file:rounded file:px-2 file:py-1 file:mr-2"
         />
         <div>
-          <label className="text-xs text-text-soft mb-1 block">
+          <label className="label">
             Ground Truth Boxes (JSON: [[x1,y1,x2,y2], ...])
           </label>
           <textarea
@@ -118,7 +115,7 @@ function DetectionEval() {
 
       {result && (
         <div className="card space-y-3">
-          <h3 className="text-sm font-semibold text-text-soft flex items-center gap-2">
+          <h3 className="section-title flex items-center gap-2">
             <BarChart3 className="w-4 h-4" />
             Results
           </h3>
@@ -166,9 +163,9 @@ function BlurEval() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className="card space-y-3">
-        <h3 className="text-sm font-semibold text-text-soft">Blur Quality (SSIM)</h3>
+        <h3 className="section-title">Blur Quality (SSIM)</h3>
         <div>
-          <label className="text-xs text-text-soft mb-1 block">Original Image</label>
+          <label className="label">Original Image</label>
           <input
             type="file"
             accept="image/*"
@@ -177,7 +174,7 @@ function BlurEval() {
           />
         </div>
         <div>
-          <label className="text-xs text-text-soft mb-1 block">Blurred Image</label>
+          <label className="label">Blurred Image</label>
           <input
             type="file"
             accept="image/*"
@@ -199,7 +196,7 @@ function BlurEval() {
 
       {result && (
         <div className="card space-y-3">
-          <h3 className="text-sm font-semibold text-text-soft flex items-center gap-2">
+          <h3 className="section-title flex items-center gap-2">
             <BarChart3 className="w-4 h-4" />
             Blur Quality Results
           </h3>
@@ -248,7 +245,7 @@ function SystemEval() {
 
   return (
     <div className="card space-y-3">
-      <h3 className="text-sm font-semibold text-text-soft">System Info & Thresholds</h3>
+      <h3 className="section-title">System Info & Thresholds</h3>
       <button onClick={load} disabled={loading} className="btn-primary">
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
         Load System Info

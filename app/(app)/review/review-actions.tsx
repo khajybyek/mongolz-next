@@ -27,7 +27,7 @@ export function ReviewActions({ faceId }: { faceId: string }) {
     <div className="flex gap-1">
       <button
         onClick={() => handleReview("confirmed")}
-        className="flex-1 btn text-[10px] p-1 bg-success/15 text-success hover:bg-success/25"
+        className="btn-success btn-sm flex-1"
         title={t("review_confirm")}
         aria-label={t("review_confirm")}
       >
@@ -35,7 +35,7 @@ export function ReviewActions({ faceId }: { faceId: string }) {
       </button>
       <button
         onClick={() => handleReview("rejected")}
-        className="flex-1 btn text-[10px] p-1 bg-danger/15 text-danger hover:bg-danger/25"
+        className="btn-danger btn-sm flex-1"
         title={t("review_reject")}
         aria-label={t("review_reject")}
       >

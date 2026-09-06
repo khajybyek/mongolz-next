@@ -79,27 +79,29 @@ export default async function JobsPage() {
             </div>
           )}
 
-          <div className="card overflow-x-auto p-0">
-            <table className="w-full text-sm">
-              <thead className="bg-bg-tertiary/50">
-                <tr className="text-xs uppercase tracking-wide text-text-soft">
-                  <th className="px-4 py-2.5 text-left">Job ID</th>
-                  <th className="px-4 py-2.5 text-left">Method</th>
-                  <th className="px-4 py-2.5 text-left">Status</th>
-                  <th className="px-4 py-2.5 text-left">Requested By</th>
-                  <th className="px-4 py-2.5 text-left">Created</th>
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Job ID</th>
+                  <th>Method</th>
+                  <th>Status</th>
+                  <th>Requested By</th>
+                  <th>Created</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-text-muted/5">
+              <tbody>
                 {done.map((j) => (
-                  <tr key={j.id} className="hover:bg-text-muted/[0.02]">
-                    <td className="px-4 py-2.5 font-mono text-xs">{j.id.slice(0, 8)}</td>
-                    <td className="px-4 py-2.5 text-text-soft">{j.method}</td>
-                    <td className="px-4 py-2.5">
+                  <tr key={j.id}>
+                    <td className="font-mono text-xs">{j.id.slice(0, 8)}</td>
+                    <td>{j.method}</td>
+                    <td>
                       <span className={cn("badge", STATUS_COLORS[j.status])}>{j.status}</span>
                     </td>
-                    <td className="px-4 py-2.5 text-text-soft text-xs">{j.requested_email}</td>
-                    <td className="px-4 py-2.5 text-text-muted text-xs">{formatDate(j.created_at)}</td>
+                    <td className="text-xs">{j.requested_email}</td>
+                    <td className="text-xs">
+                      <span className="text-text-muted">{formatDate(j.created_at)}</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>

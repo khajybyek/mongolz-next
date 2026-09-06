@@ -79,7 +79,7 @@ export function CreateUserForm() {
   return (
     <>
       <form action={onSubmit} className="card mb-4 space-y-3">
-        <h3 className="text-sm font-semibold">{t("users_new_form_title")}</h3>
+        <h3 className="section-title">{t("users_new_form_title")}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           <input
             name="email"
@@ -104,7 +104,7 @@ export function CreateUserForm() {
             placeholder={t("users_fullname_placeholder")}
             className="input text-sm"
           />
-          <select name="role" defaultValue="viewer" required className="input text-sm">
+          <select name="role" defaultValue="viewer" required className="select text-sm">
             <option value="viewer">Viewer (read-only)</option>
             <option value="auditor">Auditor (audit log only)</option>
             <option value="admin">Admin (full access)</option>

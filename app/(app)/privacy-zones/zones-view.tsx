@@ -163,7 +163,7 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
       <div className="space-y-4">
         <div className="card p-3 flex items-end gap-3">
           <div>
-            <label className="text-xs text-text-soft block mb-1 flex items-center gap-1">
+            <label className="label flex items-center gap-1">
               <Cctv className="w-3.5 h-3.5" /> {t("zones_camera")}
             </label>
             <select
@@ -172,7 +172,7 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
                 setCameraId(e.target.value);
                 setDraft(null);
               }}
-              className="bg-bg-secondary border border-border rounded px-2 py-1 text-sm"
+              className="select"
             >
               {cameras.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
@@ -237,22 +237,22 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
 
       <aside className="space-y-3">
         <div className="card p-3 space-y-2">
-          <div className="text-sm font-semibold flex items-center gap-2">
+          <h3 className="section-title flex items-center gap-2">
             <Plus className="w-4 h-4 text-accent" /> {t("zones_new")}
-          </div>
+          </h3>
           <input
             type="text"
             placeholder={t("zones_name_placeholder")}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full bg-bg-secondary border border-border rounded px-2 py-1.5 text-sm"
+            className="input"
           />
           <textarea
             placeholder={t("zones_reason_placeholder")}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             rows={2}
-            className="w-full bg-bg-secondary border border-border rounded px-2 py-1.5 text-sm resize-none"
+            className="input resize-none"
           />
           <label className="flex items-center gap-2 text-xs text-text-soft">
             <input type="checkbox" checked={neverReveal} onChange={(e) => setNeverReveal(e.target.checked)} />
@@ -263,7 +263,7 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
             {t("zones_vip_mask")}
           </label>
           {err && (
-            <div className="text-xs text-danger-ring flex items-center gap-1">
+            <div className="helper-error flex items-center gap-1">
               <AlertTriangle className="w-3.5 h-3.5" /> {err}
             </div>
           )}
@@ -271,20 +271,20 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
             type="button"
             onClick={saveZone}
             disabled={!draft || !name || busy === "create"}
-            className="btn-primary w-full text-sm justify-center"
+            className="btn-primary w-full"
           >
             {busy === "create" ? <Spinner /> : t("zones_save")}
           </button>
         </div>
 
         <div className="card p-3 space-y-2">
-          <div className="text-sm font-semibold flex items-center gap-2">
+          <h3 className="section-title flex items-center gap-2">
             <Lock className="w-4 h-4 text-accent" /> {t("zones_existing")}
-          </div>
+          </h3>
           {loading ? (
             <Spinner />
           ) : zones.length === 0 ? (
-            <div className="text-xs text-text-muted">{t("zones_none")}</div>
+            <Empty message={t("zones_none")} icon={Lock} />
           ) : (
             <ul className="space-y-1.5">
               {zones.map((z) => (
@@ -306,7 +306,7 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
                     onClick={() => toggleEnabled(z)}
                     disabled={busy === z.id}
                     title={z.enabled ? t("zones_disable") : t("zones_enable")}
-                    className="text-text-muted hover:text-text p-1"
+                    className="btn-icon"
                   >
                     <ShieldOff className="w-3.5 h-3.5" />
                   </button>
@@ -314,7 +314,9 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
                     type="button"
                     onClick={() => deleteZone(z.id)}
                     disabled={busy === z.id}
-                    className="text-text-muted hover:text-danger-ring p-1"
+                    title={t("delete_btn")}
+                    aria-label={t("delete_btn")}
+                    className="btn-icon hover:bg-danger-soft hover:text-danger"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>

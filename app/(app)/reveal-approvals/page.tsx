@@ -132,25 +132,25 @@ export default async function RevealApprovalsPage() {
       {recentRows.length === 0 ? (
         <Empty message={t("no_decisions")} />
       ) : (
-        <div className="card p-0 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-bg-tertiary/50">
-              <tr className="text-xs uppercase tracking-wide text-text-soft">
-                <th className="px-4 py-2.5 text-left">Job</th>
-                <th className="px-4 py-2.5 text-left">Хүсэлт</th>
-                <th className="px-4 py-2.5 text-left">Шийдвэр</th>
-                <th className="px-4 py-2.5 text-left">Status</th>
-                <th className="px-4 py-2.5 text-right">Цаг</th>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>Job</th>
+                <th>Хүсэлт</th>
+                <th>Шийдвэр</th>
+                <th>Status</th>
+                <th className="num">Цаг</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-text-muted/5">
+            <tbody>
               {recentRows.map((j) => (
-                <tr key={j.id} className="hover:bg-text-muted/[0.02]">
-                  <td className="px-4 py-2.5 font-mono text-xs text-text-soft">
+                <tr key={j.id}>
+                  <td className="font-mono text-xs">
                     {j.id.slice(0, 8)}
                   </td>
-                  <td className="px-4 py-2.5 text-xs">{j.requested_email ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-xs">
+                  <td className="text-xs">{j.requested_email ?? "—"}</td>
+                  <td className="text-xs">
                     {j.approved_email ? (
                       <span className="text-success">✓ {j.approved_email}</span>
                     ) : j.rejected_email ? (
@@ -161,7 +161,7 @@ export default async function RevealApprovalsPage() {
                       <span className="text-text-muted">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td>
                     <span
                       className={`badge ${
                         j.status === "completed"
@@ -174,8 +174,8 @@ export default async function RevealApprovalsPage() {
                       {j.status}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-right text-xs text-text-muted">
-                    {formatDate(j.created_at)}
+                  <td className="num text-xs">
+                    <span className="text-text-muted">{formatDate(j.created_at)}</span>
                   </td>
                 </tr>
               ))}

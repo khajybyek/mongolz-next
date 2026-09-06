@@ -63,48 +63,46 @@ export default async function AlertsPage() {
       {!alerts?.length ? (
         <Empty message={t("no_alerts")} />
       ) : (
-        <div className="card p-0 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>{t("col_suspect")}</th>
-                  <th>{t("col_camera")}</th>
-                  <th>{t("col_similarity")}</th>
-                  <th>{t("col_when")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {alerts.map((a) => (
-                  <tr key={a.id}>
-                    <td>
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-danger-soft border border-danger/20 inline-flex items-center justify-center shrink-0">
-                          <Bell className="w-3.5 h-3.5 text-danger" />
-                        </div>
-                        <span className="font-medium text-text">{a.suspect_name}</span>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>{t("col_suspect")}</th>
+                <th>{t("col_camera")}</th>
+                <th>{t("col_similarity")}</th>
+                <th>{t("col_when")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alerts.map((a) => (
+                <tr key={a.id}>
+                  <td>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-danger-soft border border-danger/20 inline-flex items-center justify-center shrink-0">
+                        <Bell className="w-3.5 h-3.5 text-danger" />
                       </div>
-                    </td>
-                    <td>
-                      <span className="inline-flex items-center gap-1.5">
-                        <Cctv className="w-3.5 h-3.5 opacity-60" />
-                        {a.camera_name ?? "—"}
-                      </span>
-                    </td>
-                    <td>
-                      <Badge variant={severity(a.similarity)}>{pct(a.similarity)}</Badge>
-                    </td>
-                    <td>
-                      <span className="inline-flex items-center gap-1.5 text-text-muted">
-                        <Clock className="w-3.5 h-3.5 opacity-60" />
-                        {formatDate(a.created_at)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      <span className="font-medium text-text">{a.suspect_name}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Cctv className="w-3.5 h-3.5 opacity-60" />
+                      {a.camera_name ?? "—"}
+                    </span>
+                  </td>
+                  <td>
+                    <Badge variant={severity(a.similarity)}>{pct(a.similarity)}</Badge>
+                  </td>
+                  <td>
+                    <span className="inline-flex items-center gap-1.5 text-text-muted">
+                      <Clock className="w-3.5 h-3.5 opacity-60" />
+                      {formatDate(a.created_at)}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </>

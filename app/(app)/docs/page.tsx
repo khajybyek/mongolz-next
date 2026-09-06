@@ -119,7 +119,7 @@ export default async function DocsPage() {
           <div key={section.title} className="card space-y-3">
             <div className="flex items-center gap-2">
               <section.icon className="w-4 h-4 text-accent" />
-              <h3 className="text-sm font-semibold">{section.title}</h3>
+              <h3 className="section-title">{section.title}</h3>
             </div>
             <div className="space-y-1.5">
               {section.items.map((item) => (

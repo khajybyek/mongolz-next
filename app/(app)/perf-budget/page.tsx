@@ -112,16 +112,16 @@ export default async function PerfBudgetPage() {
             })}
           </div>
 
-          <div className="card overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-bg-tertiary border-b border-border">
-                <tr className="text-left text-xs text-text-soft">
-                  <th className="px-3 py-2">{t("perf_metric")}</th>
-                  <th className="px-3 py-2">{t("perf_page")}</th>
-                  <th className="px-3 py-2 text-right">{t("perf_p75")}</th>
-                  <th className="px-3 py-2 text-right">{t("perf_p95")}</th>
-                  <th className="px-3 py-2 text-right">{t("perf_budget")}</th>
-                  <th className="px-3 py-2 text-right">{t("perf_samples")}</th>
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>{t("perf_metric")}</th>
+                  <th>{t("perf_page")}</th>
+                  <th className="num">{t("perf_p75")}</th>
+                  <th className="num">{t("perf_p95")}</th>
+                  <th className="num">{t("perf_budget")}</th>
+                  <th className="num">{t("perf_samples")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -131,12 +131,14 @@ export default async function PerfBudgetPage() {
                     const b = BUDGETS[r.metric];
                     const status = !b ? "—" : r.p75 <= b.good ? "good" : r.p75 <= b.poor ? "warn" : "poor";
                     return (
-                      <tr key={`${r.metric}-${r.page}-${r.day}`} className="border-b border-border last:border-0">
-                        <td className="px-3 py-2 font-mono text-xs">{r.metric}</td>
-                        <td className="px-3 py-2 truncate max-w-[280px]">{r.page}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{formatVal(r.metric, r.p75)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-text-soft">{formatVal(r.metric, r.p95)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">
+                      <tr key={`${r.metric}-${r.page}-${r.day}`}>
+                        <td className="font-mono text-xs">{r.metric}</td>
+                        <td className="truncate max-w-[280px]">{r.page}</td>
+                        <td className="num">
+                          <span className="text-text">{formatVal(r.metric, r.p75)}</span>
+                        </td>
+                        <td className="num">{formatVal(r.metric, r.p95)}</td>
+                        <td className="num">
                           <span
                             className={
                               "inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold " +
@@ -152,7 +154,7 @@ export default async function PerfBudgetPage() {
                             {b ? formatVal(r.metric, b.good) : "—"}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-text-soft">{r.samples}</td>
+                        <td className="num">{r.samples}</td>
                       </tr>
                     );
                   })}

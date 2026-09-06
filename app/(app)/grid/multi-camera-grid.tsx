@@ -88,7 +88,9 @@ export function MultiCameraGrid({ cameras }: { cameras: Camera[] }) {
                 <button
                   onClick={() => toggleCamera(cam)}
                   disabled={isLoading}
-                  className={`p-1.5 rounded ${streamUrl ? "text-danger hover:bg-danger/15" : "text-accent hover:bg-accent/15"}`}
+                  title={streamUrl ? "Stop" : "Play"}
+                  aria-label={streamUrl ? "Stop" : "Play"}
+                  className={`btn-icon ${streamUrl ? "text-danger hover:bg-danger/15 hover:text-danger" : "text-accent hover:bg-accent/15 hover:text-accent"}`}
                 >
                   {isLoading ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />

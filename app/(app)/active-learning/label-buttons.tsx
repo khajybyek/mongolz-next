@@ -4,11 +4,13 @@ import { useState, useTransition } from "react";
 import { Check, X, RotateCcw, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useT } from "@/lib/i18n/client";
+import { useToast } from "@/components/ui/toast";
 
 type Label = "true_positive" | "false_positive" | "unknown";
 
 export function LabelButtons({ id, current }: { id: string; current: Label }) {
   const { t } = useT();
+  const { toast } = useToast();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [active, setActive] = useState<Label>(current);
@@ -26,12 +28,19 @@ export function LabelButtons({ id, current }: { id: string; current: Label }) {
       setBusy(null);
       if (res.ok) {
         setActive(label);
+        toast({ title: t("toast_label_saved"), tone: "success", duration: 2000 });
         router.refresh();
+      } else {
+        toast({
+          title: t("toast_label_failed"),
+          description: res.status === 403 ? t("toast_step_up_required") : `HTTP ${res.status}`,
+          tone: "danger",
+        });
       }
     });
   }
 
-  const baseCls = "p-1.5 rounded transition";
+  const baseCls = "btn-icon";
   return (
     <div className="flex items-center gap-1">
       <button
@@ -40,8 +49,8 @@ export function LabelButtons({ id, current }: { id: string; current: Label }) {
         title={t("al_label_tp_tip")}
         className={`${baseCls} ${
           active === "true_positive"
-            ? "bg-success/20 text-success"
-            : "hover:bg-text-muted/5 text-text-muted hover:text-success"
+            ? "bg-success/20 text-success hover:bg-success/20 hover:text-success"
+            : "text-text-muted hover:text-success"
         }`}
       >
         {busy === "true_positive" ? (
@@ -56,8 +65,8 @@ export function LabelButtons({ id, current }: { id: string; current: Label }) {
         title={t("al_label_fp_tip")}
         className={`${baseCls} ${
           active === "false_positive"
-            ? "bg-danger/20 text-danger"
-            : "hover:bg-text-muted/5 text-text-muted hover:text-danger"
+            ? "bg-danger/20 text-danger hover:bg-danger/20 hover:text-danger"
+            : "text-text-muted hover:text-danger"
         }`}
       >
         {busy === "false_positive" ? (
@@ -71,7 +80,7 @@ export function LabelButtons({ id, current }: { id: string; current: Label }) {
           onClick={() => set("unknown")}
           disabled={pending}
           title={t("al_label_clear_tip")}
-          className={`${baseCls} hover:bg-text-muted/5 text-text-faint hover:text-text-soft`}
+          className={`${baseCls} text-text-faint hover:text-text-soft`}
         >
           {busy === "unknown" ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />

@@ -110,21 +110,21 @@ export default async function AuditPage({
       {!logs?.length ? (
         <Empty message={t("empty")} />
       ) : (
-        <div className="card overflow-x-auto p-0">
-          <table className="w-full text-sm">
-            <thead className="bg-bg-tertiary/50">
-              <tr className="text-xs uppercase tracking-wide text-text-soft">
-                <th className="px-4 py-2.5 text-left">{t("audit_col_action")}</th>
-                <th className="px-4 py-2.5 text-left">{t("audit_col_detail")}</th>
-                <th className="px-4 py-2.5 text-left">{t("audit_col_user")}</th>
-                <th className="px-4 py-2.5 text-left">{t("audit_col_ip")}</th>
-                <th className="px-4 py-2.5 text-left">{t("audit_col_when")}</th>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>{t("audit_col_action")}</th>
+                <th>{t("audit_col_detail")}</th>
+                <th>{t("audit_col_user")}</th>
+                <th>{t("audit_col_ip")}</th>
+                <th>{t("audit_col_when")}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-text-muted/5">
+            <tbody>
               {logs.map((log) => (
-                <tr key={log.id} className="hover:bg-text-muted/[0.02]">
-                  <td className="px-4 py-2.5">
+                <tr key={log.id}>
+                  <td>
                     <span
                       className={`badge ${
                         ACTION_COLORS[log.action] ?? "bg-text-muted/5 text-text-soft"
@@ -133,17 +133,17 @@ export default async function AuditPage({
                       {log.action}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-text-soft text-xs max-w-md truncate" title={log.detail ?? ""}>
+                  <td className="text-xs max-w-md truncate" title={log.detail ?? ""}>
                     {log.detail ?? "—"}
                   </td>
-                  <td className="px-4 py-2.5 text-text-soft text-xs">
+                  <td className="text-xs">
                     {log.user_email ?? "—"}
                   </td>
-                  <td className="px-4 py-2.5 text-text-muted text-xs font-mono">
-                    {typeof log.ip === "string" ? log.ip : "—"}
+                  <td className="text-xs font-mono">
+                    <span className="text-text-muted">{typeof log.ip === "string" ? log.ip : "—"}</span>
                   </td>
-                  <td className="px-4 py-2.5 text-text-muted text-xs">
-                    {formatDate(log.created_at)}
+                  <td className="text-xs">
+                    <span className="text-text-muted">{formatDate(log.created_at)}</span>
                   </td>
                 </tr>
               ))}

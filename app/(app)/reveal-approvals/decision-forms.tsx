@@ -81,7 +81,7 @@ export function DecisionForms({ jobId }: { jobId: string }) {
           type="button"
           onClick={approve}
           disabled={pending}
-          className="btn-primary flex-1 text-sm"
+          className="btn-primary flex-1"
         >
           {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
           {t("approve")}
@@ -104,7 +104,7 @@ export function DecisionForms({ jobId }: { jobId: string }) {
             className="input text-sm flex-1"
             aria-label={t("reject_reason")}
           />
-          <button type="submit" disabled={pending || reason.trim().length < 3} className="btn-danger text-sm">
+          <button type="submit" disabled={pending || reason.trim().length < 3} className="btn-danger">
             <XCircle className="w-4 h-4" />
             {t("reject")}
           </button>

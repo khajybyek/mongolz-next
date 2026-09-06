@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Search, Loader2, Video, Camera, Clock } from "lucide-react";
 import { FaceThumb } from "@/components/face-thumb";
+import { Empty } from "@/components/ui/empty";
 import { formatDate } from "@/lib/utils";
 
 interface Match {
@@ -65,10 +66,14 @@ export function SearchForm() {
         <div className="card text-danger text-sm border-danger/30 bg-danger/5">{error}</div>
       )}
 
-      {matches && (
+      {matches && matches.length === 0 && (
+        <Empty message="Тааралт олдсонгүй" icon={Search} />
+      )}
+
+      {matches && matches.length > 0 && (
         <div>
-          <h2 className="text-sm uppercase tracking-wide text-text-soft mb-3">
-            {matches.length ? `${matches.length} тааралт олдлоо` : "Тааралт олдсонгүй"}
+          <h2 className="section-title mb-3">
+            {`${matches.length} тааралт олдлоо`}
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {matches.map((m) => {

@@ -159,7 +159,7 @@ export default async function CamerasPage() {
                     />
                     <button
                       type="submit"
-                      className="text-[10px] uppercase tracking-wide text-text-muted hover:text-warning transition"
+                      className="btn-ghost btn-sm"
                     >
                       {c.consent_required ? t("consent_on") : t("consent_off")}
                     </button>
@@ -168,14 +168,14 @@ export default async function CamerasPage() {
                 <div className="flex items-center gap-1.5 shrink-0">
                   <Link
                     href={`/cameras/${c.id}/schedule` as never}
-                    className="btn-ghost text-xs p-2"
+                    className="btn-icon"
                     title={t("schedule")}
                   >
                     <Clock className="w-3.5 h-3.5" />
                   </Link>
                   <Link
                     href={`/cameras/${c.id}/permissions` as never}
-                    className="btn-ghost text-xs p-2"
+                    className="btn-icon"
                     title={t("permissions")}
                   >
                     <Users className="w-3.5 h-3.5" />
@@ -187,7 +187,7 @@ export default async function CamerasPage() {
                   <form action={toggleCameraAction}>
                     <input type="hidden" name="id" value={c.id} />
                     <input type="hidden" name="enabled" value={String(!c.enabled)} />
-                    <button type="submit" className="btn-ghost text-xs p-2" title="Toggle">
+                    <button type="submit" className="btn-icon" title="Toggle">
                       <Power className="w-3.5 h-3.5" />
                     </button>
                   </form>

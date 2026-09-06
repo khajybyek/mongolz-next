@@ -60,7 +60,7 @@ export function ZKRevealView() {
   return (
     <div className="max-w-3xl space-y-4">
       <div className="card space-y-4">
-        <h3 className="text-sm font-medium flex items-center gap-2">
+        <h3 className="section-title flex items-center gap-2">
           <Lock className="w-4 h-4 text-accent" />
           Protocol Steps
         </h3>
@@ -77,24 +77,24 @@ export function ZKRevealView() {
 
       <div className="card space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium flex items-center gap-2">
+          <h3 className="section-title flex items-center gap-2">
             <Shield className="w-4 h-4 text-accent" />
             Protocol Simulation
           </h3>
           <div className="flex items-center gap-2">
-            <label className="text-xs text-text-soft">Trials:</label>
+            <label className="label mb-0">Trials:</label>
             <input
               type="number"
               value={trials}
               onChange={(e) => setTrials(Number(e.target.value))}
-              className="w-20 bg-bg-tertiary border border-text-muted/10 rounded px-2 py-1 text-xs"
+              className="input w-20 text-xs"
               min={10}
               max={1000}
             />
             <button
               onClick={runSimulation}
               disabled={loading}
-              className="btn-primary text-sm flex items-center gap-2"
+              className="btn-primary"
             >
               {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
               Simulate

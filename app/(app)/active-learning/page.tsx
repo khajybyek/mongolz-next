@@ -61,38 +61,36 @@ export default async function ActiveLearningPage() {
       {!alerts?.length ? (
         <Empty message={t("no_alerts_yet")} />
       ) : (
-        <div className="card p-0 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>{t("col_suspect")}</th>
-                  <th>{t("col_camera")}</th>
-                  <th>{t("col_similarity")}</th>
-                  <th>{t("col_when")}</th>
-                  <th>Label</th>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>{t("col_suspect")}</th>
+                <th>{t("col_camera")}</th>
+                <th>{t("col_similarity")}</th>
+                <th>{t("col_when")}</th>
+                <th>Label</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alerts.map((a) => (
+                <tr key={a.id}>
+                  <td className="font-medium text-text">{a.suspect_name}</td>
+                  <td>{a.camera_name ?? "—"}</td>
+                  <td>
+                    <Badge variant="warning">{pct(a.similarity)}</Badge>
+                  </td>
+                  <td className="text-2xs">{formatDate(a.created_at)}</td>
+                  <td>
+                    <LabelButtons
+                      id={a.id}
+                      current={a.label as "true_positive" | "false_positive" | "unknown"}
+                    />
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {alerts.map((a) => (
-                  <tr key={a.id}>
-                    <td className="font-medium text-text">{a.suspect_name}</td>
-                    <td>{a.camera_name ?? "—"}</td>
-                    <td>
-                      <Badge variant="warning">{pct(a.similarity)}</Badge>
-                    </td>
-                    <td className="text-2xs">{formatDate(a.created_at)}</td>
-                    <td>
-                      <LabelButtons
-                        id={a.id}
-                        current={a.label as "true_positive" | "false_positive" | "unknown"}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </>

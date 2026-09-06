@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { Empty } from "@/components/ui/empty";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getServerLang, getT } from "@/lib/i18n/server";
@@ -150,28 +151,24 @@ export default async function CameraSchedulePage({
           </form>
 
           {/* Schedule list */}
-          <div className="card p-0">
-            <table className="w-full text-sm">
-              <thead className="bg-bg-tertiary/50">
-                <tr className="text-xs uppercase tracking-wide text-text-soft">
-                  <th className="px-4 py-2.5 text-left">{t("schedule_col_mode")}</th>
-                  <th className="px-4 py-2.5 text-left">{t("schedule_col_time")}</th>
-                  <th className="px-4 py-2.5 text-left">{t("schedule_col_weekdays")}</th>
-                  <th className="px-4 py-2.5 text-left">{t("schedule_col_note")}</th>
-                  <th className="px-4 py-2.5 text-right">{t("schedule_col_action")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-text-muted/5">
-                {rows.length === 0 ? (
+          {rows.length === 0 ? (
+            <Empty message={`${t("schedule_empty")} (${camera.mask_default})`} />
+          ) : (
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-xs text-text-muted">
-                      {t("schedule_empty")} ({camera.mask_default})
-                    </td>
+                    <th>{t("schedule_col_mode")}</th>
+                    <th>{t("schedule_col_time")}</th>
+                    <th>{t("schedule_col_weekdays")}</th>
+                    <th>{t("schedule_col_note")}</th>
+                    <th className="num">{t("schedule_col_action")}</th>
                   </tr>
-                ) : (
-                  rows.map((r) => (
-                    <tr key={r.id} className="hover:bg-text-muted/[0.02]">
-                      <td className="px-4 py-2.5">
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id}>
+                      <td>
                         <span
                           className={`badge ${
                             r.window_mode === "masked"
@@ -182,16 +179,16 @@ export default async function CameraSchedulePage({
                           {r.window_mode}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 text-xs font-mono">
+                      <td className="text-xs font-mono">
                         {r.starts_at.slice(0, 5)} – {r.ends_at.slice(0, 5)}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-text-soft">
+                      <td className="text-xs">
                         {weekdaysLabel(r.weekdays, lang)}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-text-muted">
-                        {r.note ?? "—"}
+                      <td className="text-xs">
+                        <span className="text-text-muted">{r.note ?? "—"}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-right">
+                      <td className="num">
                         <form action={deleteScheduleAction} className="inline">
                           <input type="hidden" name="id" value={r.id} />
                           <input type="hidden" name="camera_id" value={camera.id} />
@@ -205,11 +202,11 @@ export default async function CameraSchedulePage({
                         </form>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         {/* Right side: default + current state */}

@@ -61,39 +61,39 @@ export function PrivacyDashboard() {
       </div>
 
       {results.length > 0 && (
-        <div className="card overflow-x-auto p-0">
-          <table className="w-full text-sm">
-            <thead className="bg-bg-tertiary/50">
-              <tr className="text-xs uppercase tracking-wide text-text-soft">
-                <th className="px-4 py-2.5 text-left">ε (Epsilon)</th>
-                <th className="px-4 py-2.5 text-left">σ (Noise)</th>
-                <th className="px-4 py-2.5 text-left">Precision</th>
-                <th className="px-4 py-2.5 text-left">Recall</th>
-                <th className="px-4 py-2.5 text-left">F1</th>
-                <th className="px-4 py-2.5 text-left">Privacy</th>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th>ε (Epsilon)</th>
+                <th>σ (Noise)</th>
+                <th className="num">Precision</th>
+                <th className="num">Recall</th>
+                <th className="num">F1</th>
+                <th>Privacy</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-text-muted/5">
+            <tbody>
               {results.map((r) => (
-                <tr key={r.epsilon} className="hover:bg-text-muted/[0.02]">
-                  <td className="px-4 py-2.5 font-mono">{r.epsilon}</td>
-                  <td className="px-4 py-2.5 font-mono text-text-soft">{r.sigma}</td>
-                  <td className="px-4 py-2.5">
+                <tr key={r.epsilon}>
+                  <td className="font-mono text-text">{r.epsilon}</td>
+                  <td className="font-mono">{r.sigma}</td>
+                  <td className="num">
                     <span className={r.precision >= 0.8 ? "text-success" : r.precision >= 0.5 ? "text-warning" : "text-danger"}>
                       {(r.precision * 100).toFixed(1)}%
                     </span>
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="num">
                     <span className={r.recall >= 0.8 ? "text-success" : r.recall >= 0.5 ? "text-warning" : "text-danger"}>
                       {(r.recall * 100).toFixed(1)}%
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 font-medium">
+                  <td className="num font-medium">
                     <span className={r.f1 >= 0.8 ? "text-success" : r.f1 >= 0.5 ? "text-warning" : "text-danger"}>
                       {(r.f1 * 100).toFixed(1)}%
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-text-muted">{r.privacy}</td>
+                  <td className="text-xs text-text-muted">{r.privacy}</td>
                 </tr>
               ))}
             </tbody>

@@ -64,7 +64,7 @@ export function HealthDashboard() {
         <span className="text-sm font-semibold">
           {allOk ? "All systems operational" : services.length === 0 ? "Checking..." : "Issues detected"}
         </span>
-        <button onClick={check} disabled={checking} className="btn-ghost text-xs ml-auto">
+        <button onClick={check} disabled={checking} className="btn-ghost btn-sm ml-auto">
           {checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
           Refresh
         </button>

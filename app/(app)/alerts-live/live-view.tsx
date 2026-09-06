@@ -11,6 +11,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
+import { Empty } from "@/components/ui/empty";
 import { useT } from "@/lib/i18n/client";
 import { useChartColors } from "@/lib/theme/chart-colors";
 
@@ -187,27 +188,25 @@ export function LiveAlertsView({ seed, labels }: Props) {
       </div>
 
       {/* Recent stream */}
-      <div className="card p-0">
-        <div className="px-4 py-2.5 border-b border-text-muted/5 text-sm font-semibold">
-          {labels.recentTitle}
-        </div>
-        <div className="max-h-80 overflow-y-auto">
-          {alerts.length === 0 ? (
-            <p className="text-xs text-text-muted py-8 text-center">
-              {t("al_live_empty")}
-            </p>
-          ) : (
-            <table className="w-full text-sm">
-              <tbody className="divide-y divide-text-muted/5">
+      {alerts.length === 0 ? (
+        <Empty message={t("al_live_empty")} />
+      ) : (
+        <div className="card p-0 overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-text-muted/5 text-sm font-semibold">
+            {labels.recentTitle}
+          </div>
+          <div className="tbl-wrap max-h-80 overflow-y-auto rounded-none border-0">
+            <table className="tbl">
+              <tbody>
                 {alerts.slice(0, 50).map((a) => (
-                  <tr key={a.id} className="hover:bg-text-muted/[0.02]">
-                    <td className="px-4 py-2 font-medium truncate max-w-[200px]">
-                      {a.suspect_name}
+                  <tr key={a.id}>
+                    <td className="truncate max-w-[200px]">
+                      <span className="font-medium text-text">{a.suspect_name}</span>
                     </td>
-                    <td className="px-4 py-2 text-xs text-text-muted truncate max-w-[150px]">
-                      {a.camera_name ?? "—"}
+                    <td className="text-xs truncate max-w-[150px]">
+                      <span className="text-text-muted">{a.camera_name ?? "—"}</span>
                     </td>
-                    <td className="px-4 py-2">
+                    <td>
                       <span
                         className={`badge ${
                           a.similarity >= 0.7
@@ -220,19 +219,21 @@ export function LiveAlertsView({ seed, labels }: Props) {
                         {(a.similarity * 100).toFixed(0)}%
                       </span>
                     </td>
-                    <td className="px-4 py-2 text-xs text-text-muted whitespace-nowrap">
-                      {new Date(a.created_at).toLocaleTimeString(
-                        lang === "kr" ? "ko-KR" : lang === "en" ? "en-US" : "mn-MN",
-                        { timeZone: "Asia/Seoul" },
-                      )}
+                    <td className="text-xs whitespace-nowrap">
+                      <span className="text-text-muted">
+                        {new Date(a.created_at).toLocaleTimeString(
+                          lang === "kr" ? "ko-KR" : lang === "en" ? "en-US" : "mn-MN",
+                          { timeZone: "Asia/Seoul" },
+                        )}
+                      </span>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

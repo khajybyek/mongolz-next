@@ -74,13 +74,13 @@ export function HeatmapView({ cameras }: { cameras: Camera[] }) {
     <div className="space-y-4">
       <div className="card p-3 flex flex-wrap gap-4 items-end">
         <div className="text-sm">
-          <label className="text-text-soft block text-xs mb-1 flex items-center gap-1">
+          <label className="label flex items-center gap-1">
             <Cctv className="w-3.5 h-3.5" /> {t("heatmap_camera")}
           </label>
           <select
             value={cameraId}
             onChange={(e) => setCameraId(e.target.value)}
-            className="bg-bg-secondary border border-border rounded px-2 py-1 text-sm"
+            className="select"
           >
             {cameras.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
@@ -88,11 +88,11 @@ export function HeatmapView({ cameras }: { cameras: Camera[] }) {
           </select>
         </div>
         <div className="text-sm">
-          <label className="text-text-soft block text-xs mb-1">{t("heatmap_window")}</label>
+          <label className="label">{t("heatmap_window")}</label>
           <select
             value={hours}
             onChange={(e) => setHours(parseInt(e.target.value, 10))}
-            className="bg-bg-secondary border border-border rounded px-2 py-1 text-sm"
+            className="select"
           >
             <option value={1}>1h</option>
             <option value={6}>6h</option>
@@ -118,9 +118,7 @@ export function HeatmapView({ cameras }: { cameras: Camera[] }) {
           <div className="text-sm text-danger-ring">{err}</div>
         )}
         {!loading && !err && data && data.samples === 0 && (
-          <div className="aspect-video flex items-center justify-center text-sm text-text-muted">
-            {t("heatmap_no_data")}
-          </div>
+          <Empty message={t("heatmap_no_data")} icon={Flame} />
         )}
         {!loading && !err && data && data.samples > 0 && (
           <>
@@ -153,7 +151,7 @@ export function HeatmapView({ cameras }: { cameras: Camera[] }) {
 
       {topCells.length > 0 && data && (
         <div className="card p-3">
-          <div className="text-xs text-text-soft mb-2">Top 5 hottest cells</div>
+          <h3 className="section-title mb-2">Top 5 hottest cells</h3>
           <div className="grid grid-cols-5 gap-2">
             {topCells.map((c, i) => (
               <div key={i} className="bg-bg-tertiary rounded p-2 text-center">

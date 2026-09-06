@@ -41,7 +41,7 @@ export default async function RetentionPage() {
       <PageHeader title={t("retention_title")} subtitle={t("retention_subtitle")} />
 
       <form action={runSweepAction} className="mt-3 mb-6">
-        <button type="submit" className="btn-secondary text-sm">
+        <button type="submit" className="btn-secondary">
           <RefreshCw className="w-3.5 h-3.5" />
           {t("run_sweep")}
         </button>
@@ -58,7 +58,7 @@ export default async function RetentionPage() {
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-semibold">{meta?.mn ?? p.resource}</h3>
+                  <h3 className="section-title">{meta?.mn ?? p.resource}</h3>
                   <code className="text-[10px] text-text-muted">{p.resource}</code>
                 </div>
                 {meta?.warn && (
@@ -71,7 +71,7 @@ export default async function RetentionPage() {
               <input type="hidden" name="resource" value={p.resource} />
 
               <div>
-                <label className="text-[10px] uppercase tracking-wide text-text-soft mb-1 block">
+                <label className="label">
                   {t("retention_days")}
                 </label>
                 <input
@@ -103,7 +103,7 @@ export default async function RetentionPage() {
                 </div>
               )}
 
-              <button type="submit" className="btn-primary w-full text-sm">
+              <button type="submit" className="btn-primary w-full">
                 {t("save")}
               </button>
             </form>

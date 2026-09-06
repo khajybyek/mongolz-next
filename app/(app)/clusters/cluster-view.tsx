@@ -46,7 +46,7 @@ export function ClusterView() {
       <div className="card space-y-3">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="text-xs text-text-soft mb-1 block">Epsilon (distance threshold)</label>
+            <label className="label">Epsilon (distance threshold)</label>
             <input
               type="range"
               min={0.2}
@@ -59,7 +59,7 @@ export function ClusterView() {
             <div className="text-sm text-text-soft font-mono mt-1">{eps}</div>
           </div>
           <div>
-            <label className="text-xs text-text-soft mb-1 block">Min Samples</label>
+            <label className="label">Min Samples</label>
             <input
               type="range"
               min={2}
@@ -77,7 +77,7 @@ export function ClusterView() {
           Run DBSCAN Clustering
         </button>
         {error && (
-          <div className="text-xs text-danger">{error}</div>
+          <div className="helper-error">{error}</div>
         )}
       </div>
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { Empty } from "@/components/ui/empty";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getT } from "@/lib/i18n/server";
@@ -82,33 +83,28 @@ export default async function CameraPermissionsPage({
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 mt-4">
         <div className="space-y-4">
-          <div className="card p-0">
-            <table className="w-full text-sm">
-              <thead className="bg-bg-tertiary/50">
-                <tr className="text-xs uppercase tracking-wide text-text-soft">
-                  <th className="px-4 py-2.5 text-left">{t("perm_col_email")}</th>
-                  <th className="px-4 py-2.5 text-left">{t("perm_col_role")}</th>
-                  <th className="px-4 py-2.5 text-left">{t("perm_col_permission")}</th>
-                  <th className="px-4 py-2.5 text-right">{t("col_actions")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-text-muted/5">
-                {rows.length === 0 ? (
+          {rows.length === 0 ? (
+            <Empty message={t("perm_empty")} />
+          ) : (
+            <div className="tbl-wrap">
+              <table className="tbl">
+                <thead>
                   <tr>
-                    <td
-                      colSpan={4}
-                      className="px-4 py-6 text-center text-xs text-text-muted"
-                    >
-                      {t("perm_empty")}
-                    </td>
+                    <th>{t("perm_col_email")}</th>
+                    <th>{t("perm_col_role")}</th>
+                    <th>{t("perm_col_permission")}</th>
+                    <th className="num">{t("col_actions")}</th>
                   </tr>
-                ) : (
-                  rows.map((r) => (
-                    <tr key={r.id} className="hover:bg-text-muted/[0.02]">
-                      <td className="px-4 py-2.5 font-medium">
-                        {r.user_email ?? r.user_id.slice(0, 8)}
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id}>
+                      <td>
+                        <span className="font-medium text-text">
+                          {r.user_email ?? r.user_id.slice(0, 8)}
+                        </span>
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td>
                         <span
                           className={`badge ${
                             r.user_role === "auditor"
@@ -119,10 +115,10 @@ export default async function CameraPermissionsPage({
                           {r.user_role ?? "—"}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td>
                         <span className="badge bg-accent/15 text-accent">{r.permission}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-right">
+                      <td className="num">
                         <form action={revokeCameraPermissionAction} className="inline">
                           <input type="hidden" name="id" value={r.id} />
                           <input type="hidden" name="camera_id" value={camera.id} />
@@ -136,11 +132,11 @@ export default async function CameraPermissionsPage({
                         </form>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         <div className="space-y-4">

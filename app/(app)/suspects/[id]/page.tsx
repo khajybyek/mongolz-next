@@ -137,7 +137,7 @@ export default async function SuspectDetailPage({
     <>
       <Link
         href="/suspects"
-        className="text-sm text-text-soft hover:text-text inline-flex items-center gap-1.5 mb-4"
+        className="btn-ghost btn-sm mb-4"
       >
         <ArrowLeft className="w-4 h-4" />
         {t("nav_suspects")}
@@ -212,9 +212,9 @@ export default async function SuspectDetailPage({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-xs text-text-soft uppercase tracking-wider mb-1">
+                <h3 className="section-title mb-1">
                   {t("susp_latest_match")}
-                </div>
+                </h3>
                 <div className="text-sm font-semibold truncate">{latest.camera_name ?? "—"}</div>
                 <div className="text-xs text-text-muted">{formatDate(latest.created_at)}</div>
                 <div className="text-xs mt-1">
@@ -239,9 +239,9 @@ export default async function SuspectDetailPage({
           {/* Per-camera bucket trail */}
           {cameraBuckets.length > 0 && (
             <div className="card">
-              <div className="text-xs text-text-soft uppercase tracking-wider mb-2 flex items-center gap-1">
+              <h3 className="section-title mb-2 flex items-center gap-1">
                 <Cctv className="w-3.5 h-3.5" /> {t("susp_trail")}
-              </div>
+              </h3>
               <div className="space-y-2">
                 {cameraBuckets.map((c) => {
                   const max = cameraBuckets[0].count;

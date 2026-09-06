@@ -91,10 +91,10 @@ export function ReidView({ initialThumbs }: { initialThumbs: Thumb[] }) {
     <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6">
       {/* Source picker */}
       <aside className="card p-3 space-y-3 lg:max-h-[calc(100vh-220px)] lg:overflow-y-auto">
-        <div className="flex items-center gap-2 text-sm font-semibold text-text">
+        <h3 className="section-title flex items-center gap-2">
           <Search className="w-4 h-4 text-accent" />
           {t("reid_pick_source")}
-        </div>
+        </h3>
 
         {selectedThumb && (
           <div className="rounded-lg border border-accent/30 bg-accent/5 p-2">
@@ -117,7 +117,7 @@ export function ReidView({ initialThumbs }: { initialThumbs: Thumb[] }) {
                 <button
                   type="button"
                   onClick={() => setSelectedId(null)}
-                  className="mt-1 text-[10px] text-text-muted hover:text-danger-ring transition"
+                  className="btn-ghost btn-sm mt-1"
                 >
                   ✕ {t("reid_clear")}
                 </button>
@@ -157,7 +157,7 @@ export function ReidView({ initialThumbs }: { initialThumbs: Thumb[] }) {
       <section className="space-y-4 min-w-0">
         <div className="card p-4 flex flex-wrap gap-4 items-center">
           <div className="text-sm">
-            <label className="text-text-soft block text-xs mb-1">{t("reid_threshold")}</label>
+            <label className="label">{t("reid_threshold")}</label>
             <input
               type="range"
               min={0.3}
@@ -171,12 +171,12 @@ export function ReidView({ initialThumbs }: { initialThumbs: Thumb[] }) {
             <span className="ml-2 text-text font-mono">{threshold.toFixed(2)}</span>
           </div>
           <div className="text-sm">
-            <label className="text-text-soft block text-xs mb-1">{t("reid_window")}</label>
+            <label className="label">{t("reid_window")}</label>
             <select
               value={windowHours}
               onChange={(e) => setWindowHours(parseInt(e.target.value, 10))}
               disabled={!selectedId}
-              className="bg-bg-secondary border border-border rounded px-2 py-1 text-sm"
+              className="select"
             >
               <option value={1}>1h</option>
               <option value={6}>6h</option>
@@ -193,12 +193,7 @@ export function ReidView({ initialThumbs }: { initialThumbs: Thumb[] }) {
           )}
         </div>
 
-        {!selectedId && (
-          <div className="card p-10 text-center">
-            <Sparkles className="w-8 h-8 mx-auto mb-3 text-accent/60" />
-            <div className="text-text-soft text-sm">{t("reid_intro")}</div>
-          </div>
-        )}
+        {!selectedId && <Empty message={t("reid_intro")} icon={Sparkles} />}
 
         {loading && (
           <div className="card p-10 text-center">
@@ -223,9 +218,9 @@ export function ReidView({ initialThumbs }: { initialThumbs: Thumb[] }) {
 
             {/* Timeline strip */}
             <div className="card p-3">
-              <div className="text-xs text-text-soft mb-2 flex items-center gap-1">
+              <h3 className="section-title mb-2 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5" /> {t("reid_timeline")}
-              </div>
+              </h3>
               <Timeline trail={trail.trail} />
             </div>
 

@@ -48,7 +48,7 @@ export function BackupButton({ label }: { label: string }) {
         type="button"
         onClick={download}
         disabled={busy}
-        className="btn-primary w-full text-center justify-center"
+        className="btn-primary w-full"
       >
         {busy ? (
           <Loader2 className="w-4 h-4 animate-spin" />
