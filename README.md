@@ -100,6 +100,9 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 - AI insights (Claude — anomaly / summary / chat)
 - i18n: mn / en / kr (server-resolved cookie + client `useT()` hook)
 - PWA manifest, skip-to-content link, `prefers-reduced-motion`, dark/light
+- App shell: sticky header (breadcrumbs, ⌘K palette with actions, live ML/DB status,
+  theme + language, account menu), grouped sidebar, phone bottom tab bar, toast
+  notifications — all driven by one navigation source (`lib/nav.ts`); Geist typography
 - OpenGraph image (Satori-rendered)
 
 ---
@@ -108,7 +111,7 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 
 | Layer | Mechanism |
 |---|---|
-| 1. UI | role-aware sidebar (admin / viewer / auditor) |
+| 1. UI | role-aware navigation — sidebar, header, tab bar and ⌘K palette share `lib/nav.ts` (admin / viewer / auditor) |
 | 2. Server gate | `requireAdmin()` / `requireUser()` redirect in every protected route |
 | 3. Middleware | auditor allow-list (only `/audit*`); per-camera redirect |
 | 4. RLS | every table; super-admin row protected by BEFORE trigger |
@@ -140,7 +143,7 @@ mongolz-next/
 │   │   ├── privacy/ reid/ retention/ reveal-approvals/
 │   │   ├── review/ schedule/ search/ settings/ suspects/
 │   │   ├── thresholds/ users/ webhooks/ zk-reveal/
-│   │   └── layout.tsx               # sidebar + i18n + Sentry boot
+│   │   └── layout.tsx               # shell: sidebar + header + tab bar + toasts + i18n
 │   ├── login/                       # email/username + TOTP
 │   ├── wall/                        # admin kiosk grid
 │   ├── auth/ setup/

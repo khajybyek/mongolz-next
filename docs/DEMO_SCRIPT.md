@@ -58,14 +58,18 @@ You land on `/dashboard`.
 
 **Script:**
 
-> "Эндээс бүх админ интерфэйс эхэлдэг. Sidebar дотор:
+> "Эндээс бүх админ интерфэйс эхэлдэг. Дээд header дээр: breadcrumb,
+> хайлт (⌘K), ML/DB статус, харагдац/хэл, бүртгэлийн цэс. Sidebar дотор:
 > - **Compare** — privacy mask algorithm demo
 > - **Live** — webcam/RTSP recording
 > - **Alerts** — real-time suspect matches
 > - **Audit log** — hash-chained, tamper-evident
 > - **Users / Webhooks / Reveal Approvals** — admin governance
 >
-> Хамгийн чухал нь ⌘K дарвал command palette нээгдэнэ."
+> Dashboard дээр 7 хоногийн alert trend, түргэн үйлдлүүд, камер +
+> бичлэгийн жагсаалт харагдана. Утсан дээр доод tab bar-аар шилжинэ.
+> Хамгийн чухал нь ⌘K дарвал command palette нээгдэнэ — хуудас ч,
+> үйлдэл ч (theme, хэл, гарах) энд байна."
 
 Press **⌘K** → type `compare` → Enter.
 

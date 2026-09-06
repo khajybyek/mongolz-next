@@ -10,6 +10,14 @@ test.describe("Public surfaces", () => {
     expect(body.checks.db).toBeDefined();
   });
 
+  test("landing page renders hero, product mockup and stats strip", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator("h1")).toBeVisible();
+    await expect(page.getByText("aicctv.dev/dashboard")).toBeVisible();
+    await expect(page.getByText("AES-256", { exact: true })).toBeVisible();
+    await expect(page.locator('a[href="/login"]').first()).toBeVisible();
+  });
+
   test("login page renders sign-in form", async ({ page }) => {
     await page.goto("/login");
     await expect(page.locator("form")).toBeVisible();
