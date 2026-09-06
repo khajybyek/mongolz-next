@@ -89,6 +89,9 @@ export function MultiCameraGrid({
   const [isFull, setIsFull] = useState(false);
   const [reachable, setReachable] = useState(mlReachable);
   const [bulk, setBulk] = useState<"start" | "stop" | null>(null);
+  // Phones cap the grid at two columns so tiles stay legible; 3×3 / 4×4
+  // layouts simply wrap into more rows there.
+  const [narrow, setNarrow] = useState(false);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const streamsRef = useRef(streams);
@@ -107,6 +110,14 @@ export function MultiCameraGrid({
     }
   }, []);
 
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const apply = () => setNarrow(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
   function chooseLayout(next: Layout) {
     setLayout(next);
     setPage(0);
@@ -118,7 +129,7 @@ export function MultiCameraGrid({
   }
 
   const tiles: Tiles = layout === "auto" ? autoTiles(cameras.length) : layout;
-  const cols = Math.sqrt(tiles);
+  const cols = narrow ? Math.min(2, Math.sqrt(tiles)) : Math.sqrt(tiles);
   const pageCount = Math.max(1, Math.ceil(cameras.length / tiles));
   const safePage = Math.min(page, pageCount - 1);
   const visible = useMemo(
