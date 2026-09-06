@@ -9,30 +9,55 @@ import {
   Activity,
   Cctv,
   Sparkles,
+  Search,
+  UserPlus,
+  ClipboardCheck,
+  PlayCircle,
+  BarChart3,
+  FileVideo,
+  Lock,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { Empty } from "@/components/ui/empty";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
-import { formatDate, pct } from "@/lib/utils";
+import { cn, formatDate, pct } from "@/lib/utils";
 import { LiveActivityFeed, type ActivityItem } from "./live-activity-feed";
 import { probeDb, probeMl } from "@/lib/health-probes";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const kstDay = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Seoul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const kstWeekday = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Seoul", weekday: "short" });
 
 export default async function DashboardPage({
   searchParams,
 }: {
   searchParams?: Promise<{ error?: string }>;
 }) {
+  const { profile } = await requireUser();
   const supabase = await createClient();
   const { t } = await getT();
   const sp = (await searchParams) ?? {};
   const bounceMessage =
     sp.error === "admin-only" ? t("err_admin_only") : sp.error === "forbidden" ? t("err_forbidden") : null;
+  const isAdmin = profile.role === "admin";
 
-  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const now = Date.now();
+  const since24h = new Date(now - DAY_MS).toISOString();
   const sinceToday = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+  const since14d = new Date(now - 14 * DAY_MS).toISOString();
 
   const [
     { count: faceCount },
@@ -42,6 +67,9 @@ export default async function DashboardPage({
     { count: cameraCount },
     { count: alerts24h },
     { data: recentAlerts },
+    { data: trendRows },
+    { data: cameraRows },
+    { data: recordingRows },
     mlHealth,
     dbHealth,
   ] = await Promise.all([
@@ -56,9 +84,34 @@ export default async function DashboardPage({
       .select("id, suspect_name, similarity, created_at, camera_name")
       .order("created_at", { ascending: false })
       .limit(8),
+    supabase.from("alerts").select("created_at").gte("created_at", since14d).limit(5000),
+    supabase
+      .from("cameras")
+      .select("id, name, cam_type, enabled")
+      .order("created_at", { ascending: false })
+      .limit(6),
+    supabase
+      .from("recordings")
+      .select("id, filename, camera_name, started_at, duration_sec, encrypted")
+      .order("started_at", { ascending: false })
+      .limit(4),
     probeMl(2500),
     probeDb(2500),
   ]);
+
+  // 14-day daily buckets (KST) → last 7 vs previous 7.
+  const buckets = new Map<string, number>();
+  for (let i = 13; i >= 0; i--) buckets.set(kstDay.format(new Date(now - i * DAY_MS)), 0);
+  for (const row of trendRows ?? []) {
+    const key = kstDay.format(new Date(row.created_at));
+    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + 1);
+  }
+  const series = [...buckets.entries()].map(([day, count]) => ({ day, count }));
+  const last7 = series.slice(7);
+  const prev7 = series.slice(0, 7);
+  const last7Total = last7.reduce((s, d) => s + d.count, 0);
+  const prev7Total = prev7.reduce((s, d) => s + d.count, 0);
+  const delta = prev7Total === 0 ? (last7Total > 0 ? 100 : 0) : Math.round(((last7Total - prev7Total) / prev7Total) * 100);
 
   // Live-activity initial payload — last N alerts + audit rows merged.
   const [{ data: feedAlerts }, { data: feedAudit }] = await Promise.all([
@@ -136,6 +189,23 @@ export default async function DashboardPage({
   }
   initialActivity.sort((a, b) => b.ts.localeCompare(a.ts));
 
+  type QuickAction = {
+    href: string;
+    icon: LucideIcon;
+    label: string;
+    adminOnly?: boolean;
+    tone?: "accent" | "default";
+  };
+  const allActions: QuickAction[] = [
+    { href: "/live", icon: Video, label: t("qa_start_live"), tone: "accent" },
+    { href: "/playback", icon: PlayCircle, label: t("qa_playback") },
+    { href: "/search", icon: Search, label: t("qa_search_face"), adminOnly: true },
+    { href: "/suspects", icon: UserPlus, label: t("qa_add_suspect"), adminOnly: true },
+    { href: "/review", icon: ClipboardCheck, label: t("qa_review"), adminOnly: true },
+    { href: "/analytics", icon: BarChart3, label: t("qa_analytics") },
+  ];
+  const quickActions = allActions.filter((a) => isAdmin || !a.adminOnly);
+
   return (
     <>
       {bounceMessage && (
@@ -148,26 +218,30 @@ export default async function DashboardPage({
         subtitle={t("dashboard_subtitle") || "AI-Powered Surveillance — overview"}
         icon={<Activity className="w-5 h-5" />}
         actions={
-          <Link href={"/ai" as never} className="btn-secondary btn-sm">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{t("nav_ai")}</span>
-          </Link>
+          isAdmin ? (
+            <Link href={"/ai" as never} className="btn-secondary btn-sm">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{t("nav_ai")}</span>
+            </Link>
+          ) : undefined
         }
       />
 
       {/* Stat grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
         <StatCard
           label={t("total_faces")}
           value={(faceCount ?? 0).toLocaleString()}
           icon={Users}
           accent="info"
+          href={isAdmin ? "/faces" : undefined}
         />
         <StatCard
           label={t("suspects")}
           value={(suspectCount ?? 0).toLocaleString()}
           icon={UserSearch}
           accent="warning"
+          href={isAdmin ? "/suspects" : undefined}
         />
         <StatCard
           label={t("today_alerts")}
@@ -175,16 +249,54 @@ export default async function DashboardPage({
           icon={Bell}
           accent={alertCount && alertCount > 0 ? "danger" : "default"}
           hint={`${alerts24h ?? 0} ${t("alerts_24h") || "in 24h"}`}
+          href={isAdmin ? "/alerts" : undefined}
         />
         <StatCard
           label={t("recording_days")}
           value={(recordingCount ?? 0).toLocaleString()}
           icon={Video}
           accent="default"
+          href="/playback"
         />
       </div>
 
-      {/* Two-column lower section */}
+      {/* Quick actions */}
+      <div className="mb-4 md:mb-6">
+        <div className="flex items-center justify-between mb-2.5">
+          <h2 className="section-title">{t("dash_quick_actions")}</h2>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+          {quickActions.map((a) => {
+            const Icon = a.icon;
+            return (
+              <Link
+                key={a.href}
+                href={a.href as never}
+                className={cn(
+                  "group flex items-center gap-3 rounded-xl border px-3.5 py-3 text-sm font-medium transition-all hover-lift",
+                  a.tone === "accent"
+                    ? "border-accent/30 bg-accent/10 text-accent hover:bg-accent/15 hover:border-accent/50"
+                    : "border-border bg-surface hover:border-border-strong hover:bg-surface-elevated text-text",
+                )}
+              >
+                <span
+                  className={cn(
+                    "w-8 h-8 rounded-lg inline-flex items-center justify-center shrink-0 border transition-transform group-hover:scale-110",
+                    a.tone === "accent"
+                      ? "bg-accent/15 border-accent/20"
+                      : "bg-text-muted/[0.05] border-border text-text-soft",
+                  )}
+                >
+                  <Icon className="w-4 h-4" />
+                </span>
+                <span className="truncate">{a.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Two-column section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Recent alerts (2/3) */}
         <div className="lg:col-span-2 card p-0 overflow-hidden">
@@ -193,17 +305,25 @@ export default async function DashboardPage({
               <ShieldAlert className="w-4 h-4 text-text-soft" />
               <h2 className="text-sm font-semibold tracking-tight">{t("recent_alerts")}</h2>
             </div>
-            <Link
-              href={"/alerts" as never}
-              className="text-xs text-text-soft hover:text-accent transition inline-flex items-center gap-1"
-            >
-              {t("see_all") || "See all"}
-              <ArrowRight className="w-3 h-3" />
-            </Link>
+            {isAdmin && (
+              <Link
+                href={"/alerts" as never}
+                className="text-xs text-text-soft hover:text-accent transition inline-flex items-center gap-1"
+              >
+                {t("see_all") || "See all"}
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            )}
           </div>
 
           {!recentAlerts?.length ? (
-            <Empty message={t("no_alerts")} />
+            <div className="p-6">
+              <Empty
+                icon={Bell}
+                message={t("no_alerts")}
+                description={t("ai_card_desc")}
+              />
+            </div>
           ) : (
             <ul className="divide-y divide-border">
               {recentAlerts.map((a) => (
@@ -221,36 +341,34 @@ export default async function DashboardPage({
                         <Cctv className="w-3 h-3 opacity-60" />
                         <span className="truncate">{a.camera_name ?? "—"}</span>
                         <span className="opacity-40">·</span>
-                        <span>{formatDate(a.created_at)}</span>
+                        <span className="tabular-nums">{formatDate(a.created_at)}</span>
                       </div>
                     </div>
                   </div>
-                  <Badge variant="danger">{pct(a.similarity)}</Badge>
+                  <Badge variant={(a.similarity ?? 0) >= 0.7 ? "danger" : (a.similarity ?? 0) >= 0.5 ? "warning" : "info"}>
+                    {pct(a.similarity ?? 0)}
+                  </Badge>
                 </li>
               ))}
             </ul>
           )}
         </div>
 
-        {/* System status (1/3) */}
+        {/* Right column: system status + AI card */}
         <div className="space-y-4">
           <div className="card">
             <h3 className="section-title mb-3">{t("system_status") || "System status"}</h3>
             <div className="space-y-3">
-              <StatusRow
-                label={t("cameras_online") || "Cameras"}
-                value={`${cameraCount ?? 0}`}
-                status="ok"
-              />
+              <StatusRow label={t("cameras_online") || "Cameras"} value={`${cameraCount ?? 0}`} status="ok" />
               <StatusRow
                 label="ML Service"
                 value={mlHealth.ok ? t("operational") : t("status_ml_down")}
-                status={mlHealth.ok ? "ok" : "warn"}
+                status={mlHealth.ok ? "ok" : "down"}
               />
               <StatusRow
                 label="Database"
                 value={dbHealth.ok ? t("status_db_connected") : t("status_db_down")}
-                status={dbHealth.ok ? "ok" : "warn"}
+                status={dbHealth.ok ? "ok" : "down"}
               />
               <StatusRow
                 label={t("alerts_24h") || "Alerts (24h)"}
@@ -260,29 +378,126 @@ export default async function DashboardPage({
             </div>
           </div>
 
-          <div className="card-glow">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-lg bg-accent/15 text-accent border border-accent/20 inline-flex items-center justify-center shrink-0">
-                <Sparkles className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <h4 className="text-sm font-semibold tracking-tight">
-                  {t("ai_card_title") || "AI Insights"}
-                </h4>
-                <p className="text-xs text-text-soft mt-1 text-balance">
-                  {t("ai_card_desc") ||
-                    "Run anomaly detection and natural-language summaries on your alert stream."}
-                </p>
-                <Link
-                  href={"/ai" as never}
-                  className="text-xs text-accent hover:underline mt-2 inline-flex items-center gap-1"
-                >
-                  {t("ai_card_cta") || "Open AI"}
-                  <ArrowRight className="w-3 h-3" />
-                </Link>
+          {isAdmin && (
+            <div className="card-glow">
+              <div className="flex items-start gap-3">
+                <div className="icon-tile w-10 h-10">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <h4 className="text-sm font-semibold tracking-tight">{t("ai_card_title") || "AI Insights"}</h4>
+                  <p className="text-xs text-text-soft mt-1 text-pretty">
+                    {t("ai_card_desc") ||
+                      "Run anomaly detection and natural-language summaries on your alert stream."}
+                  </p>
+                  <Link href={"/ai" as never} className="link text-xs mt-2 inline-flex items-center gap-1">
+                    {t("ai_card_cta") || "Open AI"}
+                    <ArrowRight className="w-3 h-3" />
+                  </Link>
+                </div>
               </div>
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Trend + cameras + recordings */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
+        <div className="card">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <h3 className="section-title">{t("dash_trend_7d")}</h3>
+              <div className="mt-1.5 flex items-baseline gap-2">
+                <span className="text-2xl font-bold tracking-tight tabular-nums">{last7Total.toLocaleString()}</span>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 text-xs font-medium",
+                    delta > 0 ? "text-danger" : delta < 0 ? "text-success" : "text-text-muted",
+                  )}
+                >
+                  {delta > 0 ? <TrendingUp className="w-3.5 h-3.5" /> : delta < 0 ? <TrendingDown className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
+                  {delta > 0 ? "+" : ""}
+                  {delta}%
+                </span>
+              </div>
+              <div className="text-2xs text-text-muted mt-0.5">{t("dash_vs_prev")}</div>
+            </div>
+            <span className="icon-tile w-9 h-9 bg-danger-soft text-danger border-danger/20">
+              <Bell className="w-4 h-4" />
+            </span>
           </div>
+          <TrendBars data={last7} />
+        </div>
+
+        <div className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="section-title">{t("dash_cameras")}</h3>
+            {isAdmin && (
+              <Link href={"/cameras" as never} className="text-xs text-text-soft hover:text-accent transition inline-flex items-center gap-1">
+                {t("dash_manage")}
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            )}
+          </div>
+          {!cameraRows?.length ? (
+            <p className="text-xs text-text-muted py-6 text-center">{t("dash_no_cameras")}</p>
+          ) : (
+            <ul className="divide-y divide-border -mx-1">
+              {cameraRows.map((c) => (
+                <li key={c.id} className="flex items-center gap-3 px-1 py-2.5">
+                  <span className="w-8 h-8 rounded-lg bg-text-muted/[0.05] border border-border inline-flex items-center justify-center text-text-soft shrink-0">
+                    <Cctv className="w-4 h-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-text truncate">{c.name}</div>
+                    <div className="text-2xs text-text-muted font-mono uppercase">{c.cam_type}</div>
+                  </div>
+                  <Badge variant={c.enabled ? "success" : "muted"} dot>
+                    {c.enabled ? t("dash_cam_enabled") : t("dash_cam_disabled")}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="card md:col-span-2 xl:col-span-1">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="section-title">{t("dash_recent_recordings")}</h3>
+            <Link href={"/playback" as never} className="text-xs text-text-soft hover:text-accent transition inline-flex items-center gap-1">
+              {t("see_all") || "See all"}
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+          {!recordingRows?.length ? (
+            <p className="text-xs text-text-muted py-6 text-center">{t("dash_no_recordings")}</p>
+          ) : (
+            <ul className="divide-y divide-border -mx-1">
+              {recordingRows.map((r) => (
+                <li key={r.id}>
+                  <Link
+                    href={`/playback/${r.id}` as never}
+                    className="flex items-center gap-3 px-1 py-2.5 rounded-lg hover:bg-text-muted/[0.03] transition-colors"
+                  >
+                    <span className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 inline-flex items-center justify-center text-accent shrink-0">
+                      <FileVideo className="w-4 h-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-text truncate inline-flex items-center gap-1.5 max-w-full">
+                        <span className="truncate">{r.filename}</span>
+                        {r.encrypted && <Lock className="w-3 h-3 text-warning shrink-0" />}
+                      </div>
+                      <div className="text-2xs text-text-muted truncate tabular-nums">
+                        {formatDate(r.started_at)} · {r.camera_name ?? "—"}
+                        {r.duration_sec ? ` · ${Math.round(r.duration_sec)}s` : ""}
+                      </div>
+                    </div>
+                    <PlayCircle className="w-4 h-4 text-text-muted shrink-0" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
@@ -291,6 +506,33 @@ export default async function DashboardPage({
         <LiveActivityFeed initial={initialActivity} />
       </div>
     </>
+  );
+}
+
+function TrendBars({ data }: { data: Array<{ day: string; count: number }> }) {
+  const max = Math.max(1, ...data.map((d) => d.count));
+  return (
+    <div className="flex items-end gap-1.5 h-24" role="img" aria-label={data.map((d) => `${d.day}: ${d.count}`).join(", ")}>
+      {data.map((d) => {
+        const h = Math.max(4, Math.round((d.count / max) * 100));
+        return (
+          <div key={d.day} className="flex-1 flex flex-col items-center gap-1.5 min-w-0" title={`${d.day} · ${d.count}`}>
+            <div className="w-full flex items-end h-16">
+              <div
+                className={cn(
+                  "w-full rounded-md transition-colors",
+                  d.count === 0 ? "bg-text-muted/[0.08]" : d.count === max ? "bg-danger/70" : "bg-accent/60",
+                )}
+                style={{ height: `${h}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-text-muted uppercase truncate">
+              {kstWeekday.format(new Date(d.day + "T12:00:00+09:00"))}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -303,20 +545,23 @@ function StatusRow({
   value: string;
   status: "ok" | "warn" | "down";
 }) {
-  const dotColor =
-    status === "ok" ? "bg-success" : status === "warn" ? "bg-warning" : "bg-danger";
+  const dotColor = status === "ok" ? "bg-success" : status === "warn" ? "bg-warning" : "bg-danger";
   return (
-    <div className="flex items-center justify-between text-sm">
-      <div className="flex items-center gap-2.5">
-        <span className={`relative inline-flex w-2 h-2 rounded-full ${dotColor}`}>
-          <span
-            className={`absolute inset-0 rounded-full ${dotColor} opacity-60 animate-ping`}
-            style={{ animationDuration: "2s" }}
-          />
+    <div className="flex items-center justify-between text-sm gap-3">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className={`relative inline-flex w-2 h-2 rounded-full shrink-0 ${dotColor}`}>
+          {status === "ok" && (
+            <span
+              className={`absolute inset-0 rounded-full ${dotColor} opacity-60 animate-ping`}
+              style={{ animationDuration: "2s" }}
+            />
+          )}
         </span>
-        <span className="text-text-soft">{label}</span>
+        <span className="text-text-soft truncate">{label}</span>
       </div>
-      <span className="text-xs font-medium text-text tabular-nums">{value}</span>
+      <span className={cn("text-xs font-medium tabular-nums shrink-0", status === "down" ? "text-danger" : "text-text")}>
+        {value}
+      </span>
     </div>
   );
 }

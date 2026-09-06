@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ShieldCheck, KeyRound } from "lucide-react";
 import { MongolzLogo } from "@/components/logo";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -49,13 +50,24 @@ export default async function LoginPage({
         aria-hidden
       />
 
+      {/* Fine grid texture behind the card */}
+      <div
+        className="absolute inset-x-0 top-0 h-[640px] pointer-events-none opacity-[0.35] [mask-image:linear-gradient(180deg,rgba(0,0,0,0.9),transparent)]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgb(var(--text-muted) / 0.08) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--text-muted) / 0.08) 1px, transparent 1px)",
+          backgroundSize: "56px 56px",
+        }}
+        aria-hidden
+      />
+
       {/* Top bar */}
-      <header className="relative z-10 flex items-center justify-between px-6 py-5">
-        <div className="flex items-center gap-2.5">
-          <MongolzLogo size={32} />
+      <header className="relative z-10 flex items-center justify-between px-4 md:px-6 py-4 md:py-5">
+        <Link href="/" className="flex items-center gap-2.5 group" aria-label="MONGOLZ Security">
+          <MongolzLogo size={32} className="transition-transform group-hover:scale-105" />
           <span className="text-sm font-bold tracking-tight">MONGOLZ</span>
-          <span className="badge-muted">Security</span>
-        </div>
+          <span className="badge-muted hidden sm:inline-flex">Security</span>
+        </Link>
         <div className="flex items-center gap-2">
           <LanguageSwitcher current={lang} />
           <ThemeToggle />
@@ -78,7 +90,7 @@ export default async function LoginPage({
           </div>
 
           {/* Card */}
-          <div className="card-glass shadow-overlay animate-fade-in-up" style={{ animationDelay: "60ms" }}>
+          <div className="card-glass shadow-overlay animate-fade-in-up ring-1 ring-accent/10" style={{ animationDelay: "60ms" }}>
             {isTotpStep ? (
               // ───── Step 2 — TOTP code ─────
               <form action={verifyTotpAction} className="space-y-5">
