@@ -79,9 +79,13 @@ export type Database = {
       }
       alerts: {
         Row: {
+          acknowledged_at: string | null
+          acknowledged_by: string | null
           anomaly_z: number | null
           camera_id: string | null
           camera_name: string | null
+          closed_at: string | null
+          closed_by: string | null
           created_at: string
           dedup_key: string | null
           face_id: string | null
@@ -91,17 +95,23 @@ export type Database = {
           labeled_by: string | null
           last_seen_at: string | null
           match_count: number
+          note: string | null
           rule_id: string | null
           screenshot_path: string | null
           similarity: number
+          state: string
           suspect_id: string | null
           suspect_name: string
           type: string
         }
         Insert: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
           anomaly_z?: number | null
           camera_id?: string | null
           camera_name?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
           created_at?: string
           dedup_key?: string | null
           face_id?: string | null
@@ -111,17 +121,23 @@ export type Database = {
           labeled_by?: string | null
           last_seen_at?: string | null
           match_count?: number
+          note?: string | null
           rule_id?: string | null
           screenshot_path?: string | null
           similarity: number
+          state?: string
           suspect_id?: string | null
           suspect_name: string
           type?: string
         }
         Update: {
+          acknowledged_at?: string | null
+          acknowledged_by?: string | null
           anomaly_z?: number | null
           camera_id?: string | null
           camera_name?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
           created_at?: string
           dedup_key?: string | null
           face_id?: string | null
@@ -131,19 +147,35 @@ export type Database = {
           labeled_by?: string | null
           last_seen_at?: string | null
           match_count?: number
+          note?: string | null
           rule_id?: string | null
           screenshot_path?: string | null
           similarity?: number
+          state?: string
           suspect_id?: string | null
           suspect_name?: string
           type?: string
         }
         Relationships: [
           {
+            foreignKeyName: "alerts_acknowledged_by_fkey"
+            columns: ["acknowledged_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "alerts_camera_id_fkey"
             columns: ["camera_id"]
             isOneToOne: false
             referencedRelation: "cameras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alerts_closed_by_fkey"
+            columns: ["closed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -235,6 +267,47 @@ export type Database = {
             foreignKeyName: "camera_permissions_camera_id_fkey"
             columns: ["camera_id"]
             isOneToOne: false
+            referencedRelation: "cameras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      camera_sessions: {
+        Row: {
+          auto_resume: boolean
+          camera_id: string
+          camera_name: string | null
+          fps: number
+          last_error: string | null
+          sealed_url: string
+          started_at: string
+          updated_at: string
+        }
+        Insert: {
+          auto_resume?: boolean
+          camera_id: string
+          camera_name?: string | null
+          fps?: number
+          last_error?: string | null
+          sealed_url: string
+          started_at?: string
+          updated_at?: string
+        }
+        Update: {
+          auto_resume?: boolean
+          camera_id?: string
+          camera_name?: string | null
+          fps?: number
+          last_error?: string | null
+          sealed_url?: string
+          started_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "camera_sessions_camera_id_fkey"
+            columns: ["camera_id"]
+            isOneToOne: true
             referencedRelation: "cameras"
             referencedColumns: ["id"]
           },
@@ -879,6 +952,39 @@ export type Database = {
           expires_at?: string
           used_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      uptime_checks: {
+        Row: {
+          checked_at: string
+          db_ok: boolean | null
+          http_status: number | null
+          id: number
+          ml_ok: boolean | null
+          notified: string | null
+          request_id: number | null
+          status: string | null
+        }
+        Insert: {
+          checked_at?: string
+          db_ok?: boolean | null
+          http_status?: number | null
+          id?: never
+          ml_ok?: boolean | null
+          notified?: string | null
+          request_id?: number | null
+          status?: string | null
+        }
+        Update: {
+          checked_at?: string
+          db_ok?: boolean | null
+          http_status?: number | null
+          id?: never
+          ml_ok?: boolean | null
+          notified?: string | null
+          request_id?: number | null
+          status?: string | null
         }
         Relationships: []
       }
