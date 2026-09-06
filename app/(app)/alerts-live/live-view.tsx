@@ -146,7 +146,7 @@ export function LiveAlertsView({ seed, labels }: Props) {
                   color: chartColors.tooltipText,
                 }}
               />
-              <Bar dataKey="count" fill="#00d4ff" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" fill={chartColors.accent} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -222,7 +222,8 @@ export function LiveAlertsView({ seed, labels }: Props) {
                     </td>
                     <td className="px-4 py-2 text-xs text-text-muted whitespace-nowrap">
                       {new Date(a.created_at).toLocaleTimeString(
-                        lang === "kr" ? "ko-KR" : lang === "en" ? "en-US" : "mn-MN"
+                        lang === "kr" ? "ko-KR" : lang === "en" ? "en-US" : "mn-MN",
+                        { timeZone: "Asia/Seoul" },
                       )}
                     </td>
                   </tr>

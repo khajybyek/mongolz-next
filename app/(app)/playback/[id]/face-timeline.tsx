@@ -11,6 +11,7 @@ export interface TimelineFace {
   display_no: number;
   filename: string;
   time_in_video_sec: number | null;
+  crop_sealed?: boolean;
 }
 
 interface Props {
@@ -208,6 +209,7 @@ export function FaceTimeline({
                     faceId={f.id}
                     alt={`Face ${f.display_no}`}
                     className="absolute inset-0"
+                    sealed={f.crop_sealed}
                   />
                   <button
                     type="button"

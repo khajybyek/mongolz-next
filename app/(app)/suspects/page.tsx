@@ -6,7 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { formatDate } from "@/lib/utils";
-import { addSuspectAction, deleteSuspectAction } from "./actions";
+import { deleteSuspectAction } from "./actions";
+import { AddSuspectForm } from "./add-suspect-form";
 
 export default async function SuspectsPage() {
   await requireAdmin();
@@ -32,34 +33,7 @@ export default async function SuspectsPage() {
     <>
       <PageHeader title={t("manage_suspects")} subtitle={t("nav_suspects")} />
 
-      <div className="card mb-6">
-        <form action={addSuspectAction} className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <input
-            name="name"
-            placeholder={t("suspect_name")}
-            required
-            className="input"
-          />
-          <input
-            name="photo"
-            type="file"
-            accept="image/*"
-            required
-            className="input file:bg-accent/15 file:text-accent file:border-0 file:rounded file:px-2 file:py-1 file:mr-2"
-          />
-          <select name="privacy_tier" defaultValue="standard" className="input">
-            <option value="vip">VIP · хатуу хамгаалалт</option>
-            <option value="standard">Standard · ердийн</option>
-            <option value="relaxed">Relaxed · хөнгөн</option>
-          </select>
-          <button type="submit" className="btn-primary">
-            {t("add_suspect")}
-          </button>
-        </form>
-        <p className="text-xs text-text-muted mt-2">
-          ArcFace embedding · ML service · privacy tier-аар mask хүч + reveal flow тохируулна
-        </p>
-      </div>
+      <AddSuspectForm />
 
       {!items.length ? (
         <Empty message={t("empty")} />

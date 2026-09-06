@@ -27,13 +27,17 @@ export default async function WallPage() {
   // Health rows are admin-only via the RPC's is_admin() gate; for
   // non-admin viewers we fall back to a plain enabled-camera list with
   // status='unknown'.
-  type HealthRow = WallCamera;
+  const STATUSES: ReadonlySet<string> = new Set(["healthy", "stale", "offline", "unknown"]);
   let cameras: WallCamera[] = [];
 
   if (isAdmin) {
     const { data } = await supabase.rpc("camera_health");
-    cameras = ((data ?? []) as HealthRow[]).map((r) => ({
-      ...r,
+    cameras = (data ?? []).map((r) => ({
+      camera_id: r.camera_id,
+      name: r.name,
+      enabled: r.enabled,
+      status: (STATUSES.has(r.status) ? r.status : "unknown") as WallCamera["status"],
+      last_seen: r.last_seen ?? null,
       faces_24h: Number(r.faces_24h),
       faces_1h: Number(r.faces_1h),
       latest_face_id: null,

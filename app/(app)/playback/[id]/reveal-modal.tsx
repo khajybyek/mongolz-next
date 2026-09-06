@@ -27,6 +27,7 @@ export interface DetectedFace {
   display_no: number;
   filename: string;
   detected_at: string;
+  crop_sealed?: boolean;
 }
 
 type Step = "method" | "reauth" | "processing" | "done";
@@ -190,18 +191,26 @@ export function RevealModal({
   // Job status polling
   const pollRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!job?.id || job.status === "completed" || job.status === "failed") return;
+    const TERMINAL = new Set(["completed", "failed", "rejected"]);
+    if (!job?.id || TERMINAL.has(job.status)) return;
+    // Awaiting the second admin can take minutes/hours — poll slowly then;
+    // once ML is actually rendering, tighten to 1.5 s for the progress bar.
+    const intervalMs = job.status === "pending_approval" ? 6000 : 1500;
     pollRef.current = window.setInterval(async () => {
       try {
         const res = await fetch(`/api/reveal/${job.id}`);
+        if (!res.ok) return;
         const data = await res.json();
+        if (data.status === "rejected" && !data.error_message) {
+          data.error_message = `Rejected${data.rejected_email ? ` by ${data.rejected_email}` : ""}${data.rejected_reason ? `: ${data.rejected_reason}` : ""}`;
+        }
         setJob((prev) => ({ ...prev!, ...data }));
-        if (data.status === "completed" || data.status === "failed") {
+        if (TERMINAL.has(data.status)) {
           if (pollRef.current) window.clearInterval(pollRef.current);
           setStep("done");
         }
       } catch {}
-    }, 1500);
+    }, intervalMs);
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
@@ -335,6 +344,7 @@ export function RevealModal({
                             faceId={f.id}
                             alt={f.filename}
                             className="absolute inset-0 rounded"
+                            sealed={f.crop_sealed}
                           />
                           <span
                             className={cn(
@@ -488,6 +498,7 @@ export function RevealModal({
                           faceId={f.id}
                           alt=""
                           className="absolute inset-0"
+                          sealed={f.crop_sealed}
                         />
                         <span className="absolute top-0 left-0 z-10 text-[9px] font-bold leading-none px-1 py-0.5 bg-accent text-bg rounded-br">
                           #{f.display_no}

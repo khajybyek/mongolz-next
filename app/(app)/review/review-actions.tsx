@@ -3,8 +3,10 @@
 import { useTransition } from "react";
 import { Check, X, Loader2 } from "lucide-react";
 import { reviewFaceAction } from "./actions";
+import { useT } from "@/lib/i18n/client";
 
 export function ReviewActions({ faceId }: { faceId: string }) {
+  const { t } = useT();
   const [pending, startTransition] = useTransition();
 
   function handleReview(label: "confirmed" | "rejected" | "uncertain") {
@@ -26,14 +28,16 @@ export function ReviewActions({ faceId }: { faceId: string }) {
       <button
         onClick={() => handleReview("confirmed")}
         className="flex-1 btn text-[10px] p-1 bg-success/15 text-success hover:bg-success/25"
-        title="Confirm face"
+        title={t("review_confirm")}
+        aria-label={t("review_confirm")}
       >
         <Check className="w-3 h-3" />
       </button>
       <button
         onClick={() => handleReview("rejected")}
         className="flex-1 btn text-[10px] p-1 bg-danger/15 text-danger hover:bg-danger/25"
-        title="Reject (false positive)"
+        title={t("review_reject")}
+        aria-label={t("review_reject")}
       >
         <X className="w-3 h-3" />
       </button>

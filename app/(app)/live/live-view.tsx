@@ -314,28 +314,33 @@ function DeviceCameraView() {
     let chunkBuf: BlobPart[] = [];
     let chunkBytes = 0;
     let chunkIndex = 0;
+    // Uploads are chained so chunks arrive in order and the final marker is
+    // always last — the ML side assembles by index and only starts
+    // processing once every chunk up to the final one is present.
+    let uploadQueue: Promise<void> = Promise.resolve();
 
-    const flushChunk = async (isFinal: boolean) => {
-      if (chunkBuf.length === 0 && !isFinal) return;
-      if (chunkBuf.length === 0 && isFinal) return;
-      const blob = new Blob(chunkBuf, { type: mime });
+    const flushChunk = (isFinal: boolean): Promise<void> => {
+      const hasData = chunkBuf.length > 0;
+      if (!hasData && !isFinal) return uploadQueue;
+      const blob = new Blob(hasData ? chunkBuf : [], { type: mime });
       chunkBuf = [];
       chunkBytes = 0;
+      // An empty final marker carries index = number of data chunks.
       const idx = chunkIndex++;
-      try {
-        await uploadChunk(blob, mime, sessionId, idx, isFinal);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Chunk upload алдаа");
-      }
+      uploadQueue = uploadQueue
+        .then(() => uploadChunk(blob, mime, sessionId, idx, isFinal))
+        .catch((e) => {
+          setError(e instanceof Error ? e.message : "Chunk upload алдаа");
+        });
+      return uploadQueue;
     };
 
-    rec.ondataavailable = async (e) => {
+    rec.ondataavailable = (e) => {
       if (e.data.size === 0) return;
       chunkBuf.push(e.data);
       chunkBytes += e.data.size;
       if (chunkBytes >= MAX_CHUNK_BYTES) {
-        // Async fire-and-forget so we don't block the recorder
-        flushChunk(false);
+        void flushChunk(false);
       }
     };
     rec.onstop = async () => {

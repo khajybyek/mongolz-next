@@ -18,6 +18,8 @@ export interface ChartColors {
   tooltipBorder: string;
   /** Tooltip text */
   tooltipText: string;
+  /** Primary series / bar fill (accent cyan; darker in light mode for contrast) */
+  accent: string;
 }
 
 const DARK: ChartColors = {
@@ -26,6 +28,7 @@ const DARK: ChartColors = {
   tooltipBg: "#16171f", // surface-elevated
   tooltipBorder: "rgba(255,255,255,0.10)",
   tooltipText: "#f4f4f5",
+  accent: "#00d4ff",
 };
 
 const LIGHT: ChartColors = {
@@ -34,6 +37,7 @@ const LIGHT: ChartColors = {
   tooltipBg: "#ffffff",
   tooltipBorder: "rgba(0,0,0,0.14)",
   tooltipText: "#18181b",
+  accent: "#0891b2",
 };
 
 export function useChartColors(): ChartColors {

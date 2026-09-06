@@ -5,8 +5,8 @@
  * vulnerabilities without resorting to LinkedIn / Twitter.
  */
 
-const SECURITY_TXT = `Contact: mailto:security@mongolz.local
-Expires: 2027-01-01T00:00:00.000Z
+const SECURITY_TXT = `Contact: mailto:khajybyek@gmail.com
+Expires: 2027-09-01T00:00:00.000Z
 Preferred-Languages: en, mn, ko
 Canonical: https://aicctv.dev/.well-known/security.txt
 Policy: https://github.com/khajybyek/mongolz-next/blob/main/SECURITY.md

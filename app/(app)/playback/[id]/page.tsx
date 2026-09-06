@@ -18,6 +18,7 @@ import { formatDate } from "@/lib/utils";
 import { getT } from "@/lib/i18n/server";
 import { PlaybackPlayer } from "./playback-player";
 import { FaceThumb } from "@/components/face-thumb";
+import type { FaceInRecording } from "@/lib/database.types";
 
 // Cache хийхгүй — faces background processing-аар нэмэгддэг тул хэзээ нээгдсэн
 // үед хамгийн сүүлийн өгөгдлийг харуулах ёстой.
@@ -68,18 +69,12 @@ export default async function PlaybackDetailPage({
 
   // Face metadata — admin only. Viewer-д face илрүүлэлтийн өгөгдөл харагдахгүй
   // (RLS-ийн нэг хэсэг — privacy-preserving design).
-  type FaceRow = {
-    id: string;
-    filename: string;
-    image_path: string;
-    detected_at: string;
-    time_in_video_sec: number | null;
-    bbox: { x: number; y: number; w: number; h: number } | null;
-  };
   const { data: facesRaw } = isAdmin
     ? await supabase.rpc("faces_in_recording", { rec_id: id })
     : { data: null };
-  const facesInRec = (facesRaw ?? []) as FaceRow[];
+  // The RPC also carries crop_sealed / chain_index (ADR 0009) so the client
+  // can badge sealed crops without probing the crop endpoint.
+  const facesInRec = (facesRaw ?? []) as unknown as FaceInRecording[];
 
   // Бүх илэрсэн нүүрд detected_at-аар sorted дугаар (#1..#N) өгнө —
   // playback-ын overlay болон reveal modal хоёр ижил дугаартай байна.
@@ -109,6 +104,7 @@ export default async function PlaybackDetailPage({
     filename: f.filename,
     detected_at: f.detected_at,
     time_in_video_sec: f.time_in_video_sec,
+    crop_sealed: f.crop_sealed,
   }));
 
   // Suspects (admin л харах)
@@ -220,6 +216,7 @@ export default async function PlaybackDetailPage({
                         faceId={f.id}
                         alt={f.filename}
                         className="aspect-square rounded"
+                        sealed={f.crop_sealed}
                       />
                       <span className="absolute top-0.5 left-0.5 z-10 text-[10px] font-bold leading-none px-1 py-0.5 rounded bg-black/70 text-accent">
                         #{f.display_no}

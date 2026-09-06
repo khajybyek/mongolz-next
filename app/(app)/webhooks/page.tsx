@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/utils";
 import { getT } from "@/lib/i18n/server";
+import type { WebhookKind } from "@/lib/database.types";
 import { WebhookForm } from "./webhook-form";
 import { WebhooksTable } from "./webhooks-table";
 
@@ -34,6 +35,7 @@ export default async function WebhooksPage() {
         <WebhooksTable
           hooks={hooks.map((h) => ({
             ...h,
+            kind: h.kind as WebhookKind,
             created_at: formatDate(h.created_at),
             last_fired_at: h.last_fired_at ? formatDate(h.last_fired_at) : null,
           }))}

@@ -7,6 +7,7 @@ import { hasFreshReauth } from "@/lib/auth/step-up";
 import { getT } from "@/lib/i18n/server";
 import { formatDate } from "@/lib/utils";
 import { ReauthGate } from "@/components/reauth-gate";
+import { flag } from "@/lib/flags";
 import { FaceThumb } from "@/components/face-thumb";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export default async function FacesPage() {
   // Step-up reauth gate — /faces is the densest privacy surface in the
   // product (every detected face thumbnail across every recording), so
   // gate it behind a fresh TOTP even for an already-logged-in admin.
-  if (!(await hasFreshReauth(user.id))) {
+  if (flag("faces_reauth_gate") && !(await hasFreshReauth(user.id))) {
     return (
       <>
         <PageHeader
@@ -37,7 +38,7 @@ export default async function FacesPage() {
 
   const { data: faces } = await supabase
     .from("faces")
-    .select("id, filename, image_path, detected_at, camera_id, recording_id, cameras:cameras(name)")
+    .select("id, filename, image_path, detected_at, camera_id, recording_id, crop_sealed, cameras:cameras(name)")
     .order("detected_at", { ascending: false })
     .limit(PAGE_LIMIT);
 
@@ -48,6 +49,7 @@ export default async function FacesPage() {
     detected_at: string;
     camera_id: string | null;
     recording_id: string | null;
+    crop_sealed: boolean;
     cameras: { name: string } | { name: string }[] | null;
   }>;
 
@@ -69,6 +71,7 @@ export default async function FacesPage() {
                   faceId={f.id}
                   alt={f.filename}
                   className="aspect-square rounded mb-1.5"
+                  sealed={f.crop_sealed}
                 />
                 <div className="text-[10px] text-text-muted truncate">
                   {formatDate(f.detected_at)}

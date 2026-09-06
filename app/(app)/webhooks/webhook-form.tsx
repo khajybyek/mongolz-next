@@ -7,7 +7,7 @@ import { createWebhookAction } from "./actions";
 const EVENTS = [
   { key: "alert_created", label: "Шинэ alert үүсэх" },
   { key: "reveal_completed", label: "Reveal job дуусах" },
-  { key: "system_health", label: "Systme health алдаа" },
+  { key: "system_health", label: "System health алдаа" },
   { key: "audit_critical", label: "Чухал аудит үйлдэл" },
 ] as const;
 

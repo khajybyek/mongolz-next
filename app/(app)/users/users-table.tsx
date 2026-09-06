@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { Fragment, useRef, useState, useTransition } from "react";
 import { Shield, ShieldOff, KeyRound, Trash2, Loader2, AlertCircle, Check, Crown, Lock, Layers } from "lucide-react";
 import { changeRoleAction, deleteUserAction, resetPasswordAction, setRevealLevelAction } from "./actions";
 import { TotpPrompt } from "@/components/totp-prompt";
@@ -150,8 +150,8 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                 const isSelf = u.id === currentUserId;
                 const fb = feedback?.id === u.id ? feedback : null;
                 return (
-                  <>
-                    <tr key={u.id} className={u.is_super_admin ? "bg-accent/[0.03]" : ""}>
+                  <Fragment key={u.id}>
+                    <tr className={u.is_super_admin ? "bg-accent/[0.03]" : ""}>
                       <td>
                         <span className="font-medium text-text">{u.email}</span>
                         {isSelf && (
@@ -353,7 +353,7 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>

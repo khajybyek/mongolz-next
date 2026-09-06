@@ -1,16 +1,37 @@
 // MONGOLZ Security — minimal PWA offline shell.
 //
-// Strategy:
+// Strategy (allow-list, not deny-list):
 //   * Pre-cache the public landing + login + offline fallback on install.
 //   * Navigation requests fall back to the offline page when the network
 //     is unavailable.
-//   * Same-origin GETs for assets use a stale-while-revalidate pattern so
-//     the second visit is fast even online.
-//   * Auth-gated routes are NEVER cached — they always go to the network so
-//     RLS / role checks fire. The offline page tells the user to reconnect.
+//   * Only immutable static assets are cached (stale-while-revalidate):
+//     /_next/static/*, /models/*, the logo and the manifest. Everything
+//     else — every page, every RSC payload / router prefetch, every /api
+//     call — is network-only, so nothing auth-gated (face metadata,
+//     requester e-mails, camera names) ever lands in Cache Storage where it
+//     would survive logout on a shared browser.
+//   * On logout the app posts {type: "purge"}; the cache is dropped.
 
-const CACHE = "mongolz-v1";
+const CACHE = "mongolz-v2";
 const PRECACHE = ["/", "/login", "/offline.html", "/manifest.webmanifest"];
+
+function isStaticAsset(url) {
+  return (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith("/models/") ||
+    url.pathname === "/logo.png" ||
+    url.pathname === "/manifest.webmanifest" ||
+    url.pathname === "/offline.html"
+  );
+}
+
+function isRscOrPrefetch(req, url) {
+  return (
+    req.headers.get("RSC") === "1" ||
+    req.headers.get("Next-Router-Prefetch") === "1" ||
+    url.searchParams.has("_rsc")
+  );
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -32,6 +53,12 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "purge") {
+    event.waitUntil(caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))));
+  }
+});
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -39,32 +66,14 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   // Skip cross-origin completely — never proxy 3rd-party requests.
   if (url.origin !== self.location.origin) return;
-
-  // Auth-gated paths: never cache, never offline-fallback to admin content.
-  // List mirrors lib/supabase/middleware.ts allow-list "inverted".
-  const isAdminPath =
-    !PRECACHE.includes(url.pathname) &&
-    (url.pathname.startsWith("/api/") ||
-      url.pathname === "/dashboard" ||
-      url.pathname.startsWith("/playback") ||
-      url.pathname.startsWith("/live") ||
-      url.pathname.startsWith("/alerts") ||
-      url.pathname.startsWith("/users") ||
-      url.pathname.startsWith("/audit") ||
-      url.pathname.startsWith("/settings") ||
-      url.pathname.startsWith("/cameras") ||
-      url.pathname.startsWith("/suspects"));
-
-  if (isAdminPath) {
-    // Network-only. Failures bubble up to the browser's default offline UI.
-    return;
-  }
+  // App data (RSC payloads, prefetches, APIs) is network-only.
+  if (isRscOrPrefetch(req, url) || url.pathname.startsWith("/api/")) return;
 
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          // Cache fresh public pages opportunistically.
+          // Cache fresh PUBLIC pages opportunistically.
           if (res.ok && PRECACHE.includes(url.pathname)) {
             const clone = res.clone();
             caches.open(CACHE).then((c) => c.put(req, clone));
@@ -80,7 +89,9 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Stale-while-revalidate for static assets (same origin, GET).
+  if (!isStaticAsset(url)) return; // network-only
+
+  // Stale-while-revalidate for immutable static assets.
   event.respondWith(
     caches.match(req).then((cached) => {
       const network = fetch(req)
@@ -114,8 +125,8 @@ self.addEventListener("push", (event) => {
 
   const options = {
     body: payload.body || "",
-    icon: payload.icon || "/branding/apple-icon.png",
-    badge: payload.badge || "/branding/favicon.png",
+    icon: payload.icon || "/apple-icon.png",
+    badge: payload.badge || "/icon.png",
     tag: payload.tag || "mongolz",
     data: { url: payload.url || "/alerts" },
     renotify: true,

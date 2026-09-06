@@ -55,16 +55,20 @@ export default async function AuditPage({
   if (params.action) query = query.eq("action", params.action);
   if (params.user) query = query.ilike("user_email", `%${params.user}%`);
   if (params.q) query = query.ilike("detail", `%${params.q}%`);
-  if (params.from) query = query.gte("created_at", params.from);
-  if (params.to) query = query.lte("created_at", params.to);
+  // <input type="datetime-local"> yields a zone-less wall-clock string; the
+  // operator reads every timestamp in KST (formatDate), so interpret the
+  // filter bounds in KST too instead of letting Postgres assume UTC.
+  const fromIso = toKstIso(params.from);
+  const toIso = toKstIso(params.to);
+  if (fromIso) query = query.gte("created_at", fromIso);
+  if (toIso) query = query.lte("created_at", toIso);
 
   const { data: logs, count } = await query;
 
-  const { data: actions } = await supabase
-    .from("audit_log")
-    .select("action")
-    .order("action");
-  const actionList = [...new Set((actions ?? []).map((a) => a.action))];
+  // Distinct action names via the audit_actions view (RLS-invoking) — the
+  // previous full-table select was capped by PostgREST's max-rows.
+  const { data: actions } = await supabase.from("audit_actions").select("action").order("action");
+  const actionList = (actions ?? []).map((a) => a.action).filter((a): a is string => Boolean(a));
 
   const csvHref = "/api/audit/export?" + new URLSearchParams(
     Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined)) as Record<string, string>,
@@ -136,7 +140,7 @@ export default async function AuditPage({
                     {log.user_email ?? "—"}
                   </td>
                   <td className="px-4 py-2.5 text-text-muted text-xs font-mono">
-                    {log.ip ?? "—"}
+                    {typeof log.ip === "string" ? log.ip : "—"}
                   </td>
                   <td className="px-4 py-2.5 text-text-muted text-xs">
                     {formatDate(log.created_at)}
@@ -149,4 +153,11 @@ export default async function AuditPage({
       )}
     </>
   );
+}
+
+/** "YYYY-MM-DDTHH:mm" (KST wall-clock) → ISO instant; null when absent/invalid. */
+function toKstIso(v: string | undefined): string | null {
+  if (!v || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(v)) return null;
+  const d = new Date(`${v}+09:00`);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }

@@ -24,6 +24,10 @@ export function HlsPlayer({
     if (!video) return;
 
     let hls: import("hls.js").default | undefined;
+    // The hls.js import is async; if `src` changes or the component unmounts
+    // before it resolves, the instance created afterwards would leak (keep
+    // polling segments forever). Guard with a cancelled flag.
+    let cancelled = false;
 
     const srcUrl = new URL(src, window.location.origin);
     const ticket = srcUrl.searchParams.get("ticket");
@@ -35,6 +39,7 @@ export function HlsPlayer({
 
     (async () => {
       const { default: Hls } = await import("hls.js");
+      if (cancelled) return;
       if (!Hls.isSupported()) {
         video.src = src;
         return;
@@ -55,7 +60,9 @@ export function HlsPlayer({
     })();
 
     return () => {
+      cancelled = true;
       hls?.destroy();
+      hls = undefined;
     };
   }, [src]);
 

@@ -1546,6 +1546,88 @@ export const T = {
   nav_group_admin: { mn: "Удирдлага", en: "Administration", kr: "관리" },
   nav_group_ml: { mn: "ML / Хөгжүүлэлт", en: "ML / Dev", kr: "ML / 개발" },
   nav_group_other: { mn: "Бусад", en: "Other", kr: "기타" },
+
+  // ── Face crops (ADR 0009 seal state) ──
+  face_sealed_badge: {
+    mn: "Битүүмжилсэн crop — AES-256-GCM, hash-chain түлхүүр",
+    en: "Sealed crop — AES-256-GCM, hash-chain key",
+    kr: "봉인된 얼굴 이미지 — AES-256-GCM, 해시체인 키",
+  },
+  face_locked_badge: {
+    mn: "Таны reveal түвшнээс дээш — түгжээтэй",
+    en: "Above your reveal level — locked",
+    kr: "권한 수준 초과 — 잠김",
+  },
+
+  // ── Human review queue (/review) ──
+  review_title: { mn: "Хүний хяналт", en: "Human Review", kr: "수동 검토" },
+  review_unreviewed: { mn: "хянагдаагүй", en: "unreviewed", kr: "미검토" },
+  review_reviewed: { mn: "хянагдсан", en: "reviewed", kr: "검토됨" },
+  review_empty: { mn: "Хянах царай алга", en: "No faces to review", kr: "검토할 얼굴이 없습니다" },
+  review_confirm: { mn: "Царайг батлах", en: "Confirm face", kr: "얼굴 확인" },
+  review_reject: { mn: "Татгалзах (буруу илрүүлэлт)", en: "Reject (false positive)", kr: "거부 (오탐)" },
+
+  // ── Login error codes (app/login/page.tsx maps ?error=<code> → copy) ──
+  login_err_generic: { mn: "Нэвтрэх амжилтгүй. Дахин оролдоно уу.", en: "Sign-in failed. Please try again.", kr: "로그인에 실패했습니다. 다시 시도하세요." },
+  login_err_too_many: { mn: "Хэт олон оролдлого. 15 минутын дараа дахин оролдоно уу.", en: "Too many attempts. Try again in 15 minutes.", kr: "시도 횟수가 너무 많습니다. 15분 후 다시 시도하세요." },
+  login_err_code_format: { mn: "6 оронтой код эсвэл сэргээх код (XXXXX-XXXXX) оруулна уу.", en: "Enter a 6-digit code or a recovery code (XXXXX-XXXXX).", kr: "6자리 코드 또는 복구 코드(XXXXX-XXXXX)를 입력하세요." },
+  login_err_code_invalid: { mn: "Код буруу байна.", en: "Invalid code.", kr: "잘못된 코드입니다." },
+  login_err_code_used: { mn: "Энэ кодыг аль хэдийн ашигласан байна. Дараагийн кодыг хүлээнэ үү.", en: "That code was already used. Wait for the next one.", kr: "이미 사용된 코드입니다. 다음 코드를 기다리세요." },
+  login_err_code_expired: { mn: "Баталгаажуулах хугацаа дууссан. Дахин нэвтэрнэ үү.", en: "The verification window expired. Sign in again.", kr: "인증 시간이 만료되었습니다. 다시 로그인하세요." },
+  login_err_signin_failed: { mn: "Нэвтрэлтийг дуусгаж чадсангүй. Дахин оролдоно уу.", en: "Could not complete sign-in. Please try again.", kr: "로그인을 완료할 수 없습니다. 다시 시도하세요." },
+  login_err_no_profile: { mn: "Энэ бүртгэлд профайл алга. Админтай холбогдоно уу.", en: "No profile for this account. Contact an administrator.", kr: "이 계정의 프로필이 없습니다. 관리자에게 문의하세요." },
+  login_err_session_pin: { mn: "Аюулгүй байдлын үүднээс сессийг хаасан (өөр төхөөрөмж/сүлжээ). Дахин нэвтэрнэ үү.", en: "Your session was closed for security (different device or network). Sign in again.", kr: "보안상 세션이 종료되었습니다(다른 기기/네트워크). 다시 로그인하세요." },
+  login_err_callback: { mn: "Нэвтрэх холбоос хүчингүй эсвэл хугацаа нь дууссан.", en: "The sign-in link is invalid or expired.", kr: "로그인 링크가 유효하지 않거나 만료되었습니다." },
+  login_totp_hint: {
+    mn: "Authenticator app-аас 6 оронтой кодоо, эсвэл сэргээх кодоо (XXXXX-XXXXX) оруулна уу.",
+    en: "Enter the 6-digit code from your authenticator app, or a recovery code (XXXXX-XXXXX).",
+    kr: "인증 앱의 6자리 코드 또는 복구 코드(XXXXX-XXXXX)를 입력하세요.",
+  },
+  login_totp_note: {
+    mn: "Код 2 минут хүчинтэй. Сэргээх код нэг л удаа ашиглагдана.",
+    en: "The window lasts 2 minutes. Recovery codes are single-use.",
+    kr: "인증 시간은 2분입니다. 복구 코드는 1회만 사용할 수 있습니다.",
+  },
+  step_up_required: { mn: "Энэ үйлдэлд шинэ TOTP баталгаажуулалт шаардлагатай.", en: "This action needs a fresh TOTP verification.", kr: "이 작업에는 새로운 TOTP 인증이 필요합니다." },
+
+  status_ml_down: { mn: "Холбогдохгүй байна", en: "Unreachable", kr: "연결 불가" },
+  status_db_down: { mn: "Холбогдохгүй байна", en: "Unreachable", kr: "연결 불가" },
+  err_admin_only: { mn: "Энэ хуудас зөвхөн админд зориулагдсан.", en: "That page is admin-only.", kr: "해당 페이지는 관리자 전용입니다." },
+  err_forbidden: { mn: "Танд энэ хуудсанд хандах эрх байхгүй.", en: "You do not have access to that page.", kr: "해당 페이지에 접근할 권한이 없습니다." },
+  schedule_preview_note: {
+    mn: "Анхаар: mask хуваарь одоогоор бодлогын урьдчилсан тохиргоо — ML pipeline бүх бичлэгийг үргэлж blur хийдэг. Хуваарийг pipeline-д холбох хүртэл \"revealed\" цонх ямар ч нөлөөгүй.",
+    en: "Note: masking schedules are a policy preview for now — the ML pipeline always blurs every recording. A \"revealed\" window has no effect until the schedule is wired into the pipeline.",
+    kr: "참고: 마스킹 일정은 현재 정책 미리보기입니다. ML 파이프라인은 모든 녹화를 항상 블러 처리하며, 파이프라인에 연결되기 전까지 \"revealed\" 창은 효과가 없습니다.",
+  },
+  ui_error_title: { mn: "Алдаа гарлаа", en: "Something went wrong", kr: "문제가 발생했습니다" },
+  ui_error_desc: { mn: "Энэ хуудсыг ачаалахад алдаа гарлаа. Алдааг автоматаар бүртгэлээ.", en: "This page failed to load. The error has been reported automatically.", kr: "페이지를 불러오지 못했습니다. 오류가 자동으로 보고되었습니다." },
+  ui_retry: { mn: "Дахин оролдох", en: "Try again", kr: "다시 시도" },
+  ui_not_found_title: { mn: "Хуудас олдсонгүй", en: "Page not found", kr: "페이지를 찾을 수 없습니다" },
+  ui_not_found_desc: { mn: "Хайсан хуудас байхгүй эсвэл устгагдсан байна.", en: "The page you are looking for does not exist or was removed.", kr: "찾으시는 페이지가 없거나 삭제되었습니다." },
+  ui_back_dashboard: { mn: "Хяналтын самбар руу", en: "Back to dashboard", kr: "대시보드로" },
+  ui_loading: { mn: "Уншиж байна…", en: "Loading…", kr: "불러오는 중…" },
+  approvals_already_decided: { mn: "Энэ хүсэлтийг өөр админ аль хэдийн шийдсэн байна.", en: "This request was already decided by another admin.", kr: "이 요청은 이미 다른 관리자가 처리했습니다." },
+  approvals_self: { mn: "Өөрийн хүсэлтийг өөрөө зөвшөөрөх боломжгүй. Бусад admin шийднэ.", en: "You cannot approve your own request. Another admin must decide.", kr: "본인 요청은 본인이 승인할 수 없습니다. 다른 관리자가 결정합니다." },
+  approvals_ml_failed: { mn: "Батлагдсан ч ML service-ийг эхлүүлж чадсангүй", en: "Approved, but the ML service could not be started", kr: "승인되었지만 ML 서비스를 시작하지 못했습니다" },
+  suspect_add_missing: { mn: "Нэр болон зураг заавал", en: "Name and photo are required", kr: "이름과 사진은 필수입니다" },
+  suspect_add_ml_failed: { mn: "ML service-с embedding авсангүй", en: "Could not get an embedding from the ML service", kr: "ML 서비스에서 임베딩을 가져오지 못했습니다" },
+  suspect_add_failed: { mn: "Сэжигтэн нэмэхэд алдаа гарлаа", en: "Could not add the suspect", kr: "용의자를 추가하지 못했습니다" },
+  suspect_added: { mn: "Сэжигтэн нэмэгдлээ", en: "Suspect added", kr: "용의자가 추가되었습니다" },
+
+  // ── Playback: reveal action bar / multi-select (playback-player.tsx) ──
+  pb_select_mode_active: { mn: "Сонгох горим идэвхтэй —", en: "Select mode active —", kr: "선택 모드 활성 —" },
+  pb_select_mode_hint: { mn: "Видеон дээрх нүүр болон доорх жагсаалтаас reveal хийх хүмүүсийг сонгоно уу. Сонгосон", en: "Pick the people to reveal from the video or the list below. Selected", kr: "영상 또는 아래 목록에서 공개할 사람을 선택하세요. 선택됨" },
+  pb_people: { mn: "хүн.", en: "person(s).", kr: "명." },
+  pb_idle_hint: { mn: "Видеоны blurred нүүр дээр шууд click хийн нэг хүний reveal, эсвэл \"Сонгох горим\"-аас олон нүүр сонгоно уу.", en: "Click a blurred face in the video to reveal one person, or use \"Select mode\" to pick several.", kr: "영상의 블러 처리된 얼굴을 클릭해 한 명을 공개하거나, \"선택 모드\"로 여러 명을 선택하세요." },
+  pb_no_faces: { mn: "Нүүр илрээгүй", en: "No faces detected", kr: "감지된 얼굴 없음" },
+  pb_select_many_title: { mn: "Олон нүүр сонгож reveal", en: "Select several faces to reveal", kr: "여러 얼굴을 선택해 공개" },
+  pb_select_mode_btn: { mn: "Сонгох горим", en: "Select mode", kr: "선택 모드" },
+  pb_reveal_btn: { mn: "Reveal хийх", en: "Reveal", kr: "공개" },
+  pb_cancel_btn: { mn: "Болих", en: "Cancel", kr: "취소" },
+  pb_all_faces_title: { mn: "Бүх илрүүлсэн нүүр", en: "All detected faces", kr: "감지된 모든 얼굴" },
+  pb_click_to_select: { mn: "click хийн сонго", en: "click to select", kr: "클릭하여 선택" },
+  pb_clear_selection: { mn: "Сонголт цэвэрлэх", en: "Clear selection", kr: "선택 해제" },
+  pb_selected: { mn: "Сонгогдсон", en: "Selected", kr: "선택됨" },
 } as const;
 
 export type TranslationKey = keyof typeof T;

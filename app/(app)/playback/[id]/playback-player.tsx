@@ -7,6 +7,7 @@ import { FaceTimeline } from "./face-timeline";
 import { RevealModal } from "./reveal-modal";
 import { FaceThumb } from "@/components/face-thumb";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/client";
 
 interface Suspect {
   id: string;
@@ -21,6 +22,8 @@ interface DetectedFace {
   detected_at: string;
   /** Seconds from recording start. Null when no started_at on the recording. */
   time_in_video_sec: number | null;
+  /** Crop is encrypt-only at rest (ADR 0009) — FaceThumb shows a shield. */
+  crop_sealed?: boolean;
 }
 
 /**
@@ -52,6 +55,7 @@ export function PlaybackPlayer({
   /** From ?face=… — if set, seek the player there on metadata load. */
   initialFaceId?: string | null;
 }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [initialFaceIds, setInitialFaceIds] = useState<string[]>([]);
   const [initialTimeWindow, setInitialTimeWindow] = useState<{
@@ -211,20 +215,14 @@ export function PlaybackPlayer({
             <div className="flex-1 text-xs text-text-soft leading-relaxed">
               {selectMode ? (
                 <>
-                  <span className="text-success font-medium">
-                    Сонгох горим идэвхтэй —
-                  </span>{" "}
-                  Видеон дээрх нүүр болон доорх жагсаалтаас reveal хийх
-                  хүмүүсийг сонгоно уу. Сонгосон{" "}
-                  <span className="text-accent font-bold">
-                    {selectedIds.size}
-                  </span>{" "}
-                  хүн.
+                  <span className="text-success font-medium">{t("pb_select_mode_active")}</span>{" "}
+                  {t("pb_select_mode_hint")}{" "}
+                  <span className="text-accent font-bold">{selectedIds.size}</span>{" "}
+                  {t("pb_people")}
                 </>
               ) : (
                 <>
-                  Видеоны blurred нүүр дээр шууд click хийн нэг хүний reveal,
-                  эсвэл &quot;Сонгох горим&quot;-аас олон нүүр сонгоно уу.
+                  {t("pb_idle_hint")}
                 </>
               )}
             </div>
@@ -235,18 +233,14 @@ export function PlaybackPlayer({
                   onClick={() => setSelectMode(true)}
                   className="btn-ghost text-xs shrink-0"
                   disabled={detectedFaces.length === 0}
-                  title={
-                    detectedFaces.length === 0
-                      ? "Нүүр илрээгүй"
-                      : "Олон нүүр сонгож reveal"
-                  }
+                  title={detectedFaces.length === 0 ? t("pb_no_faces") : t("pb_select_many_title")}
                 >
                   <ListChecks className="w-3.5 h-3.5" />
-                  Сонгох горим
+                  {t("pb_select_mode_btn")}
                 </button>
                 <button onClick={openManual} className="btn-primary text-xs shrink-0">
                   <Eye className="w-3.5 h-3.5" />
-                  Reveal хийх
+                  {t("pb_reveal_btn")}
                 </button>
               </>
             ) : (
@@ -256,7 +250,7 @@ export function PlaybackPlayer({
                   className="btn-ghost text-xs shrink-0"
                 >
                   <X className="w-3.5 h-3.5" />
-                  Болих
+                  {t("pb_cancel_btn")}
                 </button>
                 <button
                   onClick={openSelected}
@@ -264,7 +258,7 @@ export function PlaybackPlayer({
                   className="btn-primary text-xs shrink-0"
                 >
                   <Eye className="w-3.5 h-3.5" />
-                  Reveal {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}
+                  {t("pb_reveal_btn")} {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}
                 </button>
               </>
             )}
@@ -275,8 +269,7 @@ export function PlaybackPlayer({
             <div className="card mt-3">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-xs uppercase tracking-wide text-text-soft">
-                  Бүх илрүүлсэн нүүр ({detectedFaces.length}) — click хийн
-                  сонго
+                  {t("pb_all_faces_title")} ({detectedFaces.length}) — {t("pb_click_to_select")}
                 </h3>
                 {selectedIds.size > 0 && (
                   <button
@@ -284,7 +277,7 @@ export function PlaybackPlayer({
                     className="text-[10px] text-text-muted hover:text-text underline"
                     onClick={() => setSelectedIds(new Set())}
                   >
-                    Сонголт цэвэрлэх
+                    {t("pb_clear_selection")}
                   </button>
                 )}
               </div>
@@ -308,6 +301,7 @@ export function PlaybackPlayer({
                         faceId={f.id}
                         alt={f.filename}
                         className="absolute inset-0"
+                        sealed={f.crop_sealed}
                       />
                       <span
                         className={cn(
@@ -338,7 +332,7 @@ export function PlaybackPlayer({
               {selectedFaces.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-text-muted/5">
                   <p className="text-[10px] uppercase tracking-wide text-text-muted mb-1.5">
-                    Сонгогдсон ({selectedFaces.length}):
+                    {t("pb_selected")} ({selectedFaces.length}):
                   </p>
                   <p className="text-xs text-success font-medium">
                     {selectedFaces

@@ -9,6 +9,7 @@ interface Match {
   id: string;
   filename: string;
   image_path: string;
+  crop_sealed?: boolean;
   detected_at: string;
   similarity: number;
   recording_filename: string | null;
@@ -80,6 +81,7 @@ export function SearchForm() {
                       faceId={m.id}
                       alt={m.filename}
                       className="absolute inset-0"
+                      sealed={m.crop_sealed}
                     />
                     <div className={`absolute top-1 right-1 z-10 px-1.5 py-0.5 rounded bg-black/60 text-xs font-mono ${pctColor}`}>
                       {pct}%

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "@/lib/theme/client";
 import { getServerTheme } from "@/lib/theme/server";
+import { getServerLang } from "@/lib/i18n/server";
 import { ServiceWorkerRegister } from "@/components/sw-register";
 import { VitalsReporter } from "@/components/vitals-reporter";
 import "./globals.css";
@@ -40,8 +41,10 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const theme = await getServerTheme();
+  const lang = await getServerLang();
+  const htmlLang = lang === "kr" ? "ko" : lang;
   return (
-    <html lang="mn" data-theme={theme} className={theme === "dark" ? "dark" : undefined}>
+    <html lang={htmlLang} data-theme={theme} className={theme === "dark" ? "dark" : undefined}>
       <body className="min-h-screen antialiased">
         <ThemeProvider initial={theme}>{children}</ThemeProvider>
         <SpeedInsights />

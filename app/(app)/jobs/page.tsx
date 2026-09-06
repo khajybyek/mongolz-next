@@ -8,10 +8,12 @@ import { cn } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 const STATUS_COLORS: Record<string, string> = {
+  pending_approval: "bg-warning/15 text-warning",
   queued: "bg-warning/15 text-warning",
   processing: "bg-accent/15 text-accent",
   completed: "bg-success/15 text-success",
   failed: "bg-danger/15 text-danger",
+  rejected: "bg-danger/15 text-danger",
 };
 
 export default async function JobsPage() {
@@ -24,20 +26,35 @@ export default async function JobsPage() {
     .order("created_at", { ascending: false })
     .limit(100);
 
+  const waiting = (jobs ?? []).filter((j) => j.status === "pending_approval");
   const active = (jobs ?? []).filter((j) => j.status === "queued" || j.status === "processing");
-  const done = (jobs ?? []).filter((j) => j.status === "completed" || j.status === "failed");
+  const done = (jobs ?? []).filter((j) => j.status === "completed" || j.status === "failed" || j.status === "rejected");
 
   return (
     <>
       <PageHeader
         title="Job Queue"
-        subtitle={`${active.length} active · ${done.length} completed`}
+        subtitle={`${waiting.length} awaiting approval · ${active.length} active · ${done.length} finished`}
       />
 
       {!jobs?.length ? (
         <Empty message="No reveal jobs yet" />
       ) : (
         <div className="space-y-4">
+          {waiting.length > 0 && (
+            <div className="card space-y-3">
+              <h3 className="text-xs uppercase tracking-wide text-warning">Awaiting 4-eyes approval</h3>
+              {waiting.map((j) => (
+                <div key={j.id} className="bg-bg-tertiary rounded-lg p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="text-sm font-mono text-text-soft">{j.id.slice(0, 8)}</span>
+                    <span className="text-[10px] text-text-muted ml-2">{j.method} · {j.requested_email}</span>
+                  </div>
+                  <span className={cn("badge", STATUS_COLORS[j.status])}>{j.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {active.length > 0 && (
             <div className="card space-y-3">
               <h3 className="text-xs uppercase tracking-wide text-text-soft">Active Jobs</h3>

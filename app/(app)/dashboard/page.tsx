@@ -18,10 +18,18 @@ import { createClient } from "@/lib/supabase/server";
 import { getT } from "@/lib/i18n/server";
 import { formatDate, pct } from "@/lib/utils";
 import { LiveActivityFeed, type ActivityItem } from "./live-activity-feed";
+import { probeDb, probeMl } from "@/lib/health-probes";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ error?: string }>;
+}) {
   const supabase = await createClient();
   const { t } = await getT();
+  const sp = (await searchParams) ?? {};
+  const bounceMessage =
+    sp.error === "admin-only" ? t("err_admin_only") : sp.error === "forbidden" ? t("err_forbidden") : null;
 
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const sinceToday = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
@@ -34,6 +42,8 @@ export default async function DashboardPage() {
     { count: cameraCount },
     { count: alerts24h },
     { data: recentAlerts },
+    mlHealth,
+    dbHealth,
   ] = await Promise.all([
     supabase.from("faces").select("*", { count: "exact", head: true }),
     supabase.from("suspects").select("*", { count: "exact", head: true }),
@@ -46,6 +56,8 @@ export default async function DashboardPage() {
       .select("id, suspect_name, similarity, created_at, camera_name")
       .order("created_at", { ascending: false })
       .limit(8),
+    probeMl(2500),
+    probeDb(2500),
   ]);
 
   // Live-activity initial payload — last N alerts + audit rows merged.
@@ -126,6 +138,11 @@ export default async function DashboardPage() {
 
   return (
     <>
+      {bounceMessage && (
+        <div className="mb-4 rounded-xl border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-warning" role="status">
+          {bounceMessage}
+        </div>
+      )}
       <PageHeader
         title={t("nav_dashboard")}
         subtitle={t("dashboard_subtitle") || "AI-Powered Surveillance — overview"}
@@ -227,10 +244,14 @@ export default async function DashboardPage() {
               />
               <StatusRow
                 label="ML Service"
-                value={t("operational") || "Operational"}
-                status="ok"
+                value={mlHealth.ok ? t("operational") : t("status_ml_down")}
+                status={mlHealth.ok ? "ok" : "warn"}
               />
-              <StatusRow label="Database" value={t("status_db_connected")} status="ok" />
+              <StatusRow
+                label="Database"
+                value={dbHealth.ok ? t("status_db_connected") : t("status_db_down")}
+                status={dbHealth.ok ? "ok" : "warn"}
+              />
               <StatusRow
                 label={t("alerts_24h") || "Alerts (24h)"}
                 value={`${alerts24h ?? 0}`}

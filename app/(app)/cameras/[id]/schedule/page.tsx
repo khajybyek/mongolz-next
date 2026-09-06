@@ -92,6 +92,9 @@ export default async function CameraSchedulePage({
         title={`${t("schedule_title_prefix")} ${camera.name}`}
         subtitle={t("schedule_subtitle")}
       />
+      <div className="mb-4 rounded-xl border border-warning/40 bg-warning-soft px-4 py-3 text-xs text-warning leading-relaxed">
+        {t("schedule_preview_note")}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 mt-4">
         <div className="space-y-4">

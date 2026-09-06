@@ -32,15 +32,15 @@ export default async function AnalyticsPage() {
     supabase.from("top_suspects").select("*"),
     supabase
       .from("faces")
-      .select("*", { count: "exact", head: true })
-      .gte("created_at", since7d),
+      .select("id", { count: "exact", head: true })
+      .gte("detected_at", since7d),
     supabase
       .from("alerts")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .gte("created_at", since7d),
     supabase
       .from("recordings")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .gte("started_at", since7d),
     supabase
       .from("alerts")
@@ -56,6 +56,16 @@ export default async function AnalyticsPage() {
     else if (s >= 0.5) sev.med++;
     else sev.low++;
   }
+
+  // The reporting views expose nullable columns (aggregates over an outer
+  // join); coerce once here so the chart component gets a strict shape.
+  const byHourRows = (byHour ?? []).map((r) => ({ h: r.h ?? 0, c: r.c ?? 0 }));
+  const byDateRows = (byDate ?? []).map((r) => ({ d: r.d ?? "", c: r.c ?? 0 }));
+  const alertsByDateRows = (alertsByDate ?? []).map((r) => ({ d: r.d ?? "", c: r.c ?? 0 }));
+  const topSuspectRows = (topSuspects ?? []).map((r) => ({
+    suspect_name: r.suspect_name ?? "—",
+    c: r.c ?? 0,
+  }));
 
   const hasData =
     (byHour?.length ?? 0) +
@@ -109,10 +119,10 @@ export default async function AnalyticsPage() {
         />
       ) : (
         <AnalyticsCharts
-          byHour={byHour ?? []}
-          byDate={byDate ?? []}
-          alertsByDate={alertsByDate ?? []}
-          topSuspects={topSuspects ?? []}
+          byHour={byHourRows}
+          byDate={byDateRows}
+          alertsByDate={alertsByDateRows}
+          topSuspects={topSuspectRows}
           labels={{
             hourly: t("hourly_chart"),
             daily: t("daily_chart"),

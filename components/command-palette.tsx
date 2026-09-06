@@ -81,7 +81,6 @@ export function CommandPalette({ role }: { role: "admin" | "viewer" | "auditor" 
         "/live",
         "/playback",
         "/analytics",
-        "/settings",
       ];
       return viewerAllowed.includes(e.href);
     });
