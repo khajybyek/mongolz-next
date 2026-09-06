@@ -20,10 +20,14 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-// Production-д snapshot ID хэрэглэх (Anthropic-ийн зөвлөгөө) — alias биш.
-// CLAUDE_MODEL env-ээр override хийх боломжтой.
-// Дэлгэрэнгүй: https://docs.anthropic.com/en/docs/about-claude/models
-const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") ?? "claude-sonnet-4-20250514";
+// Current-generation model IDs (no date suffixes — these are complete as-is).
+// CLAUDE_MODEL env may override the primary model; the fallback chain covers
+// a retired/invalid override without a redeploy.
+const CLAUDE_MODEL = Deno.env.get("CLAUDE_MODEL") ?? "claude-opus-5";
+const FALLBACK_CHAIN = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"];
+const MAX_HISTORY = 20;
+const MAX_MESSAGE_CHARS = 4000;
+const MODES = new Set(["summary", "anomaly", "chat"]);
 
 interface RequestBody {
   mode: "summary" | "anomaly" | "chat";
@@ -111,8 +115,25 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: "admin only" }), { status: 403 });
   }
 
-  // ── Body уншиx ──
-  const body = (await req.json()) as RequestBody;
+  // ── Body уншиx + validation ──
+  let body: RequestBody;
+  try {
+    body = (await req.json()) as RequestBody;
+  } catch {
+    return new Response(JSON.stringify({ error: "invalid json" }), { status: 400 });
+  }
+  if (!body || !MODES.has(body.mode)) {
+    return new Response(JSON.stringify({ error: "mode must be summary | anomaly | chat" }), { status: 400 });
+  }
+  if (body.mode === "chat" && (typeof body.question !== "string" || !body.question.trim())) {
+    return new Response(JSON.stringify({ error: "question required for chat mode" }), { status: 400 });
+  }
+  const question = body.question?.slice(0, MAX_MESSAGE_CHARS);
+  // Client-supplied history is bounded and shape-checked; anything else is dropped.
+  const history = (Array.isArray(body.history) ? body.history : [])
+    .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+    .slice(-MAX_HISTORY)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) }));
 
   // ── DB-ээс контекст цуглуулах (service-role-оор) ──
   const svc = createClient(
@@ -150,19 +171,11 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY not set" }), { status: 500 });
   }
 
-  const messages = body.history ?? [];
-  messages.push({
-    role: "user",
-    content: userPromptFor(body.mode, ctx, body.question),
-  });
+  const messages = [...history, { role: "user", content: userPromptFor(body.mode, ctx, question) }];
 
-  // Model fallback chain — хэрэв тохируулсан snapshot retired/invalid бол
-  // мэдэгдэлтэй stable snapshot руу унаж дахин оролдоно.
-  const FALLBACK_MODELS = [
-    CLAUDE_MODEL,                      // default: claude-sonnet-4-20250514
-    "claude-sonnet-4-20250514",        // Sonnet 4 original (long-lived stable)
-    "claude-3-5-sonnet-20241022",      // 2024 Sonnet (very stable, older)
-  ];
+  // Model fallback chain — a retired/invalid CLAUDE_MODEL override falls back
+  // to the current generation without a redeploy.
+  const FALLBACK_MODELS = [CLAUDE_MODEL, ...FALLBACK_CHAIN.filter((m) => m !== CLAUDE_MODEL)];
 
   let claudeRes: Response | null = null;
   let lastErr = "";
@@ -179,7 +192,7 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         model,
-        max_tokens: 2048,
+        max_tokens: 4096,
         system: SYSTEM_PROMPT,
         messages,
       }),
@@ -216,22 +229,28 @@ Deno.serve(async (req) => {
     } else if (/rate.*limit|overloaded/i.test(lastErr)) {
       userMessage = "Anthropic API rate limit хэтэрсэн. Хэдэн минутын дараа дахин туршина уу.";
     } else if (/model.*not.*found|invalid.*model/i.test(lastErr)) {
-      userMessage = `Claude model "${CLAUDE_MODEL}" буруу. CLAUDE_MODEL env-ийг snapshot ID-аар шинэчилнэ үү.`;
+      userMessage = `Claude model "${CLAUDE_MODEL}" буруу. CLAUDE_MODEL env-ийг зөв model ID-аар шинэчилнэ үү.`;
     }
 
+    // Upstream detail stays in the function logs (above); the client gets the
+    // classified message only.
     return new Response(
-      JSON.stringify({
-        error: userMessage,
-        raw_error: lastErr.slice(0, 300),
-        models_tried: FALLBACK_MODELS,
-        anthropic_status: claudeRes?.status ?? 0,
-      }),
+      JSON.stringify({ error: userMessage, models_tried: FALLBACK_MODELS, anthropic_status: claudeRes?.status ?? 0 }),
       { status: 502 },
     );
   }
 
   const claudeData = await claudeRes.json();
-  const text = claudeData.content?.[0]?.text ?? "";
+  // Adaptive thinking is on by default on current models: the first content
+  // block may be a `thinking` block — take the first `text` block instead.
+  const text: string = (claudeData.content ?? [])
+    .filter((b: { type?: string }) => b?.type === "text")
+    .map((b: { text?: string }) => b.text ?? "")
+    .join("\n")
+    .trim();
+  if (claudeData.stop_reason === "refusal") {
+    return new Response(JSON.stringify({ error: "Claude энэ хүсэлтэд хариулахаас татгалзлаа." }), { status: 422 });
+  }
 
   // ── Audit log ──
   await svc.from("audit_log").insert({

@@ -1,60 +1,82 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 interface AlertPayload {
-  suspect_name: string;
-  similarity: number;
-  camera_name: string;
+  suspect_name: string | null;
+  similarity: number | null;
+  camera_name: string | null;
   created_at: string;
-  screenshot_path?: string;
+  screenshot_path?: string | null;
 }
 
 const TELEGRAM_API = "https://api.telegram.org";
 
-function escapeMarkdown(text: string): string {
-  return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, "\\$&");
+function escapeMarkdown(text: string | null | undefined): string {
+  return String(text ?? "—").replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, "\\$&");
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Caller authentication.
+ *
+ * The DB trigger (notify_telegram_on_alert, pg_net) sends the project's
+ * service-role JWT as `Authorization: Bearer …`. The Supabase gateway has
+ * already verified that JWT's signature (verify_jwt = true), so checking
+ * that its `role` claim is `service_role` is sufficient. A static
+ * `x-webhook-secret` header is accepted as an alternative when
+ * TELEGRAM_WEBHOOK_SECRET is configured (for non-DB callers).
+ */
+function isAuthorised(req: Request): boolean {
+  const secret = Deno.env.get("TELEGRAM_WEBHOOK_SECRET");
+  const headerSecret = req.headers.get("x-webhook-secret");
+  if (secret && headerSecret && constantTimeEqual(headerSecret, secret)) return true;
+
+  const auth = req.headers.get("authorization") ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  try {
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload?.role === "service_role";
+  } catch {
+    return false;
+  }
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), {
-      status: 405,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
   const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
-  const webhookSecret = Deno.env.get("TELEGRAM_WEBHOOK_SECRET");
-
-  if (!botToken || !chatId || !webhookSecret) {
-    return new Response(
-      JSON.stringify({
-        error: "TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, or TELEGRAM_WEBHOOK_SECRET not configured",
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+  if (!botToken || !chatId) {
+    return json({ error: "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured" }, 500);
   }
 
-  const headerSecret = req.headers.get("x-webhook-secret");
-  if (headerSecret !== webhookSecret) {
-    return new Response(JSON.stringify({ error: "Invalid webhook secret" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  if (!isAuthorised(req)) return json({ error: "unauthorized" }, 401);
 
   let payload: AlertPayload;
   try {
     payload = await req.json();
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return json({ error: "Invalid JSON" }, 400);
   }
 
-  const similarityPercent = (payload.similarity * 100).toFixed(1);
-  const detectedAt = new Date(payload.created_at).toLocaleString("mn-MN", {
+  const similarity = typeof payload.similarity === "number" ? payload.similarity : Number(payload.similarity ?? 0);
+  const similarityPercent = (Number.isFinite(similarity) ? similarity * 100 : 0).toFixed(1);
+  const created = new Date(payload.created_at ?? Date.now());
+  const detectedAt = (Number.isNaN(created.getTime()) ? new Date() : created).toLocaleString("mn-MN", {
     timeZone: "Asia/Seoul", // KST (UTC+9)
     year: "numeric",
     month: "2-digit",
@@ -72,41 +94,19 @@ Deno.serve(async (req: Request) => {
     `🕐 *Цаг:* ${escapeMarkdown(detectedAt)}`;
 
   try {
-    const tgResponse = await fetch(
-      `${TELEGRAM_API}/bot${botToken}/sendMessage`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: message,
-          parse_mode: "MarkdownV2",
-        }),
-      },
-    );
-
-    const tgResult = await tgResponse.json();
-
+    const tgResponse = await fetch(`${TELEGRAM_API}/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "MarkdownV2" }),
+    });
+    const tgResult = await tgResponse.json().catch(() => ({}));
     if (!tgResponse.ok) {
-      return new Response(
-        JSON.stringify({
-          error: "Telegram API error",
-          telegram_response: tgResult,
-        }),
-        { status: 502, headers: { "Content-Type": "application/json" } },
-      );
+      console.error("telegram sendMessage failed", tgResponse.status, tgResult?.description);
+      return json({ error: "Telegram API error", status: tgResponse.status }, 502);
     }
-
-    return new Response(
-      JSON.stringify({ ok: true, message_id: tgResult.result?.message_id }),
-      { headers: { "Content-Type": "application/json" } },
-    );
+    return json({ ok: true, message_id: tgResult.result?.message_id });
   } catch (e) {
-    return new Response(
-      JSON.stringify({
-        error: e instanceof Error ? e.message : "Network error",
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    console.error("telegram network error", e instanceof Error ? e.message : e);
+    return json({ error: "Network error" }, 500);
   }
 });
