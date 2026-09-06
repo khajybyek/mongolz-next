@@ -147,6 +147,21 @@ def master_key() -> bytes:
     return _master()
 
 
+def master_key_candidates() -> list[bytes]:
+    """Active master first, then ML_ENCRYPTION_KEY_PREV if configured.
+
+    Per-face hash-chain keys (hierarchical_keys) derive from the master, so a
+    key rotation must try the previous master too — otherwise every sealed
+    crop / embedding written before the rotation becomes undecryptable (they
+    have no plaintext copy since Tier 2).
+    """
+    keys = [_master()]
+    prev = _master_prev()
+    if prev is not None and prev != keys[0]:
+        keys.append(prev)
+    return keys
+
+
 # ─────────────────────────────────────────────────────────────
 # Per-recording key derivation (HKDF-SHA256)
 # ─────────────────────────────────────────────────────────────

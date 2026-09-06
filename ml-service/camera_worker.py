@@ -10,7 +10,7 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
-from recording_pipeline import RecordingSession
+from recording_pipeline import RecordingSession, redact_url
 from reveal_job import RevealProcessor
 
 if TYPE_CHECKING:
@@ -39,6 +39,14 @@ class CameraManager:
         if existing and existing.task and not existing.task.done():
             log.info("Камер %s аль хэдийн ажиллаж байна", camera_id)
             return
+        if existing:
+            # A finished/crashed session still owns ffmpeg pipes and an
+            # unfinalised recording — close it before replacing.
+            try:
+                await existing.stop()
+            except Exception as e:  # noqa: BLE001
+                log.warning("Camera %s: stale session cleanup failed: %s", camera_id, e)
+            self.sessions.pop(camera_id, None)
 
         session = RecordingSession(
             camera_id=camera_id,
@@ -52,7 +60,7 @@ class CameraManager:
         )
         await session.start()
         self.sessions[camera_id] = session
-        log.info("Камер %s эхэллээ: %s", camera_id, url)
+        log.info("Камер %s эхэллээ: %s", camera_id, redact_url(url))
 
     async def stop(self, camera_id: str):
         session = self.sessions.pop(camera_id, None)

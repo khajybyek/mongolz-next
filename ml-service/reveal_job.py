@@ -21,6 +21,7 @@ Blurred recording-аас тодорхой нэг (эсвэл олон) хүни�
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
@@ -32,10 +33,14 @@ from typing import TYPE_CHECKING
 import cv2
 import numpy as np
 
-from crypto_utils import decrypt_bytes, master_key
-from hierarchical_keys import key_at_index, next_key, decrypt_face
-# Recording pipeline-тэй ижил cubist algorithm import — нэг эх сурвалжаас
-from recording_pipeline import _cubist_anonymize, _mosaic_anonymize
+from crypto_utils import decrypt_bytes, master_key_candidates
+from face_masker import FaceMasker
+from hierarchical_keys import unseal_at_index
+
+# One reveal at a time: the frame loop is CPU-bound (InsightFace + cubist +
+# x264) and shares the box with live recording. Everything blocking runs in
+# a worker thread so HTTP handlers and camera loops stay responsive.
+_REVEAL_SLOTS = asyncio.Semaphore(1)
 
 if TYPE_CHECKING:
     from face_engine import FaceEngine
@@ -54,7 +59,14 @@ class RevealProcessor:
         if not self.storage.client:
             log.error("Storage хэрэгсэлгүй — reveal алгасъя")
             return
+        async with _REVEAL_SLOTS:
+            try:
+                await self._run(job_id)
+            except Exception as e:  # noqa: BLE001 — never leave a job silently stuck
+                log.exception("Reveal job %s crashed", job_id)
+                await self._fail(job_id, f"Дотоод алдаа: {type(e).__name__}")
 
+    async def _run(self, job_id: str):
         # 1. Job-ийг авах — олдоогүй тохиолдолд PostgREST 406 алдаа гаргахгүй
         # маяг try-catch + .maybe_single()-аар бэлэн.
         try:
@@ -80,11 +92,11 @@ class RevealProcessor:
         # still awaiting a second admin (pending_approval) or was rejected,
         # refuse it here so a stray /reveal/run call can't bypass approval.
         status = (job.get("status") or "queued")
-        if status not in ("queued", "approved", "processing"):
-            log.warning(
-                "Reveal job %s status=%s — эрхгүй (approval хүлээгдэж буй/татгалзсан), алгасъя",
-                job_id, status,
-            )
+        if status != "queued":
+            # pending_approval / rejected: not cleared to run (4-eyes, ADR
+            # 0003). processing: another run owns it. completed / failed:
+            # terminal. A stray or duplicated /reveal/run call is a no-op.
+            log.warning("Reveal job %s status=%s — not runnable, skipping", job_id, status)
             return
 
         recording = job.get("recordings")
@@ -147,7 +159,12 @@ class RevealProcessor:
             job_id, len(target_embeddings), threshold,
         )
 
-        await self._update(job_id, status="processing", started_at=self._now(), progress=5)
+        # Compare-and-set queued → processing: two overlapping /reveal/run
+        # calls for the same job must not both decrypt + render.
+        claimed = await asyncio.to_thread(self._claim, job_id)
+        if not claimed:
+            log.warning("Reveal job %s already claimed by another run", job_id)
+            return
 
         # 2. Original MP4-ыг татаж local-руу
         with tempfile.TemporaryDirectory() as tmp:
@@ -155,20 +172,19 @@ class RevealProcessor:
             output_mp4 = os.path.join(tmp, "output.mp4")
 
             try:
-                blob = self.storage.client.storage.from_("recordings").download(original_path)
-                # `.enc` суффикстэй файлууд AES-256-GCM-аар encrypted.
-                # Хуучин plaintext .mp4 файлуудтай backward-compatible байна.
-                if isinstance(original_path, str) and original_path.endswith(".enc"):
-                    # rec_uuid аль хэдийн дээр assigned байна
-                    try:
+                def _fetch_and_decrypt() -> None:
+                    blob = self.storage.client.storage.from_("recordings").download(original_path)
+                    # `.enc` суффикстэй файлууд AES-256-GCM-аар encrypted.
+                    # Хуучин plaintext .mp4 файлуудтай backward-compatible байна.
+                    if isinstance(original_path, str) and original_path.endswith(".enc"):
                         blob = decrypt_bytes(blob, recording_id=rec_uuid)
-                    except Exception as e:
-                        await self._fail(job_id, f"Decrypt алдаа (auth tag invalid?): {e}")
-                        return
-                with open(input_mp4, "wb") as f:
-                    f.write(blob)
+                    with open(input_mp4, "wb") as f:
+                        f.write(blob)
+
+                await asyncio.to_thread(_fetch_and_decrypt)
             except Exception as e:
-                await self._fail(job_id, f"Татаж чадаагүй: {e}")
+                log.warning("Reveal %s: fetch/decrypt failed: %s", job_id, e)
+                await self._fail(job_id, "Original бичлэгийг татах / decrypt хийж чадсангүй")
                 return
 
             # 3. Frame бүрийг боловсруулах (+ watermark)
@@ -199,7 +215,8 @@ class RevealProcessor:
                 target_end_sec = None
 
             try:
-                duration = self._process_video(
+                duration = await asyncio.to_thread(
+                    self._process_video,
                     input_mp4=input_mp4,
                     output_mp4=output_mp4,
                     target_embeddings=target_embeddings,
@@ -212,18 +229,21 @@ class RevealProcessor:
                     privacy_zones=privacy_zones,
                 )
             except Exception as e:
-                await self._fail(job_id, f"Боловсруулах алдаа: {e}")
+                log.warning("Reveal %s: processing failed: %s", job_id, e)
+                await self._fail(job_id, "Боловсруулах алдаа")
                 return
 
             # 4. Result-г Storage-руу upload
             output_path = f"{job_id}.mp4"
             try:
-                with open(output_mp4, "rb") as f:
-                    self.storage.upload_bytes(
-                        "revealed", output_path, f.read(), "video/mp4"
-                    )
+                def _upload() -> None:
+                    with open(output_mp4, "rb") as f:
+                        self.storage.upload_bytes("revealed", output_path, f.read(), "video/mp4")
+
+                await asyncio.to_thread(_upload)
             except Exception as e:
-                await self._fail(job_id, f"Upload алдаа: {e}")
+                log.warning("Reveal %s: upload failed: %s", job_id, e)
+                await self._fail(job_id, "Upload алдаа")
                 return
 
             # 5. Done
@@ -317,8 +337,7 @@ class RevealProcessor:
             return []
 
         rows = res.data or []
-        # K_level — requester-ийн эзэмших key (ML service master-аас derive).
-        k_level = key_at_index(recording_id, reveal_level, master_key())
+        masters = master_key_candidates()
 
         targets: list[np.ndarray] = []
         blocked = 0
@@ -331,12 +350,12 @@ class RevealProcessor:
             if ci < reveal_level:
                 blocked += 1  # доод index = өндөр эрх → хүрэхгүй
                 continue
-            # K_level-ээс урагшаа K_ci хүртэл алхах (forward-only)
-            k = k_level
-            for _ in range(ci - reveal_level):
-                k = next_key(k)
             try:
-                emb_bytes = decrypt_face(base64.b64decode(sealed), k)
+                # K_level → forward walk to K_ci (never backwards); the
+                # previous master is tried too after a key rotation.
+                emb_bytes = unseal_at_index(
+                    base64.b64decode(sealed), recording_id, int(ci), reveal_level, masters
+                )
                 arr = np.frombuffer(emb_bytes, dtype=np.float32)
                 if arr.size > 0:
                     targets.append(arr)
@@ -430,6 +449,10 @@ class RevealProcessor:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+
+        # Fresh persistence cache per job (the masker is stateful per stream).
+        if hasattr(self, "_masker"):
+            del self._masker
 
         # 10 frame тутамд detect (хурдасгана — Railway CPU дээр)
         frame_idx = 0
@@ -623,66 +646,22 @@ class RevealProcessor:
     def _selective_blur(
         self, frame: np.ndarray, keep_boxes: list[tuple[int, int, int, int]]
     ) -> np.ndarray:
-        """Бүх нүүрийг blur, гэхдээ keep_boxes-д орсон бүс л original үлдэнэ.
+        """Mask every detected face except the reveal targets (keep_boxes).
 
-        Haar cascade (every frame) + InsightFace (every Nth) хослуулж олж
-        мэдсэн бүх нүүрийг blur хийнэ. 35% padding нь motion-р нүүр box-аас
-        гарахыг сэргийлнэ.
+        Uses the shared FaceMasker (Haar every frame + InsightFace every Nth
+        + persistence cache), so a non-target person is protected at least as
+        well as in the baked/on-demand views — previously a frontal-only Haar
+        pass here rendered profile/tilted bystanders in clear.
         """
-        out = frame.copy()
-        h, w = frame.shape[:2]
-
-        if not hasattr(self, "_haar"):
-            haar_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-            self._haar = cv2.CascadeClassifier(haar_path)
-            self._blur_frame_idx = 0
-
-        self._blur_frame_idx += 1
-        all_faces: list[tuple[int, int, int, int]] = []
-
-        # Haar only (cheap) — every frame
-        # InsightFace-г хасав — _find_target_boxes-д аль хэдийн ашигласан учраас
-        # давхар detection нь CPU-г 5x удаашруулна (Railway free tier).
-        if not self._haar.empty():
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = self._haar.detectMultiScale(
-                gray, scaleFactor=1.05, minNeighbors=3, minSize=(20, 20)
+        if not hasattr(self, "_masker"):
+            self._masker = FaceMasker(
+                self.engine,
+                haar_scale=1.05,
+                haar_neighbors=3,
+                haar_min_size=(20, 20),
+                pad_ratio=0.35,
             )
-            for (x, y, fw, fh) in faces:
-                all_faces.append((int(x), int(y), int(x + fw), int(y + fh)))
-
-        if not all_faces:
-            return out
-
-        pad_ratio = 0.35
-        for (x1, y1, x2, y2) in all_faces:
-            if x2 - x1 < 10 or y2 - y1 < 10:
-                continue
-
-            # Энэ box-нь target(-уудын) аль нэгтэй тааралцах уу? IoU > 0.3 → keep
-            keep = any(
-                self._iou((x1, y1, x2, y2), kb) > 0.3 for kb in keep_boxes
-            )
-            if keep:
-                continue
-
-            # Padding-тэй blur — motion-д нүүр гарахаас сэргийлнэ
-            bw, bh = x2 - x1, y2 - y1
-            pad_x = int(bw * pad_ratio)
-            pad_y = int(bh * pad_ratio)
-            x1p = max(0, x1 - pad_x)
-            y1p = max(0, y1 - pad_y)
-            x2p = min(w, x2 + pad_x)
-            y2p = min(h, y2 + pad_y)
-            roi = out[y1p:y2p, x1p:x2p]
-            if roi.size > 0:
-                # Cubist polygon mosaic — recording_pipeline-тай ижил алгоритм
-                cx = (x1 + x2) // 2
-                cy = (y1 + y2) // 2
-                seed = (cx >> 5) * 7919 + (cy >> 5) * 31
-                out[y1p:y2p, x1p:x2p] = _cubist_anonymize(roi, seed=seed)
-
-        return out
+        return self._masker.mask(frame, keep_boxes)
 
     @staticmethod
     def _draw_watermark(
@@ -762,17 +741,33 @@ class RevealProcessor:
     # Storage helpers
     # ─────────────────────────────────────────────
     async def _lookup_original(self, recording_id: str) -> str | None:
-        """recordings.original_path → Storage path"""
+        """recordings.original_path → Storage path (None when missing)."""
+        try:
+            res = await asyncio.to_thread(
+                lambda: self.storage.client.table("recordings")
+                .select("original_path, has_original")
+                .eq("id", recording_id)
+                .maybe_single()
+                .execute()
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("recording lookup failed for %s: %s", recording_id[:8], e)
+            return None
+        data = res.data if res else None
+        if data and data.get("has_original"):
+            return data.get("original_path")
+        return None
+
+    def _claim(self, job_id: str) -> bool:
+        """queued → processing, only if still queued (returns False otherwise)."""
         res = (
-            self.storage.client.table("recordings")
-            .select("original_path, has_original")
-            .eq("id", recording_id)
-            .single()
+            self.storage.client.table("reveal_jobs")
+            .update({"status": "processing", "started_at": self._now(), "progress": 5})
+            .eq("id", job_id)
+            .eq("status", "queued")
             .execute()
         )
-        if res.data and res.data.get("has_original"):
-            return res.data.get("original_path")
-        return None
+        return bool(res.data)
 
     async def _update(self, job_id: str, **fields):
         try:

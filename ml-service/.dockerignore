@@ -42,3 +42,15 @@ Dockerfile
 # Railway/Modal/Render config-ууд (build-д хэрэггүй)
 railway.json
 modal_app.py
+
+# iCloud / local-only
+venv.nosync/
+*.nosync/
+venv 2/
+* 2/
+*.nosync
+# not needed in the image
+tests/
+eval/
+docs/
+samples/

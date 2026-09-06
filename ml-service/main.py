@@ -25,6 +25,10 @@ import io
 import logging
 import os
 import re
+import shutil
+import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Any
 from uuid import uuid4
@@ -47,8 +51,8 @@ from pydantic import BaseModel, Field
 from face_engine import FaceEngine
 from camera_worker import CameraManager
 from storage import SupabaseStorage
-from crypto_utils import init_master_key, self_test as crypto_self_test, decrypt_bytes, master_key
-from hierarchical_keys import key_at_index, next_key, decrypt_face
+from crypto_utils import init_master_key, self_test as crypto_self_test, decrypt_bytes, master_key_candidates
+from hierarchical_keys import unseal_at_index
 from dp_embeddings import DPConfig, add_dp_noise, estimate_matching_accuracy, sweep_epsilon
 from zk_reveal import full_protocol_demo as zk_demo
 from anti_spoof import detect_spoof
@@ -65,7 +69,7 @@ CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         "ML_CORS_ORIGINS",
-        "http://localhost:3000,https://mongolz.vercel.app",
+        "http://localhost:3000,https://aicctv.dev",
     ).split(",")
     if origin.strip()
 ]
@@ -95,6 +99,9 @@ async def lifespan(app: FastAPI):
     face_engine = FaceEngine()
     storage = SupabaseStorage()
     camera_manager = CameraManager(face_engine=face_engine, storage=storage, hls_dir=HLS_DIR)
+    # A restart mid-reveal leaves jobs stuck in 'processing' forever.
+    storage.fail_stale_reveal_jobs()
+    _sweep_abandoned_uploads()
     log.info("MONGOLZ ML service ready")
     yield
     log.info("Shutting down...")
@@ -150,13 +157,35 @@ def health():
 
 
 # ── Embedding ──────────────────────────────────────────────────
+_MAX_IMAGE_BYTES = 12 * 1024 * 1024
+
+
+def _embed_or_400(image_bytes: bytes):
+    """embed_single with decode failures mapped to a client error."""
+    if not image_bytes or len(image_bytes) > _MAX_IMAGE_BYTES:
+        raise HTTPException(400, "image missing or too large")
+    try:
+        return face_engine.embed_single(image_bytes)
+    except ValueError:
+        raise HTTPException(400, "cannot decode image")
+
+
+def _detect_or_400(image_bytes: bytes):
+    if not image_bytes or len(image_bytes) > _MAX_IMAGE_BYTES:
+        raise HTTPException(400, "image missing or too large")
+    try:
+        return face_engine.detect_all(image_bytes)
+    except ValueError:
+        raise HTTPException(400, "cannot decode image")
+
+
 @app.post("/embed", dependencies=[Depends(require_token)])
 async def embed_endpoint(file: UploadFile = File(...)):
     if not face_engine:
         raise HTTPException(503, "engine not ready")
 
     image_bytes = await file.read()
-    embedding = face_engine.embed_single(image_bytes)
+    embedding = await asyncio.to_thread(_embed_or_400, image_bytes)
     if embedding is None:
         raise HTTPException(422, "no face found")
 
@@ -170,7 +199,7 @@ async def detect_endpoint(file: UploadFile = File(...)):
         raise HTTPException(503, "engine not ready")
 
     image_bytes = await file.read()
-    faces = face_engine.detect_all(image_bytes)
+    faces = await asyncio.to_thread(_detect_or_400, image_bytes)
     return {
         "faces": [
             {
@@ -217,9 +246,11 @@ class SearchResp(BaseModel):
 async def search_endpoint(file: UploadFile = File(...), threshold: float = 0.5, limit: int = 20):
     if not face_engine or not storage:
         raise HTTPException(503, "service not ready")
+    threshold = min(1.0, max(0.0, float(threshold)))
+    limit = min(200, max(1, int(limit)))
 
     image_bytes = await file.read()
-    embedding = face_engine.embed_single(image_bytes)
+    embedding = await asyncio.to_thread(_embed_or_400, image_bytes)
     if embedding is None:
         raise HTTPException(422, "no face found")
 
@@ -228,9 +259,16 @@ async def search_endpoint(file: UploadFile = File(...), threshold: float = 0.5, 
 
 
 # ── Camera control ─────────────────────────────────────────────
+_CAMERA_ID_RE = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+_CAMERA_URL_RE = r"^(rtsps?|https?)://\S+$|^\d{1,2}$"
+
+
 class CameraStartReq(BaseModel):
-    camera_id: str
-    url: str
+    # Used as an HLS folder / storage key prefix → strict charset, no ".."
+    camera_id: str = Field(pattern=_CAMERA_ID_RE)
+    # Network cameras or a local device index — never file paths / other
+    # ffmpeg protocols (cv2.VideoCapture would open them).
+    url: str = Field(pattern=_CAMERA_URL_RE, max_length=1024)
     fps: int = Field(default=15, ge=5, le=30)
 
 
@@ -244,7 +282,7 @@ async def camera_start(req: CameraStartReq):
 
 
 class CameraStopReq(BaseModel):
-    camera_id: str
+    camera_id: str = Field(pattern=_CAMERA_ID_RE)
 
 
 @app.post("/camera/stop", dependencies=[Depends(require_token)])
@@ -257,11 +295,17 @@ async def camera_stop(req: CameraStopReq):
 
 # ── /camera/test — quick reachability probe before saving a config ──
 class CameraTestReq(BaseModel):
-    url: str
+    url: str = Field(max_length=1024)
     cam_type: str = Field(default="rtsp")
 
 
 _CAMERA_TEST_TIMEOUT_SEC = 8.0
+# Probes run on their own small pool: a hung cv2.VideoCapture (unreachable
+# host, MJPEG with no connect timeout) must not eat the default executor
+# that view rendering and the recording loop's detect() also rely on.
+_probe_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cam-probe")
+_probe_slots = asyncio.Semaphore(2)
+_PROBE_SCHEMES = ("rtsp://", "rtsps://", "http://", "https://")
 
 
 _LOOPBACK_HOST_RE = re.compile(r"//(?:127\.0\.0\.1|localhost)(?::|/)")
@@ -287,7 +331,13 @@ def _probe_camera_sync(url: str) -> dict:
     enclosing task cancel is what saves the request from hanging).
     """
     is_forwarder = _is_loopback_forwarder_url(url)
-    cap = cv2.VideoCapture(url)
+    # Open/read timeouts (ms) so an unreachable host fails fast instead of
+    # pinning the thread until the OS gives up.
+    cap = cv2.VideoCapture(
+        url,
+        cv2.CAP_FFMPEG,
+        [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000, cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000],
+    )
     try:
         if not cap.isOpened():
             if is_forwarder:
@@ -341,13 +391,16 @@ async def camera_test(req: CameraTestReq):
             "ok": False,
             "error": "Энэ төрлийг ML-аас шалгах боломжгүй (browser/локал төхөөрөмж)",
         }
+    if not url.lower().startswith(_PROBE_SCHEMES):
+        return {"ok": False, "error": "Зөвхөн rtsp:// / http(s):// URL шалгана"}
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
-        result = await asyncio.wait_for(
-            loop.run_in_executor(None, _probe_camera_sync, url),
-            timeout=_CAMERA_TEST_TIMEOUT_SEC,
-        )
+        async with _probe_slots:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(_probe_pool, _probe_camera_sync, url),
+                timeout=_CAMERA_TEST_TIMEOUT_SEC,
+            )
     except asyncio.TimeoutError:
         return {
             "ok": False,
@@ -406,13 +459,25 @@ class RevealRunReq(BaseModel):
     job_id: str  # DB-д аль хэдийн үүссэн reveal_jobs row-ийн id
 
 
+# asyncio only keeps weak references to tasks; a fire-and-forget task with no
+# other reference can be garbage-collected mid-flight.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
+
+
 @app.post("/reveal/run", dependencies=[Depends(require_token)])
 async def reveal_run_endpoint(req: RevealRunReq):
     """Next.js DB-д job үүсгэсний дараа дуудна — background-д ажиллана."""
     if not camera_manager:
         raise HTTPException(503, "service not ready")
 
-    asyncio.create_task(camera_manager.reveal_job(req.job_id))
+    _spawn(camera_manager.reveal_job(req.job_id))
     return {"ok": True, "job_id": req.job_id}
 
 
@@ -502,11 +567,11 @@ async def render_view_endpoint(recording_id: str):
         # Error detail is logged server-side only; the client gets a generic
         # message so internal paths / stack detail never leak to a viewer.
         try:
-            res = (
-                storage.client.table("recordings")
+            res = await asyncio.to_thread(
+                lambda: storage.client.table("recordings")
                 .select("original_path, has_original")
                 .eq("id", recording_id)
-                .single()
+                .maybe_single()
                 .execute()
             )
         except Exception as e:
@@ -522,9 +587,13 @@ async def render_view_endpoint(recording_id: str):
 
         # 2) Download encrypted original + decrypt
         try:
-            blob = storage.client.storage.from_("recordings").download(original_path)
-            if isinstance(original_path, str) and original_path.endswith(".enc"):
-                blob = decrypt_bytes(blob, recording_id=recording_id)
+            def _fetch() -> bytes:
+                data = storage.client.storage.from_("recordings").download(original_path)
+                if isinstance(original_path, str) and original_path.endswith(".enc"):
+                    data = decrypt_bytes(data, recording_id=recording_id)
+                return data
+
+            blob = await asyncio.to_thread(_fetch)
         except Exception as e:
             log.warning("view: download/decrypt failed (%s): %s", recording_id[:8], e)
             raise HTTPException(500, "could not prepare recording")
@@ -542,7 +611,7 @@ async def render_view_endpoint(recording_id: str):
                 f.write(blob)
             try:
                 async with _render_semaphore:
-                    await asyncio.to_thread(render_blurred_view, input_mp4, tmp_out)
+                    await asyncio.to_thread(render_blurred_view, input_mp4, tmp_out, face_engine)
             except Exception as e:
                 log.warning("view: render failed (%s): %s", recording_id[:8], e)
                 try:
@@ -591,11 +660,11 @@ async def secure_crop_endpoint(face_id: str, level: int = 0):
         raise HTTPException(503, "service not ready")
 
     try:
-        res = (
-            storage.client.table("faces")
+        res = await asyncio.to_thread(
+            lambda: storage.client.table("faces")
             .select("recording_id, chain_index, image_path, crop_sealed")
             .eq("id", face_id)
-            .single()
+            .maybe_single()
             .execute()
         )
     except Exception as e:
@@ -622,21 +691,24 @@ async def secure_crop_endpoint(face_id: str, level: int = 0):
     if ci < level:
         raise HTTPException(403, "insufficient authority for this face")
 
-    # Derive K_index by walking the chain forward from K_level (models a real
-    # level-holder who only possesses K_level, not the master).
     try:
-        k = key_at_index(rec_id, level, master_key())
-        for _ in range(ci - level):
-            k = next_key(k)
+        blob = await asyncio.to_thread(
+            lambda: storage.client.storage.from_("faces").download(f"{image_path}.enc")
+        )
     except Exception as e:
-        log.warning("secure-crop: key derive failed (%s): %s", face_id[:8], e)
-        raise HTTPException(500, "key derivation failed")
+        log.warning("secure-crop: download failed (%s): %s", face_id[:8], e)
+        raise HTTPException(500, "could not fetch crop")
 
+    # Derive K_index by walking the chain forward from K_level (models a real
+    # level-holder who only possesses K_level, not the master). The previous
+    # master (ML_ENCRYPTION_KEY_PREV) is tried after the active one so a key
+    # rotation never orphans sealed crops.
     try:
-        blob = storage.client.storage.from_("faces").download(f"{image_path}.enc")
-        jpeg = decrypt_face(blob, k)
+        jpeg = unseal_at_index(blob, rec_id, int(ci), level, master_key_candidates())
+    except PermissionError:
+        raise HTTPException(403, "insufficient authority for this face")
     except Exception as e:
-        log.warning("secure-crop: download/decrypt failed (%s): %s", face_id[:8], e)
+        log.warning("secure-crop: decrypt failed (%s): %s", face_id[:8], type(e).__name__)
         raise HTTPException(500, "could not decrypt crop")
 
     return Response(
@@ -652,26 +724,86 @@ async def secure_crop_endpoint(face_id: str, level: int = 0):
 #   • Blurred MP4 (face blur with persistence + padding)
 #   • Original MP4 (AES-256-GCM encrypted)
 #   • Faces with bbox + recording_id (ArcFace dedup 0.45)
-@app.post("/process-upload", dependencies=[Depends(require_token)])
-async def process_upload_endpoint(
-    file: UploadFile = File(...),
-    camera_name: str = "Browser camera",
-):
-    if not face_engine or not storage:
-        raise HTTPException(503, "service not ready")
+# ── Chunked browser uploads ─────────────────────────────────────
+# The client splits recordings into ~3 MB chunks (Vercel body limit) tagged
+# session_id / chunk_index / is_final. Chunks are stored under
+# UPLOAD_DIR/<session>/<index>.part and concatenated in index order once the
+# final marker arrives; only then does one RecordingSession process the
+# whole clip. (Before this, every chunk was processed as its own recording
+# and everything after the first chunk was silently lost.)
+_UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/tmp/mongolz-upload")
+_UPLOAD_MAX_CHUNKS = 400              # 400 × 4 MB ≈ 1.6 GB hard cap
+_UPLOAD_MAX_CHUNK_BYTES = 8 * 1024 * 1024
+_UPLOAD_SESSION_TTL_SEC = 3600
+_UPLOAD_ASSEMBLY_WAIT_SEC = 30
+_upload_locks: dict[str, asyncio.Lock] = {}
+_MAX_UPLOAD_LOCKS = 256
+os.makedirs(_UPLOAD_DIR, exist_ok=True)
 
-    # File-ийг түр хадгална (tmpfile)
-    import tempfile
-    suffix = ".webm" if (file.content_type or "").endswith("webm") else ".mp4"
-    fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="mongolz_upload_")
-    with os.fdopen(fd, "wb") as f:
-        f.write(await file.read())
 
+def _get_upload_lock(session_id: str) -> asyncio.Lock:
+    lock = _upload_locks.get(session_id)
+    if lock is None:
+        if len(_upload_locks) >= _MAX_UPLOAD_LOCKS:
+            for k in [k for k, lk in _upload_locks.items() if not lk.locked()]:
+                del _upload_locks[k]
+                if len(_upload_locks) < _MAX_UPLOAD_LOCKS:
+                    break
+        lock = asyncio.Lock()
+        _upload_locks[session_id] = lock
+    return lock
+
+
+def _part_path(session_dir: str, index: int) -> str:
+    return os.path.join(session_dir, f"{index:05d}.part")
+
+
+def _missing_parts(session_dir: str, expected: int) -> list[int]:
+    return [i for i in range(expected) if not os.path.exists(_part_path(session_dir, i))]
+
+
+def _assemble_session(session_dir: str, expected: int, suffix: str) -> str:
+    """Concatenate parts 0..expected-1 into a fresh temp file; return its path."""
+    fd, out_path = tempfile.mkstemp(suffix=suffix, prefix="mongolz_upload_")
+    try:
+        with os.fdopen(fd, "wb") as out:
+            for i in range(expected):
+                with open(_part_path(session_dir, i), "rb") as f:
+                    shutil.copyfileobj(f, out)
+    except Exception:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
+        raise
+    return out_path
+
+
+def _sweep_abandoned_uploads(now: float | None = None) -> int:
+    """Delete session directories untouched for longer than the TTL."""
+    now = now or time.time()
+    removed = 0
+    try:
+        for name in os.listdir(_UPLOAD_DIR):
+            path = os.path.join(_UPLOAD_DIR, name)
+            try:
+                if os.path.isdir(path) and now - os.path.getmtime(path) > _UPLOAD_SESSION_TTL_SEC:
+                    shutil.rmtree(path, ignore_errors=True)
+                    removed += 1
+            except OSError:
+                continue
+    except OSError:
+        pass
+    if removed:
+        log.info("upload sweep: removed %d abandoned session(s)", removed)
+    return removed
+
+
+def _start_upload_processing(tmp_path: str, camera_name: str) -> dict:
     size_mb = os.path.getsize(tmp_path) / 1024 / 1024
     log.info("Process upload: %s (%.1fMB) → background pipeline", os.path.basename(tmp_path), size_mb)
 
     from recording_pipeline import RecordingSession
-    from uuid import uuid4
 
     virtual_camera_id = f"upload_{uuid4().hex[:8]}"
     session = RecordingSession(
@@ -705,8 +837,8 @@ async def process_upload_endpoint(
             except OSError:
                 pass
 
-    # Fire-and-forget — Vercel timeout-аас зайлсхийнэ
-    asyncio.create_task(_process_in_background())
+    # Fire-and-forget (strong reference kept) — Vercel timeout-аас зайлсхийнэ
+    _spawn(_process_in_background())
 
     return {
         "ok": True,
@@ -715,6 +847,90 @@ async def process_upload_endpoint(
         "size_mb": round(size_mb, 2),
         "status": "processing",
     }
+
+
+@app.post("/process-upload", dependencies=[Depends(require_token)])
+async def process_upload_endpoint(
+    file: UploadFile = File(...),
+    camera_name: str = Form("Browser camera"),
+    session_id: str | None = Form(None),
+    chunk_index: int = Form(0),
+    is_final: bool = Form(True),
+):
+    if not face_engine or not storage:
+        raise HTTPException(503, "service not ready")
+
+    camera_name = (camera_name or "").strip()[:80] or "Browser camera"
+    content_type = (file.content_type or "").lower()
+    filename = (file.filename or "").lower()
+    suffix = ".webm" if content_type.endswith("webm") or filename.endswith(".webm") else ".mp4"
+
+    data = await file.read()
+    if len(data) > _UPLOAD_MAX_CHUNK_BYTES * (1 if session_id else 16):
+        raise HTTPException(413, "chunk too large")
+
+    # ── Legacy single-shot upload ──
+    if not session_id:
+        if not data:
+            raise HTTPException(400, "empty upload")
+        fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="mongolz_upload_")
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        return _start_upload_processing(tmp_path, camera_name)
+
+    # ── Chunked session ──
+    if not _UUID_RE.match(session_id):
+        raise HTTPException(400, "invalid session_id")
+    if not (0 <= chunk_index < _UPLOAD_MAX_CHUNKS):
+        raise HTTPException(400, "invalid chunk_index")
+
+    session_dir = os.path.join(_UPLOAD_DIR, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+
+    async with _get_upload_lock(session_id):
+        if data:
+            part = _part_path(session_dir, chunk_index)
+            tmp_part = part + ".tmp"
+            with open(tmp_part, "wb") as f:
+                f.write(data)
+            os.replace(tmp_part, part)  # atomic: a reader never sees a half-written part
+            os.utime(session_dir, None)
+
+        if not is_final:
+            return {
+                "ok": True,
+                "status": "chunk_received",
+                "session_id": session_id,
+                "chunk_index": chunk_index,
+            }
+
+        # Final marker: chunk_index is the last data chunk, or (when empty)
+        # the count of data chunks sent before it.
+        expected = chunk_index + (1 if data else 0)
+        if expected <= 0:
+            shutil.rmtree(session_dir, ignore_errors=True)
+            raise HTTPException(400, "empty session")
+
+        # Chunks are uploaded sequentially by the client, but tolerate a
+        # straggler for a few seconds before giving up.
+        deadline = time.time() + _UPLOAD_ASSEMBLY_WAIT_SEC
+        missing = _missing_parts(session_dir, expected)
+        while missing and time.time() < deadline:
+            await asyncio.sleep(1)
+            missing = _missing_parts(session_dir, expected)
+        if missing:
+            shutil.rmtree(session_dir, ignore_errors=True)
+            raise HTTPException(400, f"missing chunks: {missing[:5]}")
+
+        try:
+            tmp_path = await asyncio.to_thread(_assemble_session, session_dir, expected, suffix)
+        except Exception as e:
+            log.warning("upload assembly failed for %s: %s", session_id[:8], e)
+            raise HTTPException(500, "could not assemble upload")
+        shutil.rmtree(session_dir, ignore_errors=True)
+
+    _sweep_abandoned_uploads()
+    return _start_upload_processing(tmp_path, camera_name)
 
 
 # ── Eval endpoint ──────────────────────────────────────────────
@@ -812,29 +1028,45 @@ async def eval_recognition_endpoint(
 
 
 # ── Face clustering (DBSCAN) ───────────────────────────────────
-@app.post("/cluster", dependencies=[Depends(require_token)])
-async def cluster_endpoint(eps: float = 0.5, min_samples: int = 2, limit: int = 500):
-    """Fetch face embeddings from DB, cluster with DBSCAN, store results."""
-    if not storage:
-        raise HTTPException(503, "storage not ready")
+def _embedding_to_np(raw) -> np.ndarray | None:
+    """PostgREST returns pgvector columns as text ("[0.1,0.2,…]")."""
+    if raw is None:
+        return None
+    try:
+        if isinstance(raw, str):
+            cleaned = raw.strip().lstrip("[").rstrip("]")
+            if not cleaned:
+                return None
+            arr = np.fromstring(cleaned, sep=",", dtype=np.float32)
+        else:
+            arr = np.asarray(raw, dtype=np.float32)
+        return arr if arr.size == 512 else None
+    except (TypeError, ValueError):
+        return None
 
+
+def _cluster_sync(eps: float, min_samples: int, limit: int) -> dict:
     from sklearn.cluster import DBSCAN
 
     resp = storage.client.from_("faces").select("id, embedding").limit(limit).execute()
     rows = resp.data or []
-    if not rows:
-        return {"clusters": [], "noise": 0, "total": 0}
+    ids: list[str] = []
+    vectors: list[np.ndarray] = []
+    for r in rows:
+        v = _embedding_to_np(r.get("embedding"))
+        if v is not None:
+            ids.append(r["id"])
+            vectors.append(v)
+    if not ids:
+        return {"clusters": [], "noise": 0, "total": 0, "cluster_count": 0}
 
-    ids = [r["id"] for r in rows]
-    embeddings = np.array([r["embedding"] for r in rows], dtype=np.float32)
-
+    embeddings = np.stack(vectors)
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
     norms[norms == 0] = 1
     normalized = embeddings / norms
-    dist_matrix = 1 - normalized @ normalized.T
+    dist_matrix = np.clip(1 - normalized @ normalized.T, 0, 2)
 
-    db = DBSCAN(eps=eps, min_samples=min_samples, metric="precomputed")
-    labels = db.fit_predict(dist_matrix)
+    labels = DBSCAN(eps=eps, min_samples=min_samples, metric="precomputed").fit_predict(dist_matrix)
 
     clusters: dict[int, list[str]] = {}
     noise_count = 0
@@ -844,9 +1076,12 @@ async def cluster_endpoint(eps: float = 0.5, min_samples: int = 2, limit: int = 
         else:
             clusters.setdefault(int(label), []).append(face_id)
 
+    # One UPDATE per cluster instead of one per face.
     for cluster_id, face_ids_list in clusters.items():
-        for fid in face_ids_list:
-            storage.client.from_("faces").update({"cluster_id": cluster_id}).eq("id", fid).execute()
+        storage.client.from_("faces").update({"cluster_id": cluster_id}).in_("id", face_ids_list).execute()
+    noise_ids = [fid for fid, label in zip(ids, labels) if label == -1]
+    if noise_ids:
+        storage.client.from_("faces").update({"cluster_id": None}).in_("id", noise_ids).execute()
 
     return {
         "total": len(ids),
@@ -857,6 +1092,18 @@ async def cluster_endpoint(eps: float = 0.5, min_samples: int = 2, limit: int = 
             for k, v in sorted(clusters.items())
         ],
     }
+
+
+@app.post("/cluster", dependencies=[Depends(require_token)])
+async def cluster_endpoint(eps: float = 0.5, min_samples: int = 2, limit: int = 500):
+    """Fetch face embeddings from DB, cluster with DBSCAN (cosine), store results."""
+    if not storage or not storage.client:
+        raise HTTPException(503, "storage not ready")
+    if not (0 < eps <= 2):
+        raise HTTPException(400, "eps must be in (0, 2]")
+    min_samples = max(1, min(50, int(min_samples)))
+    limit = max(1, min(5000, int(limit)))
+    return await asyncio.to_thread(_cluster_sync, float(eps), min_samples, limit)
 
 
 @app.post("/eval/compare", dependencies=[Depends(require_token)])
@@ -1047,7 +1294,10 @@ async def dp_sweep(
     delta: float = 1e-5,
     n_trials: int = 500,
 ):
-    return sweep_epsilon(delta=delta, n_trials=n_trials)
+    if not (0 < delta < 1):
+        raise HTTPException(400, "delta must be in (0, 1)")
+    n_trials = min(2000, max(50, int(n_trials)))
+    return await asyncio.to_thread(sweep_epsilon, delta=delta, n_trials=n_trials)
 
 
 
@@ -1070,6 +1320,8 @@ async def zk_simulate(
     n_trials: int = 100,
     threshold: float = 0.45,
 ):
+    n_trials = min(1000, max(1, int(n_trials)))
+    threshold = min(1.0, max(0.0, float(threshold)))
     rng = np.random.default_rng()
     results = {"success": 0, "fail_threshold": 0, "fail_proof": 0}
 
@@ -1117,9 +1369,10 @@ async def verify_blob_endpoint(req: VerifyBlobRequest):
             decoded = decrypt_bytes(blob, req.recording_id)
             return {"ok": True, "bytes_decoded": len(decoded)}
         except Exception as e:
-            return {"ok": False, "reason": f"decrypt failed: {type(e).__name__}: {e}"}
+            return {"ok": False, "reason": f"decrypt failed: {type(e).__name__}"}
     except Exception as e:
-        return {"ok": False, "reason": f"download failed: {e}"}
+        log.warning("verify-blob download failed (%s): %s", req.recording_id[:8], e)
+        return {"ok": False, "reason": "download failed"}
 
 
 # ── Multi-frame embedding fusion ──────────────────────────────

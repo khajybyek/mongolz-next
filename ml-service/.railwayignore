@@ -28,3 +28,15 @@ alert_screenshots/
 .vscode/
 .DS_Store
 *.log
+
+# iCloud / local-only
+venv.nosync/
+*.nosync/
+venv 2/
+* 2/
+*.nosync
+# not needed in the image
+tests/
+eval/
+docs/
+samples/

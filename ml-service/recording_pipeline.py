@@ -34,8 +34,27 @@ from typing import TYPE_CHECKING
 import cv2
 import numpy as np
 
+from urllib.parse import urlsplit, urlunsplit
+
 from crypto_utils import encrypt_bytes, master_key
+from face_masker import FaceMasker
 from hierarchical_keys import key_at_index, encrypt_face as _seal_embedding
+
+
+def redact_url(url: str | int) -> str:
+    """rtsp://user:pass@host/… → rtsp://***@host/… for logs (invariant 11)."""
+    if not isinstance(url, str) or "://" not in url:
+        return str(url)
+    try:
+        parts = urlsplit(url)
+        if parts.username is None and parts.password is None:
+            return url
+        host = parts.hostname or ""
+        if parts.port:
+            host = f"{host}:{parts.port}"
+        return urlunsplit((parts.scheme, f"***@{host}", parts.path, parts.query, parts.fragment))
+    except ValueError:
+        return "<unparsable url>"
 
 # OpenCV built-in Haar cascade — MediaPipe-аас илүү найдвартай (Python 3.14
 # дээр mediapipe.solutions API-г арилгасан тул).
@@ -314,10 +333,20 @@ class RecordingSession:
         )
         self.started_at = datetime.now(timezone.utc)
 
-        # OpenCV Haar cascade — нүүрийг хурдан илрүүлэх (per-frame blur-д)
-        self.detector = cv2.CascadeClassifier(_HAAR_PATH)
-        if self.detector.empty():
-            log.warning("Haar cascade ачаалагдсангүй (path=%s)", _HAAR_PATH)
+        # Shared masker (Haar every frame + InsightFace every Nth + TTL
+        # persistence + tier-aware cubist) — identical to the view renderer
+        # and the reveal path, so no code path is weaker than another.
+        self.masker = FaceMasker(
+            engine,
+            tier_for=self._resolve_tier,
+            haar_scale=HAAR_SCALE_FACTOR,
+            haar_neighbors=HAAR_MIN_NEIGHBORS,
+            haar_min_size=HAAR_MIN_SIZE,
+            insight_every_n=INSIGHTFACE_BLUR_EVERY_N,
+            insight_min_confidence=INSIGHTFACE_MIN_CONFIDENCE,
+            persist_frames=BLUR_PERSIST_FRAMES,
+            pad_ratio=BLUR_PAD_RATIO,
+        )
 
         # Pipes (lifespan-д init болно)
         self.cap: cv2.VideoCapture | None = None
@@ -332,13 +361,9 @@ class RecordingSession:
         # өмнө бүгдийг await хийхэд хэрэглэнэ (race condition засвар).
         self.arcface_tasks: list[asyncio.Task] = []
 
-        # Persistent blur cache: (bbox, ttl_frames, tier). Detection амжилтгүй
-        # болсон frame-уудад өмнөх box-уудыг үргэлжлүүлэн blur хийнэ.
-        # Үр дүнд хүн хөдөлсөн ч face гэнэт илэрхий гарахгүй.
-        # tier нь last-known privacy_tier — InsightFace step-аас embedding-аар
-        # шинэчлэгдэнэ; Haar нь embedding-гүй тул "standard" заана.
-        self._blur_box_cache: list[tuple[tuple[int, int, int, int], int, str]] = []
-        self._blur_frame_idx = 0
+        # Whether the placeholder recordings row exists (inserted at start so
+        # faces can reference it immediately — see _open_recording_row).
+        self._row_inserted = False
 
         # ArcFace session-wide dedup + alert state.
         # session_embeddings — бүтэн session-ийн уникал хүний embedding жагсаалт.
@@ -493,6 +518,8 @@ class RecordingSession:
                 await asyncio.wait_for(self.task, timeout=5)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self.task.cancel()
+            except Exception as e:  # noqa: BLE001 — _run already logged; still finalize below
+                log.error("Capture loop for %s ended with error: %s", self.camera_id, e)
 
         for proc in (self.hls, self.blurred_writer, self.original_writer):
             if proc and proc.stdin:
@@ -597,36 +624,39 @@ class RecordingSession:
                     row_storage_path = self.filename_original
                     row_size_bytes = original_plain
 
-                rec_id = await self.storage.insert_recording_returning_id(
-                    recording_id=self.recording_id,
-                    filename=row_filename,
-                    storage_path=row_storage_path,
-                    duration_sec=duration,
-                    size_bytes=row_size_bytes,
-                    encrypted=True,  # original AES-256-GCM-аар хамгаалагдсан
-                    has_original=bool(original_plain),
-                    camera_id=self.db_camera_id,
-                    camera_name=self.camera_name,
-                    started_at=self.started_at.isoformat(),
-                    ended_at=ended_at.isoformat(),
-                    original_path=self.filename_original if original_plain else None,
-                    blur_strategy=self.blur_strategy,
-                )
-                if rec_id:
-                    try:
-                        if self.storage.client:
-                            query = self.storage.client.table("faces").update(
-                                {"recording_id": rec_id}
-                            )
-                            if self.db_camera_id is not None:
-                                query = query.eq("camera_id", self.db_camera_id)
-                            else:
-                                query = query.is_("camera_id", "null")
-                            query.gte(
-                                "detected_at", self.started_at.isoformat()
-                            ).lte("detected_at", ended_at.isoformat()).execute()
-                    except Exception as e:
-                        log.warning("Face → recording link failed: %s", e)
+                # The row was opened at session start (faces already carry
+                # recording_id, so the seal key context is durable — no
+                # time-window back-link that could cross-link concurrent
+                # sessions). Fill in the artifact facts now.
+                fields = {
+                    "filename": row_filename,
+                    "storage_path": row_storage_path,
+                    "duration_sec": duration,
+                    "size_bytes": row_size_bytes,
+                    "encrypted": True,
+                    "has_original": bool(original_plain),
+                    "original_path": self.filename_original if original_plain else None,
+                    "ended_at": ended_at.isoformat(),
+                    "blur_strategy": self.blur_strategy,
+                }
+                if self._row_inserted:
+                    await self.storage.update_recording(self.recording_id, fields)
+                else:
+                    await self.storage.insert_recording_returning_id(
+                        recording_id=self.recording_id,
+                        camera_id=self.db_camera_id,
+                        camera_name=self.camera_name,
+                        started_at=self.started_at.isoformat(),
+                        **fields,
+                    )
+                    self._row_inserted = True
+            elif self._row_inserted:
+                # Nothing recorded (camera never delivered frames) — do not
+                # leave an empty placeholder in the playback list.
+                try:
+                    await self.storage.delete_recording(self.recording_id)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("placeholder recording cleanup failed: %s", e)
 
                 if self.blur_strategy == "baked":
                     log.info(
@@ -679,8 +709,10 @@ class RecordingSession:
         )
         self.cap = cv2.VideoCapture(src)
         if not self.cap.isOpened():
-            log.error("Камер нээгдсэнгүй: %s", self.source_url)
+            log.error("Камер нээгдсэнгүй: %s", redact_url(self.source_url))
             return
+
+        await self._open_recording_row()
 
         w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -704,7 +736,7 @@ class RecordingSession:
         if not is_file_mode:
             self.hls = _ffmpeg_hls_writer(self.hls_dir, w, h, self.fps)
         # On-demand mode: skip the blurred encoder pipe entirely. Frees an
-        # ffmpeg process + per-frame BGR write + the heavy _blur_with_mediapipe
+        # ffmpeg process + per-frame BGR write + the heavy FaceMasker.mask
         # call below (~10-30% recording-time CPU saved).
         if self.blur_strategy == "baked":
             self.blurred_writer = _ffmpeg_mp4_writer(self.blurred_path, w, h, self.fps)
@@ -731,11 +763,11 @@ class RecordingSession:
                 if frame_skip_ratio > 1 and (read_idx % frame_skip_ratio) != 0:
                     continue
 
-                # Per-frame: MediaPipe blur is only needed when baking a
-                # blurred MP4. On-demand mode skips this (the view is derived
-                # at request time from the encrypted original).
+                # Per-frame masking is only needed when baking a blurred MP4.
+                # On-demand mode skips this (the view is derived at request
+                # time from the encrypted original by the same FaceMasker).
                 if self.blur_strategy == "baked":
-                    blurred = await asyncio.to_thread(self._blur_with_mediapipe, frame)
+                    blurred = await asyncio.to_thread(self.masker.mask, frame)
                     self._draw_kst_timestamp(blurred, frame_idx)
 
                 # KST timestamp burn-in on the original (also flows to HLS).
@@ -757,8 +789,49 @@ class RecordingSession:
                 frame_idx += 1
                 self.recorded_frames = frame_idx
                 await asyncio.sleep(0)
+        except Exception:  # noqa: BLE001 — log with traceback; stop()/_finalize still run
+            log.exception("Capture loop crashed for camera %s", self.camera_id)
+            self.stop_flag.set()
         finally:
             self.cap.release()
+            # Close the encoder pipes here as well: if the loop crashed, stop()
+            # may not be called by the manager and ffmpeg would linger.
+            for proc in (self.hls, self.blurred_writer, self.original_writer):
+                if proc and proc.stdin:
+                    try:
+                        proc.stdin.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+
+    async def _open_recording_row(self) -> None:
+        """Insert the recordings row at session start.
+
+        Faces are sealed with keys derived from ``self.recording_id`` and must
+        reference it via FK immediately; previously the row was inserted only
+        at finalize and faces were back-linked by a camera+time window, which
+        cross-linked concurrent browser uploads (all camera_id NULL) and lost
+        the seal context entirely if finalize never ran.
+        """
+        try:
+            rec_id = await self.storage.insert_recording_returning_id(
+                recording_id=self.recording_id,
+                filename=self.display_filename,
+                storage_path=self.filename_original,
+                duration_sec=None,
+                size_bytes=None,
+                encrypted=True,
+                has_original=False,
+                camera_id=self.db_camera_id,
+                camera_name=self.camera_name,
+                started_at=self.started_at.isoformat(),
+                ended_at=None,
+                original_path=None,
+                blur_strategy=self.blur_strategy,
+            )
+            self._row_inserted = bool(rec_id)
+        except Exception as e:  # noqa: BLE001 — recording continues; finalize falls back to insert
+            log.warning("recording row open failed (will insert at finalize): %s", e)
+            self._row_inserted = False
 
     @staticmethod
     def _write_safe(proc: subprocess.Popen | None, frame: np.ndarray):
@@ -768,128 +841,6 @@ class RecordingSession:
             proc.stdin.write(frame.tobytes())
         except (BrokenPipeError, OSError):
             pass
-
-    # ────────────────────────────────────────────
-    # Robust blur — Haar (every frame) + InsightFace (every Nth) +
-    # persistence cache + 35% padding.
-    # Үр дүн: detection амжилтгүй болсон frame-д ч blur хэвээр.
-    # ────────────────────────────────────────────
-    def _blur_with_mediapipe(self, frame: np.ndarray) -> np.ndarray:
-        h, w = frame.shape[:2]
-        self._blur_frame_idx += 1
-        new_boxes: list[tuple[int, int, int, int]] = []
-
-        # Step 1: Haar cascade (cheap, ~5ms) — every frame
-        if not self.detector.empty():
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            haar_faces = self.detector.detectMultiScale(
-                gray,
-                scaleFactor=HAAR_SCALE_FACTOR,
-                minNeighbors=HAAR_MIN_NEIGHBORS,
-                minSize=HAAR_MIN_SIZE,
-            )
-            for (x, y, fw, fh) in haar_faces:
-                # Haar has no embedding — default to "standard" tier. If
-                # InsightFace overlaps this region in the same / next pass it
-                # will replace with the proper tier via the merge logic.
-                new_boxes.append((int(x), int(y), int(x + fw), int(y + fh), "standard"))
-
-        # Step 2: InsightFace primary detection (every Nth frame) — confidence
-        # threshold-ээр false positive шүүх. Haar-аас илүү ялгаа гаргадаг.
-        # Бид энд ArcFace embedding-ээ авч suspect cache-тэй харьцуулан
-        # тохирох privacy_tier-ийг box-руу холбоно (per-face tier mask).
-        if self._blur_frame_idx % INSIGHTFACE_BLUR_EVERY_N == 0:
-            try:
-                ok, encoded = cv2.imencode(".jpg", frame)
-                if ok:
-                    detected = self.engine.detect_all(encoded.tobytes())
-                    for d in detected:
-                        # Зөвхөн өндөр итгэлцэлтэй detection-ыг авна
-                        if d.confidence < INSIGHTFACE_MIN_CONFIDENCE:
-                            continue
-                        x1, y1, x2, y2 = map(int, d.bbox)
-                        tier = self._resolve_tier(d.embedding)
-                        new_boxes.append((x1, y1, x2, y2, tier))
-            except Exception as e:
-                log.debug("InsightFace blur skipped: %s", e)
-
-        # Step 3: Cache TTL decay → шинэ box-уудыг fresh TTL-тэй нэмэх
-        self._blur_box_cache = [
-            (b, ttl - 1, tier) for (b, ttl, tier) in self._blur_box_cache if ttl > 1
-        ]
-        for nb in new_boxes:
-            bx1, by1, bx2, by2, btier = nb
-            self._blur_box_cache.append(((bx1, by1, bx2, by2), BLUR_PERSIST_FRAMES, btier))
-
-        # Дотор давхардсан box-уудыг IoU-аар нэгтгэнэ
-        self._blur_box_cache = self._merge_overlapping_boxes(self._blur_box_cache)
-
-        # Step 4: Cache хоосон → frame буцаах. Бусад тохиолдолд padding-тай blur
-        if not self._blur_box_cache:
-            return frame
-
-        out = frame.copy()
-        for (x1, y1, x2, y2), _ttl, tier in self._blur_box_cache:
-            bw, bh = x2 - x1, y2 - y1
-            pad_x = int(bw * BLUR_PAD_RATIO)
-            pad_y = int(bh * BLUR_PAD_RATIO)
-            x1p = max(0, x1 - pad_x)
-            y1p = max(0, y1 - pad_y)
-            x2p = min(w, x2 + pad_x)
-            y2p = min(h, y2 + pad_y)
-            if x2p - x1p < 10 or y2p - y1p < 10:
-                continue
-            roi = out[y1p:y2p, x1p:x2p]
-            # Seed-ийг bbox center-ээс үүсгэнэ — ижил байрлалд ижил polygon
-            # хэв (coarse grid 32px-ээр rounded → жижиг хөдөлгөөнд тогтвортой).
-            cx = (x1 + x2) // 2
-            cy = (y1 + y2) // 2
-            seed = (cx >> 5) * 7919 + (cy >> 5) * 31
-            out[y1p:y2p, x1p:x2p] = _cubist_anonymize(roi, seed=seed, privacy_tier=tier)
-        return out
-
-    @staticmethod
-    def _merge_overlapping_boxes(
-        cache: list[tuple[tuple[int, int, int, int], int, str]],
-        iou_threshold: float = 0.4,
-    ) -> list[tuple[tuple[int, int, int, int], int, str]]:
-        """Cache доторх IoU > threshold-той box-уудыг нэгтгэнэ.
-        Илүү шинэ TTL (өндөр)-ийг үлдээж бусдыг хаяна.
-        Tier-ийн хувьд: давхцаж буй box-уудаас VIP > standard > relaxed-ийн
-        тэргүүлэх дарааллаар ялах — нэг хүн VIP бөгөөд другаа standard бол
-        VIP мask ашиглана (худалдан сэргийлэх protection).
-        """
-        tier_rank = {"vip": 2, "standard": 1, "relaxed": 0}
-
-        # TTL буурах эрэмбээр sort — шинэ detection эхэнд
-        cache_sorted = sorted(cache, key=lambda x: -x[1])
-        kept: list[tuple[tuple[int, int, int, int], int, str]] = []
-        for box, ttl, tier in cache_sorted:
-            duplicate_idx: int | None = None
-            for idx, (kbox, _kttl, _ktier) in enumerate(kept):
-                # Inline IoU
-                ax1, ay1, ax2, ay2 = box
-                bx1, by1, bx2, by2 = kbox
-                ix1, iy1 = max(ax1, bx1), max(ay1, by1)
-                ix2, iy2 = min(ax2, bx2), min(ay2, by2)
-                iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
-                inter = iw * ih
-                area_a = (ax2 - ax1) * (ay2 - ay1)
-                area_b = (bx2 - bx1) * (by2 - by1)
-                union = area_a + area_b - inter
-                iou = inter / union if union > 0 else 0
-                if iou > iou_threshold:
-                    duplicate_idx = idx
-                    break
-            if duplicate_idx is None:
-                kept.append((box, ttl, tier))
-            else:
-                # Existing wins on bbox + TTL, but we may need to upgrade the
-                # tier to the more protective one.
-                kbox, kttl, ktier = kept[duplicate_idx]
-                if tier_rank.get(tier, 1) > tier_rank.get(ktier, 1):
-                    kept[duplicate_idx] = (kbox, kttl, tier)
-        return kept
 
     # ────────────────────────────────────────────
     # ArcFace processing (periodic — DB-д тэмдэглэх + alert)
@@ -978,6 +929,7 @@ class RecordingSession:
                 image_path=path,
                 embedding=f.embedding.tolist(),
                 camera_id=self.db_camera_id,
+                recording_id=self.recording_id if self._row_inserted else None,
                 bbox=bbox,
                 chain_index=chain_index,
                 embedding_sealed=embedding_sealed,

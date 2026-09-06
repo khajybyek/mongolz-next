@@ -4,30 +4,25 @@ view_renderer
 
 On-demand blurred-view derivation from an encrypted original MP4.
 
-Architecture decision (#3): one encrypted artifact (`*_original.mp4.enc`) is
-the single source of truth for every recording. The blurred playback view
-shown to unauthorised viewers is *derived at view-time* — no separate
-plaintext "blurred MP4" is persisted.
+Architecture decision (#3 / ADR 0010): one encrypted artifact
+(`*_original.mp4.enc`) is the single source of truth for every recording.
+The blurred playback view shown to unauthorised viewers is *derived at
+view-time* — no separate plaintext "blurred MP4" is persisted.
 
 This module exposes:
 
-  • ``render_blurred_view(input_mp4, output_mp4)`` — read an already-decrypted
-    MP4, run Haar face detection per frame, paint cubist polygon mosaic over
-    every detection (with 35% padding so motion doesn't expose features),
-    write a new H.264 MP4 via ffmpeg.
+  • ``render_blurred_view(input_mp4, output_mp4, engine=None)`` — read an
+    already-decrypted MP4, mask every face with ``FaceMasker`` (Haar every
+    frame + InsightFace every Nth frame when an engine is given + a
+    persistence cache + 35% padding), write a new H.264 MP4 via ffmpeg.
 
   • Caching is handled by the caller (the FastAPI endpoint): once derived,
     the result lives at ``/tmp/mongolz-views/{recording_id}.mp4`` until the
     container restarts. Cache hits are zero-cost.
 
-Why Haar-only (not ArcFace)? View-time blur has *no targets to match* — we
-just need "anything that looks like a face" → blur it. Haar runs in ~5-10ms
-per frame on Railway CPU; ArcFace would be 50-100x heavier for no
-information gain.
-
-Re-uses ``_cubist_anonymize`` from ``recording_pipeline`` so the visual
-output of an on-demand-derived view is pixel-identical (up to detection
-noise) to a legacy "baked" blurred MP4.
+The masker is the same class the recording pipeline and the reveal output
+use, so a face that the baked path would have hidden is never shown in
+clear by the on-demand path.
 """
 
 from __future__ import annotations
@@ -37,28 +32,20 @@ import subprocess
 
 import cv2
 
-from recording_pipeline import _cubist_anonymize
+from face_masker import FaceMasker
 
 log = logging.getLogger("mongolz-ml.view")
 
-# Haar tuning: more permissive than recording_pipeline (scaleFactor 1.05,
-# minNeighbors 3) because we ONLY need to find faces — false positives just
-# mean a bit of extra blurring, which is on the safe side for privacy.
+# Permissive Haar preset: false positives only cost a little extra mosaic,
+# which is the safe direction for a privacy view.
 _HAAR_SCALE = 1.05
 _HAAR_MIN_NEIGHBORS = 3
 _HAAR_MIN_SIZE = (24, 24)
 _PAD_RATIO = 0.35
 
 
-def _new_haar() -> cv2.CascadeClassifier:
-    """Per-call Haar classifier (CascadeClassifier is not thread-safe)."""
-    return cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )
-
-
-def render_blurred_view(input_mp4: str, output_mp4: str) -> int:
-    """Read ``input_mp4`` → detect+blur every face → write ``output_mp4``.
+def render_blurred_view(input_mp4: str, output_mp4: str, engine=None) -> int:
+    """Read ``input_mp4`` → mask every face → write ``output_mp4``.
 
     Returns the number of frames processed. Raises ``RuntimeError`` if the
     input can't be opened.
@@ -96,7 +83,13 @@ def render_blurred_view(input_mp4: str, output_mp4: str) -> int:
         stderr=subprocess.DEVNULL,
     )
 
-    haar = _new_haar()
+    masker = FaceMasker(
+        engine,
+        haar_scale=_HAAR_SCALE,
+        haar_neighbors=_HAAR_MIN_NEIGHBORS,
+        haar_min_size=_HAAR_MIN_SIZE,
+        pad_ratio=_PAD_RATIO,
+    )
     frame_count = 0
     blurred_count = 0
 
@@ -106,43 +99,14 @@ def render_blurred_view(input_mp4: str, output_mp4: str) -> int:
             if not ok or frame is None:
                 break
 
-            if not haar.empty():
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                faces = haar.detectMultiScale(
-                    gray,
-                    scaleFactor=_HAAR_SCALE,
-                    minNeighbors=_HAAR_MIN_NEIGHBORS,
-                    minSize=_HAAR_MIN_SIZE,
-                )
-                if len(faces) > 0:
-                    out_frame = frame.copy()
-                    for (x, y, fw, fh) in faces:
-                        x1, y1 = int(x), int(y)
-                        x2, y2 = int(x + fw), int(y + fh)
-                        pad_x = int(fw * _PAD_RATIO)
-                        pad_y = int(fh * _PAD_RATIO)
-                        x1p = max(0, x1 - pad_x)
-                        y1p = max(0, y1 - pad_y)
-                        x2p = min(w, x2 + pad_x)
-                        y2p = min(h, y2 + pad_y)
-                        if x2p - x1p < 8 or y2p - y1p < 8:
-                            continue
-                        roi = out_frame[y1p:y2p, x1p:x2p]
-                        if roi.size == 0:
-                            continue
-                        cx = (x1 + x2) // 2
-                        cy = (y1 + y2) // 2
-                        # Stable seed per coarse location — small jitter
-                        # between frames will reuse the same polygon layout.
-                        seed = (cx >> 5) * 7919 + (cy >> 5) * 31
-                        out_frame[y1p:y2p, x1p:x2p] = _cubist_anonymize(roi, seed=seed)
-                    frame = out_frame
-                    blurred_count += 1
+            out_frame = masker.mask(frame)
+            if out_frame is not frame:
+                blurred_count += 1
 
             try:
                 if encoder.stdin is None:
                     break
-                encoder.stdin.write(frame.tobytes())
+                encoder.stdin.write(out_frame.tobytes())
             except (BrokenPipeError, OSError):
                 break
 
@@ -160,7 +124,7 @@ def render_blurred_view(input_mp4: str, output_mp4: str) -> int:
             encoder.terminate()
 
     log.info(
-        "view rendered: %d frame(s), %d with face blur (%.1f%%)",
+        "view rendered: %d frame(s), %d with face mask (%.1f%%)",
         frame_count, blurred_count,
         100.0 * blurred_count / max(1, frame_count),
     )

@@ -117,6 +117,36 @@ def decrypt_face(blob: bytes, key: bytes) -> bytes:
     return AESGCM(key).decrypt(nonce, ct, associated_data=None)
 
 
+def unseal_at_index(
+    blob: bytes,
+    recording_id: str,
+    index: int,
+    level: int,
+    masters: list[bytes],
+) -> bytes:
+    """Decrypt a blob sealed with K_index by a holder of K_level (level ≤ index).
+
+    Models the real authority: K_level is derived from the master, then the
+    chain is walked *forward* to K_index — never backwards. Every master in
+    ``masters`` (active, then previous — see crypto_utils.master_key_candidates)
+    is tried so a rotated master does not orphan older recordings.
+    Raises ``PermissionError`` when index < level and ``InvalidTag`` when no
+    master opens the blob.
+    """
+    if index < level:
+        raise PermissionError("insufficient authority: index below level")
+    last_err: Exception | None = None
+    for master in masters:
+        k = key_at_index(recording_id, level, master)
+        for _ in range(index - level):
+            k = next_key(k)
+        try:
+            return decrypt_face(blob, k)
+        except (InvalidTag, ValueError) as e:
+            last_err = e
+    raise last_err if last_err else InvalidTag()
+
+
 def reveal_with_level_key(
     encrypted_faces: dict[int, bytes],
     start_index: int,

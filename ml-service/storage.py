@@ -192,7 +192,7 @@ class SupabaseStorage:
             cutoff = _iso_minutes_ago(seconds=dedup_window)
             existing = (
                 self.client.table("alerts")
-                .select("id, match_count")
+                .select("id, match_count, similarity")
                 .eq("dedup_key", dedup_key)
                 .gte("created_at", cutoff)
                 .limit(1)
@@ -312,6 +312,45 @@ class SupabaseStorage:
             row["id"] = recording_id
         res = self.client.table("recordings").insert(row).execute()
         return res.data[0]["id"] if res.data else None
+
+    async def update_recording(self, recording_id: str, fields: dict) -> None:
+        """Patch a recording row (used by _finalize to fill duration/size/…)."""
+        if not self.client:
+            return
+        self.client.table("recordings").update(fields).eq("id", recording_id).execute()
+
+    async def delete_recording(self, recording_id: str) -> None:
+        """Remove a placeholder row for a session that produced no artifact."""
+        if not self.client:
+            return
+        self.client.table("recordings").delete().eq("id", recording_id).execute()
+
+    def fail_stale_reveal_jobs(self, older_than_minutes: int = 30) -> int:
+        """Startup sweep: a container restart mid-reveal left jobs stuck in
+        'processing' forever (no retry, no error). Mark them failed so the UI
+        stops polling and the requester can resubmit."""
+        if not self.client:
+            return 0
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)).isoformat()
+        try:
+            res = (
+                self.client.table("reveal_jobs")
+                .update({
+                    "status": "failed",
+                    "error_message": "ML service restarted while the job was processing — please resubmit",
+                    "completed_at": _iso_now(),
+                })
+                .eq("status", "processing")
+                .lt("started_at", cutoff)
+                .execute()
+            )
+            n = len(res.data or [])
+            if n:
+                log.warning("Marked %d stale reveal job(s) as failed", n)
+            return n
+        except Exception as e:  # noqa: BLE001 — startup must not fail on this
+            log.warning("stale reveal sweep failed: %s", e)
+            return 0
 
     # ── Recording (хуучин wrapper, ID буцахгүй) ────────────
     async def insert_recording(
