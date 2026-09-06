@@ -34,6 +34,27 @@ class CameraManager:
     def active_count(self) -> int:
         return sum(1 for s in self.sessions.values() if s.task and not s.task.done())
 
+    def active_sessions(self) -> list[dict]:
+        """Cameras whose capture task is still running (for the live grid / wall).
+
+        Source URLs are deliberately NOT included — they may carry RTSP
+        credentials; callers only need the id, display name and timing.
+        """
+        out: list[dict] = []
+        for camera_id, s in self.sessions.items():
+            if not (s.task and not s.task.done()):
+                continue
+            started = getattr(s, "started_at", None)
+            out.append(
+                {
+                    "camera_id": camera_id,
+                    "camera_name": getattr(s, "camera_name", None),
+                    "started_at": started.isoformat() if started else None,
+                    "fps": getattr(s, "fps", None),
+                }
+            )
+        return out
+
     async def start(self, camera_id: str, url: str, fps: int = 15, camera_name: str | None = None):
         existing = self.sessions.get(camera_id)
         if existing and existing.task and not existing.task.done():

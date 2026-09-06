@@ -2,7 +2,7 @@
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireUser } from "@/lib/supabase/auth";
-import { mlStartCamera, mlStopCamera } from "@/lib/ml-client";
+import { mlActiveCameras, mlStartCamera, mlStopCamera } from "@/lib/ml-client";
 import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { issueStreamTicket } from "@/lib/stream-ticket";
 
@@ -40,4 +40,28 @@ export async function stopCameraAction(cameraId: string) {
 export async function getStreamTicketAction(cameraId: string): Promise<string> {
   const { user } = await requireUser();
   return issueStreamTicket(user.id, cameraId);
+}
+
+export interface ActiveCamerasResult {
+  /** false when the ML service could not be reached (streams unavailable). */
+  reachable: boolean;
+  /** Ids of cameras currently streaming that the caller may see (RLS). */
+  ids: string[];
+}
+
+/**
+ * Which cameras the ML service is capturing right now. Used by the grid and
+ * the live wall to attach to streams started elsewhere and to keep their
+ * LIVE badges honest. Filtered through the cameras table so viewers only
+ * learn about cameras they can already list.
+ */
+export async function getActiveCamerasAction(): Promise<ActiveCamerasResult> {
+  await requireUser();
+  const active = await mlActiveCameras();
+  if (active === null) return { reachable: false, ids: [] };
+  const ids = active.map((c) => c.camera_id).filter((id) => UUID_RE.test(id));
+  if (ids.length === 0) return { reachable: true, ids: [] };
+  const supabase = await createClient();
+  const { data } = await supabase.from("cameras").select("id").in("id", ids).eq("enabled", true);
+  return { reachable: true, ids: (data ?? []).map((c) => c.id) };
 }

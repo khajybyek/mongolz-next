@@ -82,6 +82,28 @@ export async function mlStopCamera(cameraId: string): Promise<void> {
   });
 }
 
+export interface ActiveCamera {
+  camera_id: string;
+  camera_name: string | null;
+  started_at: string | null;
+  fps: number | null;
+}
+
+/**
+ * Cameras the ML service is currently capturing (HLS playable). Resolves to
+ * `null` when the service is unreachable so callers can distinguish "nothing
+ * streaming" from "ML down".
+ */
+export async function mlActiveCameras(): Promise<ActiveCamera[] | null> {
+  try {
+    const res = await mlFetch("/camera/active");
+    const data = (await res.json()) as { cameras?: ActiveCamera[] };
+    return Array.isArray(data.cameras) ? data.cameras : [];
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Quick reachability probe — admin-аас камер нэмэх/засах үед URL хүрэх
  * эсэхийг шалгахад. ML side timeout ~8s. Үргэлж resolved JSON буцаана

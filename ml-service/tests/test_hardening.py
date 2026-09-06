@@ -78,3 +78,64 @@ def test_embedding_to_np_parses_pgvector_text():
     assert main._embedding_to_np("[0.1,0.2]") is None  # wrong dimension
     assert main._embedding_to_np(None) is None
     assert main._embedding_to_np("garbage") is None
+
+
+# ── /camera/active (live grid / wall attach) ─────────────────────────────
+class _DoneTask:
+    def done(self):
+        return True
+
+
+class _LiveTask:
+    def done(self):
+        return False
+
+
+class _Session:
+    def __init__(self, task, name="Gate A", fps=15):
+        self.task = task
+        self.camera_name = name
+        self.fps = fps
+        self.source_url = "rtsp://admin:secret@10.0.0.5/stream"
+        from datetime import datetime, timezone
+
+        self.started_at = datetime(2026, 9, 7, 1, 2, 3, tzinfo=timezone.utc)
+
+
+class _Manager:
+    def __init__(self):
+        self.sessions = {"cam-live": _Session(_LiveTask()), "cam-done": _Session(_DoneTask())}
+
+    def active_count(self):
+        return 1
+
+
+def test_camera_active_lists_only_running_sessions_without_urls(monkeypatch):
+    from camera_worker import CameraManager
+    from fastapi.testclient import TestClient
+
+    mgr = _Manager()
+    # Borrow the real method so the test exercises the production code path.
+    mgr.active_sessions = CameraManager.active_sessions.__get__(mgr)
+    monkeypatch.setattr(main, "camera_manager", mgr)
+
+    client = TestClient(main.app)
+    denied = client.get("/camera/active")
+    assert denied.status_code == 401
+
+    res = client.get("/camera/active", headers={"Authorization": "Bearer test-token"})
+    assert res.status_code == 200
+    cams = res.json()["cameras"]
+    assert [c["camera_id"] for c in cams] == ["cam-live"]
+    assert cams[0]["camera_name"] == "Gate A"
+    assert cams[0]["fps"] == 15
+    assert cams[0]["started_at"].startswith("2026-09-07T01:02:03")
+    assert "secret" not in res.text and "rtsp" not in res.text
+
+
+def test_camera_active_without_manager_is_empty(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(main, "camera_manager", None)
+    res = TestClient(main.app).get("/camera/active", headers={"Authorization": "Bearer test-token"})
+    assert res.status_code == 200 and res.json() == {"cameras": []}

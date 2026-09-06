@@ -293,6 +293,15 @@ async def camera_stop(req: CameraStopReq):
     return {"ok": True}
 
 
+@app.get("/camera/active", dependencies=[Depends(require_token)])
+def camera_active():
+    """Cameras currently being captured (HLS available). Feeds the multi-camera
+    grid and the live wall so they can attach to streams started elsewhere."""
+    if not camera_manager:
+        return {"cameras": []}
+    return {"cameras": camera_manager.active_sessions()}
+
+
 # ── /camera/test — quick reachability probe before saving a config ──
 class CameraTestReq(BaseModel):
     url: str = Field(max_length=1024)

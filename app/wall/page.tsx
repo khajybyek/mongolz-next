@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
+import { mlActiveCameras } from "@/lib/ml-client";
 import { WallView } from "./wall-view";
 
 export const dynamic = "force-dynamic";
@@ -91,5 +92,13 @@ export default async function WallPage() {
     }));
   }
 
-  return <WallView cameras={cameras} isAdmin={isAdmin} />;
+  // Which cameras the ML service is streaming right now (HLS). The wall
+  // attaches to those in "live video" mode; null = ML unreachable.
+  const active = await mlActiveCameras();
+  const enabledIds = new Set(cameras.map((c) => c.camera_id));
+  const activeIds = (active ?? []).map((a) => a.camera_id).filter((id) => enabledIds.has(id));
+
+  return (
+    <WallView cameras={cameras} isAdmin={isAdmin} activeIds={activeIds} mlReachable={active !== null} />
+  );
 }

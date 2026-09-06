@@ -8,6 +8,10 @@ interface HlsPlayerProps {
   autoPlay?: boolean;
   muted?: boolean;
   controls?: boolean;
+  /** Fired once the first frames are rendering. */
+  onPlaying?: () => void;
+  /** Fired on a fatal playback / network error (after hls.js gave up). */
+  onError?: () => void;
 }
 
 export function HlsPlayer({
@@ -16,8 +20,15 @@ export function HlsPlayer({
   autoPlay = true,
   muted = true,
   controls = true,
+  onPlaying,
+  onError,
 }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Keep the latest callbacks in refs so the effect only re-runs on `src`.
+  const playingRef = useRef(onPlaying);
+  const errorRef = useRef(onError);
+  playingRef.current = onPlaying;
+  errorRef.current = onError;
 
   useEffect(() => {
     const video = videoRef.current;
@@ -32,15 +43,24 @@ export function HlsPlayer({
     const srcUrl = new URL(src, window.location.origin);
     const ticket = srcUrl.searchParams.get("ticket");
 
+    const handlePlaying = () => playingRef.current?.();
+    const handleNativeError = () => errorRef.current?.();
+    video.addEventListener("playing", handlePlaying);
+
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.addEventListener("error", handleNativeError);
       video.src = src;
-      return;
+      return () => {
+        video.removeEventListener("playing", handlePlaying);
+        video.removeEventListener("error", handleNativeError);
+      };
     }
 
     (async () => {
       const { default: Hls } = await import("hls.js");
       if (cancelled) return;
       if (!Hls.isSupported()) {
+        video.addEventListener("error", handleNativeError);
         video.src = src;
         return;
       }
@@ -55,12 +75,28 @@ export function HlsPlayer({
             }
           : undefined,
       });
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data.fatal) return;
+        // One recovery attempt for transient network / media glitches, then
+        // surface the failure so the tile can show a retry control.
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.details !== Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
+          hls?.startLoad();
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          hls?.recoverMediaError();
+          return;
+        }
+        errorRef.current?.();
+      });
       hls.loadSource(src);
       hls.attachMedia(video);
     })();
 
     return () => {
       cancelled = true;
+      video.removeEventListener("playing", handlePlaying);
+      video.removeEventListener("error", handleNativeError);
       hls?.destroy();
       hls = undefined;
     };
