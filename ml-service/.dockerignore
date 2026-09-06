@@ -49,8 +49,7 @@ venv.nosync/
 venv 2/
 * 2/
 *.nosync
-# not needed in the image
+# not needed in the image (samples/ ships: demo_source.py builds demo:// clips from it)
 tests/
 eval/
 docs/
-samples/

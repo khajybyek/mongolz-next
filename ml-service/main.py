@@ -52,6 +52,7 @@ from face_engine import FaceEngine
 from camera_worker import CameraManager
 from storage import SupabaseStorage
 from crypto_utils import init_master_key, self_test as crypto_self_test, decrypt_bytes, master_key_candidates
+from demo_source import DEMO_FPS, DEMO_HEIGHT, DEMO_WIDTH, demo_name, is_demo_url, resolve_demo_source
 from hierarchical_keys import unseal_at_index
 from dp_embeddings import DPConfig, add_dp_noise, estimate_matching_accuracy, sweep_epsilon
 from zk_reveal import full_protocol_demo as zk_demo
@@ -62,6 +63,62 @@ from view_renderer import render_blurred_view
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("mongolz-ml")
+
+
+_CRED_URL_RE = re.compile(r"(\w+://)[^/@\s]+@")
+
+
+def _sentry_scrub(value):
+    """Recursively redact user:pass@ in any string inside an event."""
+    if isinstance(value, str):
+        return _CRED_URL_RE.sub(r"\1***@", value)
+    if isinstance(value, dict):
+        return {k: _sentry_scrub(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sentry_scrub(v) for v in value]
+    return value
+
+
+def _sentry_scrub_event(event, _hint):
+    try:
+        return _sentry_scrub(event)
+    except Exception:  # noqa: BLE001 — a scrubber bug must not drop the event silently
+        return event
+
+
+def _init_sentry() -> bool:
+    """Optional error reporting. Only when SENTRY_DSN is set and the SDK is
+    importable; otherwise log once and run without it. The DSN itself is a
+    credential and is never logged."""
+    dsn = os.environ.get("SENTRY_DSN", "").strip()
+    if not dsn:
+        log.info("Sentry: SENTRY_DSN unset — error reporting disabled")
+        return False
+    try:
+        import sentry_sdk
+    except ImportError:
+        log.warning("Sentry: SENTRY_DSN set but sentry-sdk not installed — disabled")
+        return False
+    try:
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=os.environ.get("RAILWAY_ENVIRONMENT_NAME", "production"),
+            traces_sample_rate=0.0,
+            send_default_pii=False,
+            # Frame locals and request bodies can carry RTSP URLs with
+            # credentials (capture loop, /camera/start) — never ship them.
+            include_local_variables=False,
+            max_request_body_size="never",
+            before_send=_sentry_scrub_event,
+        )
+    except Exception as e:  # noqa: BLE001 — observability must never block boot
+        log.warning("Sentry: init failed (%s) — disabled", type(e).__name__)
+        return False
+    log.info("Sentry: enabled")
+    return True
+
+
+_init_sentry()
 
 ML_TOKEN = os.getenv("ML_SERVICE_TOKEN", "")
 HLS_DIR = os.getenv("HLS_DIR", "/tmp/mongolz-hls")
@@ -102,6 +159,14 @@ async def lifespan(app: FastAPI):
     # A restart mid-reveal leaves jobs stuck in 'processing' forever.
     storage.fail_stale_reveal_jobs()
     _sweep_abandoned_uploads()
+    # Bring back the cameras that were running before this (re)deploy, then
+    # keep them alive. Both are best-effort: a bad row or dead source is
+    # recorded on camera_sessions.last_error, never raised into boot.
+    try:
+        await camera_manager.resume_persisted()
+    except Exception:  # noqa: BLE001
+        log.exception("camera auto-resume failed")
+    camera_manager.start_supervisor()
     log.info("MONGOLZ ML service ready")
     yield
     log.info("Shutting down...")
@@ -260,16 +325,20 @@ async def search_endpoint(file: UploadFile = File(...), threshold: float = 0.5, 
 
 # ── Camera control ─────────────────────────────────────────────
 _CAMERA_ID_RE = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
-_CAMERA_URL_RE = r"^(rtsps?|https?)://\S+$|^\d{1,2}$"
+# demo://<name> is a synthetic looping source (demo_source.py allow-list);
+# the shape is validated here, the name in resolve_demo_source.
+_CAMERA_URL_RE = r"^(rtsps?|https?)://\S+$|^\d{1,2}$|^demo://[a-z0-9_-]{1,32}$"
 
 
 class CameraStartReq(BaseModel):
     # Used as an HLS folder / storage key prefix → strict charset, no ".."
     camera_id: str = Field(pattern=_CAMERA_ID_RE)
-    # Network cameras or a local device index — never file paths / other
-    # ffmpeg protocols (cv2.VideoCapture would open them).
+    # Network cameras, a local device index or a demo source — never file
+    # paths / other ffmpeg protocols (cv2.VideoCapture would open them).
     url: str = Field(pattern=_CAMERA_URL_RE, max_length=1024)
     fps: int = Field(default=15, ge=5, le=30)
+    # Display name persisted with the auto-resume row (optional).
+    camera_name: str | None = Field(default=None, max_length=120)
 
 
 @app.post("/camera/start", dependencies=[Depends(require_token)])
@@ -277,7 +346,18 @@ async def camera_start(req: CameraStartReq):
     if not camera_manager:
         raise HTTPException(503, "manager not ready")
 
-    await camera_manager.start(req.camera_id, req.url, fps=req.fps)
+    if is_demo_url(req.url):
+        # Generate (or reuse) the clip now so an unknown name fails the
+        # request instead of a background task; ffmpeg runs off the loop.
+        try:
+            await asyncio.to_thread(resolve_demo_source, req.url)
+        except ValueError:
+            raise HTTPException(400, "unknown demo source")
+        except Exception as e:  # noqa: BLE001
+            log.error("demo source generation failed: %s", e)
+            raise HTTPException(500, "demo source generation failed")
+
+    await camera_manager.start(req.camera_id, req.url, fps=req.fps, camera_name=req.camera_name)
     return {"ok": True, "camera_id": req.camera_id}
 
 
@@ -296,7 +376,9 @@ async def camera_stop(req: CameraStopReq):
 @app.get("/camera/active", dependencies=[Depends(require_token)])
 def camera_active():
     """Cameras currently being captured (HLS available). Feeds the multi-camera
-    grid and the live wall so they can attach to streams started elsewhere."""
+    grid and the live wall so they can attach to streams started elsewhere.
+    Each entry also carries the supervisor's ``restart_count`` and
+    ``last_error`` (why the previous capture loop ended); never a URL."""
     if not camera_manager:
         return {"cameras": []}
     return {"cameras": camera_manager.active_sessions()}
@@ -395,6 +477,11 @@ async def camera_test(req: CameraTestReq):
     url = (req.url or "").strip()
     if not url:
         return {"ok": False, "error": "URL хоосон"}
+    if is_demo_url(url):
+        # Synthetic source — nothing to probe; the clip is generated at start.
+        if demo_name(url) is None:
+            return {"ok": False, "error": "Demo нэр буруу — lobby / gate / parking"}
+        return {"ok": True, "info": {"width": DEMO_WIDTH, "height": DEMO_HEIGHT, "fps": DEMO_FPS}}
     if cam_type in ("usb", "webcam"):
         return {
             "ok": False,

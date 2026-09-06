@@ -5,6 +5,7 @@ Service-role key ашиглана (RLS bypass) — зөвхөн backend service-
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import time as _time
@@ -15,7 +16,29 @@ from zoneinfo import ZoneInfo
 
 from supabase import Client, create_client
 
+from crypto_utils import decrypt_bytes, encrypt_bytes
+
 log = logging.getLogger("mongolz-ml.storage")
+
+# camera_sessions.last_error column limit (DB CHECK) — truncate, never fail.
+_CAMERA_SESSION_ERROR_MAX = 500
+
+
+def _camera_seal_context(camera_id: str) -> str:
+    # Namespaced so a per-camera HKDF key can never collide with a
+    # recording key (recording ids are bare UUIDs).
+    return f"camera:{camera_id}"
+
+
+def seal_camera_url(camera_id: str, url: str) -> str:
+    """Plaintext source URL (may embed RTSP credentials) → base64 AES-GCM blob."""
+    return base64.b64encode(encrypt_bytes(url.encode("utf-8"), _camera_seal_context(camera_id))).decode("ascii")
+
+
+def unseal_camera_url(camera_id: str, sealed: str) -> str:
+    """Inverse of seal_camera_url; ML_ENCRYPTION_KEY_PREV fallback is inherited
+    from decrypt_bytes so a key rotation does not orphan persisted sessions."""
+    return decrypt_bytes(base64.b64decode(sealed), _camera_seal_context(camera_id)).decode("utf-8")
 
 # In-memory burst trackers (per ML worker). For a single Railway dyno this is
 # sufficient; with horizontal scaling we'd need Redis. Capstone deployment is
@@ -351,6 +374,79 @@ class SupabaseStorage:
         except Exception as e:  # noqa: BLE001 — startup must not fail on this
             log.warning("stale reveal sweep failed: %s", e)
             return 0
+
+    # ── camera_sessions — auto-resume registry ────────────────
+    # Every helper swallows Supabase errors: the registry is an optimisation
+    # (cameras come back after a redeploy); it must never take the capture
+    # loop or startup down with it. Only the sealed URL is ever stored or
+    # logged — never the plaintext source.
+    def upsert_camera_session(
+        self, camera_id: str, sealed_url: str, camera_name: str | None, fps: int
+    ) -> bool:
+        if not self.client:
+            return False
+        now = _iso_now()
+        try:
+            self.client.table("camera_sessions").upsert(
+                {
+                    "camera_id": camera_id,
+                    "sealed_url": sealed_url,
+                    "camera_name": camera_name,
+                    "fps": int(fps),
+                    "auto_resume": True,
+                    "last_error": None,
+                    "started_at": now,
+                    "updated_at": now,
+                },
+                on_conflict="camera_id",
+            ).execute()
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.warning("camera_sessions upsert failed for %s: %s", camera_id, type(e).__name__)
+            return False
+
+    def set_camera_session_resume(self, camera_id: str, auto_resume: bool) -> bool:
+        if not self.client:
+            return False
+        try:
+            self.client.table("camera_sessions").update(
+                {"auto_resume": bool(auto_resume), "updated_at": _iso_now()}
+            ).eq("camera_id", camera_id).execute()
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.warning("camera_sessions resume flag failed for %s: %s", camera_id, type(e).__name__)
+            return False
+
+    def record_camera_session_error(self, camera_id: str, message: str) -> bool:
+        if not self.client:
+            return False
+        try:
+            self.client.table("camera_sessions").update(
+                {
+                    "last_error": (message or "")[:_CAMERA_SESSION_ERROR_MAX],
+                    "updated_at": _iso_now(),
+                }
+            ).eq("camera_id", camera_id).execute()
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.warning("camera_sessions error record failed for %s: %s", camera_id, type(e).__name__)
+            return False
+
+    def list_resumable_sessions(self) -> list[dict]:
+        """Rows with auto_resume=true: camera_id, sealed_url, camera_name, fps."""
+        if not self.client:
+            return []
+        try:
+            res = (
+                self.client.table("camera_sessions")
+                .select("camera_id, sealed_url, camera_name, fps")
+                .eq("auto_resume", True)
+                .execute()
+            )
+            return list(res.data or [])
+        except Exception as e:  # noqa: BLE001
+            log.warning("camera_sessions list failed: %s", type(e).__name__)
+            return []
 
     # ── Recording (хуучин wrapper, ID буцахгүй) ────────────
     async def insert_recording(

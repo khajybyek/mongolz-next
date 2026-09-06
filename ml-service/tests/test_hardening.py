@@ -105,6 +105,7 @@ class _Session:
 class _Manager:
     def __init__(self):
         self.sessions = {"cam-live": _Session(_LiveTask()), "cam-done": _Session(_DoneTask())}
+        self.supervision = {}
 
     def active_count(self):
         return 1

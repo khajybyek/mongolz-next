@@ -37,6 +37,7 @@ import numpy as np
 from urllib.parse import urlsplit, urlunsplit
 
 from crypto_utils import encrypt_bytes, master_key
+from demo_source import is_demo_url, resolve_demo_source
 from face_masker import FaceMasker
 from hierarchical_keys import key_at_index, encrypt_face as _seal_embedding
 
@@ -67,6 +68,13 @@ if TYPE_CHECKING:
 log = logging.getLogger("mongolz-ml.recording")
 
 # ── Constants ─────────────────────────────────────────────────
+# Live source: this many consecutive failed reads (0.1 s apart) means the
+# feed is gone (RTSP dropped, MJPEG server closed) — exit so the supervisor
+# re-opens it with backoff instead of spinning on a dead handle forever.
+LIVE_READ_FAIL_LIMIT = 100
+# Demo loop: consecutive re-opens that yield no frame before giving up
+# (guards against a corrupt cached clip turning into a hot loop).
+DEMO_REOPEN_LIMIT = 3
 ALERT_THRESHOLD = 0.45
 # Dedup: цаг хугацааны цонхгүй — БҮТЭН session дотор cosine sim > THRESHOLD
 # нэг л хүн гэж тоомсорлож faces row-г 1 удаа л бичнэ.
@@ -357,6 +365,11 @@ class RecordingSession:
         # Async control
         self.stop_flag = asyncio.Event()
         self.task: asyncio.Task | None = None
+        # Supervisor contract (camera_worker): a session whose task finished
+        # without this flag is a crash/drop and gets restarted with backoff;
+        # exit_reason explains why (never contains the source URL).
+        self.stopped_by_user = False
+        self.exit_reason: str | None = None
         # In-flight ArcFace processing task-уудыг track хийнэ — finalize-ын
         # өмнө бүгдийг await хийхэд хэрэглэнэ (race condition засвар).
         self.arcface_tasks: list[asyncio.Task] = []
@@ -699,16 +712,28 @@ class RecordingSession:
             if isinstance(self.source_url, str) and self.source_url.isdigit()
             else self.source_url
         )
+        # demo://<name> → cached synthetic clip, but treated as LIVE below
+        # (HLS on, loop on EOF, real-time pacing) — it stands in for a camera.
+        is_demo = is_demo_url(self.source_url)
+        if is_demo:
+            try:
+                src = await asyncio.to_thread(resolve_demo_source, self.source_url)
+            except Exception as e:  # noqa: BLE001
+                self.exit_reason = f"demo source unavailable: {type(e).__name__}"
+                log.error("Demo source %s unavailable: %s", self.source_url, e)
+                return
         # File mode detection — local file path бол EOF дээр зогсооно
         # (хэрэв live stream бол EOF гэдэг алхам байхгүй болохоор retry).
         is_file_mode = (
-            isinstance(self.source_url, str)
+            not is_demo
+            and isinstance(self.source_url, str)
             and not self.source_url.isdigit()
             and "://" not in self.source_url
             and os.path.isfile(self.source_url)
         )
         self.cap = cv2.VideoCapture(src)
         if not self.cap.isOpened():
+            self.exit_reason = "source unreachable at open"
             log.error("Камер нээгдсэнгүй: %s", redact_url(self.source_url))
             return
 
@@ -726,10 +751,14 @@ class RecordingSession:
             frame_skip_ratio = max(1, int(round(input_fps / target_fps)))
         else:
             frame_skip_ratio = 1
+        if is_demo and input_fps > 0:
+            # Frames are paced at the clip's own rate, so the encoders must
+            # be told that rate or HLS/MP4 timing drifts from wall clock.
+            self.fps = max(1, int(round(input_fps)))
         log.info(
             "Камер %s: %dx%d input=%dfps output=%dfps skip=%d %s",
             self.camera_id, w, h, int(input_fps), self.fps, frame_skip_ratio,
-            "[FILE MODE]" if is_file_mode else "[LIVE]",
+            "[FILE MODE]" if is_file_mode else ("[DEMO]" if is_demo else "[LIVE]"),
         )
 
         # File mode-д HLS хэрэггүй (live preview-тэй холбоогүй)
@@ -745,6 +774,12 @@ class RecordingSession:
         frame_idx = 0
         read_idx = 0
         process_every_n = max(self.fps, 10)  # ArcFace embed/match ~1s/once
+        read_failures = 0
+        demo_reopens = 0
+        # Demo pacing: a file decodes far faster than real time; emit frames
+        # on the clip's clock so HLS viewers and KST burn-in see real time.
+        frame_interval = 1.0 / max(1, self.fps)
+        next_due = time.monotonic()
 
         try:
             while not self.stop_flag.is_set():
@@ -755,8 +790,34 @@ class RecordingSession:
                         log.info("File processing complete, %d frame written", frame_idx)
                         self.stop_flag.set()
                         break
+                    if is_demo:
+                        # EOF on the clip: rewind by re-opening; frame_idx keeps
+                        # counting so timestamps and recording length stay
+                        # continuous across loops.
+                        demo_reopens += 1
+                        if demo_reopens > DEMO_REOPEN_LIMIT:
+                            self.exit_reason = "demo source yields no frames"
+                            log.error("Demo %s: re-open produced no frames", self.camera_id)
+                            break
+                        self.cap.release()
+                        self.cap = cv2.VideoCapture(src)
+                        if not self.cap.isOpened():
+                            self.exit_reason = "demo source re-open failed"
+                            log.error("Demo %s: re-open failed", self.camera_id)
+                            break
+                        continue
+                    read_failures += 1
+                    if read_failures >= LIVE_READ_FAIL_LIMIT:
+                        self.exit_reason = "source dropped (no frames)"
+                        log.warning(
+                            "Камер %s: %d consecutive read failures — source dropped",
+                            self.camera_id, read_failures,
+                        )
+                        break
                     await asyncio.sleep(0.1)
                     continue
+                read_failures = 0
+                demo_reopens = 0
 
                 read_idx += 1
                 # Frame skip: 30 fps file → process every 2nd → 15 fps output
@@ -782,14 +843,29 @@ class RecordingSession:
 
                 # Periodic ArcFace match (alerts + insert face row)
                 if frame_idx % process_every_n == 0:
-                    # Track-д хадгалж finalize-д бүгдийг хүлээх
+                    # Track-д хадгалж finalize-д бүгдийг хүлээх. Drop finished
+                    # ones first — a demo/live session runs for hours and only
+                    # in-flight tasks matter to finalize.
+                    self.arcface_tasks = [t for t in self.arcface_tasks if not t.done()]
                     t = asyncio.create_task(self._process_arcface(frame))
                     self.arcface_tasks.append(t)
 
                 frame_idx += 1
                 self.recorded_frames = frame_idx
-                await asyncio.sleep(0)
-        except Exception:  # noqa: BLE001 — log with traceback; stop()/_finalize still run
+                if is_demo:
+                    next_due += frame_interval
+                    delay = next_due - time.monotonic()
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    else:
+                        # Fell behind (CPU contention) — resync rather than
+                        # bursting frames to repay the debt.
+                        next_due = time.monotonic()
+                        await asyncio.sleep(0)
+                else:
+                    await asyncio.sleep(0)
+        except Exception as e:  # noqa: BLE001 — log with traceback; stop()/_finalize still run
+            self.exit_reason = f"capture loop crashed: {type(e).__name__}"
             log.exception("Capture loop crashed for camera %s", self.camera_id)
             self.stop_flag.set()
         finally:
