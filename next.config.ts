@@ -53,11 +53,6 @@ const config: NextConfig = {
       },
     ];
   },
-  async rewrites() {
-    const ml = process.env.NEXT_PUBLIC_ML_SERVICE_URL;
-    if (!ml) return [];
-    return [{ source: "/ml/:path*", destination: `${ml}/:path*` }];
-  },
 };
 
 export default withSentryConfig(config, {

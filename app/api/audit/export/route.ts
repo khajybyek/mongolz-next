@@ -2,14 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireAdminOrAuditorApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 
-function csvEscape(v: unknown): string {
-  if (v === null || v === undefined) return "";
-  const s = String(v);
-  if (s.includes(",") || s.includes("\"") || s.includes("\n")) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
+import { csvCell } from "@/lib/csv";
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdminOrAuditorApi();
@@ -33,15 +26,17 @@ export async function GET(req: NextRequest) {
   if (action) query = query.eq("action", action);
   if (user) query = query.ilike("user_email", `%${user}%`);
   if (q) query = query.ilike("detail", `%${q}%`);
-  if (from) query = query.gte("created_at", from);
-  if (to) query = query.lte("created_at", to);
+  const fromIso = toKstIso(from);
+  const toIso = toKstIso(to);
+  if (fromIso) query = query.gte("created_at", fromIso);
+  if (toIso) query = query.lte("created_at", toIso);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const header = ["id", "action", "detail", "user_email", "ip", "created_at"];
   const rows = (data ?? []).map((r) =>
-    header.map((h) => csvEscape(r[h as keyof typeof r])).join(","),
+    header.map((h) => csvCell(r[h as keyof typeof r])).join(","),
   );
   const csv = [header.join(","), ...rows].join("\n") + "\n";
 
@@ -51,4 +46,11 @@ export async function GET(req: NextRequest) {
       "Content-Disposition": `attachment; filename="mongolz-audit-${Date.now()}.csv"`,
     },
   });
+}
+
+/** "YYYY-MM-DDTHH:mm" (KST wall-clock) → ISO instant; null when absent/invalid. */
+function toKstIso(v: string | null): string | null {
+  if (!v || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(v)) return null;
+  const d = new Date(`${v}+09:00`);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }

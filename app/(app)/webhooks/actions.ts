@@ -4,11 +4,22 @@ import { revalidatePath } from "next/cache";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { dispatchEvent } from "@/lib/webhooks";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
 
 const EVENTS = ["alert_created", "reveal_completed", "system_health", "audit_critical"] as const;
+
+async function audit(action: string, detail: string, userId: string, userEmail: string) {
+  try {
+    await createServiceClient().from("audit_log").insert({
+      action,
+      detail,
+      user_id: userId,
+      user_email: userEmail,
+    });
+  } catch {}
+}
 
 /**
  * SSRF blocklist: prevent webhooks from targeting internal-only addresses.
@@ -70,6 +81,10 @@ const createSchema = z.object({
 
 export async function createWebhookAction(formData: FormData) {
   const ctx = await requireAdmin();
+  // A webhook is an outbound channel that receives suspect names — same
+  // step-up as deleting one.
+  const reauth = await ensureFreshReauth(ctx.user.id);
+  if (reauth) return reauth;
 
   const events = EVENTS.filter((e) => formData.get(`event_${e}`) === "on");
   const parsed = createSchema.safeParse({
@@ -84,12 +99,22 @@ export async function createWebhookAction(formData: FormData) {
     parsed.data.kind === "generic" ? randomBytes(32).toString("base64url") : null;
 
   const supabase = await createClient();
-  const { error } = await supabase.from("webhooks").insert({
-    ...parsed.data,
-    signing_secret,
-    created_by: ctx.user.id,
-  });
-  if (error) return { error: error.message };
+  const { data: created, error } = await supabase
+    .from("webhooks")
+    .insert({
+      ...parsed.data,
+      signing_secret,
+      created_by: ctx.user.id,
+    })
+    .select("id")
+    .single();
+  if (error) return { error: "Could not create webhook" };
+  await audit(
+    "WEBHOOK_CREATE",
+    `${created?.id ?? "?"} "${parsed.data.name}" kind=${parsed.data.kind} host=${new URL(parsed.data.url).hostname} events=${parsed.data.events.join(",")}`,
+    ctx.user.id,
+    ctx.user.email,
+  );
 
   revalidatePath("/webhooks");
   return { ok: true, signing_secret };
@@ -99,15 +124,18 @@ export async function deleteWebhookAction(id: string) {
   const ctx = await requireAdmin();
   const reauth = await ensureFreshReauth(ctx.user.id);
   if (reauth) return reauth;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "invalid id" };
   const supabase = await createClient();
   const { error } = await supabase.from("webhooks").delete().eq("id", id);
-  if (error) return { error: error.message };
+  if (error) return { error: "Could not delete webhook" };
+  await audit("WEBHOOK_DELETE", id, ctx.user.id, ctx.user.email);
   revalidatePath("/webhooks");
   return { ok: true };
 }
 
 export async function testWebhookAction(id: string) {
-  await requireAdmin();
+  const ctx = await requireAdmin();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "invalid id" };
   const supabase = await createClient();
   const { data: hook } = await supabase
     .from("webhooks")
@@ -129,6 +157,7 @@ export async function testWebhookAction(id: string) {
     created_at: new Date().toISOString(),
     url: "https://aicctv.dev/alerts",
   });
+  await audit("WEBHOOK_TEST", `${hook.id} "${hook.name}" event=${event}`, ctx.user.id, ctx.user.email);
 
   revalidatePath("/webhooks");
   return { ok: true };

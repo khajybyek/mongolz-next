@@ -193,21 +193,26 @@ export async function dispatchEvent(event: WebhookEvent, payload: EventPayload):
 
   await Promise.all((hooks as WebhookRow[]).map(async (h) => {
     const r = await deliver(h, payload);
+    // fail_count is advisory (surfaced on /webhooks so admins can spot a broken
+    // endpoint): reset on success, otherwise read-then-increment. The previous
+    // version called a non-existent RPC and left the fallback update
+    // un-awaited, so the counter never moved.
+    let failCount = 0;
+    if (!r.ok) {
+      const { data: cur } = await svc
+        .from("webhooks")
+        .select("fail_count")
+        .eq("id", h.id)
+        .maybeSingle();
+      failCount = ((cur?.fail_count as number | null | undefined) ?? 0) + 1;
+    }
     await svc
       .from("webhooks")
       .update({
         last_fired_at: new Date().toISOString(),
         last_status: r.status,
-        fail_count: r.ok ? 0 : undefined,
+        fail_count: failCount,
       })
       .eq("id", h.id);
-    if (!r.ok) {
-      await svc.rpc("noop_increment_fail", { hook_id: h.id }).then(() => undefined, () => {
-        // RPC may not exist — fallback to a direct read+write.
-        svc.from("webhooks").select("fail_count").eq("id", h.id).single().then(({ data }) => {
-          svc.from("webhooks").update({ fail_count: ((data?.fail_count as number) ?? 0) + 1 }).eq("id", h.id);
-        });
-      });
-    }
   }));
 }

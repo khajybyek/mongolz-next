@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isPushConfigured, sendPushToAllAdmins } from "@/lib/push";
 import { authorizeCron } from "@/lib/auth/cron";
+import { flag } from "@/lib/flags";
 
 /**
  * Anomaly sweep — runs once a day via Vercel Cron (Hobby tier limit).
@@ -26,6 +27,9 @@ export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  if (!flag("anomaly_cron")) {
+    return NextResponse.json({ status: "skipped", reason: "MONGOLZ_FF_ANOMALY_CRON is off" });
+  }
 
   const svc = createServiceClient();
   const { data, error } = await svc.rpc("camera_anomaly_scores", {
@@ -43,8 +47,9 @@ export async function GET(req: NextRequest) {
   const triggered = rows.filter((r) => Math.abs(r.z_score) >= Z_THRESHOLD);
 
   const inserted: { camera_id: string; alert_id: string; z: number }[] = [];
+  const failed: { camera_id: string; error: string }[] = [];
   for (const r of triggered) {
-    const { data: idResp } = await svc.rpc("insert_anomaly_alert", {
+    const { data: idResp, error: insErr } = await svc.rpc("insert_anomaly_alert", {
       p_camera_id: r.camera_id,
       p_camera_name: r.camera_name ?? "—",
       p_bucket_start: r.bucket_start,
@@ -52,6 +57,11 @@ export async function GET(req: NextRequest) {
       p_observed: r.observed,
       p_baseline: r.baseline_median,
     });
+    if (insErr) {
+      console.error("[anomaly-sweep] insert_anomaly_alert failed:", insErr.message);
+      failed.push({ camera_id: r.camera_id, error: insErr.message });
+      continue;
+    }
     if (idResp) {
       inserted.push({ camera_id: r.camera_id, alert_id: idResp as string, z: r.z_score });
     }

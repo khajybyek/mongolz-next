@@ -23,8 +23,21 @@ export async function POST(request: NextRequest) {
   const chunkIndex = isChunk ? Number(chunkIndexRaw ?? 0) : null;
   const isFinal = String(isFinalRaw ?? "false") === "true";
 
-  if (!(file instanceof File) || file.size === 0) {
+  if (!(file instanceof File)) {
     return NextResponse.json({ error: "missing file" }, { status: 400 });
+  }
+  // A chunked session may close with an empty final marker (the recorder's
+  // last buffer had already been flushed); everything else needs bytes.
+  if (file.size === 0 && !(isChunk && isFinal)) {
+    return NextResponse.json({ error: "missing file" }, { status: 400 });
+  }
+  if (isChunk) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId))) {
+      return NextResponse.json({ error: "invalid session_id" }, { status: 400 });
+    }
+    if (!Number.isInteger(chunkIndex) || (chunkIndex as number) < 0 || (chunkIndex as number) > 400) {
+      return NextResponse.json({ error: "invalid chunk_index" }, { status: 400 });
+    }
   }
 
   // Хэт том файл шалгах
@@ -61,7 +74,7 @@ export async function POST(request: NextRequest) {
   // Multipart-ыг ML-руу шууд дамжуулна
   const mlForm = new FormData();
   mlForm.append("file", file, file.name || "recording");
-  if (cameraName) mlForm.append("camera_name", cameraName);
+  mlForm.append("camera_name", cameraName.slice(0, 80));
   if (isChunk) {
     mlForm.append("session_id", String(sessionId));
     mlForm.append("chunk_index", String(chunkIndex));
@@ -89,9 +102,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      recording_id: data.recording_id,
-      camera_id: data.camera_id,
-      size_mb: data.size_mb,
+      status: data.status ?? "processing",
+      recording_id: data.recording_id ?? null,
+      camera_id: data.camera_id ?? null,
+      size_mb: data.size_mb ?? null,
       session_id: isChunk ? sessionId : undefined,
       chunk_index: chunkIndex,
       is_final: isFinal,

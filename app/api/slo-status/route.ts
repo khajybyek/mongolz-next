@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { unstable_cache } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -27,7 +28,32 @@ type Slo = {
   ok: boolean;
 };
 
+/**
+ * The probe walks the whole audit hash chain and scans reveal/alert
+ * history — too heavy to run for every anonymous hit. Compute at most once
+ * per minute (shared Next data cache, keyed without the query string so
+ * `?bust=…` cannot force recomputation).
+ */
+const computeSlos = unstable_cache(async () => probeSlos(), ["slo-status"], { revalidate: 60 });
+
 export async function GET() {
+  const { slos, ts } = await computeSlos();
+  const allOk = slos.every((s) => s.ok);
+  const body = {
+    status: allOk ? "ok" : "degraded",
+    ts,
+    slos,
+    docs: "/docs/SLO.md",
+  };
+  return NextResponse.json(body, {
+    status: allOk ? 200 : 503,
+    headers: {
+      "cache-control": "public, s-maxage=30, stale-while-revalidate=60",
+    },
+  });
+}
+
+async function probeSlos(): Promise<{ slos: Slo[]; ts: string }> {
   const svc = createServiceClient();
   const slos: Slo[] = [];
 
@@ -151,17 +177,5 @@ export async function GET() {
     });
   }
 
-  const allOk = slos.every((s) => s.ok);
-  const body = {
-    status: allOk ? "ok" : "degraded",
-    ts: new Date().toISOString(),
-    slos,
-    docs: "/docs/SLO.md",
-  };
-  return NextResponse.json(body, {
-    status: allOk ? 200 : 503,
-    headers: {
-      "cache-control": "public, s-maxage=30, stale-while-revalidate=60",
-    },
-  });
+  return { slos, ts: new Date().toISOString() };
 }

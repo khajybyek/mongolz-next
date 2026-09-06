@@ -17,20 +17,27 @@ import { createServiceClient } from "@/lib/supabase/server";
  * Only the caller's own data — admins use a separate export for other users.
  */
 export async function GET() {
-  const auth = await requireUserApi();
+  const auth = await requireUserApi({ allowAuditor: true });
   if (isAuthErr(auth)) return auth.error;
   const { user } = auth;
 
   const svc = createServiceClient();
 
-  const [profile, audit, labeled, reveal, perms] = await Promise.all([
+  const [profile, audit, auditByEmail, labeled, reveal, perms] = await Promise.all([
     svc.from("profiles").select("*").eq("id", user.id).maybeSingle(),
     svc
       .from("audit_log")
       .select("*")
-      .or(`user_id.eq.${user.id},user_email.eq.${user.email}`)
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false })
       .limit(10000),
+    svc
+      .from("audit_log")
+      .select("*")
+      .is("user_id", null)
+      .eq("user_email", user.email)
+      .order("created_at", { ascending: false })
+      .limit(2000),
     svc
       .from("alerts")
       .select("id, suspect_name, similarity, camera_name, created_at, label, labeled_at")
@@ -39,7 +46,7 @@ export async function GET() {
     svc
       .from("reveal_jobs")
       .select("*")
-      .or(`requested_by.eq.${user.id},approved_by.eq.${user.id},rejected_by.eq.${user.id}`)
+      .or(`requested_by.eq.${user.id},approved_by.eq.${user.id},rejected_by.eq.${user.id}`) // user.id is a uuid from the session, not user input
       .order("created_at", { ascending: false }),
     svc
       .from("camera_permissions")
@@ -73,7 +80,10 @@ export async function GET() {
     ].join("\n"),
   );
   zip.file("profile.json", JSON.stringify(safeProfile, null, 2));
-  zip.file("audit_log.json", JSON.stringify(audit.data ?? [], null, 2));
+  zip.file(
+    "audit_log.json",
+    JSON.stringify([...(audit.data ?? []), ...(auditByEmail.data ?? [])], null, 2),
+  );
   zip.file("alert_labels.json", JSON.stringify(labeled.data ?? [], null, 2));
   zip.file("reveal_jobs.json", JSON.stringify(reveal.data ?? [], null, 2));
   zip.file("camera_permissions.json", JSON.stringify(perms.data ?? [], null, 2));

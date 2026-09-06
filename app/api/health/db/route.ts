@@ -8,7 +8,7 @@ export async function GET() {
 
   try {
     const supabase = await createClient();
-    const { count, error } = await supabase.from("profiles").select("*", { count: "exact", head: true });
+    const { count, error } = await supabase.from("profiles").select("id", { count: "exact", head: true });
     if (error) throw error;
     return NextResponse.json({ status: "ok", detail: `Connected — ${count} profiles` });
   } catch (e) {

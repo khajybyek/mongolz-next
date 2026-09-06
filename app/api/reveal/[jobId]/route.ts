@@ -11,7 +11,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ jobId: str
   const { data: job, error } = await supabase
     .from("reveal_jobs")
     .select(
-      "id, status, progress, output_path, output_duration_sec, error_message, method, created_at, started_at, completed_at"
+      "id, status, progress, output_path, output_duration_sec, error_message, method, created_at, started_at, completed_at, approved_email, rejected_email, rejected_reason"
     )
     .eq("id", jobId)
     .single();

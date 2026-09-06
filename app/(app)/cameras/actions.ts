@@ -14,6 +14,28 @@ function isCamType(value: string): value is CamType {
   return (ALLOWED_CAM_TYPES as readonly string[]).includes(value);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Network cameras must be rtsp(s)/http(s) URLs; usb/webcam are a device
+ * index ("0", "1", …) or a local device path. Anything else (file://,
+ * concat:, a bare filesystem path) would make the ML side open arbitrary
+ * paths with cv2.VideoCapture.
+ */
+function validCameraUrl(url: string, camType: CamType): boolean {
+  if (camType === "usb" || camType === "webcam") {
+    return /^\d{1,2}$/.test(url) || /^\/dev\/video\d+$/.test(url);
+  }
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  const ok = camType === "rtsp" ? ["rtsp:", "rtsps:"] : ["http:", "https:"];
+  return ok.includes(u.protocol) && Boolean(u.hostname);
+}
+
 export async function addCameraAction(
   formData: FormData,
 ): Promise<{ error: string } | { ok: true }> {
@@ -24,6 +46,7 @@ export async function addCameraAction(
 
   if (!name || !url) return { error: "Нэр болон URL заавал" };
   if (!isCamType(camType)) return { error: "Төрөл буруу" };
+  if (!validCameraUrl(url, camType)) return { error: "URL төрөлдөө тохирохгүй (rtsp:// / http(s):// эсвэл төхөөрөмжийн дугаар)" };
 
   let encryptedUrl: string;
   try {
@@ -59,7 +82,7 @@ export async function deleteCameraAction(
   const { user } = await requireAdmin();
   const reauth = await ensureFreshReauth(user.id);
   if (reauth) return reauth;
-  if (!id) return { error: "missing id" };
+  if (!UUID_RE.test(id)) return { error: "missing id" };
 
   const supabase = await createClient();
   const { error } = await supabase.from("cameras").delete().eq("id", id);
@@ -80,14 +103,24 @@ export async function deleteCameraAction(
 }
 
 export async function toggleCameraAction(formData: FormData) {
-  await requireAdmin();
+  const { user } = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const enabled = String(formData.get("enabled") ?? "false") === "true";
 
-  if (!id) return;
+  if (!UUID_RE.test(id)) return;
 
   const supabase = await createClient();
-  await supabase.from("cameras").update({ enabled }).eq("id", id);
+  const { error } = await supabase.from("cameras").update({ enabled }).eq("id", id);
+  if (error) return;
+
+  try {
+    await createServiceClient().from("audit_log").insert({
+      action: "CAMERA_TOGGLE",
+      detail: `camera ${id} → enabled=${enabled}`,
+      user_id: user.id,
+      user_email: user.email,
+    });
+  } catch {}
 
   revalidatePath("/cameras");
 }
@@ -104,9 +137,10 @@ export async function updateCameraAction(
   const url = String(formData.get("url") ?? "").trim();
   const camType = String(formData.get("cam_type") ?? "").trim();
 
-  if (!id) return { error: "missing id" };
+  if (!UUID_RE.test(id)) return { error: "missing id" };
   if (!name || !url) return { error: "missing fields" };
   if (!isCamType(camType)) return { error: "invalid cam_type" };
+  if (!validCameraUrl(url, camType)) return { error: "URL төрөлдөө тохирохгүй (rtsp:// / http(s):// эсвэл төхөөрөмжийн дугаар)" };
 
   let encryptedUrl: string;
   try {
@@ -149,6 +183,7 @@ export async function testCameraAction(
   const u = (url ?? "").trim();
   if (!u) return { ok: false, error: "URL хоосон" };
   if (!isCamType(camType)) return { ok: false, error: "invalid cam_type" };
+  if (!validCameraUrl(u, camType)) return { ok: false, error: "URL төрөлдөө тохирохгүй" };
   return mlTestCamera(u, camType);
 }
 

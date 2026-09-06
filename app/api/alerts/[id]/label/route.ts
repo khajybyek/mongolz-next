@@ -2,8 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
-const LABELS = new Set(["true_positive", "false_positive", "unknown"] as const);
-type Label = "true_positive" | "false_positive" | "unknown";
+import type { AlertLabel } from "@/lib/database.types";
+
+const LABELS: readonly AlertLabel[] = ["true_positive", "false_positive", "unknown"];
+
+function parseLabel(v: unknown): AlertLabel | null {
+  return typeof v === "string" && (LABELS as readonly string[]).includes(v)
+    ? (v as AlertLabel)
+    : null;
+}
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
@@ -19,9 +26,9 @@ export async function POST(
     return NextResponse.json({ error: "invalid alert id" }, { status: 400 });
   }
 
-  const body = await req.json().catch(() => ({}));
-  const label = body.label as string;
-  if (!LABELS.has(label as Label)) {
+  const body = (await req.json().catch(() => ({}))) as { label?: unknown };
+  const label = parseLabel(body.label);
+  if (!label) {
     return NextResponse.json({ error: "label must be true_positive | false_positive | unknown" }, { status: 400 });
   }
 

@@ -6,54 +6,54 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { mlTriggerReveal, MLError } from "@/lib/ml-client";
+import { ensureFreshReauth } from "@/lib/auth/step-up";
 
-const approveSchema = z.object({
-  job_id: z.string().uuid(),
-});
+/**
+ * 4-eyes reveal decisions. Both actions return a result object (never throw)
+ * so the client form can show the reason inline, open the TOTP prompt on
+ * REAUTH_REQUIRED, and disable the buttons while pending — a thrown server
+ * action used to unmount the whole app shell into global-error.tsx.
+ */
+export type DecisionResult =
+  | { ok: true }
+  | { error: "REAUTH_REQUIRED" | "INVALID" | "NOT_FOUND" | "ALREADY_DECIDED" | "SELF" | "ML_FAILED" | "DB"; detail?: string };
 
-const rejectSchema = z.object({
-  job_id: z.string().uuid(),
-  reason: z.string().min(3).max(500),
-});
+const jobIdSchema = z.string().uuid();
+const reasonSchema = z.string().trim().min(3).max(500);
 
 async function audit(action: string, detail: string, userId: string, userEmail: string) {
   const svc = createServiceClient();
   const h = await headers();
   const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
-  await svc.from("audit_log").insert({
-    action,
-    detail,
-    user_id: userId,
-    user_email: userEmail,
-    ip,
-  });
+  try {
+    await svc.from("audit_log").insert({ action, detail, user_id: userId, user_email: userEmail, ip });
+  } catch {}
 }
 
-export async function approveRevealAction(formData: FormData): Promise<void> {
+export async function approveRevealAction(jobIdRaw: string): Promise<DecisionResult> {
   const ctx = await requireAdmin();
-  const parsed = approveSchema.safeParse({ job_id: formData.get("job_id") });
-  if (!parsed.success) throw new Error("Invalid id");
+  // The approver is the party who actually triggers decryption — same
+  // step-up as the requester needed to create the job.
+  if (await ensureFreshReauth(ctx.user.id)) return { error: "REAUTH_REQUIRED" };
+  const parsed = jobIdSchema.safeParse(jobIdRaw);
+  if (!parsed.success) return { error: "INVALID" };
+  const jobId = parsed.data;
 
   const svc = createServiceClient();
   const { data: job } = await svc
     .from("reveal_jobs")
     .select("id, status, requested_by, requested_email")
-    .eq("id", parsed.data.job_id)
-    .single();
+    .eq("id", jobId)
+    .maybeSingle();
 
-  if (!job) throw new Error("Reveal job not found");
-  if (job.status !== "pending_approval") {
-    throw new Error(`Cannot approve: status is ${job.status}`);
-  }
+  if (!job) return { error: "NOT_FOUND" };
+  if (job.status !== "pending_approval") return { error: "ALREADY_DECIDED" };
+  // 4-eyes: the approver MUST differ from the requester (also a DB CHECK).
+  if (job.requested_by === ctx.user.id) return { error: "SELF" };
 
-  // 4-eyes: the approver MUST differ from the requester
-  if (job.requested_by === ctx.user.id) {
-    throw new Error(
-      "4-eyes principle: another admin must approve. You requested this job.",
-    );
-  }
-
-  const { error } = await svc
+  // Compare-and-set on status: two concurrent approvals (or approve+reject)
+  // must not both pass — only the transition from pending_approval wins.
+  const { data: transitioned, error } = await svc
     .from("reveal_jobs")
     .update({
       status: "queued",
@@ -61,8 +61,14 @@ export async function approveRevealAction(formData: FormData): Promise<void> {
       approved_email: ctx.user.email,
       approved_at: new Date().toISOString(),
     })
-    .eq("id", job.id);
-  if (error) throw new Error(error.message);
+    .eq("id", job.id)
+    .eq("status", "pending_approval")
+    .select("id");
+  if (error) {
+    console.error("[reveal-approvals] approve update:", error.message);
+    return { error: "DB" };
+  }
+  if (!transitioned || transitioned.length === 0) return { error: "ALREADY_DECIDED" };
 
   // Now that a second admin has approved, actually kick off the ML decrypt.
   // (start/route deliberately does NOT trigger — the 4-eyes gate lives here.)
@@ -81,7 +87,7 @@ export async function approveRevealAction(formData: FormData): Promise<void> {
       ctx.user.email,
     );
     revalidatePath("/reveal-approvals");
-    throw new Error(`Approved, but ML trigger failed: ${msg}`);
+    return { error: "ML_FAILED", detail: msg };
   }
 
   await audit(
@@ -91,49 +97,50 @@ export async function approveRevealAction(formData: FormData): Promise<void> {
     ctx.user.email,
   );
   revalidatePath("/reveal-approvals");
+  return { ok: true };
 }
 
-export async function rejectRevealAction(formData: FormData): Promise<void> {
+export async function rejectRevealAction(jobIdRaw: string, reasonRaw: string): Promise<DecisionResult> {
   const ctx = await requireAdmin();
-  const parsed = rejectSchema.safeParse({
-    job_id: formData.get("job_id"),
-    reason: formData.get("reason"),
-  });
-  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Invalid");
+  if (await ensureFreshReauth(ctx.user.id)) return { error: "REAUTH_REQUIRED" };
+  const parsedId = jobIdSchema.safeParse(jobIdRaw);
+  const parsedReason = reasonSchema.safeParse(reasonRaw);
+  if (!parsedId.success || !parsedReason.success) return { error: "INVALID" };
 
   const svc = createServiceClient();
   const { data: job } = await svc
     .from("reveal_jobs")
     .select("id, status, requested_by, requested_email")
-    .eq("id", parsed.data.job_id)
-    .single();
-  if (!job) throw new Error("Reveal job not found");
-  if (job.status !== "pending_approval") {
-    throw new Error(`Cannot reject: status is ${job.status}`);
-  }
-  if (job.requested_by === ctx.user.id) {
-    throw new Error(
-      "4-eyes principle: another admin must decide. You requested this job.",
-    );
-  }
+    .eq("id", parsedId.data)
+    .maybeSingle();
+  if (!job) return { error: "NOT_FOUND" };
+  if (job.status !== "pending_approval") return { error: "ALREADY_DECIDED" };
+  if (job.requested_by === ctx.user.id) return { error: "SELF" };
 
-  const { error } = await svc
+  const { data: transitioned, error } = await svc
     .from("reveal_jobs")
     .update({
       status: "rejected",
       rejected_by: ctx.user.id,
       rejected_email: ctx.user.email,
-      rejected_reason: parsed.data.reason,
+      rejected_reason: parsedReason.data,
       rejected_at: new Date().toISOString(),
     })
-    .eq("id", job.id);
-  if (error) throw new Error(error.message);
+    .eq("id", job.id)
+    .eq("status", "pending_approval")
+    .select("id");
+  if (error) {
+    console.error("[reveal-approvals] reject update:", error.message);
+    return { error: "DB" };
+  }
+  if (!transitioned || transitioned.length === 0) return { error: "ALREADY_DECIDED" };
 
   await audit(
     "REVEAL_REJECT",
-    `job ${job.id} reason=${parsed.data.reason}`,
+    `job ${job.id} reason=${parsedReason.data}`,
     ctx.user.id,
     ctx.user.email,
   );
   revalidatePath("/reveal-approvals");
+  return { ok: true };
 }

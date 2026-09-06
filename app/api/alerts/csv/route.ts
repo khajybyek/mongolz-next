@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
+import { csvCell } from "@/lib/csv";
 
 export async function GET() {
   const auth = await requireAdminApi();
@@ -18,11 +19,11 @@ export async function GET() {
   for (const a of alerts ?? []) {
     lines.push(
       [
-        JSON.stringify(a.suspect_name),
-        a.similarity,
-        JSON.stringify(a.camera_name ?? ""),
-        a.created_at,
-        JSON.stringify(a.screenshot_path ?? ""),
+        csvCell(a.suspect_name),
+        csvCell(a.similarity),
+        csvCell(a.camera_name ?? ""),
+        csvCell(a.created_at),
+        csvCell(a.screenshot_path ?? ""),
       ].join(",")
     );
   }

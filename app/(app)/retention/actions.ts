@@ -5,13 +5,15 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { runRetentionSweep } from "@/lib/retention";
 
+// audit_log is deliberately not editable: the ledger is an immutable hash
+// chain under legal hold (sweep_retention() reports it as skipped).
 const updateSchema = z.object({
   resource: z.enum([
     "recordings",
     "faces",
     "alerts",
-    "audit_log",
     "reveal_jobs",
     "reveal_outputs",
   ]),
@@ -68,11 +70,10 @@ export async function updateRetentionAction(formData: FormData): Promise<void> {
 export async function runSweepAction(): Promise<void> {
   const ctx = await requireAdmin();
   const svc = createServiceClient();
-  const { data, error } = await svc.rpc("sweep_retention");
-  if (error) throw new Error(error.message);
+  const data = await runRetentionSweep(svc);
   await audit(
     "RETENTION_SWEEP_MANUAL",
-    `Manual sweep result: ${JSON.stringify(data ?? {})}`,
+    `Manual sweep result: ${JSON.stringify(data)}`,
     ctx.user.id,
     ctx.user.email,
   );

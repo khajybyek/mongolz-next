@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,9 +18,11 @@ const PAGE_SANITIZE_RE = /[?#].*$/;
 const MAX_BODY = 8 * 1024;
 
 export async function POST(req: Request) {
-  // Pull the bearer cookie session, but tolerate anonymous (we just don't tag user_id).
+  // Authenticated beacons only: an anonymous caller could otherwise fill the
+  // table through the service role with no rate limit.
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
   const text = await req.text();
   if (text.length > MAX_BODY) {
@@ -65,8 +67,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, inserted: 0 });
   }
 
-  const writer = user ? supabase : createServiceClient();
-  const { error } = await writer.from("web_vitals").insert(rows);
+  const { error } = await supabase.from("web_vitals").insert(rows);
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

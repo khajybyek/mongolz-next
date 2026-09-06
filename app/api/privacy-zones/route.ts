@@ -1,9 +1,20 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
+
+async function audit(action: string, detail: string, userId: string, userEmail: string) {
+  try {
+    await createServiceClient().from("audit_log").insert({
+      action,
+      detail,
+      user_id: userId,
+      user_email: userEmail,
+    });
+  } catch {}
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -57,7 +68,16 @@ export async function POST(req: Request) {
     .insert({ ...parsed.data, created_by: auth.user.id })
     .select()
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[privacy-zones] insert:", error.message);
+    return NextResponse.json({ error: "could not create zone" }, { status: 500 });
+  }
+  await audit(
+    "PRIVACY_ZONE_CREATE",
+    `zone ${data.id} "${parsed.data.name}" camera=${parsed.data.camera_id} never_reveal=${parsed.data.never_reveal}`,
+    auth.user.id,
+    auth.user.email,
+  );
   return NextResponse.json({ zone: data });
 }
 
@@ -72,7 +92,11 @@ export async function DELETE(req: Request) {
   }
   const supabase = await createClient();
   const { error } = await supabase.from("privacy_zones").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[privacy-zones] delete:", error.message);
+    return NextResponse.json({ error: "could not delete zone" }, { status: 500 });
+  }
+  await audit("PRIVACY_ZONE_DELETE", `zone ${id}`, auth.user.id, auth.user.email);
   return NextResponse.json({ ok: true });
 }
 
@@ -101,6 +125,10 @@ export async function PATCH(req: Request) {
     .eq("id", id)
     .select()
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("[privacy-zones] update:", error.message);
+    return NextResponse.json({ error: "could not update zone" }, { status: 500 });
+  }
+  await audit("PRIVACY_ZONE_UPDATE", `zone ${id} ${JSON.stringify(rest)}`, auth.user.id, auth.user.email);
   return NextResponse.json({ zone: data });
 }

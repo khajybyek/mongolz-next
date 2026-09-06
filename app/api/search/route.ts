@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { mlEmbed } from "@/lib/ml-client";
 import { createServiceClient } from "@/lib/supabase/server";
+import { vectorParam } from "@/lib/pgvector";
 
 interface MatchRow {
   id: string;
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
 
   const svc = createServiceClient();
   const { data: rows, error } = await svc.rpc("match_faces", {
-    query_embedding: embedding,
+    query_embedding: vectorParam(embedding),
     match_threshold: 0.5,
     match_limit: 50,
   });
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
   // буцаана (camera/recording badge).
   const { data: metaRows, error: metaErr } = await svc
     .from("faces")
-    .select("id, recording_id, camera_id, bbox, recordings:recordings(filename), cameras:cameras(name)")
+    .select("id, recording_id, camera_id, bbox, crop_sealed, recordings:recordings(filename), cameras:cameras(name)")
     .in("id", ids);
 
   if (metaErr) return NextResponse.json({ error: metaErr.message }, { status: 500 });
@@ -52,11 +53,13 @@ export async function POST(request: NextRequest) {
     recording_filename: string | null;
     camera_name: string | null;
     bbox: unknown;
+    crop_sealed: boolean;
   }>();
   for (const row of metaRows ?? []) {
     const r = row as {
       id: string;
       bbox: unknown;
+      crop_sealed: boolean;
       recordings: { filename: string } | { filename: string }[] | null;
       cameras: { name: string } | { name: string }[] | null;
     };
@@ -66,6 +69,7 @@ export async function POST(request: NextRequest) {
       recording_filename: rec?.filename ?? null,
       camera_name: cam?.name ?? null,
       bbox: r.bbox,
+      crop_sealed: Boolean(r.crop_sealed),
     });
   }
 
@@ -76,6 +80,7 @@ export async function POST(request: NextRequest) {
       recording_filename: meta?.recording_filename ?? null,
       camera_name: meta?.camera_name ?? null,
       bbox: meta?.bbox ?? null,
+      crop_sealed: meta?.crop_sealed ?? false,
     };
   });
 

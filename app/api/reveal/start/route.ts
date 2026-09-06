@@ -32,10 +32,10 @@ export async function POST(request: NextRequest) {
   const recording_id = String(fd.get("recording_id") ?? "");
   const method = String(fd.get("method") ?? "") as RevealMethod;
   const rawThreshold = Number(fd.get("threshold") ?? 0.45);
-  // Clamp to a valid cosine-similarity range so a crafted value can't make
-  // the reveal trivially match-everything (0) or match-nothing (>1).
+  // Clamp to the DB CHECK range (reveal_jobs_threshold_check: 0.30–0.85) so
+  // a crafted value can neither match everything nor trip a 500.
   const threshold = Number.isFinite(rawThreshold)
-    ? Math.min(1, Math.max(0, rawThreshold))
+    ? Math.min(0.85, Math.max(0.3, rawThreshold))
     : 0.45;
 
   const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
     detail += " · upload";
   } else if (method === "suspect") {
     suspect_id = String(fd.get("suspect_id") ?? "");
-    if (!suspect_id) return NextResponse.json({ error: "missing suspect_id" }, { status: 400 });
+    if (!UUID_RE.test(suspect_id)) return NextResponse.json({ error: "missing suspect_id" }, { status: 400 });
     const { data: s } = await svc
       .from("suspects")
       .select("name, embedding")
@@ -138,10 +138,10 @@ export async function POST(request: NextRequest) {
     const single = String(fd.get("face_id") ?? "").trim();
     const collected = idsRaw.length > 0 ? idsRaw : single ? [single] : [];
 
-    // Дахин давхардуулсныг арилгана + хоосон шалгах
+    // Дахин давхардуулсныг арилгана + хоосон / буруу id шалгах
     const ids = Array.from(new Set(collected));
-    if (ids.length === 0) {
-      return NextResponse.json({ error: "missing face id(s)" }, { status: 400 });
+    if (ids.length === 0 || ids.length > 50 || !ids.every((i) => UUID_RE.test(i))) {
+      return NextResponse.json({ error: "missing or invalid face id(s)" }, { status: 400 });
     }
 
     // Бүх face-ийн embedding-ийг авах (service-role, RLS bypass)
@@ -151,7 +151,8 @@ export async function POST(request: NextRequest) {
       .in("id", ids);
 
     if (facesErr) {
-      return NextResponse.json({ error: facesErr.message }, { status: 500 });
+      console.error("[reveal/start] faces lookup:", facesErr.message);
+      return NextResponse.json({ error: "could not load faces" }, { status: 500 });
     }
     if (!rows || rows.length === 0) {
       return NextResponse.json({ error: "face(s) not found" }, { status: 404 });
@@ -210,7 +211,8 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (jobErr || !job) {
-    return NextResponse.json({ error: jobErr?.message ?? "DB insert failed" }, { status: 500 });
+    console.error("[reveal/start] job insert:", jobErr?.message);
+    return NextResponse.json({ error: "could not create reveal job" }, { status: 500 });
   }
 
   // 2. Audit — request logged now; the actual decrypt is gated on approval.
