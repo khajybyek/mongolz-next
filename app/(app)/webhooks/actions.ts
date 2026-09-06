@@ -5,12 +5,11 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { dispatchEvent } from "@/lib/webhooks";
+import { dispatchEvent, WEBHOOK_EVENTS, type WebhookEvent } from "@/lib/webhooks";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
 import { getT } from "@/lib/i18n/server";
 import { T, type TranslationKey } from "@/lib/i18n/translations";
 
-const EVENTS = ["alert_created", "reveal_completed", "system_health", "audit_critical"] as const;
 
 async function audit(action: string, detail: string, userId: string, userEmail: string) {
   try {
@@ -81,7 +80,7 @@ const createSchema = z.object({
   name: z.string().min(1).max(120),
   kind: z.enum(["slack", "discord", "generic"]),
   url: z.string().max(1024).superRefine(publicHttpsUrl),
-  events: z.array(z.enum(EVENTS)).min(1),
+  events: z.array(z.enum(WEBHOOK_EVENTS)).min(1),
 });
 
 export async function createWebhookAction(formData: FormData) {
@@ -91,7 +90,7 @@ export async function createWebhookAction(formData: FormData) {
   const reauth = await ensureFreshReauth(ctx.user.id);
   if (reauth) return reauth;
 
-  const events = EVENTS.filter((e) => formData.get(`event_${e}`) === "on");
+  const events = WEBHOOK_EVENTS.filter((e) => formData.get(`event_${e}`) === "on");
   const parsed = createSchema.safeParse({
     name: formData.get("name"),
     kind: formData.get("kind"),
@@ -156,8 +155,7 @@ export async function testWebhookAction(id: string) {
     .single();
   if (!hook) return { error: "not found" };
 
-  const event = (hook.events?.[0] ?? "alert_created") as
-    | "alert_created" | "reveal_completed" | "system_health" | "audit_critical";
+  const event = (hook.events?.[0] ?? "alert_created") as WebhookEvent;
 
   await dispatchEvent(event, {
     type: event,

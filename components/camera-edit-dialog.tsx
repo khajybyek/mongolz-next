@@ -15,6 +15,8 @@ import {
 import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { useT } from "@/lib/i18n/client";
+import type { TranslationKey } from "@/lib/i18n/translations";
+import type { CameraType } from "@/lib/database.types";
 import { cn } from "@/lib/utils";
 import {
   addCameraAction,
@@ -22,7 +24,7 @@ import {
   testCameraAction,
 } from "@/app/(app)/cameras/actions";
 
-type CamType = "rtsp" | "http" | "usb" | "webcam";
+type CamType = CameraType;
 
 interface AddProps {
   mode: "add";
@@ -40,24 +42,31 @@ interface EditProps {
 
 type Props = AddProps | EditProps;
 
-const TYPE_HINTS: Record<CamType, { placeholder: string; help: string }> = {
-  rtsp: {
-    placeholder: "rtsp://user:pass@192.168.1.10:554/cam/realmonitor",
-    help: "RTSP — Dahua/Hikvision гэх мэт IP CCTV. user:pass URL дотор.",
-  },
-  http: {
-    placeholder: "http://192.168.1.10/cgi-bin/snapshot.cgi",
-    help: "MJPEG / snapshot URL — Hikvision ISAPI, IP Webcam app г.м.",
-  },
-  usb: {
-    placeholder: "/dev/video0 эсвэл 0",
-    help: "ML host-ын локал USB камер. Энэ төрлийг ML-аас шалгахгүй.",
-  },
-  webcam: {
-    placeholder: "browser",
-    help: "Browser getUserMedia. Энэ төрөл нь /live page-аас л ажиллана.",
-  },
+/** Default demo source — the ML service ships lobby / gate / parking. */
+const DEMO_DEFAULT_URL = "demo://lobby";
+
+const TYPE_HINTS: Record<CamType, { placeholder: TranslationKey; help: TranslationKey }> = {
+  rtsp: { placeholder: "camd_ph_rtsp", help: "camd_hint_rtsp" },
+  http: { placeholder: "camd_ph_http", help: "camd_hint_http" },
+  usb: { placeholder: "camd_ph_usb", help: "camd_hint_usb" },
+  webcam: { placeholder: "camd_ph_webcam", help: "camd_hint_webcam" },
+  demo: { placeholder: "camd_ph_demo", help: "camd_hint_demo" },
 };
+
+const TYPE_LABELS: Record<CamType, TranslationKey> = {
+  rtsp: "camd_type_rtsp",
+  http: "camd_type_http",
+  usb: "camd_type_usb",
+  webcam: "camd_type_webcam",
+  demo: "camd_type_demo",
+};
+
+const TYPE_ORDER: CamType[] = ["rtsp", "http", "usb", "webcam", "demo"];
+
+/** usb / webcam are opened by the browser or the ML host itself — nothing to probe. */
+function localOnly(camType: CamType): boolean {
+  return camType === "usb" || camType === "webcam";
+}
 
 type TestState =
   | { kind: "idle" }
@@ -107,7 +116,7 @@ export function CameraDialog(props: Props) {
         fps: res.info.fps,
       });
     } else {
-      setTest({ kind: "err", message: res.error ?? "Тодорхойгүй алдаа" });
+      setTest({ kind: "err", message: res.error ?? t("camd_err_unknown") });
     }
   }
 
@@ -147,10 +156,8 @@ export function CameraDialog(props: Props) {
   }
 
   const hint = TYPE_HINTS[camType];
-  const title = isEdit ? "Камер засах" : "Камер нэмэх";
-  const description = isEdit
-    ? "Нэр, URL, төрөл солих. Хадгалахад нууц үгээ дахин асууж магадгүй."
-    : "Шинэ камер нэмэхийн өмнө URL-ийг шалгаж болно.";
+  const title = isEdit ? t("camd_title_edit") : t("camd_title_add");
+  const description = isEdit ? t("camd_desc_edit") : t("camd_desc_add");
 
   return (
     <>
@@ -159,8 +166,8 @@ export function CameraDialog(props: Props) {
           type="button"
           onClick={() => setOpen(true)}
           className="btn-icon"
-          title="Засах"
-          aria-label="Edit camera"
+          title={t("camd_title_edit")}
+          aria-label={t("camd_title_edit")}
         >
           <Pencil className="w-3.5 h-3.5" />
         </button>
@@ -171,7 +178,7 @@ export function CameraDialog(props: Props) {
           className="btn-primary"
         >
           <Plus className="w-4 h-4" />
-          Камер нэмэх
+          {t("camd_title_add")}
         </button>
       )}
 
@@ -190,7 +197,7 @@ export function CameraDialog(props: Props) {
               className="btn-ghost"
             >
               <X className="w-4 h-4" />
-              Болих
+              {t("cancel")}
             </button>
             <button
               type="button"
@@ -203,44 +210,50 @@ export function CameraDialog(props: Props) {
               ) : (
                 <Save className="w-4 h-4" />
               )}
-              {isEdit ? "Хадгалах" : "Нэмэх"}
+              {isEdit ? t("save") : t("add")}
             </button>
           </>
         }
       >
         <div className="space-y-4">
           <div>
-            <label className="label">Нэр</label>
+            <label className="label">{t("camera_name")}</label>
             <input
               className="input"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="жишээ: Үүдний камер"
+              placeholder={t("camd_name_placeholder")}
               disabled={pending}
             />
           </div>
 
           <div>
-            <label className="label">Төрөл</label>
+            <label className="label">{t("camera_type")}</label>
             <select
               className="select"
               value={camType}
               onChange={(e) => {
-                setCamType(e.target.value as CamType);
+                const next = e.target.value as CamType;
+                setCamType(next);
+                // A demo source has a fixed vocabulary, so an empty URL is
+                // prefilled with the first sample instead of leaving the
+                // operator to guess the scheme.
+                if (next === "demo" && !url.trim()) setUrl(DEMO_DEFAULT_URL);
                 setTest({ kind: "idle" });
               }}
               disabled={pending}
             >
-              <option value="rtsp">RTSP</option>
-              <option value="http">HTTP / MJPEG</option>
-              <option value="usb">USB (ML host-ын локал)</option>
-              <option value="webcam">Webcam (browser)</option>
+              {TYPE_ORDER.map((value) => (
+                <option key={value} value={value}>
+                  {t(TYPE_LABELS[value])}
+                </option>
+              ))}
             </select>
-            <p className="helper">{hint.help}</p>
+            <p className="helper">{t(hint.help)}</p>
           </div>
 
           <div>
-            <label className="label">URL</label>
+            <label className="label">{t("camd_url")}</label>
             <input
               className="input font-mono text-xs"
               value={url}
@@ -248,7 +261,7 @@ export function CameraDialog(props: Props) {
                 setUrl(e.target.value);
                 setTest({ kind: "idle" });
               }}
-              placeholder={hint.placeholder}
+              placeholder={t(hint.placeholder)}
               disabled={pending}
               spellCheck={false}
               autoComplete="off"
@@ -258,7 +271,7 @@ export function CameraDialog(props: Props) {
           {/* Test connection block */}
           <div className="card-glass p-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="section-title">Холболт шалгах</h3>
+              <h3 className="section-title">{t("camd_test_title")}</h3>
               <button
                 type="button"
                 onClick={runTest}
@@ -266,8 +279,7 @@ export function CameraDialog(props: Props) {
                   test.kind === "running" ||
                   pending ||
                   !url.trim() ||
-                  camType === "usb" ||
-                  camType === "webcam"
+                  localOnly(camType)
                 }
                 className="btn-secondary btn-sm"
               >
@@ -276,22 +288,24 @@ export function CameraDialog(props: Props) {
                 ) : (
                   <Wifi className="w-3.5 h-3.5" />
                 )}
-                Шалгах
+                {t("camd_test_btn")}
               </button>
             </div>
 
             {test.kind === "idle" && (
               <p className="text-2xs text-text-muted">
-                {camType === "usb" || camType === "webcam"
-                  ? "Энэ төрлийг ML-аас шалгах боломжгүй (browser/локал төхөөрөмж)."
-                  : "URL хүрэх эсэх + frame унших боломжтой эсэхийг ML 8 сек-ийн дотор шалгана."}
+                {localOnly(camType)
+                  ? t("camd_test_idle_local")
+                  : camType === "demo"
+                    ? t("camd_test_idle_demo")
+                    : t("camd_test_idle_net")}
               </p>
             )}
 
             {test.kind === "running" && (
               <p className="text-2xs text-text-soft inline-flex items-center gap-2">
                 <Loader2 className="w-3 h-3 animate-spin" />
-                Холбогдож байна… (≤8s)
+                {t("camd_test_running")}
               </p>
             )}
 
@@ -303,7 +317,7 @@ export function CameraDialog(props: Props) {
                 )}
               >
                 <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
-                <span className="text-success font-medium">Амжилттай</span>
+                <span className="text-success font-medium">{t("camd_test_ok")}</span>
                 <span className="text-text-soft font-mono">
                   · {test.width}×{test.height}
                   {test.fps > 0 && ` @ ${test.fps} fps`}
@@ -320,7 +334,7 @@ export function CameraDialog(props: Props) {
               >
                 <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
                 <div className="min-w-0">
-                  <div className="text-danger font-medium">Амжилтгүй</div>
+                  <div className="text-danger font-medium">{t("camd_test_fail")}</div>
                   <div className="text-text-soft mt-0.5 break-words">
                     {test.message}
                   </div>

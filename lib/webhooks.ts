@@ -43,11 +43,20 @@ function isPrivateIp(ip: string): boolean {
   return PRIVATE_IP_REGEXES.some((r) => r.test(ip));
 }
 
-export type WebhookEvent =
-  | "alert_created"
-  | "reveal_completed"
-  | "system_health"
-  | "audit_critical";
+/**
+ * Single source of truth for the event vocabulary. The /webhooks server
+ * action validates its checkbox list against this array and the form mirrors
+ * it (the form cannot import this module — it pulls in node:dns).
+ */
+export const WEBHOOK_EVENTS = [
+  "alert_created",
+  "reveal_requested",
+  "reveal_completed",
+  "system_health",
+  "audit_critical",
+] as const;
+
+export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
 interface WebhookRow {
   id: string;
@@ -69,17 +78,60 @@ interface AlertEventPayload {
   url: string;
 }
 
-interface RevealEventPayload {
-  type: "reveal_completed";
+/**
+ * A reveal job was created and is waiting for a SECOND admin (4-eyes). The
+ * link points at the approvals queue rather than the job so the recipient
+ * lands where the decision is taken.
+ */
+export interface RevealRequestedEventPayload {
+  type: "reveal_requested";
   job_id: string;
   recording_id: string;
-  status: "completed" | "failed";
-  duration_sec: number | null;
+  method: string;
+  threshold: number | null;
   requested_email: string | null;
+  created_at: string;
   url: string;
 }
 
-export type EventPayload = AlertEventPayload | RevealEventPayload | Record<string, unknown>;
+/**
+ * Lifecycle end of a reveal request. `approved` / `rejected` are the 4-eyes
+ * decisions (no separate decision event exists by design — subscribers opt
+ * into one "reveal finished" stream); `completed` / `failed` are reserved for
+ * the ML run itself.
+ */
+export interface RevealEventPayload {
+  type: "reveal_completed";
+  job_id: string;
+  recording_id: string;
+  status: "completed" | "failed" | "approved" | "rejected";
+  duration_sec: number | null;
+  requested_email: string | null;
+  decided_email?: string | null;
+  reason?: string | null;
+  url: string;
+}
+
+export type EventPayload =
+  | AlertEventPayload
+  | RevealRequestedEventPayload
+  | RevealEventPayload
+  | Record<string, unknown>;
+
+const REVEAL_STATUS_LABEL: Record<RevealEventPayload["status"], string> = {
+  completed: "✅ Reveal completed",
+  failed: "❌ Reveal failed",
+  approved: "✅ Reveal approved",
+  rejected: "⛔ Reveal rejected",
+};
+
+// Discord embed colours: green for a positive outcome, red otherwise.
+const REVEAL_STATUS_COLOR: Record<RevealEventPayload["status"], number> = {
+  completed: 0x23d160,
+  failed: 0xff3860,
+  approved: 0x23d160,
+  rejected: 0xff3860,
+};
 
 function buildSlackBody(p: EventPayload): unknown {
   if (p.type === "alert_created") {
@@ -94,6 +146,44 @@ function buildSlackBody(p: EventPayload): unknown {
         ] },
         { type: "actions", elements: [
           { type: "button", text: { type: "plain_text", text: "View" }, url: ap.url },
+        ] },
+      ],
+    };
+  }
+  if (p.type === "reveal_requested") {
+    const rp = p as RevealRequestedEventPayload;
+    return {
+      text: `🔐 MONGOLZ reveal request from *${rp.requested_email ?? "unknown"}* — awaiting 2nd-admin approval`,
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text: `🔐 *Reveal request — awaiting 4-eyes approval*` } },
+        { type: "section", fields: [
+          { type: "mrkdwn", text: `*Requester:*\n${rp.requested_email ?? "unknown"}` },
+          { type: "mrkdwn", text: `*Recording:*\n\`${rp.recording_id.slice(0, 8)}\`` },
+          { type: "mrkdwn", text: `*Method:*\n${rp.method}` },
+          { type: "mrkdwn", text: `*When:*\n${rp.created_at}` },
+        ] },
+        { type: "actions", elements: [
+          { type: "button", text: { type: "plain_text", text: "Review" }, url: rp.url },
+        ] },
+      ],
+    };
+  }
+  if (p.type === "reveal_completed") {
+    const rp = p as RevealEventPayload;
+    const label = REVEAL_STATUS_LABEL[rp.status] ?? `Reveal ${rp.status}`;
+    const fields = [
+      { type: "mrkdwn", text: `*Requester:*\n${rp.requested_email ?? "unknown"}` },
+      { type: "mrkdwn", text: `*Recording:*\n\`${rp.recording_id.slice(0, 8)}\`` },
+    ];
+    if (rp.decided_email) fields.push({ type: "mrkdwn", text: `*Decided by:*\n${rp.decided_email}` });
+    if (rp.reason) fields.push({ type: "mrkdwn", text: `*Reason:*\n${rp.reason}` });
+    return {
+      text: `${label} — ${rp.requested_email ?? "unknown"}`,
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text: `*${label}*` } },
+        { type: "section", fields },
+        { type: "actions", elements: [
+          { type: "button", text: { type: "plain_text", text: "View" }, url: rp.url },
         ] },
       ],
     };
@@ -115,6 +205,40 @@ function buildDiscordBody(p: EventPayload): unknown {
         ],
         url: ap.url,
         timestamp: ap.created_at,
+      }],
+    };
+  }
+  if (p.type === "reveal_requested") {
+    const rp = p as RevealRequestedEventPayload;
+    return {
+      embeds: [{
+        title: "🔐 Reveal request — awaiting 4-eyes approval",
+        description: `**${rp.requested_email ?? "unknown"}** asked to un-blur a recording. A second admin must approve.`,
+        color: 0xffdd57,
+        fields: [
+          { name: "Recording", value: rp.recording_id.slice(0, 8), inline: true },
+          { name: "Method", value: rp.method, inline: true },
+          { name: "When", value: rp.created_at, inline: true },
+        ],
+        url: rp.url,
+        timestamp: rp.created_at,
+      }],
+    };
+  }
+  if (p.type === "reveal_completed") {
+    const rp = p as RevealEventPayload;
+    const fields = [
+      { name: "Requester", value: rp.requested_email ?? "unknown", inline: true },
+      { name: "Recording", value: rp.recording_id.slice(0, 8), inline: true },
+    ];
+    if (rp.decided_email) fields.push({ name: "Decided by", value: rp.decided_email, inline: true });
+    if (rp.reason) fields.push({ name: "Reason", value: rp.reason, inline: false });
+    return {
+      embeds: [{
+        title: REVEAL_STATUS_LABEL[rp.status] ?? `Reveal ${rp.status}`,
+        color: REVEAL_STATUS_COLOR[rp.status] ?? 0x7a7a7a,
+        fields,
+        url: rp.url,
       }],
     };
   }

@@ -100,6 +100,14 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 - AI insights (Claude — anomaly / summary / chat)
 - i18n: mn / en / kr (server-resolved cookie + client `useT()` hook)
 - PWA manifest, skip-to-content link, `prefers-reduced-motion`, dark/light
+- Live monitoring: `/grid` NVR-style multi-camera view (auto/1/2×2/3×3/4×4, Start all,
+  focus, fullscreen) and `/wall` with a live-video mode; built-in `demo://lobby|gate|parking`
+  camera sources (cam_type `demo`) stream a synthetic looping clip for demos
+- Alert workflow: new → acknowledged → closed with notes, tabs on `/alerts`, acknowledge
+  from the realtime popup; reveal requests notify the second admin (webhook, push, Telegram)
+- Reliability: the ML service records running cameras in `camera_sessions` and resumes them
+  after a redeploy (supervisor with backoff); pg_cron probes `/api/uptime` every 5 min and
+  posts ML down/recovered transitions to Telegram
 - App shell: sticky header (breadcrumbs, ⌘K palette with actions, live ML/DB status,
   theme + language, account menu), grouped sidebar, phone bottom tab bar, toast
   notifications — all driven by one navigation source (`lib/nav.ts`); Geist typography

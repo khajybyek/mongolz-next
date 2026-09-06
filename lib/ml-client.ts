@@ -66,11 +66,15 @@ export async function mlDetect(image: Buffer | Blob): Promise<DetectedFace[]> {
 }
 
 /** Камер RTSP-г унших ажил эхлүүлэх */
-export async function mlStartCamera(cameraId: string, rtspUrl: string): Promise<void> {
+export async function mlStartCamera(cameraId: string, rtspUrl: string, cameraName?: string | null): Promise<void> {
   await mlFetch("/camera/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ camera_id: cameraId, url: rtspUrl }),
+    body: JSON.stringify({
+      camera_id: cameraId,
+      url: rtspUrl,
+      ...(cameraName ? { camera_name: cameraName } : {}),
+    }),
   });
 }
 
@@ -87,6 +91,9 @@ export interface ActiveCamera {
   camera_name: string | null;
   started_at: string | null;
   fps: number | null;
+  /** Supervisor restarts since the session was first started (ML ≥ 2026-09-07). */
+  restart_count?: number | null;
+  last_error?: string | null;
 }
 
 /**

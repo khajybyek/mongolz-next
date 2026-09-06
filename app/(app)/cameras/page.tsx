@@ -2,11 +2,13 @@ import Link from "next/link";
 import { Power, Clock, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
+import { Badge } from "@/components/ui/badge";
 import { DeleteWithTotp } from "@/components/delete-with-totp";
 import { CameraDialog } from "@/components/camera-edit-dialog";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
+import { mlActiveCameras } from "@/lib/ml-client";
 import {
   deleteCameraAction,
   toggleCameraAction,
@@ -37,9 +39,10 @@ export default async function CamerasPage() {
   const { t } = await getT();
   const supabase = await createClient();
 
-  const [{ data: rawCameras }, { data: healthRows }] = await Promise.all([
+  const [{ data: rawCameras }, { data: healthRows }, active] = await Promise.all([
     supabase.from("cameras").select("*").order("created_at", { ascending: false }),
     supabase.rpc("camera_health"),
+    mlActiveCameras(),
   ]);
 
   const healthById = new Map<string, HealthRow>();
@@ -47,10 +50,15 @@ export default async function CamerasPage() {
     healthById.set(r.camera_id, { ...r, faces_24h: Number(r.faces_24h), faces_1h: Number(r.faces_1h) });
   }
 
+  // `null` = ML unreachable → no camera is marked LIVE (nothing else changes;
+  // the page must not surface ML outages, /grid already does).
+  const streamingIds = new Set((active ?? []).map((a) => a.camera_id));
+
   const cameras = (rawCameras ?? []).map((c) => ({
     ...c,
     url: displayCameraUrl(c.url),
     health: healthById.get(c.id) ?? null,
+    streaming: c.enabled && streamingIds.has(c.id),
   }));
 
   const healthSummary = {
@@ -87,6 +95,17 @@ export default async function CamerasPage() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="font-semibold">{c.name}</span>
+                    {c.streaming && (
+                      <Link
+                        href={`/grid?focus=${c.id}` as never}
+                        title={t("cam_live_open_grid")}
+                        className="inline-flex hover:opacity-80 transition-opacity"
+                      >
+                        <Badge variant="danger" dot>
+                          {t("grid_live")}
+                        </Badge>
+                      </Link>
+                    )}
                     {/* Health status pill — shows freshness of last face detection */}
                     {c.health && (
                       <span
@@ -131,9 +150,15 @@ export default async function CamerasPage() {
                     >
                       {c.enabled ? "ON" : "OFF"}
                     </span>
-                    <span className="badge bg-bg-tertiary text-text-soft">
-                      {c.cam_type.toUpperCase()}
-                    </span>
+                    {c.cam_type === "demo" ? (
+                      <Badge variant="muted" title={t("cam_badge_demo_title")}>
+                        {t("cam_badge_demo")}
+                      </Badge>
+                    ) : (
+                      <span className="badge bg-bg-tertiary text-text-soft">
+                        {c.cam_type.toUpperCase()}
+                      </span>
+                    )}
                     {c.consent_required && (
                       <span
                         className="badge bg-warning/15 text-warning"

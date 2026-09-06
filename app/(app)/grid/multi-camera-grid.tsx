@@ -71,10 +71,13 @@ export function MultiCameraGrid({
   cameras,
   initialActive,
   mlReachable,
+  initialFocus = null,
 }: {
   cameras: GridCamera[];
   initialActive: string[];
   mlReachable: boolean;
+  /** Camera id from `?focus=` — focused on mount (starting stays an explicit click). */
+  initialFocus?: string | null;
 }) {
   const { t } = useT();
   const { toast } = useToast();
@@ -98,6 +101,8 @@ export function MultiCameraGrid({
   streamsRef.current = streams;
   const busyRef = useRef(busy);
   busyRef.current = busy;
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
 
   // Remember the operator's preferred layout.
   useEffect(() => {
@@ -247,6 +252,31 @@ export function MultiCameraGrid({
     [detach, t, toast],
   );
 
+  // Leaving focus lands on the page that holds that camera, so a deep-linked
+  // tile on page 3 does not vanish behind page 1 when the operator backs out.
+  const leaveFocus = useCallback(() => {
+    const cur = focusedRef.current;
+    if (cur) {
+      const idx = cameras.findIndex((c) => c.id === cur);
+      if (idx >= 0) setPage(Math.floor(idx / tiles));
+    }
+    setFocused(null);
+  }, [cameras, tiles]);
+  const leaveFocusRef = useRef(leaveFocus);
+  leaveFocusRef.current = leaveFocus;
+
+  // `?focus=` deep link: focus the tile on mount and start it once if it is
+  // idle. The ref guards the double effect run (strict mode) and re-renders,
+  // so the ML service is never asked to start the same capture twice.
+  const autoFocusRef = useRef(false);
+  useEffect(() => {
+    if (!initialFocus || autoFocusRef.current) return;
+    const cam = cameras.find((c) => c.id === initialFocus);
+    if (!cam) return;
+    autoFocusRef.current = true;
+    setFocused(cam.id);
+  }, [initialFocus, cameras]);
+
   async function startAll() {
     setBulk("start");
     for (const cam of visible) {
@@ -269,7 +299,7 @@ export function MultiCameraGrid({
       setIsFull(Boolean(document.fullscreenElement));
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setFocused(null);
+      if (e.key === "Escape") leaveFocusRef.current();
     }
     document.addEventListener("fullscreenchange", onFs);
     document.addEventListener("keydown", onKey);
@@ -402,7 +432,7 @@ export function MultiCameraGrid({
       {focusedCam ? (
         <div className={cn("flex flex-col gap-2", fill && "flex-1 min-h-0")}>
           <div className="flex items-center gap-2">
-            <button type="button" className="btn-ghost btn-sm" onClick={() => setFocused(null)}>
+            <button type="button" className="btn-ghost btn-sm" onClick={leaveFocus}>
               <X className="w-3.5 h-3.5" />
               {t("grid_back_grid")}
             </button>
@@ -418,7 +448,7 @@ export function MultiCameraGrid({
               focused
               onStart={() => start(focusedCam)}
               onStop={() => stop(focusedCam)}
-              onFocus={() => setFocused(null)}
+              onFocus={leaveFocus}
               onPlaying={() => setPlaying((p) => new Set(p).add(focusedCam.id))}
               onError={() => setFailed((p) => new Set(p).add(focusedCam.id))}
               onRetry={() => void attach(focusedCam.id)}

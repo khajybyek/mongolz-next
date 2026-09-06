@@ -20,13 +20,13 @@ export async function startCameraAction(cameraId: string) {
   const supabase = await createClient();
   const { data: cam } = await supabase
     .from("cameras")
-    .select("id, url")
+    .select("id, url, name")
     .eq("id", cameraId)
     .single();
 
   if (!cam) throw new Error("Камер олдсонгүй");
   const plainUrl = unwrapCameraUrlForRuntime(cam.url);
-  await mlStartCamera(cam.id, plainUrl);
+  await mlStartCamera(cam.id, plainUrl, cam.name);
   await audit("CAMERA_START", `camera ${cam.id}`, user.id, user.email);
 }
 

@@ -29,6 +29,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { cn, formatDate, pct } from "@/lib/utils";
+import { alertStateLabelKey, asAlertState, stateBadgeVariant } from "@/lib/alerts";
 import { LiveActivityFeed, type ActivityItem } from "./live-activity-feed";
 import { probeDb, probeMl } from "@/lib/health-probes";
 
@@ -66,6 +67,7 @@ export default async function DashboardPage({
     { count: recordingCount },
     { count: cameraCount },
     { count: alerts24h },
+    { count: newAlerts },
     { data: recentAlerts },
     { data: trendRows },
     { data: cameraRows },
@@ -79,9 +81,10 @@ export default async function DashboardPage({
     supabase.from("recordings").select("*", { count: "exact", head: true }),
     supabase.from("cameras").select("*", { count: "exact", head: true }).eq("enabled", true),
     supabase.from("alerts").select("*", { count: "exact", head: true }).gte("created_at", since24h),
+    supabase.from("alerts").select("*", { count: "exact", head: true }).eq("state", "new"),
     supabase
       .from("alerts")
-      .select("id, suspect_name, similarity, created_at, camera_name")
+      .select("id, suspect_name, similarity, created_at, camera_name, state")
       .order("created_at", { ascending: false })
       .limit(8),
     supabase.from("alerts").select("created_at").gte("created_at", since14d).limit(5000),
@@ -248,7 +251,7 @@ export default async function DashboardPage({
           value={(alertCount ?? 0).toLocaleString()}
           icon={Bell}
           accent={alertCount && alertCount > 0 ? "danger" : "default"}
-          hint={`${alerts24h ?? 0} ${t("alerts_24h") || "in 24h"}`}
+          hint={`${alerts24h ?? 0} ${t("alerts_24h") || "in 24h"} · ${newAlerts ?? 0} ${t("al_new_count")}`}
           href={isAdmin ? "/alerts" : undefined}
         />
         <StatCard
@@ -345,9 +348,14 @@ export default async function DashboardPage({
                       </div>
                     </div>
                   </div>
-                  <Badge variant={(a.similarity ?? 0) >= 0.7 ? "danger" : (a.similarity ?? 0) >= 0.5 ? "warning" : "info"}>
-                    {pct(a.similarity ?? 0)}
-                  </Badge>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Badge variant={stateBadgeVariant(asAlertState(a.state))} dot>
+                      {t(alertStateLabelKey(asAlertState(a.state)))}
+                    </Badge>
+                    <Badge variant={(a.similarity ?? 0) >= 0.7 ? "danger" : (a.similarity ?? 0) >= 0.5 ? "warning" : "info"}>
+                      {pct(a.similarity ?? 0)}
+                    </Badge>
+                  </div>
                 </li>
               ))}
             </ul>

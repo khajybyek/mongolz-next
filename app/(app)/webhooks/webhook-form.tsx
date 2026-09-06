@@ -11,6 +11,7 @@ const REAUTH_REQUIRED = "REAUTH_REQUIRED";
 
 const EVENTS = [
   { key: "alert_created", labelKey: "wh_ev_alert_created" },
+  { key: "reveal_requested", labelKey: "wh_ev_reveal_requested" },
   { key: "reveal_completed", labelKey: "wh_ev_reveal_completed" },
   { key: "system_health", labelKey: "wh_ev_system_health" },
   { key: "audit_critical", labelKey: "wh_ev_audit_critical" },

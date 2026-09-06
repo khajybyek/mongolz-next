@@ -9,11 +9,11 @@ export async function GET() {
   const supabase = await createClient();
   const { data: alerts } = await supabase
     .from("alerts")
-    .select("suspect_name, similarity, camera_name, created_at, screenshot_path")
+    .select("suspect_name, similarity, camera_name, created_at, state, screenshot_path")
     .order("created_at", { ascending: false })
     .limit(10000);
 
-  const header = ["suspect_name", "similarity", "camera_name", "created_at", "screenshot_path"];
+  const header = ["suspect_name", "similarity", "camera_name", "created_at", "state", "screenshot_path"];
   const lines = [header.join(",")];
 
   for (const a of alerts ?? []) {
@@ -23,6 +23,7 @@ export async function GET() {
         csvCell(a.similarity),
         csvCell(a.camera_name ?? ""),
         csvCell(a.created_at),
+        csvCell(a.state),
         csvCell(a.screenshot_path ?? ""),
       ].join(",")
     );

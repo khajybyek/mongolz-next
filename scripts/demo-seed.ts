@@ -22,12 +22,13 @@ else if (existsSync(".env.local")) loadEnv({ path: ".env.local" });
 
 import { createClient } from "@supabase/supabase-js";
 import { encryptCameraUrl } from "../lib/camera-crypto";
+import type { CameraType } from "../lib/database.types";
 
 const DEMO_PREFIX = "demo:";
 
 interface SeedCamera {
   name: string;
-  cam_type: "rtsp" | "http" | "usb" | "webcam";
+  cam_type: CameraType;
   url: string;
 }
 
@@ -36,6 +37,11 @@ const DEMO_CAMERAS: SeedCamera[] = [
   { name: `${DEMO_PREFIX}Lobby (RTSP)`, cam_type: "rtsp", url: "rtsp://demo:demo@192.168.1.11:554/stream1" },
   { name: `${DEMO_PREFIX}Parking Lot (HTTP)`, cam_type: "http", url: "http://192.168.1.20:8080/video" },
   { name: `${DEMO_PREFIX}Reception (USB)`, cam_type: "usb", url: "0" },
+  // Built-in ML sample sources — these actually stream (synthetic looping
+  // video with faces), so /grid "Start all" works without any hardware.
+  { name: `${DEMO_PREFIX} Lobby`, cam_type: "demo", url: "demo://lobby" },
+  { name: `${DEMO_PREFIX} Gate A`, cam_type: "demo", url: "demo://gate" },
+  { name: `${DEMO_PREFIX} Parking`, cam_type: "demo", url: "demo://parking" },
 ];
 
 const DEMO_SUSPECTS = [

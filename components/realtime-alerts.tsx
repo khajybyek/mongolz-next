@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bell, X, AlertTriangle } from "lucide-react";
+import { Bell, X, AlertTriangle, Check, Loader2 } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/components/ui/toast";
 
 interface Alert {
   id: string;
@@ -17,6 +18,8 @@ interface RealtimeAlertsLabels {
   matchLabel: string;       // "Тааралцал" / "Match" / "일치율"
   seeAll: string;            // "Бүх alert харах →"
   dismiss: string;           // "Хаах"
+  ack: string;
+  ackFailed?: string;               // "Хүлээн авах" / "Acknowledge"
 }
 
 /**
@@ -27,11 +30,14 @@ export function RealtimeAlerts({
     matchLabel: "Match",
     seeAll: "See all alerts →",
     dismiss: "Close",
+    ack: "Acknowledge",
   },
 }: {
   labels?: RealtimeAlertsLabels;
 } = {}) {
   const [toasts, setToasts] = useState<Alert[]>([]);
+  const { toast } = useToast();
+  const [acking, setAcking] = useState<Set<string>>(() => new Set());
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const notifPermissionRef = useRef<NotificationPermission>("default");
 
@@ -92,6 +98,31 @@ export function RealtimeAlerts({
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }
 
+  // Acknowledge straight from the popup. On failure the toast stays up with
+  // the button re-enabled — the /alerts page carries the full error path.
+  async function acknowledge(id: string) {
+    setAcking((prev) => new Set(prev).add(id));
+    let ok = false;
+    try {
+      const res = await fetch(`/api/alerts/${id}/state`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: "acknowledged" }),
+      });
+      // 409 = someone else already moved it; nothing left to do here either.
+      ok = res.ok || res.status === 409;
+    } catch {
+      ok = false;
+    }
+    setAcking((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    if (ok) dismiss(id);
+    else toast({ title: labels.ackFailed ?? "Acknowledge failed", tone: "danger" });
+  }
+
   return (
     <>
       {/* Audio - subtle ping */}
@@ -122,13 +153,28 @@ export function RealtimeAlerts({
               <div className="text-[11px] text-text-soft mt-0.5">
                 {(a.similarity * 100).toFixed(1)}% · {a.camera_name ?? "—"}
               </div>
-              <a
-                href="/alerts"
-                className="text-[11px] text-accent hover:underline mt-1 inline-flex items-center gap-1"
-              >
-                <Bell className="w-3 h-3" />
-                {labels.seeAll}
-              </a>
+              <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => acknowledge(a.id)}
+                  disabled={acking.has(a.id)}
+                  className="btn-outline btn-sm"
+                >
+                  {acking.has(a.id) ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Check className="w-3 h-3" />
+                  )}
+                  {labels.ack}
+                </button>
+                <a
+                  href="/alerts"
+                  className="text-[11px] text-accent hover:underline inline-flex items-center gap-1"
+                >
+                  <Bell className="w-3 h-3" />
+                  {labels.seeAll}
+                </a>
+              </div>
             </div>
             <button
               type="button"

@@ -18,11 +18,22 @@ type HealthRow = {
 };
 
 const STATUSES = new Set(["healthy", "stale", "offline", "unknown"]);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export default async function GridPage() {
+export default async function GridPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ focus?: string | string[] }>;
+}) {
   await requireAdmin();
   const { t } = await getT();
   const supabase = await createClient();
+
+  // `?focus=<camera uuid>` deep-links from /cameras (LIVE badge). Anything
+  // that is not a UUID is ignored rather than passed to the client.
+  const sp = (await searchParams) ?? {};
+  const rawFocus = Array.isArray(sp.focus) ? sp.focus[0] : sp.focus;
+  const initialFocus = rawFocus && UUID_RE.test(rawFocus) ? rawFocus.toLowerCase() : null;
 
   const [{ data: rows }, { data: healthRows }, active] = await Promise.all([
     supabase
@@ -76,7 +87,12 @@ export default async function GridPage() {
           }
         />
       ) : (
-        <MultiCameraGrid cameras={cameras} initialActive={initialActive} mlReachable={active !== null} />
+        <MultiCameraGrid
+          cameras={cameras}
+          initialActive={initialActive}
+          mlReachable={active !== null}
+          initialFocus={initialFocus}
+        />
       )}
     </>
   );

@@ -73,6 +73,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                   matchLabel: t("rt_match_label", lang),
                   seeAll: t("rt_see_all", lang),
                   dismiss: t("rt_dismiss", lang),
+                  ack: t("rt_ack", lang),
+                  ackFailed: t("rt_ack_failed", lang),
                 }}
               />
             )}

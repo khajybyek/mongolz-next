@@ -183,6 +183,30 @@ Open `/api/uptime` in a tab.
 
 ---
 
+## Demo cameras (no hardware needed)
+
+The ML service ships three built-in sources — `demo://lobby`, `demo://gate`,
+`demo://parking` — each a synthetic looping clip with faces, so the live grid,
+the wall, detection and alerts can all be shown from a room with no CCTV.
+
+- **Seed them:** `npm run demo:seed` adds `demo: Lobby`, `demo: Gate A`,
+  `demo: Parking` (type `demo`, enabled). `npm run demo:wipe` removes them
+  with the rest of the `demo:` rows.
+- **Or add one by hand:** `/cameras` → **Камер нэмэх** → type **Demo
+  (built-in sample)** → the URL prefills to `demo://lobby` → **Шалгах**
+  (the probe answers instantly) → **Нэмэх**.
+- **Stream them:** open `/grid` and press **Start all** — every demo camera
+  starts capturing, recording + detecting like a real RTSP feed. A red
+  **LIVE** badge appears next to it on `/cameras`; clicking it opens `/grid`
+  focused on that camera (starting is always an explicit click).
+- **Latency note:** the first HLS segment takes ~5–8 s to appear, then the
+  picture runs ~6–10 s behind the source — normal for HLS, say so before
+  pressing Start rather than after. ML must be reachable (`/api/uptime`
+  `ml: ok`); if it is down, the Start buttons stay disabled and nothing
+  streams.
+
+---
+
 ## Failure recovery
 
 | Failure | Recovery |
@@ -190,6 +214,6 @@ Open `/api/uptime` in a tab.
 | Public landing slow | Refresh once; if still slow → screenshot of the page open in another tab |
 | Login won't accept TOTP | Try a recovery code (one of the 10 SHA-256 hashed codes) |
 | /compare fails | Open `docs/PENTEST_REPORT.pdf` instead — "Here's the consolidated report" |
-| /live no camera | Switch to "Гар утас" tab and demo the IP webcam URL |
+| /live no camera | Switch to "Гар утас" tab and demo the IP webcam URL — or open `/grid` and start a `demo://` camera |
 | 2FA prompt won't open | Mention "TotpPrompt is conditional on REAUTH_REQUIRED — must have admin role" |
 | Whole production down | Pull up the GitHub Actions Security page to show recent green runs |

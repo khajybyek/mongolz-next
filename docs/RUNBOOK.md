@@ -247,7 +247,53 @@ To trigger a one-off DAST scan: GitHub Actions → Security workflow → `Run wo
 
 ---
 
-## 5. Contacts (capstone scope)
+## 5. Notifications
+
+Every operator-facing event fans out best-effort (a broken channel is logged,
+never blocks the request that triggered it). Source: `lib/notify.ts`.
+
+| Event | Trigger | Channels |
+|---|---|---|
+| Suspect alert | `alerts` INSERT trigger (`notify_telegram_on_alert`, pg_net) | Telegram · webhooks (`alert_created`) · web push (`/api/push/dispatch`) |
+| Reveal request (4-eyes) | `POST /api/reveal/start` → job `pending_approval` | Telegram · webhooks (`reveal_requested`) · web push to every admin **except the requester** → `/reveal-approvals` |
+| Reveal decision | `approveRevealAction` / `rejectRevealAction` | Telegram · webhooks (`reveal_completed`, status `approved` / `rejected`) · web push to the requester → `/jobs` |
+| ML service down / recovered | in-DB uptime monitor (below) | Telegram (🔴 `ml_down` / 🟢 `ml_recovered`) |
+
+All Telegram traffic goes through the `telegram-alerts` edge function
+(`supabase/functions/telegram-alerts/index.ts`), which branches on
+`payload.kind`. Redeploy it after any message change:
+`npx supabase functions deploy telegram-alerts --project-ref ulybenitqmqjfxtaregp`.
+
+### Uptime monitor (pg_cron)
+
+Vercel Hobby crons are daily, so the 5-minute probe lives in Postgres
+(`supabase/migrations/20260906170200_uptime_monitor_pg_cron.sql`):
+
+1. `mongolz-uptime-probe` (`*/5 * * * *`) — `net.http_get` on
+   `https://aicctv.dev/api/uptime`, row inserted into `public.uptime_checks`.
+2. `mongolz-uptime-collect` (`2-59/5 * * * *`) — parses the response into
+   `ml_ok` / `db_ok` / `status`; on an ML ok↔down transition between the two
+   latest probes it POSTs `{"kind":"ml_down"|"ml_recovered","checked_at":…}`
+   to the edge function once (`notified` column) and prunes rows > 30 days.
+
+Inspect:
+
+```sql
+select checked_at, http_status, ml_ok, db_ok, status, notified
+  from public.uptime_checks order by checked_at desc limit 20;
+
+select jobid, jobname, schedule, active from cron.job;
+select * from cron.job_run_details order by start_time desc limit 10;
+```
+
+No Telegram on an outage usually means the vault secrets are missing
+(`select name from vault.decrypted_secrets` must list `edge_url` and
+`service_role_key`) or the edge function returned non-2xx — check
+`net._http_response` for the latest `request_id`.
+
+---
+
+## 6. Contacts (capstone scope)
 
 | Role | Contact |
 |---|---|
@@ -259,7 +305,7 @@ To trigger a one-off DAST scan: GitHub Actions → Security workflow → `Run wo
 
 ---
 
-## 6. Document control
+## 7. Document control
 
 - **Version:** 2.0 (replaces v1)
 - **Last reviewed:** 2026-05-17

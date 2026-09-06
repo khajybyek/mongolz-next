@@ -1,9 +1,10 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { hasFreshReauth } from "@/lib/auth/step-up";
 import { mlEmbed, MLError } from "@/lib/ml-client";
 import { checkRateLimit, REVEAL_LIMIT } from "@/lib/rate-limit";
+import { notifyRevealRequested } from "@/lib/notify";
 import type { RevealMethod } from "@/lib/database.types";
 
 export async function POST(request: NextRequest) {
@@ -222,6 +223,20 @@ export async function POST(request: NextRequest) {
     user_id: ctx.user.id,
     user_email: ctx.user.email,
   });
+
+  // 3. Tell the other admins a request is waiting — after the response is
+  // sent, so a slow webhook/Telegram round-trip never delays the requester.
+  // notifyRevealRequested is best-effort and never throws.
+  after(() =>
+    notifyRevealRequested({
+      jobId: job.id,
+      recordingId: recording_id,
+      requesterId: ctx.user.id,
+      requesterEmail: ctx.user.email,
+      method,
+      threshold,
+    }),
+  );
 
   // NOTE: ML is intentionally NOT triggered here — see approveRevealAction.
   return NextResponse.json({ job_id: job.id, status: "pending_approval" });

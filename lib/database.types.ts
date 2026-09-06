@@ -29,10 +29,16 @@ export type SuspectPrivacyTier = Enums<"suspect_privacy_tier">;
 export type RevealMethod = Enums<"reveal_method">;
 export type RevealStatus = Enums<"reveal_status">;
 export type AlertLabel = Enums<"alert_label">;
+/**
+ * alerts.state — CHECK-constrained text (not a Postgres enum). Workflow
+ * state, independent of the TP/FP `label`: new → acknowledged → closed,
+ * with reopen back to new. Transition rules live in `lib/alerts.ts`.
+ */
+export type AlertState = "new" | "acknowledged" | "closed";
 
 // ── CHECK-constrained text columns (not Postgres enums) ───────────────
-/** cameras.cam_type */
-export type CameraType = "rtsp" | "http" | "usb" | "webcam";
+/** cameras.cam_type — `demo` is a synthetic source built into the ML service (url `demo://<name>`). */
+export type CameraType = "rtsp" | "http" | "usb" | "webcam" | "demo";
 /**
  * recordings.blur_strategy — how the blurred playback view is produced.
  *   • baked     — a separate plaintext blurred MP4 was written at recording

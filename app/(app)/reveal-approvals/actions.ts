@@ -2,11 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { mlTriggerReveal, MLError } from "@/lib/ml-client";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
+import { notifyRevealDecision } from "@/lib/notify";
 
 /**
  * 4-eyes reveal decisions. Both actions return a result object (never throw)
@@ -42,7 +44,7 @@ export async function approveRevealAction(jobIdRaw: string): Promise<DecisionRes
   const svc = createServiceClient();
   const { data: job } = await svc
     .from("reveal_jobs")
-    .select("id, status, requested_by, requested_email")
+    .select("id, status, requested_by, requested_email, recording_id")
     .eq("id", jobId)
     .maybeSingle();
 
@@ -96,6 +98,18 @@ export async function approveRevealAction(jobIdRaw: string): Promise<DecisionRes
     ctx.user.id,
     ctx.user.email,
   );
+  // Tell the requester after the action has returned; best-effort, never
+  // affects the DecisionResult.
+  after(() =>
+    notifyRevealDecision({
+      jobId: job.id,
+      recordingId: job.recording_id,
+      requesterId: job.requested_by,
+      requesterEmail: job.requested_email,
+      approved: true,
+      deciderEmail: ctx.user.email,
+    }),
+  );
   revalidatePath("/reveal-approvals");
   return { ok: true };
 }
@@ -110,7 +124,7 @@ export async function rejectRevealAction(jobIdRaw: string, reasonRaw: string): P
   const svc = createServiceClient();
   const { data: job } = await svc
     .from("reveal_jobs")
-    .select("id, status, requested_by, requested_email")
+    .select("id, status, requested_by, requested_email, recording_id")
     .eq("id", parsedId.data)
     .maybeSingle();
   if (!job) return { error: "NOT_FOUND" };
@@ -140,6 +154,17 @@ export async function rejectRevealAction(jobIdRaw: string, reasonRaw: string): P
     `job ${job.id} reason=${parsedReason.data}`,
     ctx.user.id,
     ctx.user.email,
+  );
+  after(() =>
+    notifyRevealDecision({
+      jobId: job.id,
+      recordingId: job.recording_id,
+      requesterId: job.requested_by,
+      requesterEmail: job.requested_email,
+      approved: false,
+      deciderEmail: ctx.user.email,
+      reason: parsedReason.data,
+    }),
   );
   revalidatePath("/reveal-approvals");
   return { ok: true };

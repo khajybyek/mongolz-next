@@ -85,12 +85,19 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
   return { delivered, failed, gone };
 }
 
-export async function sendPushToAllAdmins(payload: PushPayload): Promise<{ delivered: number; failed: number; gone: number }> {
+/**
+ * Fan out to every admin except one — used for 4-eyes requests, where the
+ * requester must not be nudged to approve their own job. `null` excludes
+ * nobody.
+ */
+export async function sendPushToAdminsExcept(
+  excludeUserId: string | null,
+  payload: PushPayload,
+): Promise<{ delivered: number; failed: number; gone: number }> {
   const supabase = createServiceClient();
-  const { data: admins } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("role", "admin");
+  let query = supabase.from("profiles").select("id").eq("role", "admin");
+  if (excludeUserId) query = query.neq("id", excludeUserId);
+  const { data: admins } = await query;
   const totals = { delivered: 0, failed: 0, gone: 0 };
   for (const a of (admins ?? []) as Array<{ id: string }>) {
     const r = await sendPushToUser(a.id, payload);
@@ -99,4 +106,8 @@ export async function sendPushToAllAdmins(payload: PushPayload): Promise<{ deliv
     totals.gone += r.gone;
   }
   return totals;
+}
+
+export async function sendPushToAllAdmins(payload: PushPayload): Promise<{ delivered: number; failed: number; gone: number }> {
+  return sendPushToAdminsExcept(null, payload);
 }
