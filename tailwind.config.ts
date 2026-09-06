@@ -51,6 +51,12 @@ const config: Config = {
           800: "#005066",
           900: "#002433",
         },
+        // Secondary accent (violet) — pairs with cyan in gradients and hero art.
+        "accent-2": {
+          DEFAULT: "#7c3aed",
+          soft: "rgba(124,58,237,0.12)",
+          ring: "rgba(124,58,237,0.30)",
+        },
         // Status colors — slightly desaturated for elegance
         danger: {
           DEFAULT: "#f43f5e",
@@ -74,8 +80,17 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ["var(--font-geist)", "system-ui", "sans-serif"],
-        mono: ["var(--font-geist-mono)", "monospace"],
+        // Geist (Latin + Cyrillic) is self-hosted via next/font; Hangul falls
+        // through to the platform's Korean face.
+        sans: [
+          "var(--font-geist)",
+          "Apple SD Gothic Neo",
+          "Noto Sans KR",
+          "Malgun Gothic",
+          "system-ui",
+          "sans-serif",
+        ],
+        mono: ["var(--font-geist-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       fontSize: {
         // Refined type scale (denser, more dashboard-appropriate)
@@ -129,6 +144,7 @@ const config: Config = {
         "slide-in-right": "slideInRight 0.25s ease-out",
         "slide-in-left": "slideInLeft 0.25s ease-out",
         "scale-in": "scaleIn 0.2s ease-out",
+        "slide-up": "slideUp 0.28s cubic-bezier(0.22, 1, 0.36, 1)",
         shimmer: "shimmer 2s linear infinite",
         "pulse-glow": "pulseGlow 2s ease-in-out infinite",
       },
@@ -149,6 +165,10 @@ const config: Config = {
         scaleIn: {
           "0%": { opacity: "0", transform: "scale(0.96)" },
           "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        slideUp: {
+          "0%": { opacity: "0", transform: "translateY(24px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
         },
         shimmer: {
           "0%": { backgroundPosition: "-1000px 0" },

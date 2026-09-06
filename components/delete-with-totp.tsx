@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { TotpPrompt } from "@/components/totp-prompt";
+import { useToast } from "@/components/ui/toast";
 import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,7 @@ export function DeleteWithTotp({
   onSuccess,
 }: Props) {
   const { t } = useT();
+  const { toast } = useToast();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [needsTotp, setNeedsTotp] = useState(false);
@@ -51,8 +53,10 @@ export function DeleteWithTotp({
           return;
         }
         setError(res.error);
+        toast({ title: t("toast_failed"), description: res.error, tone: "danger" });
         return;
       }
+      toast({ title: t("toast_deleted"), description: label, tone: "success" });
       onSuccess?.();
       router.refresh();
     });
@@ -72,7 +76,7 @@ export function DeleteWithTotp({
         disabled={pending}
         className={cn(
           iconOnly
-            ? "p-1.5 rounded hover:bg-danger-soft text-text-soft hover:text-danger transition"
+            ? "btn-icon hover:bg-danger-soft hover:text-danger"
             : "btn-danger btn-sm w-full",
           className,
         )}
@@ -87,7 +91,7 @@ export function DeleteWithTotp({
         {!iconOnly && (label ?? t("delete_btn"))}
       </button>
       {error && !iconOnly && (
-        <p className="text-2xs text-danger mt-1">{error}</p>
+        <p className="helper-error">{error}</p>
       )}
       <TotpPrompt
         open={needsTotp}

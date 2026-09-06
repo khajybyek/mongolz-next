@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "@/lib/theme/client";
 import { getServerTheme } from "@/lib/theme/server";
@@ -6,6 +7,19 @@ import { getServerLang } from "@/lib/i18n/server";
 import { ServiceWorkerRegister } from "@/components/sw-register";
 import { VitalsReporter } from "@/components/vitals-reporter";
 import "./globals.css";
+
+// Self-hosted at build time by next/font (no runtime request to Google, so
+// the strict CSP `font-src 'self'` still holds). Cyrillic covers Mongolian.
+const geist = Geist({
+  subsets: ["latin", "latin-ext", "cyrillic"],
+  variable: "--font-geist",
+  display: "swap",
+});
+const geistMono = Geist_Mono({
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-geist-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://aicctv.dev"),
@@ -44,8 +58,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const lang = await getServerLang();
   const htmlLang = lang === "kr" ? "ko" : lang;
   return (
-    <html lang={htmlLang} data-theme={theme} className={theme === "dark" ? "dark" : undefined}>
-      <body className="min-h-screen antialiased">
+    <html
+      lang={htmlLang}
+      data-theme={theme}
+      className={`${geist.variable} ${geistMono.variable}${theme === "dark" ? " dark" : ""}`}
+    >
+      <body className="min-h-screen antialiased font-sans">
         <ThemeProvider initial={theme}>{children}</ThemeProvider>
         <SpeedInsights />
         <ServiceWorkerRegister />

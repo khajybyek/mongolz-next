@@ -13,6 +13,8 @@ import {
   X,
 } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
+import { useT } from "@/lib/i18n/client";
 import { cn } from "@/lib/utils";
 import {
   addCameraAction,
@@ -65,6 +67,8 @@ type TestState =
 
 export function CameraDialog(props: Props) {
   const router = useRouter();
+  const { toast } = useToast();
+  const { t } = useT();
   const isEdit = props.mode === "edit";
   const camera = isEdit ? props.camera : null;
 
@@ -120,15 +124,22 @@ export function CameraDialog(props: Props) {
         const res = await updateCameraAction(fd);
         if ("error" in res) {
           setSaveErr(res.error);
+          toast({ title: t("toast_failed"), description: res.error, tone: "danger" });
           return;
         }
       } else {
         const res = await addCameraAction(fd);
         if ("error" in res) {
           setSaveErr(res.error);
+          toast({ title: t("toast_failed"), description: res.error, tone: "danger" });
           return;
         }
       }
+      toast({
+        title: isEdit ? t("toast_camera_saved") : t("toast_camera_added"),
+        description: name.trim(),
+        tone: "success",
+      });
       setOpen(false);
       reset();
       router.refresh();
@@ -147,7 +158,7 @@ export function CameraDialog(props: Props) {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="btn-ghost text-xs p-2"
+          className="btn-icon"
           title="Засах"
           aria-label="Edit camera"
         >
@@ -212,7 +223,7 @@ export function CameraDialog(props: Props) {
           <div>
             <label className="label">Төрөл</label>
             <select
-              className="input"
+              className="select"
               value={camType}
               onChange={(e) => {
                 setCamType(e.target.value as CamType);
@@ -247,9 +258,7 @@ export function CameraDialog(props: Props) {
           {/* Test connection block */}
           <div className="card-glass p-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-2xs uppercase tracking-wider text-text-soft font-semibold">
-                Холболт шалгах
-              </div>
+              <h3 className="section-title">Холболт шалгах</h3>
               <button
                 type="button"
                 onClick={runTest}
@@ -260,7 +269,7 @@ export function CameraDialog(props: Props) {
                   camType === "usb" ||
                   camType === "webcam"
                 }
-                className="btn-secondary text-xs"
+                className="btn-secondary btn-sm"
               >
                 {test.kind === "running" ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />

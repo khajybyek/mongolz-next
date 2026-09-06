@@ -102,14 +102,14 @@ export function RealtimeAlerts({
       />
 
       {/* Toast stack — top-right */}
-      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none w-[min(360px,calc(100vw-2rem))]">
+      <div className="fixed top-[4.5rem] right-4 z-50 flex flex-col gap-2 pointer-events-none w-[min(360px,calc(100vw-2rem))]">
         {toasts.map((a) => (
           <div
             key={a.id}
             className={cn(
-              "card pointer-events-auto bg-bg-secondary/95 backdrop-blur",
-              "border border-danger/40 shadow-2xl",
-              "flex items-start gap-2 p-3 animate-in slide-in-from-right"
+              "pointer-events-auto rounded-xl bg-surface-elevated/95 backdrop-blur-xl",
+              "border border-danger/40 shadow-overlay",
+              "flex items-start gap-2.5 p-3.5 animate-slide-in-right"
             )}
           >
             <div className="w-8 h-8 rounded-full bg-danger/15 flex items-center justify-center shrink-0">
@@ -131,11 +131,12 @@ export function RealtimeAlerts({
               </a>
             </div>
             <button
+              type="button"
               onClick={() => dismiss(a.id)}
-              className="text-text-muted hover:text-text shrink-0"
+              className="shrink-0 -mr-1 -mt-1 w-7 h-7 inline-flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-text-muted/[0.08] transition-colors"
               aria-label={labels.dismiss}
             >
-              <X className="w-4 h-4" />
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         ))}

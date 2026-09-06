@@ -2,95 +2,91 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Search,
-  LayoutDashboard,
-  Video,
-  PlayCircle,
-  UserSearch,
-  Bell,
-  BarChart3,
-  Sparkles,
-  Users,
-  Cctv,
-  ScrollText,
-  UserCog,
-  BellRing,
-  Webhook,
-  GraduationCap,
-  Gauge,
-  BookOpen,
-  Settings,
-  ShieldCheck,
-  CalendarClock,
-  Database,
-  Archive,
-  type LucideIcon,
-} from "lucide-react";
+import { Languages, LogOut, Moon, Search, Sun, type LucideIcon } from "lucide-react";
 import { useT } from "@/lib/i18n/client";
+import { useTheme } from "@/lib/theme/client";
+import { LANGUAGES, type Lang } from "@/lib/i18n/translations";
+import { visibleNavGroups, type Role } from "@/lib/nav";
+import { useShell } from "./shell-context";
+import { applyLanguage } from "./language-switcher";
+import { cn } from "@/lib/utils";
 
 interface Entry {
-  href: string;
+  id: string;
   icon: LucideIcon;
   label: string;
+  section: string;
   hint?: string;
   keywords?: string[];
+  run: () => void;
 }
 
-export function CommandPalette({ role }: { role: "admin" | "viewer" | "auditor" }) {
-  const { t } = useT();
+export function CommandPalette({ role }: { role: Role }) {
+  const { t, lang } = useT();
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
+  const { paletteOpen: open, setPaletteOpen: setOpen, togglePalette } = useShell();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
   const entries = useMemo<Entry[]>(() => {
-    const all: Entry[] = [
-      { href: "/dashboard", icon: LayoutDashboard, label: t("nav_dashboard") },
-      { href: "/live", icon: Video, label: t("nav_live") },
-      { href: "/playback", icon: PlayCircle, label: t("nav_playback") },
-      { href: "/analytics", icon: BarChart3, label: t("nav_analytics") },
-      { href: "/audit", icon: ScrollText, label: t("nav_audit") },
-      { href: "/compare", icon: Sparkles, label: t("nav_compare"), keywords: ["mask", "blur", "algorithm"] },
-      { href: "/suspects", icon: UserSearch, label: t("nav_suspects") },
-      { href: "/alerts", icon: Bell, label: t("nav_alerts") },
-      { href: "/alerts-live", icon: Bell, label: t("nav_alerts_live"), keywords: ["realtime", "live"] },
-      { href: "/alert-rules", icon: BellRing, label: t("nav_alert_rules") },
-      { href: "/ai", icon: Sparkles, label: t("nav_ai") },
-      { href: "/faces", icon: Users, label: t("nav_faces") },
-      { href: "/cameras", icon: Cctv, label: t("nav_cameras") },
-      { href: "/users", icon: UserCog, label: t("nav_users") },
-      { href: "/webhooks", icon: Webhook, label: t("nav_webhooks") },
-      { href: "/reveal-approvals", icon: ShieldCheck, label: t("nav_reveal_approvals"), keywords: ["unblur"] },
-      { href: "/retention", icon: CalendarClock, label: t("nav_retention") },
-      { href: "/active-learning", icon: GraduationCap, label: t("nav_active_learning"), keywords: ["label", "feedback", "threshold"] },
-      { href: "/benchmarks", icon: Gauge, label: t("nav_benchmarks") },
-      { href: "/db-monitor", icon: Database, label: t("nav_db_monitor") },
-      { href: "/backup", icon: Archive, label: t("nav_backup") },
-      { href: "/docs", icon: BookOpen, label: t("nav_docs") },
-      { href: "/settings", icon: Settings, label: t("nav_settings") },
+    const nav: Entry[] = visibleNavGroups(role).flatMap((group) =>
+      group.items.map((item) => ({
+        id: item.href,
+        icon: item.icon,
+        label: t(item.labelKey),
+        section: t(group.labelKey),
+        hint: item.href,
+        keywords: item.keywords,
+        run: () => router.push(item.href as never),
+      })),
+    );
+    const actions: Entry[] = [
+      {
+        id: "action:theme",
+        icon: theme === "dark" ? Sun : Moon,
+        label: theme === "dark" ? t("theme_light") : t("theme_dark"),
+        section: t("cmdk_section_actions"),
+        keywords: ["theme", "dark", "light", "appearance"],
+        run: toggleTheme,
+      },
+      ...(Object.keys(LANGUAGES) as Lang[])
+        .filter((l) => l !== lang)
+        .map<Entry>((l) => ({
+          id: `action:lang:${l}`,
+          icon: Languages,
+          label: `${t("menu_language")}: ${LANGUAGES[l]}`,
+          section: t("cmdk_section_actions"),
+          keywords: ["language", l, LANGUAGES[l]],
+          run: () => {
+            void applyLanguage(l);
+          },
+        })),
+      {
+        id: "action:logout",
+        icon: LogOut,
+        label: t("logout"),
+        section: t("cmdk_section_actions"),
+        keywords: ["sign out", "logout"],
+        run: () => {
+          const form = document.createElement("form");
+          form.method = "post";
+          form.action = "/auth/logout";
+          document.body.appendChild(form);
+          form.submit();
+        },
+      },
     ];
-    return all.filter((e) => {
-      if (role === "admin") return true;
-      if (role === "auditor") return e.href === "/audit";
-      // viewer
-      const viewerAllowed = [
-        "/dashboard",
-        "/live",
-        "/playback",
-        "/analytics",
-      ];
-      return viewerAllowed.includes(e.href);
-    });
-  }, [role, t]);
+    return [...nav, ...actions];
+  }, [role, t, lang, theme, toggleTheme, router]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return entries;
     return entries.filter((e) => {
-      const hay = [e.label, e.href, ...(e.keywords ?? [])].join(" ").toLowerCase();
+      const hay = [e.label, e.section, e.hint ?? "", ...(e.keywords ?? [])].join(" ").toLowerCase();
       return hay.includes(q);
     });
   }, [entries, query]);
@@ -100,7 +96,7 @@ export function CommandPalette({ role }: { role: "admin" | "viewer" | "auditor" 
       const meta = e.metaKey || e.ctrlKey;
       if (meta && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setOpen((p) => !p);
+        togglePalette();
         return;
       }
       if (!open) return;
@@ -116,13 +112,13 @@ export function CommandPalette({ role }: { role: "admin" | "viewer" | "auditor" 
         const hit = filtered[active];
         if (hit) {
           setOpen(false);
-          router.push(hit.href as never);
+          hit.run();
         }
       }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, filtered, active, router]);
+  }, [open, filtered, active, setOpen, togglePalette]);
 
   useEffect(() => {
     if (open) {
@@ -135,24 +131,31 @@ export function CommandPalette({ role }: { role: "admin" | "viewer" | "auditor" 
   useEffect(() => setActive(0), [query]);
 
   useEffect(() => {
-    const el = listRef.current?.children[active] as HTMLElement | undefined;
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`);
     el?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
   if (!open) return null;
+
+  // Group consecutive entries by section for the header rows.
+  const rows: Array<{ type: "section"; label: string } | { type: "entry"; entry: Entry; index: number }> = [];
+  let lastSection: string | null = null;
+  filtered.forEach((entry, index) => {
+    if (entry.section !== lastSection) {
+      rows.push({ type: "section", label: entry.section });
+      lastSection = entry.section;
+    }
+    rows.push({ type: "entry", entry, index });
+  });
 
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={t("cmdk_title")}
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] md:pt-[14vh] px-4 animate-fade-in"
     >
-      <div
-        className="backdrop"
-        onClick={() => setOpen(false)}
-        aria-hidden
-      />
+      <div className="backdrop" onClick={() => setOpen(false)} aria-hidden />
       <div className="relative w-full max-w-xl bg-surface-elevated border border-border-strong rounded-2xl shadow-overlay overflow-hidden animate-scale-in">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
           <Search className="w-4 h-4 text-text-muted" />
@@ -161,44 +164,49 @@ export function CommandPalette({ role }: { role: "admin" | "viewer" | "auditor" 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("cmdk_placeholder")}
-            className="flex-1 bg-transparent outline-none text-sm placeholder:text-text-muted"
+            className="flex-1 bg-transparent outline-none text-base md:text-sm placeholder:text-text-muted"
+            aria-label={t("cmdk_placeholder")}
           />
-          <kbd className="text-2xs px-1.5 py-0.5 rounded bg-text-muted/[0.06] text-text-muted border border-border font-mono">
-            ESC
-          </kbd>
+          <kbd className="kbd">ESC</kbd>
         </div>
-        <ul
-          ref={listRef}
-          className="max-h-[55vh] overflow-y-auto py-1"
-          role="listbox"
-        >
+        <ul ref={listRef} className="max-h-[55vh] overflow-y-auto py-1.5" role="listbox">
           {filtered.length === 0 ? (
-            <li className="px-4 py-6 text-center text-xs text-text-muted">
-              {t("cmdk_empty")}
-            </li>
+            <li className="px-4 py-8 text-center text-xs text-text-muted">{t("cmdk_empty")}</li>
           ) : (
-            filtered.map((e, i) => {
-              const Icon = e.icon;
-              const isActive = i === active;
+            rows.map((row) => {
+              if (row.type === "section") {
+                return (
+                  <li
+                    key={`s:${row.label}`}
+                    className="px-4 pt-2.5 pb-1 text-2xs font-semibold uppercase tracking-[0.12em] text-text-faint"
+                    aria-hidden
+                  >
+                    {row.label}
+                  </li>
+                );
+              }
+              const { entry, index } = row;
+              const Icon = entry.icon;
+              const isActive = index === active;
               return (
                 <li
-                  key={e.href}
+                  key={entry.id}
+                  data-index={index}
                   role="option"
                   aria-selected={isActive}
-                  onMouseEnter={() => setActive(i)}
+                  onMouseEnter={() => setActive(index)}
                   onClick={() => {
                     setOpen(false);
-                    router.push(e.href as never);
+                    entry.run();
                   }}
-                  className={`px-4 py-2.5 flex items-center gap-3 text-sm cursor-pointer transition-colors ${
-                    isActive
-                      ? "bg-accent/10 text-accent"
-                      : "text-text-soft hover:bg-text-muted/[0.04]"
-                  }`}
+                  className={cn(
+                    "mx-1.5 px-2.5 py-2 rounded-lg flex items-center gap-3 text-sm cursor-pointer transition-colors",
+                    isActive ? "bg-accent/10 text-accent" : "text-text-soft hover:bg-text-muted/[0.04]",
+                  )}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
-                  <span className="flex-1 truncate">{e.label}</span>
-                  <code className="text-2xs text-text-faint font-mono">{e.href}</code>
+                  <span className="flex-1 truncate">{entry.label}</span>
+                  {entry.hint && <code className="text-2xs text-text-faint font-mono hidden sm:inline">{entry.hint}</code>}
                 </li>
               );
             })
@@ -206,13 +214,13 @@ export function CommandPalette({ role }: { role: "admin" | "viewer" | "auditor" 
         </ul>
         <div className="px-4 py-2 border-t border-border flex items-center justify-between text-2xs text-text-muted">
           <span className="flex items-center gap-2">
-            <kbd className="px-1.5 py-0.5 rounded bg-text-muted/[0.06] border border-border font-mono">↑↓</kbd>
+            <kbd className="kbd">↑↓</kbd>
             {t("cmdk_navigate")}
-            <kbd className="px-1.5 py-0.5 rounded bg-text-muted/[0.06] border border-border font-mono ml-2">↵</kbd>
+            <kbd className="kbd ml-2">↵</kbd>
             {t("cmdk_open")}
           </span>
           <span className="flex items-center gap-1">
-            <kbd className="px-1.5 py-0.5 rounded bg-text-muted/[0.06] border border-border font-mono">⌘K</kbd>
+            <kbd className="kbd">⌘K</kbd>
             {t("cmdk_toggle")}
           </span>
         </div>

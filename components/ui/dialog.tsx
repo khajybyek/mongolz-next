@@ -54,7 +54,7 @@ export function Dialog({
       role="dialog"
       aria-modal="true"
       aria-label={typeof title === "string" ? title : undefined}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in"
     >
       <div
         className="backdrop"
@@ -65,10 +65,17 @@ export function Dialog({
         className={cn(
           // z-10 keeps the panel painted above .backdrop even if a
           // future commit accidentally re-adds z-index to the backdrop.
-          "relative z-10 w-full bg-surface-elevated border border-border-strong rounded-2xl shadow-overlay animate-scale-in",
+          // Phones get a bottom sheet (slides up, rounded top corners,
+          // scrolls inside); larger screens keep the centred card.
+          "relative z-10 w-full bg-surface-elevated border border-border-strong shadow-overlay",
+          "max-h-[92vh] overflow-y-auto rounded-t-2xl animate-slide-up",
+          "sm:max-h-[85vh] sm:rounded-2xl sm:animate-scale-in",
           sizeMap[size]
         )}
       >
+        <div className="sm:hidden flex justify-center pt-2.5" aria-hidden>
+          <span className="w-10 h-1 rounded-full bg-text-muted/30" />
+        </div>
         <button
           type="button"
           onClick={onClose}
