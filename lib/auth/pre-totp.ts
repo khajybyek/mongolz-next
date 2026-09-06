@@ -9,18 +9,21 @@
  *
  * **Design tradeoffs:**
  *   - 2-minute TTL — TOTP codes refresh every 30s anyway; 2 min is plenty.
- *   - Single-use — cleared on successful verification.
- *   - HMAC-signed so the client can't forge the user_id.
+ *   - Single-use — cleared on successful verification (and after too many
+ *     failed codes, see verifyTotpAction).
+ *   - HMAC-signed with a purpose tag so it can never be replayed as another
+ *     cookie type (the step-up cookie used to share the same MAC input).
  *   - No PII in the cookie (just opaque uuid).
  */
 
 import { cookies } from "next/headers";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { pickHmacSecret } from "@/lib/auth/hmac-secret";
+import { hmacEqual, hmacSign } from "@/lib/auth/hmac";
 
 const COOKIE_NAME = "mongolz-pre-totp";
 const TTL_SECONDS = 120;
 const SEP = "|";
+const PURPOSE = "mongolz-pre-totp:v2";
 
 function signingSecret(): string | null {
   // Fail-closed in production: REAUTH_COOKIE_SECRET must be set explicitly.
@@ -35,7 +38,7 @@ function signingSecret(): string | null {
 function sign(payload: string): string {
   const secret = signingSecret();
   if (!secret) throw new Error("REAUTH_COOKIE_SECRET not set");
-  return createHmac("sha256", secret).update(payload).digest("base64url");
+  return hmacSign(secret, PURPOSE, payload, "base64url");
 }
 
 /** Issue a pre-TOTP cookie for `userId`. Returns nothing — sets cookie via Next response. */
@@ -71,14 +74,13 @@ export async function readPreTotpCookie(): Promise<PreTotpResult> {
   const [userId, expStr, sig] = parts as [string, string, string];
 
   const expectedSig = sign(`${userId}${SEP}${expStr}`);
-  const a = Buffer.from(sig, "base64url");
-  const b = Buffer.from(expectedSig, "base64url");
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+  if (!hmacEqual(sig, expectedSig, "base64url")) {
     return { ok: false, reason: "bad-signature" };
   }
 
+  const exp = Number(expStr);
   const now = Math.floor(Date.now() / 1000);
-  if (now > Number(expStr)) return { ok: false, reason: "expired" };
+  if (!Number.isFinite(exp) || now > exp) return { ok: false, reason: "expired" };
 
   return { ok: true, userId };
 }

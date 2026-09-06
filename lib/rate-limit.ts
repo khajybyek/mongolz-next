@@ -66,8 +66,26 @@ function formatWindow(sec: number): string {
 // ── Default presets ────────────────────────────────────────────────
 /** Step-up reauth: 1 минутад 5 удаа max — brute force-аас сэргийлнэ */
 export const REAUTH_LIMIT: RateLimitOptions = {
-  action: ["REAUTH_OK", "REAUTH_FAILED"],
+  // Every step-up outcome counts (password AND TOTP factor, recovery codes,
+  // TOTP disable) — previously only the password endpoint's rows were
+  // counted, so the TOTP step-up route could be hammered at full speed.
+  action: [
+    "REAUTH_OK",
+    "REAUTH_FAILED",
+    "REAUTH_TOTP_OK",
+    "REAUTH_TOTP_FAILED",
+    "REAUTH_TOTP_REPLAY_BLOCKED",
+    "TOTP_RECOVERY_FAILED",
+    "TOTP_DISABLE_FAILED",
+  ],
   windowSec: 60,
+  max: 5,
+};
+
+/** Login step 2 (TOTP / recovery code): 5 wrong codes per user per 15 min. */
+export const TOTP_LOGIN_LIMIT: RateLimitOptions = {
+  action: ["TOTP_LOGIN_FAILED", "TOTP_LOGIN_REPLAY_BLOCKED", "TOTP_RECOVERY_FAILED"],
+  windowSec: 15 * 60,
   max: 5,
 };
 
@@ -92,6 +110,13 @@ export interface LoginAttemptOptions {
   windowSec?: number;   // default 900 = 15 минут
   maxPerEmail?: number; // default 5
   maxPerIp?: number;    // default 10
+  /**
+   * "password" (default) applies both the per-email and per-IP locks.
+   * "passkey" applies the per-IP lock only: passkeys are phishing-resistant
+   * and unguessable, so an attacker must not be able to lock an admin out of
+   * passkey login just by failing five passwords against their e-mail.
+   */
+  scope?: "password" | "passkey";
 }
 
 export interface LoginRateLimitResult {
@@ -120,16 +145,22 @@ export async function checkLoginRateLimit(
     "LOGIN_FAILED",
     "TOTP_LOGIN_FAILED",
     "TOTP_LOGIN_REPLAY_BLOCKED",
+    "TOTP_RECOVERY_FAILED",
     "REAUTH_FAILED",
     "REAUTH_TOTP_FAILED",
+    "TOTP_DISABLE_FAILED",
+    "PASSKEY_LOGIN_FAILED",
   ];
 
-  const { count: emailFails } = await svc
-    .from("audit_log")
-    .select("*", { count: "exact", head: true })
-    .in("action", failedActions)
-    .eq("user_email", opts.email)
-    .gte("created_at", since);
+  const { count: emailFails } =
+    (opts.scope ?? "password") === "password"
+      ? await svc
+          .from("audit_log")
+          .select("*", { count: "exact", head: true })
+          .in("action", failedActions)
+          .eq("user_email", opts.email)
+          .gte("created_at", since)
+      : { count: 0 };
 
   if ((emailFails ?? 0) >= maxEmail) {
     await maybeAlertLockout("email", opts.email, emailFails ?? 0, maxEmail);
@@ -180,12 +211,14 @@ async function maybeAlertLockout(
   const ALERT_COOLDOWN_SEC = 3600;
   const since = new Date(Date.now() - ALERT_COOLDOWN_SEC * 1000).toISOString();
 
-  // Cool-down check
+  // Cool-down check. `target` is attacker-controlled (the e-mail they typed)
+  // — escape LIKE metacharacters so it cannot widen the pattern.
+  const likeTarget = target.replace(/[\\%_]/g, (m) => `\\${m}`);
   const { count: recent } = await svc
     .from("audit_log")
     .select("*", { count: "exact", head: true })
     .eq("action", "LOCKOUT_TRIGGERED")
-    .ilike("detail", `%${target}%`)
+    .like("detail", `${kind}=${likeTarget} %`)
     .gte("created_at", since);
 
   if ((recent ?? 0) > 0) return;

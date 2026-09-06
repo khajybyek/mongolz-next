@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { headers } from "next/headers";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { hasFreshReauth } from "@/lib/auth/step-up";
 
 /**
  * GET /api/auth/passkey
@@ -13,7 +14,7 @@ import { createServiceClient } from "@/lib/supabase/server";
  * check explicitly server-side to give a clean error response.
  */
 export async function GET() {
-  const auth = await requireUserApi();
+  const auth = await requireUserApi({ allowAuditor: true });
   if (isAuthErr(auth)) return auth.error;
 
   const svc = createServiceClient();
@@ -30,8 +31,12 @@ export async function GET() {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = await requireUserApi();
+  const auth = await requireUserApi({ allowAuditor: true });
   if (isAuthErr(auth)) return auth.error;
+  // Removing a passkey is an account-recovery-relevant change → step-up.
+  if (!(await hasFreshReauth(auth.user.id))) {
+    return NextResponse.json({ error: "REAUTH_REQUIRED" }, { status: 403 });
+  }
 
   const id = new URL(request.url).searchParams.get("id");
   if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {

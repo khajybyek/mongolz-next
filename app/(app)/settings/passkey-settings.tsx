@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Fingerprint, Trash2, Loader2, Plus, AlertCircle, CheckCircle2 } from "lucide-react";
+import { TotpPrompt } from "@/components/totp-prompt";
+import { useT } from "@/lib/i18n/client";
 
 interface Credential {
   id: string;
@@ -31,16 +33,29 @@ function bufToB64u(buf: ArrayBuffer | Uint8Array): string {
 }
 
 export function PasskeySettings() {
+  const { t } = useT();
   const [creds, setCreds] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  // Enrol/delete need fresh step-up; on REAUTH_REQUIRED we open the TOTP
+  // prompt and replay the interrupted action afterwards.
+  const [needsTotp, setNeedsTotp] = useState(false);
+  const retryRef = useRef<(() => Promise<void>) | null>(null);
 
-  const supported =
-    typeof window !== "undefined" &&
-    typeof window.PublicKeyCredential !== "undefined";
+  // Resolved in an effect so the server render and first client render
+  // agree (reading `window` during render caused a hydration mismatch).
+  const [supported, setSupported] = useState<boolean | null>(null);
+  useEffect(() => {
+    setSupported(typeof window.PublicKeyCredential !== "undefined");
+  }, []);
+
+  function requireStepUp(retry: () => Promise<void>) {
+    retryRef.current = retry;
+    setNeedsTotp(true);
+  }
 
   async function load() {
     setLoading(true);
@@ -70,6 +85,10 @@ export function PasskeySettings() {
         method: "POST",
       });
       const opts = await beginRes.json();
+      if (beginRes.status === 403 && opts?.error === "REAUTH_REQUIRED") {
+        requireStepUp(enroll);
+        return;
+      }
       if (!beginRes.ok) throw new Error(opts?.error ?? "Cannot start");
 
       // 2. Call the browser API. Convert base64url → ArrayBuffer for
@@ -137,6 +156,10 @@ export function PasskeySettings() {
     try {
       const r = await fetch(`/api/auth/passkey?id=${id}`, { method: "DELETE" });
       const j = await r.json();
+      if (r.status === 403 && j?.error === "REAUTH_REQUIRED") {
+        requireStepUp(() => remove(id));
+        return;
+      }
       if (!r.ok) throw new Error(j?.error ?? "Delete failed");
       setSuccess("Passkey устгасан");
       void load();
@@ -147,6 +170,7 @@ export function PasskeySettings() {
     }
   }
 
+  if (supported === null) return null;
   if (!supported) {
     return (
       <div className="card border border-warning/30 bg-warning/5">
@@ -166,6 +190,19 @@ export function PasskeySettings() {
 
   return (
     <div className="card space-y-4">
+      <TotpPrompt
+        open={needsTotp}
+        onClose={() => {
+          setNeedsTotp(false);
+          retryRef.current = null;
+        }}
+        onSuccess={() => {
+          setNeedsTotp(false);
+          const retry = retryRef.current;
+          retryRef.current = null;
+          if (retry) void retry();
+        }}
+      />
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold flex items-center gap-2">
@@ -174,8 +211,9 @@ export function PasskeySettings() {
           </h3>
           <p className="text-xs text-text-soft mt-1 max-w-md leading-relaxed">
             Phishing-эсэргүүцэх hardware-backed login — iCloud Keychain,
-            Windows Hello, Android, YubiKey. Илүү аюулгүй (v1: enroll only,
-            TOTP-той хамт ажиллана).
+            Windows Hello, Android, YubiKey. PIN / biometric шаардлагатай тул
+            passkey нь өөрөө хоёр дахь фактор болно; нэмэх, устгахад шинэ TOTP
+            баталгаажуулалт ({t("step_up_required")}).
           </p>
         </div>
         <button

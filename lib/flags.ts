@@ -14,6 +14,11 @@
  *   * Add per-user / per-role / percentage-rollout targeting.
  *   * Add a server-sent-events stream so flips propagate < 1 s.
  *
+ * Every flag listed here is read by real code (grep `flag("`) — a flag that
+ * nothing consults is worse than none, because operators believe they
+ * flipped something. Privacy-zone enforcement lives in the ML service and is
+ * deliberately NOT switchable from the web tier.
+ *
  * Today it's good enough to:
  *   * Document every kill-switch in one place.
  *   * Read it from server components, API routes, and ML service via
@@ -39,21 +44,9 @@ export const FLAGS = {
    *  during off-hours / on-call rotation handoff. */
   push_alerts: { default: true, env: "MONGOLZ_FF_PUSH_ALERTS" },
 
-  /** Privacy zone enforcement during reveal. False = behave like the
-   *  pre-2026-05-18 code, ignoring privacy_zones rows entirely. */
-  privacy_zones_enforce: { default: true, env: "MONGOLZ_FF_PRIVACY_ZONES" },
-
-  /** Real-time match flash banner on /live. Default off because the
-   *  user can find matches via /alerts-live regardless. */
-  live_match_flash: { default: true, env: "MONGOLZ_FF_LIVE_MATCH_FLASH" },
-
-  /** Edge-detect ONNX in-browser face detection. Default off because
-   *  the WebGPU/WASM bundle is heavy on slow networks. */
-  edge_detect_onnx: { default: false, env: "MONGOLZ_FF_EDGE_DETECT" },
-
-  /** Soft-enforce session pin (IP/16 + UA HMAC) on every authed page.
-   *  False reverts to "ignore pin mismatch", which is the legacy
-   *  behaviour before 2026-04-30. */
+  /** Session pin enforcement (IP/16 + UA HMAC, mandatory for TOTP users)
+   *  in lib/supabase/auth.ts. False = accept any Supabase session — the
+   *  emergency switch if a proxy change starts rotating client IPs. */
   session_pin_enforce: { default: true, env: "MONGOLZ_FF_SESSION_PIN" },
 } as const;
 

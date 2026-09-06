@@ -3,14 +3,21 @@ import { headers } from "next/headers";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { buildRegistrationOptions } from "@/lib/auth/webauthn";
+import { hasFreshReauth } from "@/lib/auth/step-up";
 
 /**
  * Step 1 of passkey enrollment — returns PublicKeyCredentialCreationOptions
  * for `navigator.credentials.create()`. Caller must be authenticated.
  */
 export async function POST() {
-  const auth = await requireUserApi();
+  const auth = await requireUserApi({ allowAuditor: true });
   if (isAuthErr(auth)) return auth.error;
+  // Enrolling a passkey creates a durable password-less, TOTP-less login for
+  // this account, so it needs fresh step-up (a hijacked session alone must
+  // not be able to plant one).
+  if (!(await hasFreshReauth(auth.user.id))) {
+    return NextResponse.json({ error: "REAUTH_REQUIRED" }, { status: 403 });
+  }
 
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? null;

@@ -48,7 +48,8 @@ describe("structured logger", () => {
     expect(parsed.email).toBe("a@b.test");
     expect(parsed.password).not.toContain("supersecret");
     expect(parsed.ml_service_token).not.toContain("abcdef");
-    expect(String(parsed.password)).toContain("[redacted]");
+    expect(parsed.password).toBe("[redacted]");
+    expect(JSON.stringify(parsed)).not.toContain("supe");
   });
 
   it("redacts case-insensitively", () => {

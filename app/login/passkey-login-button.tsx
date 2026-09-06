@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Fingerprint, Loader2 } from "lucide-react";
 
 /** Convert base64url → ArrayBuffer for the WebAuthn browser API. */
@@ -37,9 +37,12 @@ export function PasskeyLoginButton({ next, labels }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const supported =
-    typeof window !== "undefined" &&
-    typeof window.PublicKeyCredential !== "undefined";
+  // Resolved after mount so SSR (null) and the first client render agree;
+  // reading `window` during render caused a hydration mismatch.
+  const [supported, setSupported] = useState(false);
+  useEffect(() => {
+    setSupported(typeof window.PublicKeyCredential !== "undefined");
+  }, []);
 
   async function run() {
     if (busy) return;
@@ -116,7 +119,6 @@ export function PasskeyLoginButton({ next, labels }: Props) {
       // 4. Cookies set by /finish → reload into the protected area.
       // Intentional full-page load (not router.push) so the server re-reads
       // the freshly-set session cookie and renders the authed shell.
-      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.assign(next || "/dashboard");
     } catch (e) {
       setError(e instanceof Error ? e.message : labels.generic);

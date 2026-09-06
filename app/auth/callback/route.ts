@@ -1,29 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-/**
- * `next` query parameter-ийг safety шалгана.
- * - Заавал same-origin path байх ёстой (begin with /)
- * - Protocol-relative (//external.com), absolute URL, эсвэл backslash зөвшөөрөхгүй
- * - Хэрэв буруу бол default /dashboard руу буцна (open redirect халдлагаас сэргийлнэ)
- */
-function sanitizeNextPath(raw: string | null): string {
-  if (!raw) return "/dashboard";
-  // Хатуу шалгуур: эхэнд / байх + // эсвэл /\ биш
-  if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
-    return "/dashboard";
-  }
-  // URL-encoded protocol зайлуулна (e.g. %2F%2Fevil.com)
-  try {
-    const decoded = decodeURIComponent(raw);
-    if (decoded.startsWith("//") || decoded.includes("://")) {
-      return "/dashboard";
-    }
-  } catch {
-    return "/dashboard";
-  }
-  return raw;
-}
+import { sanitizeNextPath } from "@/lib/auth/safe-next";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -38,5 +16,5 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth-callback-failed`);
+  return NextResponse.redirect(`${origin}/login?error=callback_failed`);
 }

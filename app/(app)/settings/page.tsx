@@ -12,7 +12,7 @@ export default async function SettingsPage({
   searchParams: Promise<{ force_totp?: string }>;
 }) {
   // Admin-only page. Viewer requests redirect via requireAdmin.
-  const { user, profile } = await requireAdmin();
+  const { user, profile } = await requireAdmin({ allowNoTotp: true });
   const { t } = await getT();
   const { force_totp } = await searchParams;
 

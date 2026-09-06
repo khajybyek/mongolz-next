@@ -5,7 +5,7 @@ import { verifyTOTP, verifyTOTPWithReplayCheck } from "@/lib/totp";
 import { generateRecoveryCodes } from "@/lib/totp-recovery";
 
 export async function POST(request: NextRequest) {
-  const auth = await requireUserApi();
+  const auth = await requireUserApi({ allowAuditor: true });
   if (isAuthErr(auth)) return auth.error;
   const ctx = auth;
   const { code } = await request.json().catch(() => ({}));

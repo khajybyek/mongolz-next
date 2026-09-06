@@ -1,16 +1,42 @@
 "use server";
 
+import type { Route } from "next";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { checkLoginRateLimit } from "@/lib/rate-limit";
+import { checkLoginRateLimit, checkRateLimit, TOTP_LOGIN_LIMIT } from "@/lib/rate-limit";
 import { verifyTOTPWithReplayCheck } from "@/lib/totp";
+import { hashCode } from "@/lib/totp-recovery";
+import { sanitizeNextPath } from "@/lib/auth/safe-next";
+import { bindSessionPin } from "@/lib/auth/session-pin";
 import {
   setPreTotpCookie,
   readPreTotpCookie,
   clearPreTotpCookie,
 } from "@/lib/auth/pre-totp";
+
+/**
+ * Login error codes. Only codes travel in the URL; app/login/page.tsx maps
+ * them to translated copy, so attacker-supplied text can never be rendered
+ * on the login page.
+ */
+type LoginErrorCode =
+  | "invalid_credentials"
+  | "too_many_attempts"
+  | "code_format"
+  | "code_invalid"
+  | "code_used"
+  | "code_expired"
+  | "signin_failed";
+
+function loginUrl(error: LoginErrorCode, extra: Record<string, string> = {}): Route {
+  return `/login?${new URLSearchParams({ error, ...extra }).toString()}` as Route;
+}
+
+function totpStepUrl(error: string, next: string): Route {
+  return `/login?step=totp&${new URLSearchParams({ error, next }).toString()}` as Route;
+}
 
 /** Хэрэглэгчийн IP-ийг (Vercel-аас ирсэн x-forwarded-for header)-аас авах */
 async function getClientIp(): Promise<string | null> {
@@ -24,8 +50,7 @@ async function getClientIp(): Promise<string | null> {
   }
 }
 
-/** Хэрэглэгч аль host-аар (live.mongolz.dev, mongolz.dev, vercel.app) орсон —
- *  audit log-д кадрлахад хэрэглэнэ. */
+/** Хэрэглэгч аль host-аар орсон — audit log-д кадрлахад хэрэглэнэ. */
 async function getClientHost(): Promise<string | null> {
   try {
     const h = await headers();
@@ -46,23 +71,14 @@ async function getClientUa(): Promise<string | null> {
   }
 }
 
-function sanitizeNextPath(raw: string): string {
-  if (!raw) return "/dashboard";
-  try {
-    const decoded = decodeURIComponent(raw);
-    if (
-      !decoded.startsWith("/") ||
-      decoded.startsWith("//") ||
-      decoded.startsWith("/\\") ||
-      decoded.includes("://")
-    ) {
-      return "/dashboard";
-    }
-    return decoded;
-  } catch {
-    return "/dashboard";
-  }
+async function requestContext() {
+  const [ip, host, ua] = await Promise.all([getClientIp(), getClientHost(), getClientUa()]);
+  const ctx = [host ? `host=${host}` : null, ua ? `ua=${ua}` : null].filter(Boolean).join(" · ");
+  return { ip, ctx };
 }
+
+const RECOVERY_RE = /^[A-Z2-9]{10}$/;
+const TOTP_RE = /^\d{6}$/;
 
 /**
  * STEP 1 — Validate email + password.
@@ -76,14 +92,14 @@ function sanitizeNextPath(raw: string): string {
 export async function signInAction(formData: FormData) {
   const rawIdentifier = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
-  const next = String(formData.get("next") ?? "/dashboard");
+  const next = sanitizeNextPath(String(formData.get("next") ?? ""));
 
   if (!rawIdentifier || !password) {
-    return redirect("/login?error=Invalid+credentials");
+    return redirect(loginUrl("invalid_credentials"));
   }
 
   // Username support: if the input has no '@', resolve it to the underlying
-  // email via public.email_for_username (SECURITY DEFINER RPC, anon-callable).
+  // email via public.email_for_username (service-role only RPC).
   let email = rawIdentifier;
   if (!rawIdentifier.includes("@")) {
     try {
@@ -95,19 +111,14 @@ export async function signInAction(formData: FormData) {
         email = resolved.toLowerCase();
       } else {
         // Username not found — fail same as bad password (no enumeration)
-        return redirect("/login?error=Invalid+credentials");
+        return redirect(loginUrl("invalid_credentials"));
       }
     } catch {
-      return redirect("/login?error=Invalid+credentials");
+      return redirect(loginUrl("invalid_credentials"));
     }
   }
 
-  const ip = await getClientIp();
-  const host = await getClientHost();
-  const ua = await getClientUa();
-  const ctx = [host ? `host=${host}` : null, ua ? `ua=${ua}` : null]
-    .filter(Boolean)
-    .join(" · ");
+  const { ip, ctx } = await requestContext();
 
   // Rate limit шалгах (5 fail/email/15min, 10 fail/IP/15min)
   const rl = await checkLoginRateLimit({ ip, email });
@@ -121,7 +132,7 @@ export async function signInAction(formData: FormData) {
         ip,
       });
     } catch {}
-    return redirect(`/login?error=${encodeURIComponent(rl.message ?? "Too many attempts")}`);
+    return redirect(loginUrl("too_many_attempts"));
   }
 
   const supabase = await createClient();
@@ -137,14 +148,14 @@ export async function signInAction(formData: FormData) {
         ip,
       });
     } catch {}
-    return redirect("/login?error=Invalid+credentials");
+    return redirect(loginUrl("invalid_credentials"));
   }
 
   const svc = createServiceClient();
   const user = signInData.user;
   if (!user) {
     await supabase.auth.signOut();
-    return redirect("/login?error=Invalid+credentials");
+    return redirect(loginUrl("invalid_credentials"));
   }
 
   const { data: profile } = await svc
@@ -155,7 +166,7 @@ export async function signInAction(formData: FormData) {
 
   if (!profile) {
     await supabase.auth.signOut();
-    return redirect("/login?error=Invalid+credentials");
+    return redirect(loginUrl("invalid_credentials"));
   }
 
   // ─── If TOTP is enabled, force step 2 ───
@@ -163,8 +174,7 @@ export async function signInAction(formData: FormData) {
     // Sign user out so they cannot navigate the app until TOTP is verified.
     await supabase.auth.signOut();
     await setPreTotpCookie(user.id);
-    const safeNext = sanitizeNextPath(next);
-    return redirect(`/login?step=totp&next=${encodeURIComponent(safeNext)}`);
+    return redirect(`/login?step=totp&next=${encodeURIComponent(next)}` as Route);
   }
 
   // ─── No TOTP — finish login here ───
@@ -179,77 +189,117 @@ export async function signInAction(formData: FormData) {
   } catch {}
 
   try {
-    const { bindSessionPin } = await import("@/lib/auth/session-pin");
     await bindSessionPin(user.id);
   } catch {}
 
   revalidatePath("/", "layout");
-  redirect(sanitizeNextPath(next) as never);
+  redirect(next as never);
 }
 
 /**
- * STEP 2 — Verify TOTP. Uses the pre-TOTP cookie to know which user is
- * mid-flow, then signs them in via Supabase service-role admin → magiclink
- * exchange. Cookie is cleared on success or expiry.
+ * STEP 2 — Verify the second factor: a 6-digit TOTP code or a one-time
+ * recovery code (XXXXX-XXXXX). Uses the pre-TOTP cookie to know which user
+ * is mid-flow, then signs them in via Supabase service-role admin →
+ * magiclink exchange. Cookie is cleared on success, on expiry, and once the
+ * user is rate-limited.
  *
- * Implementation note: we don't have the password at step 2. Instead of
- * re-validating it, we trust the pre-TOTP cookie (HMAC-signed, 2-min TTL)
- * and use generateLink + verifyOtp to mint a Supabase session.
+ * Brute-force posture: per-user (5 wrong codes / 15 min, counted from the
+ * audit log) AND the per-email / per-IP login lock, so a password holder
+ * cannot grind the 6-digit space.
  */
 export async function verifyTotpAction(formData: FormData) {
-  const totpCode = String(formData.get("totp_code") ?? "").trim();
-  const next = String(formData.get("next") ?? "/dashboard");
-  const ip = await getClientIp();
-  const host = await getClientHost();
-  const ua = await getClientUa();
-  const ctx = [host ? `host=${host}` : null, ua ? `ua=${ua}` : null]
-    .filter(Boolean)
-    .join(" · ");
+  const raw = String(formData.get("totp_code") ?? "").trim();
+  const next = sanitizeNextPath(String(formData.get("next") ?? ""));
+  const { ip, ctx } = await requestContext();
 
-  if (!/^\d{6}$/.test(totpCode)) {
-    return redirect(`/login?step=totp&error=Invalid+code+format&next=${encodeURIComponent(next)}`);
+  const isTotp = TOTP_RE.test(raw);
+  const recoveryNormalized = raw.replace(/[\s-]/g, "").toUpperCase();
+  const isRecovery = !isTotp && RECOVERY_RE.test(recoveryNormalized);
+  if (!isTotp && !isRecovery) {
+    return redirect(totpStepUrl("code_format", next));
   }
 
   const pre = await readPreTotpCookie();
   if (!pre.ok) {
     await clearPreTotpCookie();
-    const reasonMsg = pre.reason === "expired"
-      ? "Code session expired — sign in again"
-      : "Sign in again";
-    return redirect(`/login?error=${encodeURIComponent(reasonMsg)}`);
+    return redirect(loginUrl(pre.reason === "expired" ? "code_expired" : "signin_failed"));
   }
 
   const svc = createServiceClient();
   const { data: profile } = await svc
     .from("profiles")
-    .select("id, email, totp_enabled, totp_secret")
+    .select("id, email, totp_enabled, totp_secret, totp_recovery_codes")
     .eq("id", pre.userId)
     .single();
 
   if (!profile || !profile.totp_enabled || !profile.totp_secret) {
     await clearPreTotpCookie();
-    return redirect("/login?error=Invalid+credentials");
+    return redirect(loginUrl("invalid_credentials"));
   }
 
-  const result = await verifyTOTPWithReplayCheck(profile.id, profile.totp_secret, totpCode);
-  if (result !== "ok") {
+  // Rate limits — both dimensions. On lockout the pre-TOTP cookie is burnt
+  // so a fresh step 1 (itself rate-limited) is required to try again.
+  const perUser = await checkRateLimit(profile.id, TOTP_LOGIN_LIMIT);
+  const perLogin = perUser.ok ? await checkLoginRateLimit({ ip, email: profile.email }) : { ok: false };
+  if (!perUser.ok || !perLogin.ok) {
     try {
       await svc.from("audit_log").insert({
-        action:
-          result === "replayed" ? "TOTP_LOGIN_REPLAY_BLOCKED" : "TOTP_LOGIN_FAILED",
+        action: "LOGIN_BLOCKED",
+        detail: `totp step: ${perUser.ok ? "email/ip lock" : "too many wrong codes"}${ctx ? ` · ${ctx}` : ""}`,
+        user_id: profile.id,
+        user_email: profile.email,
+        ip,
+      });
+    } catch {}
+    await clearPreTotpCookie();
+    return redirect(loginUrl("too_many_attempts"));
+  }
+
+  let outcome: "ok" | "invalid" | "replayed";
+  if (isTotp) {
+    outcome = await verifyTOTPWithReplayCheck(profile.id, profile.totp_secret, raw);
+  } else {
+    // Atomic single-use consumption (public.consume_recovery_code).
+    const { data: consumed } = await svc.rpc("consume_recovery_code", {
+      p_user_id: profile.id,
+      p_code_hash: hashCode(recoveryNormalized),
+    });
+    outcome = consumed === true ? "ok" : "invalid";
+  }
+
+  if (outcome !== "ok") {
+    try {
+      await svc.from("audit_log").insert({
+        action: isRecovery
+          ? "TOTP_RECOVERY_FAILED"
+          : outcome === "replayed"
+            ? "TOTP_LOGIN_REPLAY_BLOCKED"
+            : "TOTP_LOGIN_FAILED",
         detail:
-          (result === "replayed" ? "Code reused" : "2FA code invalid") +
+          (isRecovery ? "Recovery code invalid" : outcome === "replayed" ? "Code reused" : "2FA code invalid") +
           (ctx ? ` · ${ctx}` : ""),
         user_id: profile.id,
         user_email: profile.email,
         ip,
       });
     } catch {}
-    const msg = result === "replayed" ? "Code+already+used" : "Invalid+2FA+code";
-    return redirect(`/login?step=totp&error=${msg}&next=${encodeURIComponent(next)}`);
+    return redirect(totpStepUrl(outcome === "replayed" ? "code_used" : "code_invalid", next));
   }
 
-  // ─── TOTP good — mint a real Supabase session via magiclink exchange ───
+  if (isRecovery) {
+    try {
+      const remaining = Math.max(0, (profile.totp_recovery_codes?.length ?? 1) - 1);
+      await svc.from("audit_log").insert({
+        action: "TOTP_RECOVERY_USED",
+        detail: `Login via recovery code · remaining: ${remaining}${ctx ? ` · ${ctx}` : ""}`,
+        user_id: profile.id,
+        user_email: profile.email,
+        ip,
+      });
+    } catch {}
+  }
+
+  // ─── Second factor good — mint a real Supabase session via magiclink exchange ───
   const linkRes = await svc.auth.admin.generateLink({
     type: "magiclink",
     email: profile.email!,
@@ -257,7 +307,7 @@ export async function verifyTotpAction(formData: FormData) {
 
   if (linkRes.error || !linkRes.data.properties?.hashed_token) {
     await clearPreTotpCookie();
-    return redirect("/login?error=Could+not+complete+sign-in");
+    return redirect(loginUrl("signin_failed"));
   }
 
   const supabase = await createClient();
@@ -268,7 +318,7 @@ export async function verifyTotpAction(formData: FormData) {
 
   if (verify.error) {
     await clearPreTotpCookie();
-    return redirect("/login?error=Could+not+complete+sign-in");
+    return redirect(loginUrl("signin_failed"));
   }
 
   await clearPreTotpCookie();
@@ -276,7 +326,7 @@ export async function verifyTotpAction(formData: FormData) {
   try {
     await svc.from("audit_log").insert({
       action: "LOGIN",
-      detail: `Email: ${profile.email} (TOTP verified)${ctx ? ` · ${ctx}` : ""}`,
+      detail: `Email: ${profile.email} (${isRecovery ? "recovery code" : "TOTP"} verified)${ctx ? ` · ${ctx}` : ""}`,
       user_id: profile.id,
       user_email: profile.email,
       ip,
@@ -284,12 +334,11 @@ export async function verifyTotpAction(formData: FormData) {
   } catch {}
 
   try {
-    const { bindSessionPin } = await import("@/lib/auth/session-pin");
     await bindSessionPin(profile.id);
   } catch {}
 
   revalidatePath("/", "layout");
-  redirect(sanitizeNextPath(next) as never);
+  redirect(next as never);
 }
 
 /** Abort the TOTP step and go back to email/password. */

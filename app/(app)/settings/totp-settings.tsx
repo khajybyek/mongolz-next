@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Shield, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { TotpPrompt } from "@/components/totp-prompt";
 
 interface Props {
   email: string;
@@ -19,6 +21,8 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [needsTotp, setNeedsTotp] = useState(false);
+  const router = useRouter();
 
   async function startSetup() {
     setBusy(true);
@@ -55,6 +59,8 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
       setSecret(null);
       setCode("");
       setSuccess("✓ TOTP 2FA идэвхжсэн!");
+      // Server-rendered "must set up TOTP" banner + middleware gate re-evaluate.
+      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Алдаа");
     } finally {
@@ -72,6 +78,11 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
         body: JSON.stringify({ password }),
       });
       const data = await res.json();
+      if (res.status === 403 && data?.error === "REAUTH_REQUIRED") {
+        // Disabling the second factor needs the second factor first.
+        setNeedsTotp(true);
+        return;
+      }
       if (!res.ok) throw new Error(data.error ?? "Унтраах алдаа");
       setEnabled(false);
       setStep("idle");
@@ -86,6 +97,14 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
 
   return (
     <div className="card space-y-4">
+      <TotpPrompt
+        open={needsTotp}
+        onClose={() => setNeedsTotp(false)}
+        onSuccess={() => {
+          setNeedsTotp(false);
+          void submitDisable();
+        }}
+      />
       <div className="flex items-center gap-3">
         <div
           className={`w-10 h-10 rounded-lg flex items-center justify-center ${

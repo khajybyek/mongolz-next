@@ -4,7 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { generateSecret, buildOtpauthUri, buildQrDataUri } from "@/lib/totp";
 
 export async function POST() {
-  const auth = await requireUserApi();
+  const auth = await requireUserApi({ allowAuditor: true });
   if (isAuthErr(auth)) return auth.error;
   const ctx = auth;
   const svc = createServiceClient();

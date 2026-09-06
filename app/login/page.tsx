@@ -4,26 +4,40 @@ import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Alert } from "@/components/ui/alert";
 import { getServerLang, getT } from "@/lib/i18n/server";
+import type { TranslationKey } from "@/lib/i18n/translations";
+import { sanitizeNextPath } from "@/lib/auth/safe-next";
 import { signInAction, verifyTotpAction, cancelTotpAction } from "./actions";
 import { PasskeyLoginButton } from "./passkey-login-button";
 
-function displayError(error: string): string {
-  try {
-    return decodeURIComponent(error);
-  } catch {
-    return error;
-  }
-}
+/**
+ * Only known error *codes* are rendered (mapped to translated copy). Raw
+ * query text is never echoed — it used to be, which allowed phishing-style
+ * text injection through ?error=.
+ */
+const ERROR_KEYS: Record<string, TranslationKey> = {
+  invalid_credentials: "login_error",
+  too_many_attempts: "login_err_too_many",
+  code_format: "login_err_code_format",
+  code_invalid: "login_err_code_invalid",
+  code_used: "login_err_code_used",
+  code_expired: "login_err_code_expired",
+  signin_failed: "login_err_signin_failed",
+  no_profile: "login_err_no_profile",
+  session_pin: "login_err_session_pin",
+  callback_failed: "login_err_callback",
+};
 
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; next?: string; step?: string }>;
 }) {
-  const { error, next, step } = await searchParams;
+  const { error, next: rawNext, step } = await searchParams;
   const lang = await getServerLang();
   const { t } = await getT();
   const isTotpStep = step === "totp";
+  const next = sanitizeNextPath(rawNext);
+  const errorText = error ? t(ERROR_KEYS[error] ?? "login_err_generic") : null;
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-hero relative overflow-hidden">
@@ -80,11 +94,7 @@ export default async function LoginPage({
                       : "Two-factor authentication"}
                   </h2>
                   <p className="text-xs text-text-soft mt-1.5 max-w-[260px] mx-auto">
-                    {lang === "mn"
-                      ? "Authenticator app-аас 6 оронтой кодоо оруулна уу"
-                      : lang === "kr"
-                      ? "Authenticator 앱에서 6자리 코드를 입력하세요"
-                      : "Enter the 6-digit code from your authenticator app"}
+                    {t("login_totp_hint")}
                   </p>
                 </div>
 
@@ -95,20 +105,20 @@ export default async function LoginPage({
                   <input
                     id="totp_code"
                     name="totp_code"
-                    inputMode="numeric"
-                    pattern="[0-9]{6}"
-                    maxLength={6}
+                    inputMode="text"
+                    autoCapitalize="characters"
+                    maxLength={11}
                     required
                     autoComplete="one-time-code"
                     autoFocus
-                    className="input text-center text-2xl tracking-[0.5em] font-mono"
+                    className="input text-center text-2xl tracking-[0.3em] font-mono"
                     placeholder="000000"
                   />
                 </div>
 
-                {next && <input type="hidden" name="next" value={next} />}
+                <input type="hidden" name="next" value={next} />
 
-                {error && <Alert variant="danger">{displayError(error)}</Alert>}
+                {errorText && <Alert variant="danger">{errorText}</Alert>}
 
                 <button type="submit" className="btn-primary w-full">
                   {lang === "mn" ? "Баталгаажуулах" : lang === "kr" ? "확인" : "Verify"}
@@ -128,11 +138,7 @@ export default async function LoginPage({
 
                 <p className="text-2xs text-text-muted text-center leading-relaxed border-t border-border pt-3.5">
                   <KeyRound className="w-3 h-3 inline -mt-0.5 mr-1 opacity-60" />
-                  {lang === "mn"
-                    ? "Код 2 минут хүчинтэй. Authenticator app алдсан бол recovery code ашиглана уу."
-                    : lang === "kr"
-                    ? "코드는 2분간 유효합니다. 앱을 잃어버린 경우 복구 코드를 사용하세요."
-                    : "Code is valid for 2 minutes. Use a recovery code if you lost your authenticator app."}
+                  {t("login_totp_note")}
                 </p>
               </form>
             ) : (
@@ -168,9 +174,9 @@ export default async function LoginPage({
                   />
                 </div>
 
-                {next && <input type="hidden" name="next" value={next} />}
+                <input type="hidden" name="next" value={next} />
 
-                {error && <Alert variant="danger">{displayError(error)}</Alert>}
+                {errorText && <Alert variant="danger">{errorText}</Alert>}
 
                 <button type="submit" className="btn-primary w-full mt-2">
                   {t("login_btn")}
@@ -188,7 +194,7 @@ export default async function LoginPage({
                 </div>
 
                 <PasskeyLoginButton
-                  next={next ?? "/dashboard"}
+                  next={next}
                   labels={{
                     button:
                       lang === "mn"

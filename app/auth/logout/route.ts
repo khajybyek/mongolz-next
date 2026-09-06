@@ -27,9 +27,12 @@ export async function POST(request: NextRequest) {
   } catch {
     // ignore
   }
-  return NextResponse.redirect(new URL("/login", request.url), { status: 303 });
+  const res = NextResponse.redirect(new URL("/login", request.url), { status: 303 });
+  // Drop anything the browser cached for this origin (service-worker cache,
+  // HTTP cache) so a shared/kiosk browser holds no app data after logout.
+  res.headers.set("Clear-Site-Data", '"cache", "storage"');
+  return res;
 }
 
-export async function GET(request: NextRequest) {
-  return POST(request);
-}
+// Intentionally no GET handler: a top-level cross-site navigation would
+// otherwise log the user out (SameSite=Lax still sends cookies on GET).

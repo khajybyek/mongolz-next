@@ -54,7 +54,19 @@ const REDACT_KEYS = new Set([
 // (e.g. "stripe_token", "my_password", "webhook_secret"). Deliberately
 // excludes the bare word "key" (too many false positives: "keyboard",
 // "publishable_key", "keyword").
-const REDACT_SUBSTRINGS = ["password", "passwd", "secret", "token", "jwt", "apikey", "api_key"];
+const REDACT_SUBSTRINGS = [
+  "password",
+  "passwd",
+  "secret",
+  "token",
+  "jwt",
+  "apikey",
+  "api_key",
+  "private_key",
+  "privatekey",
+  "credential",
+  "recovery_code",
+];
 
 function keyIsSensitive(key: string): boolean {
   const k = key.toLowerCase();
@@ -66,10 +78,9 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function redactValue(value: unknown): unknown {
-  if (typeof value === "string" && value.length > 6) {
-    return value.slice(0, 4) + "…[redacted]";
-  }
+function redactValue(): unknown {
+  // Never echo any part of the secret — a 4-char prefix is half of a short
+  // password.
   return "[redacted]";
 }
 
@@ -88,7 +99,7 @@ function redact(obj: unknown, depth = 0, seen?: WeakSet<object>): unknown {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
     if (keyIsSensitive(k)) {
-      out[k] = redactValue(v);
+      out[k] = redactValue();
     } else {
       out[k] = redact(v, depth + 1, set);
     }

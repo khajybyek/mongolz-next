@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { finishRegistration } from "@/lib/auth/webauthn";
+import { hasFreshReauth } from "@/lib/auth/step-up";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
 
 /**
@@ -10,8 +11,14 @@ import type { RegistrationResponseJSON } from "@simplewebauthn/server";
  * `navigator.credentials.create()` and verifies / stores it.
  */
 export async function POST(request: NextRequest) {
-  const auth = await requireUserApi();
+  const auth = await requireUserApi({ allowAuditor: true });
   if (isAuthErr(auth)) return auth.error;
+  // Enrolling a passkey creates a durable password-less, TOTP-less login for
+  // this account, so it needs fresh step-up (a hijacked session alone must
+  // not be able to plant one).
+  if (!(await hasFreshReauth(auth.user.id))) {
+    return NextResponse.json({ error: "REAUTH_REQUIRED" }, { status: 403 });
+  }
 
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object" || !body.response) {
@@ -44,9 +51,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "verification failed" },
-      { status: 400 },
-    );
+    // Constraint text / library internals stay server-side.
+    console.warn("[passkey/register] verification failed:", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "verification failed" }, { status: 400 });
   }
 }

@@ -4,9 +4,11 @@
  * assertion verification) and stores credentials + 5-min challenges in
  * Supabase.
  *
- * v1: registration + listing + deletion of passkeys from /settings. Login
- * flow remains email/password + TOTP; passkey-as-login is staged for a
- * future commit once UX is validated against the defense rehearsal.
+ * Passkeys are a full login factor here (a passkey login mints a session
+ * without the TOTP step), so they must be a *second* factor on their own:
+ * user verification (PIN / biometric) is required both at registration and
+ * at every assertion — possession of the authenticator alone is not enough.
+ * Enrolling or removing a passkey requires fresh step-up (see the routes).
  */
 import {
   generateAuthenticationOptions,
@@ -89,7 +91,7 @@ export async function buildRegistrationOptions(args: {
     attestationType: "none",
     authenticatorSelection: {
       residentKey: "preferred",
-      userVerification: "preferred",
+      userVerification: "required",
     },
     excludeCredentials: args.existingCredentialIds.map((id) => ({
       id,
@@ -127,7 +129,7 @@ export async function buildAuthenticationOptions(args: {
   const opts = await generateAuthenticationOptions({
     rpID: rp.rpId,
     timeout: 60_000,
-    userVerification: "preferred",
+    userVerification: "required",
     allowCredentials: creds.map((c) => ({
       id: c.credential_id,
       transports: (c.transports ?? []) as ("internal" | "hybrid" | "usb" | "ble" | "nfc")[],
@@ -226,7 +228,9 @@ export async function finishRegistration(args: {
     expectedChallenge,
     expectedOrigin: rp.origin,
     expectedRPID: rp.rpId,
-    requireUserVerification: false,
+    // Must match the "required" hint above: a credential enrolled without UV
+    // would later pass login with mere presence.
+    requireUserVerification: true,
   });
 
   if (!verification.verified || !verification.registrationInfo) {

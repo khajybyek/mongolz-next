@@ -21,8 +21,8 @@ describe("feature flags", () => {
 
   it("parses truthy strings as true", () => {
     for (const v of ["1", "true", "TRUE", "yes", "On", "y"]) {
-      process.env[FLAGS.edge_detect_onnx.env] = v;
-      expect(flag("edge_detect_onnx")).toBe(true);
+      process.env[FLAGS.anomaly_cron.env] = v;
+      expect(flag("anomaly_cron")).toBe(true);
     }
   });
 

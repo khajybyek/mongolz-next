@@ -1,9 +1,13 @@
-import { createHmac, timingSafeEqual } from "crypto";
+import { pickHmacSecret } from "@/lib/auth/hmac-secret";
+import { hmacEqual, hmacSign } from "@/lib/auth/hmac";
 
 const TTL_SEC = 300; // 5 minutes
+const PURPOSE = "mongolz-stream-ticket:v2";
 
 function getSecret(): string {
-  const secret = process.env.STREAM_TICKET_SECRET || process.env.ML_SERVICE_TOKEN;
+  // Fail-closed in production (no silent reuse of the ML bearer token as a
+  // signing key); the ML token stays as a local-dev fallback only.
+  const secret = pickHmacSecret("STREAM_TICKET_SECRET", "ML_SERVICE_TOKEN");
   if (!secret) throw new Error("STREAM_TICKET_SECRET_MISSING");
   return secret;
 }
@@ -11,7 +15,7 @@ function getSecret(): string {
 export function issueStreamTicket(userId: string, cameraId: string): string {
   const exp = Math.floor(Date.now() / 1000) + TTL_SEC;
   const payload = `${userId}:${cameraId}:${exp}`;
-  const sig = createHmac("sha256", getSecret()).update(payload).digest("base64url");
+  const sig = hmacSign(getSecret(), PURPOSE, payload, "base64url");
   return `${Buffer.from(payload).toString("base64url")}.${sig}`;
 }
 
@@ -31,22 +35,19 @@ export function verifyStreamTicket(ticket: string, cameraId: string): { valid: b
 
   let expected: string;
   try {
-    expected = createHmac("sha256", getSecret()).update(payload).digest("base64url");
+    expected = hmacSign(getSecret(), PURPOSE, payload, "base64url");
   } catch {
     return { valid: false };
   }
-  const sigBuf = Buffer.from(sig);
-  const expBuf = Buffer.from(expected);
-  if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
-    return { valid: false };
-  }
+  if (!hmacEqual(sig, expected, "base64url")) return { valid: false };
 
   const parts = payload.split(":");
   if (parts.length !== 3) return { valid: false };
   const [userId, ticketCameraId, expStr] = parts;
 
   if (ticketCameraId !== cameraId) return { valid: false };
-  if (Math.floor(Date.now() / 1000) > Number(expStr)) return { valid: false };
+  const exp = Number(expStr);
+  if (!Number.isFinite(exp) || Math.floor(Date.now() / 1000) > exp) return { valid: false };
 
   return { valid: true, userId };
 }

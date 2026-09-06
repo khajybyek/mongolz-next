@@ -9,37 +9,35 @@ import { type NextRequest } from "next/server";
  *   • timingSafeEqual instead of `===` — leaks no info via response time
  *     even if a token guess happens to share a prefix with the real one.
  *   • Either `CRON_SECRET` or `MONITORING_CRON_SECRET` is accepted (the
- *     monitoring/error-rate endpoint historically used its own secret).
+ *     monitoring/error-rate endpoint historically used its own secret) —
+ *     both are compared, not just the first one that happens to be set.
  *   • Fail-closed in production: if NEITHER secret is set, refuse every
- *     request (`return false`) regardless of the supplied header. This
- *     used to silently allow non-prod traffic — fine for dev, terrifying
- *     for prod if an env-var unset shipped accidentally.
+ *     request regardless of the supplied header.
  *
  * Returns true iff the caller is authorised. Callers respond 401 on false.
  */
 export function authorizeCron(req: NextRequest): boolean {
-  const secret =
-    process.env.CRON_SECRET ?? process.env.MONITORING_CRON_SECRET ?? null;
+  const secrets = [process.env.CRON_SECRET, process.env.MONITORING_CRON_SECRET]
+    .map((s) => (s ?? "").trim())
+    .filter(Boolean);
 
-  if (!secret) {
+  if (secrets.length === 0) {
     return (
       process.env.VERCEL_ENV !== "production" &&
       process.env.NODE_ENV !== "production"
     );
   }
 
-  const got = req.headers
-    .get("authorization")
-    ?.replace(/^Bearer\s+/i, "")
-    ?? "";
-
-  // Equal-length buffers before timingSafeEqual — Node throws otherwise.
+  const got = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
   const a = Buffer.from(got, "utf8");
-  const b = Buffer.from(secret, "utf8");
-  if (a.length !== b.length) return false;
-  try {
-    return timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
+
+  return secrets.some((secret) => {
+    const b = Buffer.from(secret, "utf8");
+    if (a.length !== b.length) return false;
+    try {
+      return timingSafeEqual(a, b);
+    } catch {
+      return false;
+    }
+  });
 }
