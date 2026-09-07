@@ -23,17 +23,22 @@ type WallCamera = {
 export default async function WallPage() {
   const { profile } = await requireUser();
   const isAdmin = profile.role === "admin";
+  // camera_health() is operator-aware: admins get every camera, viewers
+  // only those user_can_see_camera() allows; auditors get 42501 (and the
+  // middleware keeps them on /audit anyway — no page-level redirect here,
+  // the kiosk host rewrites every path to /wall and would loop).
+  const isOperator = isAdmin || profile.role === "viewer";
   const supabase = await createClient();
 
-  // Health rows are admin-only via the RPC's is_admin() gate; for
-  // non-admin viewers we fall back to a plain enabled-camera list with
-  // status='unknown'.
   const STATUSES: ReadonlySet<string> = new Set(["healthy", "stale", "offline", "unknown"]);
   let cameras: WallCamera[] = [];
 
-  if (isAdmin) {
-    const { data } = await supabase.rpc("camera_health");
-    cameras = (data ?? []).map((r) => ({
+  const health = isOperator ? await supabase.rpc("camera_health") : null;
+  if (health && !health.error) {
+    // Enabled cameras only — same set as the fallback branch below and as
+    // /grid, so the wall does not change shape depending on whether the RPC
+    // happened to succeed (camera_health returns disabled cameras too).
+    cameras = (health.data ?? []).filter((r) => r.enabled).map((r) => ({
       camera_id: r.camera_id,
       name: r.name,
       enabled: r.enabled,
@@ -44,6 +49,8 @@ export default async function WallPage() {
       latest_face_id: null,
     }));
   } else {
+    // RPC unavailable (error or non-operator) → plain enabled-camera list
+    // with status='unknown' so the wall still renders.
     const { data } = await supabase
       .from("cameras")
       .select("id, name, enabled")

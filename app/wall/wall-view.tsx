@@ -36,6 +36,14 @@ type WallCamera = {
 
 type Mode = "status" | "live";
 
+/** Health enum → translation key (the badge is shown to every operator). */
+const STATUS_LABEL = {
+  healthy: "cam_status_healthy",
+  stale: "cam_status_stale",
+  offline: "cam_status_offline",
+  unknown: "cam_status_unknown",
+} as const;
+
 const REFRESH_MS = 10_000;
 const MODE_KEY = "mongolz-wall-mode";
 
@@ -48,6 +56,9 @@ function streamUrlFor(id: string, ticket: string): string {
  * camera (the original wall); "Live video" mode attaches HLS players to every
  * camera the ML service is currently streaming. The page re-renders every
  * 10 s from the server, which refreshes health rollups and the active list.
+ *
+ * Viewers get the same tiles (status, last seen, face counts, running
+ * streams) read-only; starting / stopping a camera stays admin-only.
  */
 export function WallView({
   cameras,
@@ -158,6 +169,7 @@ export function WallView({
   }
 
   async function startCam(id: string) {
+    if (!isAdmin) return; // defence in depth — the server action rejects non-admins too
     setBusy((prev) => new Set(prev).add(id));
     try {
       await startCameraAction(id);
@@ -175,6 +187,7 @@ export function WallView({
   }
 
   async function stopCam(id: string) {
+    if (!isAdmin) return; // defence in depth — the server action rejects non-admins too
     setBusy((prev) => new Set(prev).add(id));
     try {
       await stopCameraAction(id);
@@ -275,7 +288,6 @@ export function WallView({
           <CameraTile
             key={c.camera_id}
             cam={c}
-            isAdmin={isAdmin}
             focused={focused === c.camera_id}
             mode={mode}
             streamUrl={streams.get(c.camera_id)}
@@ -294,7 +306,6 @@ export function WallView({
 
 function CameraTile({
   cam,
-  isAdmin,
   focused,
   mode,
   streamUrl,
@@ -306,12 +317,12 @@ function CameraTile({
   onStop,
 }: {
   cam: WallCamera;
-  isAdmin: boolean;
   focused: boolean;
   mode: Mode;
   streamUrl: string | undefined;
   isActive: boolean;
   busy: boolean;
+  /** Admin with the ML service reachable — the only case that renders start / stop. */
   canControl: boolean;
   onToggleFocus: () => void;
   onStart: () => void;
@@ -382,52 +393,49 @@ function CameraTile({
             {t("grid_live")}
           </span>
         ) : (
-          isAdmin && (
-            <span className="bg-bg/70 backdrop-blur rounded px-2 py-1 text-[10px] uppercase tracking-wider">
-              <span className={statusTone}>{cam.status}</span>
-            </span>
-          )
+          <span className="bg-bg/70 backdrop-blur rounded px-2 py-1 text-[10px] uppercase tracking-wider">
+            <span className={statusTone}>{t(STATUS_LABEL[cam.status])}</span>
+          </span>
         )}
       </div>
 
-      {/* Bottom strip */}
-      {isAdmin && (
-        <div className="absolute bottom-0 inset-x-0 z-[2] flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 to-transparent text-[10px] text-white/90 px-2 py-1.5">
-          <span className="truncate pointer-events-none">
-            {cam.last_seen ? `${t("wall_last")}: ${formatDate(cam.last_seen)}` : t("cam_status_unknown")}
+      {/* Bottom strip: last seen + face counts for every operator; start /
+          stop only when canControl (admin + ML reachable). */}
+      <div className="absolute bottom-0 inset-x-0 z-[2] flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 to-transparent text-[10px] text-white/90 px-2 py-1.5">
+        <span className="truncate pointer-events-none">
+          {cam.last_seen ? `${t("wall_last")}: ${formatDate(cam.last_seen)}` : t("cam_status_unknown")}
+        </span>
+        <span className="flex items-center gap-2 shrink-0">
+          <span className="font-mono pointer-events-none">
+            {cam.faces_1h} / 1h · {cam.faces_24h} / 24h
           </span>
-          <span className="flex items-center gap-2 shrink-0">
-            <span className="font-mono pointer-events-none">
-              {cam.faces_1h} / 1h · {cam.faces_24h} / 24h
-            </span>
-            {mode === "live" && canControl && (
-              isActive || streamUrl ? (
-                <button
-                  type="button"
-                  onClick={onStop}
-                  disabled={busy}
-                  className="btn-icon w-7 h-7 min-w-0 bg-bg/70 text-danger hover:bg-danger/20"
-                  aria-label={`${t("grid_stop")}: ${cam.name}`}
-                  title={t("grid_stop")}
-                >
-                  {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onStart}
-                  disabled={busy}
-                  className="btn-icon w-7 h-7 min-w-0 bg-bg/70 text-accent hover:bg-accent/20"
-                  aria-label={`${t("grid_play")}: ${cam.name}`}
-                  title={t("grid_play")}
-                >
-                  {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-                </button>
-              )
-            )}
-          </span>
-        </div>
-      )}
+          {mode === "live" && canControl && (
+            isActive || streamUrl ? (
+              <button
+                type="button"
+                onClick={onStop}
+                disabled={busy}
+                className="btn-icon w-7 h-7 min-w-0 bg-bg/70 text-danger hover:bg-danger/20"
+                aria-label={`${t("grid_stop")}: ${cam.name}`}
+                title={t("grid_stop")}
+              >
+                {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onStart}
+                disabled={busy}
+                className="btn-icon w-7 h-7 min-w-0 bg-bg/70 text-accent hover:bg-accent/20"
+                aria-label={`${t("grid_play")}: ${cam.name}`}
+                title={t("grid_play")}
+              >
+                {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+              </button>
+            )
+          )}
+        </span>
+      </div>
     </div>
   );
 }

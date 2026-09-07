@@ -199,6 +199,9 @@ the wall, detection and alerts can all be shown from a room with no CCTV.
   starts capturing, recording + detecting like a real RTSP feed. A red
   **LIVE** badge appears next to it on `/cameras`; clicking it opens `/grid`
   focused on that camera (starting is always an explicit click).
+- **Viewers watch, admins drive:** a `viewer` account can open `/grid` and
+  `/wall` read-only — layouts, focus, fullscreen — and sees whatever an
+  admin started; the Start / Stop controls are simply not there for them.
 - **Latency note:** the first HLS segment takes ~5–8 s to appear, then the
   picture runs ~6–10 s behind the source — normal for HLS, say so before
   pressing Start rather than after. ML must be reachable (`/api/uptime`

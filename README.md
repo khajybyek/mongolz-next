@@ -153,7 +153,7 @@ mongolz-next/
 │   │   ├── thresholds/ users/ webhooks/ zk-reveal/
 │   │   └── layout.tsx               # shell: sidebar + header + tab bar + toasts + i18n
 │   ├── login/                       # email/username + TOTP
-│   ├── wall/                        # admin kiosk grid
+│   ├── wall/                        # kiosk grid — admin + viewer, view-only for viewers
 │   ├── auth/ setup/
 │   ├── api/
 │   │   ├── auth/{reauth,totp/...,webauthn/...}/
@@ -316,7 +316,7 @@ RPC, so `khajybyek` and `khajybyek@gmail.com` both work.
 | Role | Scope |
 |---|---|
 | `admin` | full CRUD; reveal_level set per profile (0 = director) |
-| `viewer` | recordings + live; no face metadata; no reveal |
+| `viewer` | recordings + live; view-only NVR grid/wall (no start/stop); aggregate camera health only — no face crops or ids; no reveal |
 | `auditor` | only `/audit*`; middleware blocks every other path |
 | `super_admin` | DB-locked flag; cannot be demoted/deleted via app or SQL by anyone except postgres / service_role / supabase_admin |
 

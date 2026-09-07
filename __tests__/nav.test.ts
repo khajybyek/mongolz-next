@@ -26,15 +26,30 @@ describe("lib/nav", () => {
 
   it("viewer sees only non-admin items; auditor sees only the audit log", () => {
     const viewer = visibleNavGroups("viewer").flatMap((g) => g.items.map((i) => i.href));
-    expect(viewer).toEqual(expect.arrayContaining(["/dashboard", "/live", "/playback", "/analytics", "/privacy"]));
+    expect(viewer).toEqual(
+      expect.arrayContaining(["/dashboard", "/live", "/grid", "/wall", "/playback", "/analytics", "/privacy"]),
+    );
     expect(viewer).not.toContain("/users");
     expect(viewer).not.toContain("/settings");
+    // The WebRTC demo stays admin-only even though the NVR grid / wall opened up.
+    expect(viewer).not.toContain("/live-rtc");
+    expect(allItems.find((i) => i.href === "/live-rtc")?.adminOnly).toBe(true);
 
     const auditor = visibleNavGroups("auditor").flatMap((g) => g.items.map((i) => i.href));
     expect(auditor).toEqual(["/audit"]);
 
     const admin = visibleNavGroups("admin").flatMap((g) => g.items);
     expect(admin.length).toBe(allItems.length);
+  });
+
+  it("the live group lists the operator surfaces in NVR order", () => {
+    const live = NAV_GROUPS.find((g) => g.id === "live");
+    expect(live?.items.map((i) => i.href)).toEqual(["/live", "/grid", "/wall", "/live-rtc", "/playback"]);
+    for (const href of ["/grid", "/wall"]) {
+      const item = live?.items.find((i) => i.href === href);
+      expect(item?.adminOnly).toBeUndefined();
+      expect(item?.auditorAllowed).toBeUndefined();
+    }
   });
 
   it("findNavItem prefers the longest matching prefix and ignores unrelated paths", () => {

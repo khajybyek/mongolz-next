@@ -15,6 +15,7 @@ import {
   PlayCircle,
   BarChart3,
   FileVideo,
+  LayoutGrid,
   Lock,
   TrendingUp,
   TrendingDown,
@@ -201,6 +202,8 @@ export default async function DashboardPage({
   };
   const allActions: QuickAction[] = [
     { href: "/live", icon: Video, label: t("qa_start_live"), tone: "accent" },
+    // NVR grid — admins start / stop, viewers monitor read-only.
+    { href: "/grid", icon: LayoutGrid, label: t("nav_grid") },
     { href: "/playback", icon: PlayCircle, label: t("qa_playback") },
     { href: "/search", icon: Search, label: t("qa_search_face"), adminOnly: true },
     { href: "/suspects", icon: UserPlus, label: t("qa_add_suspect"), adminOnly: true },
@@ -268,7 +271,7 @@ export default async function DashboardPage({
         <div className="flex items-center justify-between mb-2.5">
           <h2 className="section-title">{t("dash_quick_actions")}</h2>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
           {quickActions.map((a) => {
             const Icon = a.icon;
             return (
@@ -440,9 +443,15 @@ export default async function DashboardPage({
         <div className="card">
           <div className="flex items-center justify-between mb-3">
             <h3 className="section-title">{t("dash_cameras")}</h3>
-            {isAdmin && (
+            {isAdmin ? (
               <Link href={"/cameras" as never} className="text-xs text-text-soft hover:text-accent transition inline-flex items-center gap-1">
                 {t("dash_manage")}
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            ) : (
+              // /cameras is admin-only — viewers monitor from the NVR grid instead.
+              <Link href={"/grid" as never} className="text-xs text-text-soft hover:text-accent transition inline-flex items-center gap-1">
+                {t("nav_grid")}
                 <ArrowRight className="w-3 h-3" />
               </Link>
             )}

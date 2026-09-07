@@ -89,8 +89,11 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Video,
     items: [
       { href: "/live", icon: Video, labelKey: "nav_live", shortLabelKey: "tab_live", keywords: ["camera", "record", "webcam"] },
+      // /grid and /wall are operator surfaces: admins start / stop cameras,
+      // viewers watch running streams read-only (per-camera RLS applies).
+      { href: "/grid", icon: LayoutGrid, labelKey: "nav_grid", keywords: ["multi camera", "2x2", "3x3"] },
+      { href: "/wall", icon: MonitorPlay, labelKey: "nav_wall", keywords: ["kiosk", "monitor"] },
       { href: "/live-rtc", icon: Radio, labelKey: "nav_live_rtc", adminOnly: true, keywords: ["webrtc", "latency"] },
-      { href: "/wall", icon: MonitorPlay, labelKey: "nav_wall", adminOnly: true, keywords: ["kiosk", "monitor"] },
       { href: "/playback", icon: PlayCircle, labelKey: "nav_playback", shortLabelKey: "tab_playback", keywords: ["recording", "video"] },
     ],
   },
@@ -116,7 +119,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/ai", icon: Sparkles, labelKey: "nav_ai", adminOnly: true, keywords: ["claude", "chat", "summary", "anomaly"] },
       { href: "/faces", icon: Users, labelKey: "nav_faces", adminOnly: true, keywords: ["gallery", "crops"] },
       { href: "/clusters", icon: Boxes, labelKey: "nav_clusters", adminOnly: true, keywords: ["dbscan", "grouping"] },
-      { href: "/grid", icon: LayoutGrid, labelKey: "nav_grid", adminOnly: true, keywords: ["multi camera", "2x2", "3x3"] },
     ],
   },
   {

@@ -1,9 +1,10 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { LayoutGrid, MonitorPlay } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { createClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/lib/supabase/auth";
+import { requireUser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { mlActiveCameras } from "@/lib/ml-client";
 import { MultiCameraGrid, type GridCamera } from "./multi-camera-grid";
@@ -20,12 +21,22 @@ type HealthRow = {
 const STATUSES = new Set(["healthy", "stale", "offline", "unknown"]);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * NVR grid for every operator. Admins start / stop cameras; viewers watch
+ * whatever is running (the camera list + camera_health + the HLS proxy are
+ * all filtered per user_can_see_camera, so a viewer only ever sees cameras
+ * they are permitted to see). Auditors are confined to /audit.
+ */
 export default async function GridPage({
   searchParams,
 }: {
   searchParams?: Promise<{ focus?: string | string[] }>;
 }) {
-  await requireAdmin();
+  const { profile } = await requireUser();
+  // The middleware already confines auditors to /audit*; belt and braces.
+  if (profile.role === "auditor") redirect("/audit");
+  const canControl = profile.role === "admin";
+
   const { t } = await getT();
   const supabase = await createClient();
 
@@ -35,7 +46,7 @@ export default async function GridPage({
   const rawFocus = Array.isArray(sp.focus) ? sp.focus[0] : sp.focus;
   const initialFocus = rawFocus && UUID_RE.test(rawFocus) ? rawFocus.toLowerCase() : null;
 
-  const [{ data: rows }, { data: healthRows }, active] = await Promise.all([
+  const [{ data: rows }, health, active] = await Promise.all([
     supabase
       .from("cameras")
       .select("id, name, cam_type, enabled")
@@ -45,8 +56,13 @@ export default async function GridPage({
     mlActiveCameras(),
   ]);
 
+  // camera_health is operator-aware (admin + viewer, rows filtered per
+  // user_can_see_camera). If the RPC errors the tiles simply show
+  // status=unknown instead of failing the whole page.
   const healthById = new Map<string, HealthRow>();
-  for (const r of (healthRows ?? []) as HealthRow[]) healthById.set(r.camera_id, r);
+  if (!health.error) {
+    for (const r of (health.data ?? []) as HealthRow[]) healthById.set(r.camera_id, r);
+  }
 
   const cameras: GridCamera[] = (rows ?? []).map((c) => {
     const h = healthById.get(c.id);
@@ -79,11 +95,13 @@ export default async function GridPage({
       />
       {cameras.length === 0 ? (
         <Empty
-          message={t("grid_no_cameras")}
+          message={canControl ? t("grid_no_cameras") : t("grid_no_cameras_viewer")}
           action={
-            <Link href={"/cameras" as never} className="btn-primary btn-sm">
-              {t("nav_cameras")}
-            </Link>
+            canControl ? (
+              <Link href={"/cameras" as never} className="btn-primary btn-sm">
+                {t("nav_cameras")}
+              </Link>
+            ) : undefined
           }
         />
       ) : (
@@ -92,6 +110,7 @@ export default async function GridPage({
           initialActive={initialActive}
           mlReachable={active !== null}
           initialFocus={initialFocus}
+          canControl={canControl}
         />
       )}
     </>

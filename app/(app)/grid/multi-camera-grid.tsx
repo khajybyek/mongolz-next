@@ -66,18 +66,26 @@ const STATUS_DOT: Record<GridCamera["status"], string> = {
  * service to capture it, which also records + detects faces — the note under
  * the toolbar says so. The grid polls the ML service so streams started from
  * another tab / the wall show up, and streams stopped elsewhere disappear.
+ *
+ * `canControl=false` (viewer) is the read-only NVR mode: no start / stop
+ * anywhere, tiles wait for an admin to start a stream and attach on their
+ * own. Layout, paging, focus, fullscreen and retry (which only re-issues a
+ * stream ticket) stay available.
  */
 export function MultiCameraGrid({
   cameras,
   initialActive,
   mlReachable,
   initialFocus = null,
+  canControl,
 }: {
   cameras: GridCamera[];
   initialActive: string[];
   mlReachable: boolean;
   /** Camera id from `?focus=` — focused on mount (starting stays an explicit click). */
   initialFocus?: string | null;
+  /** Admins start / stop cameras; viewers only watch running streams. */
+  canControl: boolean;
 }) {
   const { t } = useT();
   const { toast } = useToast();
@@ -92,6 +100,9 @@ export function MultiCameraGrid({
   const [isFull, setIsFull] = useState(false);
   const [reachable, setReachable] = useState(mlReachable);
   const [bulk, setBulk] = useState<"start" | "stop" | null>(null);
+  // True once the first attach pass has run, so the viewer "no streams"
+  // notice does not flash while tickets for running streams are fetched.
+  const [synced, setSynced] = useState(false);
   // Phones cap the grid at two columns so tiles stay legible; 3×3 / 4×4
   // layouts simply wrap into more rows there.
   const [narrow, setNarrow] = useState(false);
@@ -191,6 +202,7 @@ export function MultiCameraGrid({
       for (const id of streamsRef.current.keys()) {
         if (!wanted.has(id) && !busyRef.current.has(id)) detach(id);
       }
+      if (!cancelled) setSynced(true);
     }
 
     void sync(initialActive, mlReachable);
@@ -210,6 +222,7 @@ export function MultiCameraGrid({
 
   const start = useCallback(
     async (cam: GridCamera) => {
+      if (!canControl) return; // defence in depth — the server action rejects non-admins too
       if (streamsRef.current.has(cam.id) || busyRef.current.has(cam.id)) return;
       setBusy((prev) => new Map(prev).set(cam.id, "start"));
       try {
@@ -228,11 +241,12 @@ export function MultiCameraGrid({
         });
       }
     },
-    [attach, t, toast],
+    [attach, canControl, t, toast],
   );
 
   const stop = useCallback(
     async (cam: GridCamera) => {
+      if (!canControl) return; // defence in depth — the server action rejects non-admins too
       if (busyRef.current.has(cam.id)) return;
       setBusy((prev) => new Map(prev).set(cam.id, "stop"));
       try {
@@ -249,7 +263,7 @@ export function MultiCameraGrid({
         });
       }
     },
-    [detach, t, toast],
+    [canControl, detach, t, toast],
   );
 
   // Leaving focus lands on the page that holds that camera, so a deep-linked
@@ -393,24 +407,28 @@ export function MultiCameraGrid({
           {streamingCount} / {cameras.length} {t("grid_streaming")}
         </span>
 
-        <button
-          type="button"
-          className="btn-primary btn-sm"
-          onClick={startAll}
-          disabled={!reachable || bulk !== null || visible.every((c) => streams.has(c.id))}
-        >
-          {bulk === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-          {t("grid_start_all")}
-        </button>
-        <button
-          type="button"
-          className="btn-outline btn-sm"
-          onClick={stopAll}
-          disabled={bulk !== null || streamingCount === 0}
-        >
-          {bulk === "stop" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
-          {t("grid_stop_all")}
-        </button>
+        {canControl && (
+          <>
+            <button
+              type="button"
+              className="btn-primary btn-sm"
+              onClick={startAll}
+              disabled={!reachable || bulk !== null || visible.every((c) => streams.has(c.id))}
+            >
+              {bulk === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+              {t("grid_start_all")}
+            </button>
+            <button
+              type="button"
+              className="btn-outline btn-sm"
+              onClick={stopAll}
+              disabled={bulk !== null || streamingCount === 0}
+            >
+              {bulk === "stop" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
+              {t("grid_stop_all")}
+            </button>
+          </>
+        )}
         <button
           type="button"
           className="btn-icon"
@@ -425,7 +443,14 @@ export function MultiCameraGrid({
       {!reachable ? (
         <Alert variant="warning">{t("grid_ml_down")}</Alert>
       ) : (
-        !isFull && <p className="helper mt-0">{t("grid_recording_note")}</p>
+        !isFull && (
+          <p className="helper mt-0">{canControl ? t("grid_recording_note") : t("grid_viewer_readonly")}</p>
+        )
+      )}
+
+      {/* Viewer: ML is up but nothing is streaming — say so, keep the tiles. */}
+      {!canControl && reachable && synced && streamingCount === 0 && (
+        <Alert variant="info">{t("grid_no_streams_viewer")}</Alert>
       )}
 
       {/* Focused single view */}
@@ -446,6 +471,7 @@ export function MultiCameraGrid({
               playing={playing.has(focusedCam.id)}
               fill
               focused
+              canControl={canControl}
               onStart={() => start(focusedCam)}
               onStop={() => stop(focusedCam)}
               onFocus={leaveFocus}
@@ -471,6 +497,7 @@ export function MultiCameraGrid({
               playing={playing.has(cam.id)}
               fill={fill}
               focused={false}
+              canControl={canControl}
               onStart={() => start(cam)}
               onStop={() => stop(cam)}
               onFocus={() => setFocused(cam.id)}
@@ -505,6 +532,7 @@ function GridTile({
   playing,
   fill,
   focused,
+  canControl,
   onStart,
   onStop,
   onFocus,
@@ -520,6 +548,8 @@ function GridTile({
   playing: boolean;
   fill: boolean;
   focused: boolean;
+  /** false = viewer: no play / stop button, idle tiles wait for an admin. */
+  canControl: boolean;
   onStart: () => void;
   onStop: () => void;
   onFocus: () => void;
@@ -551,7 +581,9 @@ function GridTile({
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-text-faint">
           <Cctv className="w-8 h-8 opacity-40" />
-          <span className="text-xs">{failed ? t("grid_stream_failed") : t("grid_idle")}</span>
+          <span className="text-xs">
+            {failed ? t("grid_stream_failed") : canControl ? t("grid_idle") : t("grid_waiting_stream")}
+          </span>
         </div>
       )}
 
@@ -611,29 +643,30 @@ function GridTile({
           <span className="font-mono">{cam.faces_1h}/1h</span>
         </span>
         <span className="flex items-center gap-1 shrink-0">
-          {streamUrl ? (
-            <button
-              type="button"
-              onClick={onStop}
-              disabled={busy !== null}
-              className="btn-icon w-8 h-8 min-w-0 bg-bg/70 text-danger hover:bg-danger/20"
-              aria-label={`${t("grid_stop")}: ${cam.name}`}
-              title={t("grid_stop")}
-            >
-              <Square className="w-3.5 h-3.5" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onStart}
-              disabled={busy !== null || !reachable}
-              className="btn-icon w-8 h-8 min-w-0 bg-bg/70 text-accent hover:bg-accent/20"
-              aria-label={`${t("grid_play")}: ${cam.name}`}
-              title={t("grid_play")}
-            >
-              <Play className="w-3.5 h-3.5" />
-            </button>
-          )}
+          {canControl &&
+            (streamUrl ? (
+              <button
+                type="button"
+                onClick={onStop}
+                disabled={busy !== null}
+                className="btn-icon w-8 h-8 min-w-0 bg-bg/70 text-danger hover:bg-danger/20"
+                aria-label={`${t("grid_stop")}: ${cam.name}`}
+                title={t("grid_stop")}
+              >
+                <Square className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onStart}
+                disabled={busy !== null || !reachable}
+                className="btn-icon w-8 h-8 min-w-0 bg-bg/70 text-accent hover:bg-accent/20"
+                aria-label={`${t("grid_play")}: ${cam.name}`}
+                title={t("grid_play")}
+              >
+                <Play className="w-3.5 h-3.5" />
+              </button>
+            ))}
           {!focused && (
             <button
               type="button"
