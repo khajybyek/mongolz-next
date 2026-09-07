@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { verifyTOTPWithReplayCheck } from "@/lib/totp";
@@ -77,11 +78,20 @@ export async function POST(request: NextRequest) {
   let cookieValue: string;
   try {
     cookieValue = buildReauthCookieValue(ctx.user.id, expiresAt);
-  } catch {
-    return NextResponse.json(
-      { error: "Reauth signing secret тохируулагдаагүй" },
-      { status: 500 }
-    );
+  } catch (err) {
+    // REAUTH_COOKIE_SECRET is fail-closed in production (lib/auth/hmac-secret.ts).
+    // Fail loud: Sentry + audit row + a stable code the client translates.
+    // Never echo internals (no secret names/values in the response body).
+    Sentry.captureException(err);
+    try {
+      await svc.from("audit_log").insert({
+        action: "REAUTH_CONFIG_ERROR",
+        user_id: ctx.user.id,
+        user_email: ctx.user.email,
+        detail: "reauth cookie could not be signed — REAUTH_COOKIE_SECRET missing?",
+      });
+    } catch {}
+    return NextResponse.json({ error: "server_config" }, { status: 503 });
   }
 
   const res = NextResponse.json({

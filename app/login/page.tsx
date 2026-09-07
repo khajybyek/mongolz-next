@@ -26,6 +26,7 @@ const ERROR_KEYS: Record<string, TranslationKey> = {
   no_profile: "login_err_no_profile",
   session_pin: "login_err_session_pin",
   callback_failed: "login_err_callback",
+  server_config: "login_err_server_config",
 };
 
 export default async function LoginPage({

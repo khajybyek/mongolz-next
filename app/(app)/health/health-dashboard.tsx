@@ -31,10 +31,13 @@ export function HealthDashboard() {
       try {
         const res = await fetch(c.url);
         const data = await res.json();
+        // /api/health/auth answers 200 with config.ok=false when a production
+        // signing secret is missing — that must not read as a green service.
+        const configBroken = data?.config?.ok === false;
         results.push({
           name: c.name,
           url: c.url,
-          status: res.ok ? "ok" : "error",
+          status: res.ok && !configBroken ? "ok" : "error",
           latency_ms: Date.now() - t0,
           detail: data.detail ?? (res.ok ? "Healthy" : data.error ?? "Error"),
         });

@@ -144,7 +144,9 @@ export function RevealModal({
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error ?? t("pb_reauth_failed"));
+        throw new Error(
+          j.error === "server_config" ? t("totp_prompt_server_config") : (j.error ?? t("pb_reauth_failed")),
+        );
       }
       setPassword("");
       await startRevealJob();

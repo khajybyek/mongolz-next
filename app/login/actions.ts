@@ -4,6 +4,7 @@ import type { Route } from "next";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
+import * as Sentry from "@sentry/nextjs";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { checkLoginRateLimit, checkRateLimit, TOTP_LOGIN_LIMIT } from "@/lib/rate-limit";
 import { verifyTOTPWithReplayCheck } from "@/lib/totp";
@@ -28,7 +29,9 @@ type LoginErrorCode =
   | "code_invalid"
   | "code_used"
   | "code_expired"
-  | "signin_failed";
+  | "signin_failed"
+  /** A signing secret is unset on the server (fail-closed in production). */
+  | "server_config";
 
 function loginUrl(error: LoginErrorCode, extra: Record<string, string> = {}): Route {
   return `/login?${new URLSearchParams({ error, ...extra }).toString()}` as Route;
@@ -173,7 +176,29 @@ export async function signInAction(formData: FormData) {
   if (profile.totp_enabled) {
     // Sign user out so they cannot navigate the app until TOTP is verified.
     await supabase.auth.signOut();
-    await setPreTotpCookie(user.id);
+
+    // The pre-TOTP cookie is HMAC-signed with REAUTH_COOKIE_SECRET, which is
+    // fail-closed in production (lib/auth/hmac-secret.ts). If it is unset the
+    // signer throws — surface that as a clear, translated login error instead
+    // of the raw global error page. redirect() throws NEXT_REDIRECT, so it
+    // must stay OUTSIDE this try/catch.
+    let configError = false;
+    try {
+      await setPreTotpCookie(user.id);
+    } catch (err) {
+      configError = true;
+      Sentry.captureException(err);
+      try {
+        await svc.from("audit_log").insert({
+          action: "LOGIN_CONFIG_ERROR",
+          detail: `pre-TOTP cookie could not be signed — REAUTH_COOKIE_SECRET missing?${ctx ? ` · ${ctx}` : ""}`,
+          user_email: email,
+          user_id: user.id,
+          ip,
+        });
+      } catch {}
+    }
+    if (configError) return redirect(loginUrl("server_config"));
     return redirect(`/login?step=totp&next=${encodeURIComponent(next)}` as Route);
   }
 
@@ -222,7 +247,15 @@ export async function verifyTotpAction(formData: FormData) {
   const pre = await readPreTotpCookie();
   if (!pre.ok) {
     await clearPreTotpCookie();
-    return redirect(loginUrl(pre.reason === "expired" ? "code_expired" : "signin_failed"));
+    return redirect(
+      loginUrl(
+        pre.reason === "expired"
+          ? "code_expired"
+          : pre.reason === "no-secret"
+            ? "server_config"
+            : "signin_failed",
+      ),
+    );
   }
 
   const svc = createServiceClient();

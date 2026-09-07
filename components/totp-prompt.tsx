@@ -49,6 +49,8 @@ export function TotpPrompt({ open, onClose, onSuccess }: Props) {
       if (!res.ok) {
         if (data?.error === "TOTP_NOT_ENABLED") {
           setError(t("totp_prompt_not_enabled"));
+        } else if (data?.error === "server_config") {
+          setError(t("totp_prompt_server_config"));
         } else {
           setError(data?.error ?? t("totp_prompt_invalid"));
         }

@@ -42,7 +42,11 @@ describe("step-up cookie", () => {
     expect(verifyReauthCookieValue(expired, userId)).toBeNull();
     const value = buildReauthCookieValue(userId, new Date(Date.now() + 60_000));
     const [uid, exp, sig] = value.split("|");
-    expect(verifyReauthCookieValue([uid, exp, sig!.replace(/^./, "0")].join("|"), userId)).toBeNull();
+    // Flip the first hex digit to something else — replacing it with a
+    // literal "0" is a no-op ~1/16 of the time (signatures that already
+    // start with 0), which made this assertion flaky.
+    const tampered = (sig![0] === "0" ? "1" : "0") + sig!.slice(1);
+    expect(verifyReauthCookieValue([uid, exp, tampered].join("|"), userId)).toBeNull();
     expect(verifyReauthCookieValue([uid, new Date(Date.now() + 99_999_999).toISOString(), sig].join("|"), userId)).toBeNull();
   });
 

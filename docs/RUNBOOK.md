@@ -32,7 +32,52 @@ Signals that should trigger a response:
 - `/api/uptime` external probe → `503` for ≥ 2 consecutive checks
 - `audit_log` row with action starting `BREAK_GLASS_*`, `ADMIN_COUNT_ZERO`,
   `REAUTH_TOTP_REPLAY_BLOCKED`, `KEY_ROTATION_DUE`
+- `audit_log` row `LOGIN_CONFIG_ERROR` / `REAUTH_CONFIG_ERROR`, or a Sentry
+  **fatal** `[config] missing production secrets: …` at boot (see below)
 - User report via khajybyek@gmail.com (security.txt)
+
+#### Missing signing secret (login crash / step-up 500)
+
+`lib/auth/hmac-secret.ts` is **fail-closed in production**: cookie signers
+(`REAUTH_COOKIE_SECRET`, `SESSION_PIN_SECRET`, `STREAM_TICKET_SECRET`) have
+no fallback when `VERCEL_ENV=production`. A missing one is a silent outage
+for every TOTP-enabled admin, not a crash of the whole site.
+
+**Symptom**
+
+- Admin (TOTP) password login lands on `/login?error=server_config`
+  ("server configuration error"); passkey and non-TOTP logins still work.
+  Before the guard existed this was the unstyled "Something went wrong" page.
+- Step-up (`POST /api/auth/reauth`, `/api/auth/reauth/totp`) returns
+  `503 { "error": "server_config" }`; the TOTP prompt shows the translated
+  "signing secret is missing" message.
+- `audit_log` rows `LOGIN_CONFIG_ERROR` / `REAUTH_CONFIG_ERROR` (user +
+  ip, no secret values).
+- Sentry: fatal `[config] missing production secrets: A, B` on cold boot
+  (`instrumentation.ts`) plus the captured exception per request.
+
+**Check**
+
+```bash
+vercel env ls production                      # is the name listed at all?
+curl -s https://aicctv.dev/api/health/auth -H 'Cookie: <admin session>' | jq .config
+# → { "ok": false, "missing": ["REAUTH_COOKIE_SECRET"], "production": true }
+```
+
+`/health` (admin) shows the same list as red chips under
+"Configuration (secrets)".
+
+**Fix**
+
+```bash
+NEW=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+echo "$NEW" | vercel env add REAUTH_COOKIE_SECRET production   # repeat per missing NAME
+vercel deploy --prod --yes                                      # env changes need a redeploy
+```
+
+Then re-run the check above (`config.ok` must be `true`) and confirm a TOTP
+login reaches `/login?step=totp`. Rotating an already-set secret is
+`npm run rotate:keys -- --key=<NAME>` (see §4), not this procedure.
 
 ### 2.2 Triage (within 5 min)
 
