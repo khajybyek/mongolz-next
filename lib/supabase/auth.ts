@@ -103,6 +103,19 @@ async function loadSession(): Promise<SessionState> {
       // cookie writes are not possible from a Server Component — fine, the
       // server-side revocation is what matters.
     }
+    // Leave a trace. A pin rejection signs the user out everywhere with no
+    // other signal, so without this row an operator being bounced by a
+    // changing IP looks identical to one who simply logged out. The next
+    // request has no session, so this cannot loop.
+    try {
+      const { createServiceClient } = await import("./server");
+      await createServiceClient().from("audit_log").insert({
+        action: "SESSION_PIN_REJECTED",
+        detail: `reason: ${pin.reason}`,
+        user_id: user.id,
+        user_email: ctx.user.email,
+      });
+    } catch {}
     return { kind: "pin-rejected", ctx, reason: pin.reason };
   }
   return { kind: "ok", ctx };
