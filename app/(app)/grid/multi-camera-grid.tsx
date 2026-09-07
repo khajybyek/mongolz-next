@@ -103,6 +103,11 @@ export function MultiCameraGrid({
   // True once the first attach pass has run, so the viewer "no streams"
   // notice does not flash while tickets for running streams are fetched.
   const [synced, setSynced] = useState(false);
+  // A stream ticket could not be issued (e.g. STREAM_TICKET_SECRET unset in
+  // production). Without this the tiles would just sit at "waiting for
+  // stream" forever with no clue why — the same silent-config class of bug
+  // as the login crash.
+  const [ticketError, setTicketError] = useState(false);
   // Phones cap the grid at two columns so tiles stay legible; 3×3 / 4×4
   // layouts simply wrap into more rows there.
   const [narrow, setNarrow] = useState(false);
@@ -194,8 +199,11 @@ export function MultiCameraGrid({
         if (!streamsRef.current.has(id)) {
           try {
             await attach(id);
+            if (!cancelled) setTicketError(false);
           } catch {
-            /* ticket failure — tile stays idle */
+            // Ticket failure — the tile stays idle; surface it once so the
+            // operator knows the stream is not merely slow.
+            if (!cancelled) setTicketError(true);
           }
         }
       }
@@ -439,6 +447,8 @@ export function MultiCameraGrid({
           {isFull ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
         </button>
       </div>
+
+      {ticketError && <Alert variant="danger">{t("grid_ticket_failed")}</Alert>}
 
       {!reachable ? (
         <Alert variant="warning">{t("grid_ml_down")}</Alert>

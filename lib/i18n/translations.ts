@@ -1590,6 +1590,7 @@ export const T = {
   health_config_missing: { mn: "Дутуу нууц түлхүүр", en: "Missing secrets", kr: "누락된 비밀 키" },
   health_config_dev: { mn: "Хөгжүүлэлтийн орчин — эдгээр түлхүүр зөвхөн production-д заавал шаардлагатай.", en: "Development runtime — these are only required in production.", kr: "개발 환경 — 프로덕션에서만 필수입니다." },
   grid_no_cameras_viewer: { mn: "Танд харагдах идэвхтэй камер алга. Админтай холбогдоно уу.", en: "No cameras are available to you. Ask an administrator to enable one.", kr: "사용할 수 있는 카메라가 없습니다. 관리자에게 문의하세요." },
+  grid_ticket_failed: { mn: "Стримийн эрх авч чадсангүй — видео харагдахгүй. Серверийн тохиргоог шалгана уу (STREAM_TICKET_SECRET).", en: "Could not obtain a stream ticket — video will not play. Check the server configuration (STREAM_TICKET_SECRET).", kr: "스트림 티켓을 발급받지 못해 영상이 재생되지 않습니다. 서버 구성을 확인하세요(STREAM_TICKET_SECRET)." },
   login_totp_hint: {
     mn: "Authenticator app-аас 6 оронтой кодоо, эсвэл сэргээх кодоо (XXXXX-XXXXX) оруулна уу.",
     en: "Enter the 6-digit code from your authenticator app, or a recovery code (XXXXX-XXXXX).",
