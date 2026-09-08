@@ -1,24 +1,36 @@
 /**
  * Restore the JSON row dumps produced by /api/admin/backup (or /backup in
  * the app) into a Supabase project. Completes the documented RTO drill in
- * docs/RUNBOOK.md — this script did not exist before 2026-09-06.
+ * docs/RUNBOOK.md §3.
  *
  *   unzip mongolz-backup-<ts>.zip -d ./restore
- *   npx tsx scripts/restore-from-backup.ts ./restore            # dry-run (default)
- *   npx tsx scripts/restore-from-backup.ts ./restore --apply    # upsert rows
+ *   npx tsx scripts/restore-from-backup.ts ./restore              # preflight + dry-run
+ *   npx tsx scripts/restore-from-backup.ts ./restore --apply      # upsert rows
+ *   npx tsx scripts/restore-from-backup.ts ./restore --apply --skip-unrestorable
  *
  * Required env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+ *
+ * Preflight (always runs first, before a single write)
+ *   Every table file is checked against the NOT NULL columns that have no
+ *   default. A dump produced without ?include_biometrics=1 has no
+ *   suspects.embedding / faces.embedding, so those tables are reported as
+ *   NOT RESTORABLE up front instead of dying on a NOT NULL violation halfway
+ *   through the run. --apply refuses to start while any table is
+ *   unrestorable; --skip-unrestorable restores everything else and says so.
  *
  * Notes
  *   • Tables are restored in FK order; rows are upserted by primary key, so
  *     re-running is idempotent.
  *   • audit_log is append-only with a hash chain: rows are inserted only when
  *     the table is EMPTY (a partial restore would break the chain).
- *   • Auth material and secrets are not in the backup by design
- *     (TOTP seeds, recovery codes, passkeys, webhook secrets) — users must
- *     re-enrol 2FA / passkeys and webhook secrets must be re-created.
+ *   • auth.users is NOT in the backup. profiles.id is a FK onto it — recreate
+ *     or re-invite the accounts (or restore the auth schema from PITR) BEFORE
+ *     loading profiles, or every profile row is rejected.
+ *   • Auth material and secrets are not in the backup by design (TOTP seeds,
+ *     recovery codes, passkeys, webhook url + secret, push endpoints/keys) —
+ *     users re-enrol 2FA, webhooks and push subscriptions are recreated.
  *   • Storage blobs are not restored here; recover them from the Supabase
- *     storage backup / PITR.
+ *     storage backup / PITR and compare with buckets/*.manifest.json.
  */
 
 import { config as loadEnv } from "dotenv";
@@ -52,60 +64,272 @@ const ORDER = [
 
 const PK: Record<string, string> = { retention_policies: "resource" };
 
+/**
+ * NOT NULL columns with no database default — a row missing any of these is
+ * rejected by Postgres. Mirrors the live schema (information_schema.columns
+ * where is_nullable='NO' and column_default is null).
+ */
+const REQUIRED_COLUMNS: Record<string, string[]> = {
+  profiles: ["id", "email"],
+  cameras: ["name", "url"],
+  suspects: ["name", "image_path", "embedding"],
+  recordings: ["filename", "storage_path"],
+  faces: ["filename", "image_path", "embedding"],
+  clusters: ["cluster_id", "face_id"],
+  alert_rules: ["name"],
+  alerts: ["suspect_name", "similarity"],
+  reveal_jobs: ["recording_id", "method"],
+  webhooks: ["name", "kind", "url"],
+  camera_permissions: ["user_id", "camera_id"],
+  masking_schedules: ["camera_id", "starts_at", "ends_at", "window_mode"],
+  privacy_zones: ["camera_id", "name", "x", "y", "w", "h"],
+  retention_policies: ["resource", "retention_days"],
+  push_subscriptions: ["user_id", "endpoint", "p256dh", "auth"],
+  audit_log: ["action"],
+};
+
+/** Why a column is absent, so the message names the fix rather than the symptom. */
+const BIOMETRIC_HINT =
+  "biometric column — re-export with the 'Include biometric embeddings' box ticked (?include_biometrics=1)";
+const PUSH_HINT = "push credential — never exported; users re-subscribe from their browser";
+const MISSING_HINT: Record<string, string> = {
+  "suspects.embedding": BIOMETRIC_HINT,
+  "faces.embedding": BIOMETRIC_HINT,
+  "webhooks.url":
+    "credential — the Slack/Discord URL and the HMAC secret are never exported; recreate the destination on /webhooks",
+  "cameras.url":
+    "AES-GCM ciphertext — exported only by format mongolz-backup/2 or newer; re-export from a current build",
+  "push_subscriptions.endpoint": PUSH_HINT,
+  "push_subscriptions.p256dh": PUSH_HINT,
+  "push_subscriptions.auth": PUSH_HINT,
+};
+
+type Row = Record<string, unknown>;
+type Plan = {
+  table: string;
+  rows: Row[];
+  missing: string[];
+  present: boolean;
+};
+
+function readTable(tablesDir: string, table: string): { rows: Row[]; present: boolean } {
+  const file = path.join(tablesDir, `${table}.json`);
+  if (!existsSync(file)) return { rows: [], present: false };
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+  if (!Array.isArray(parsed)) throw new Error(`${table}.json is not a JSON array`);
+  return { rows: parsed as Row[], present: true };
+}
+
+/**
+ * A column counts as present when the dump actually carries it. An empty
+ * table cannot be checked (and needs no writes), so it never blocks a
+ * restore. `null` in a required column is a real defect and is reported.
+ */
+function missingRequired(table: string, rows: Row[]): string[] {
+  const required = REQUIRED_COLUMNS[table] ?? [];
+  if (rows.length === 0) return [];
+  const sample = rows[0];
+  return required.filter(
+    (col) => !(col in sample) || rows.some((r) => r[col] === null || r[col] === undefined),
+  );
+}
+
+function readManifest(dir: string): Record<string, unknown> | null {
+  const file = path.join(dir, "manifest.json");
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   const [dirArg, ...flags] = process.argv.slice(2);
   if (!dirArg) {
-    console.error("Usage: tsx scripts/restore-from-backup.ts <backup-dir> [--apply]");
+    console.error(
+      "Usage: tsx scripts/restore-from-backup.ts <backup-dir> [--apply] [--skip-unrestorable]",
+    );
     process.exit(2);
   }
   const apply = flags.includes("--apply");
+  const skipUnrestorable = flags.includes("--skip-unrestorable");
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing");
   const svc = createClient(url, key, { auth: { persistSession: false } });
 
   const tablesDir = path.join(dirArg, "tables");
-  let total = 0;
+  if (!existsSync(tablesDir)) throw new Error(`No tables/ directory under ${dirArg}`);
+
+  const manifest = readManifest(dirArg);
+  const includeBiometrics = manifest?.include_biometrics === true;
+  console.log(`Backup: ${path.resolve(dirArg)}`);
+  console.log(
+    `Manifest: ${manifest ? `${String(manifest.format ?? "unknown")} (biometrics ${includeBiometrics ? "included" : "excluded"})` : "absent — older dump, checking the rows themselves"}`,
+  );
+
+  // ── Preflight: read + check every table before writing anything ──
+  const plans: Plan[] = [];
   for (const table of ORDER) {
-    const file = path.join(tablesDir, `${table}.json`);
-    if (!existsSync(file)) {
-      console.log(`  – ${table.padEnd(20)} (no file, skipped)`);
+    const { rows, present } = readTable(tablesDir, table);
+    plans.push({ table, rows, present, missing: missingRequired(table, rows) });
+  }
+
+  console.log("\nPreflight");
+  for (const p of plans) {
+    if (!p.present) {
+      console.log(`  – ${p.table.padEnd(20)} (no file in the dump)`);
       continue;
     }
-    const rows = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>[];
-    if (!Array.isArray(rows) || rows.length === 0) {
-      console.log(`  – ${table.padEnd(20)} 0 rows`);
+    if (p.missing.length === 0) {
+      console.log(`  ✓ ${p.table.padEnd(20)} ${String(p.rows.length).padStart(6)} rows`);
+      continue;
+    }
+    const hints = p.missing
+      .map((c) => {
+        const hint = MISSING_HINT[`${p.table}.${c}`];
+        return hint ? `${c} (${hint})` : c;
+      })
+      .join("; ");
+    console.log(
+      `  ✗ ${p.table.padEnd(20)} ${String(p.rows.length).padStart(6)} rows — NOT RESTORABLE, required column missing or null: ${hints}`,
+    );
+  }
+
+  const blocked = plans.filter((p) => p.present && p.missing.length > 0);
+  if (blocked.length > 0) {
+    console.log(
+      `\n${blocked.length} table(s) cannot be restored from this artifact: ${blocked
+        .map((p) => p.table)
+        .join(", ")}.`,
+    );
+    console.log(
+      "Postgres would reject those rows with a NOT NULL violation. Fix the export (see the hints above) or re-run with --skip-unrestorable to load everything else.",
+    );
+    if (apply && !skipUnrestorable) {
+      console.error("\nAborting before any write. Nothing was changed.");
+      process.exit(3);
+    }
+  }
+
+  // ── Apply ──
+  const restored: Record<string, number> = {};
+  const skipped: { table: string; reason: string }[] = [];
+
+  /**
+   * Foreign-key parents. A default export omits suspects and faces (their
+   * embedding columns are opt-in), and every child row would then fail its FK
+   * — noisily, one batch at a time. Skip the children up front and say why.
+   */
+  const FK_PARENTS: Record<string, string[]> = {
+    faces: ["recordings"],
+    clusters: ["faces"],
+    alerts: ["suspects", "faces"],
+    reveal_jobs: ["recordings", "suspects", "faces"],
+  };
+  const unavailable = new Set(
+    plans.filter((p) => !p.present || p.missing.length > 0).map((p) => p.table),
+  );
+  let total = 0;
+  let failedBatches = 0;
+
+  console.log(`\n${apply ? "Restoring" : "Dry run"}`);
+  for (const p of plans) {
+    if (!p.present) {
+      skipped.push({ table: p.table, reason: "no file in the dump" });
+      continue;
+    }
+    if (p.missing.length > 0) {
+      skipped.push({ table: p.table, reason: `missing required column(s): ${p.missing.join(", ")}` });
+      continue;
+    }
+    const blockedBy = (FK_PARENTS[p.table] ?? []).filter((parent) => unavailable.has(parent));
+    if (blockedBy.length > 0) {
+      unavailable.add(p.table);
+      skipped.push({
+        table: p.table,
+        reason: `blocked: parent table(s) not restorable — ${blockedBy.join(", ")}`,
+      });
+      continue;
+    }
+    if (p.rows.length === 0) {
+      restored[p.table] = 0;
       continue;
     }
 
-    if (table === "audit_log") {
+    const rows = [...p.rows];
+    if (p.table === "audit_log") {
       const { count } = await svc.from("audit_log").select("id", { count: "exact", head: true });
       if ((count ?? 0) > 0) {
-        console.log(`  ! audit_log            skipped — table not empty (${count} rows); the hash chain must not be spliced`);
+        skipped.push({
+          table: "audit_log",
+          reason: `table not empty (${count} rows); the hash chain must not be spliced`,
+        });
         continue;
       }
       // Insert in id order so the chain trigger links rows the way they were.
       rows.sort((a, b) => Number(a.id) - Number(b.id));
     }
 
-    console.log(`  ${apply ? "↑" : "·"} ${table.padEnd(20)} ${rows.length} rows${apply ? "" : " (dry-run)"}`);
-    total += rows.length;
-    if (!apply) continue;
+    console.log(
+      `  ${apply ? "↑" : "·"} ${p.table.padEnd(20)} ${String(rows.length).padStart(6)} rows${apply ? "" : " (dry-run)"}`,
+    );
+    if (!apply) {
+      total += rows.length;
+      restored[p.table] = rows.length;
+      continue;
+    }
 
+    let written = 0;
     for (let i = 0; i < rows.length; i += 200) {
       const chunk = rows.slice(i, i + 200);
       const q =
-        table === "audit_log"
+        p.table === "audit_log"
           ? svc.from("audit_log").insert(chunk as never)
-          : svc.from(table).upsert(chunk as never, { onConflict: PK[table] ?? "id" });
+          : svc.from(p.table).upsert(chunk as never, { onConflict: PK[p.table] ?? "id" });
       const { error } = await q;
       if (error) {
-        console.error(`    ✗ ${table} batch ${i / 200 + 1}: ${error.message}`);
+        console.error(`    ✗ ${p.table} batch ${i / 200 + 1}: ${error.message}`);
         process.exitCode = 1;
+        failedBatches += 1;
+        continue;
       }
+      written += chunk.length;
     }
+    // Count what Postgres accepted, never what we planned to send: a drill
+    // where the auth users were not recreated first fails every FK batch, and
+    // the old summary still reported the planned total as "Restored".
+    total += written;
+    restored[p.table] = written;
   }
-  console.log(`\n${apply ? "Restored" : "Would restore"} ${total} rows across ${ORDER.length} tables.`);
+
+  // ── Report ──
+  console.log("\nPer-table result");
+  for (const p of plans) {
+    const n = restored[p.table];
+    if (n === undefined) continue;
+    console.log(`  ${p.table.padEnd(20)} ${String(n).padStart(6)} ${apply ? "rows written" : "rows would be written"}`);
+  }
+  if (skipped.length > 0) {
+    console.log("\nSkipped");
+    for (const s of skipped) console.log(`  ${s.table.padEnd(20)} ${s.reason}`);
+  }
+
+  const bucketsDir = path.join(dirArg, "buckets");
+  if (existsSync(bucketsDir)) {
+    console.log(
+      "\nStorage: blob bytes are not in this artifact. Re-upload them from the Storage backup, then compare each bucket's object count with total_objects in buckets/*.manifest.json.",
+    );
+  }
+  console.log(
+    "Auth: Supabase auth.users is not in this artifact — profiles rows need their auth accounts to exist first, and every operator re-enrols TOTP/passkeys.",
+  );
+  const failureNote =
+    failedBatches > 0 ? ` — ${failedBatches} batch(es) failed, see the ✗ lines above` : "";
+  console.log(
+    `\n${apply ? "Restored" : "Would restore"} ${total} rows across ${plans.length - skipped.length} table(s)${failureNote}.`,
+  );
   if (!apply) console.log("Re-run with --apply to write.");
 }
 

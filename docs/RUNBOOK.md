@@ -180,64 +180,142 @@ Store post-mortems in `docs/postmortems/YYYY-MM-DD-slug.md`.
 
 Run on a staging copy every semester.
 
+**Read this first — what the ZIP can and cannot do.** The artifact from
+`/api/admin/backup` is a *row-and-path* backup, not a system image:
+
+| Restores from the ZIP | Does NOT restore from the ZIP |
+|---|---|
+| `profiles` (identity fields), `cameras` (incl. the encrypted `url`), `recordings`, `alerts`, `alert_rules`, `reveal_jobs`, `camera_permissions`, `masking_schedules`, `privacy_zones`, `retention_policies`, `clusters`, `audit_log` | **Supabase `auth.users`** — passwords, sessions, identities |
+| `suspects` + `faces` **only** when the export was taken with *Include biometric embeddings* (`?include_biometrics=1`) | TOTP seeds, recovery-code hashes, passkeys — operators re-enrol 2FA |
+| Storage object **paths + per-bucket totals** (`buckets/*.manifest.json`) | `webhooks.url` + HMAC secret, `push_subscriptions` endpoint/p256dh/auth — those two tables are reference-only |
+| `manifest.json` — the exact column list, row counts and restore limits of that artifact | Storage **blob bytes** — restore them from Supabase Storage backup / PITR |
+
+Two consequences to plan around:
+
+- **`auth.users` gap.** `profiles.id` is a FK onto `auth.users`. A clean
+  project has no auth users, so `profiles.json` is rejected in full until the
+  accounts exist. Recreate them first (Dashboard → Authentication → invite, or
+  restore the auth schema from PITR) using the emails in `tables/profiles.json`,
+  then keep the same UUIDs — the restore upserts profiles by `id`.
+- **Biometrics.** `suspects.embedding` and `faces.embedding` are `NOT NULL` and
+  are biometric personal data, so a default export leaves them out and those
+  two tables cannot be restored from it (face matching does not come back). For
+  a drill that must prove recognition works, take the export with the checkbox
+  ticked — it needs fresh TOTP step-up and is audited as
+  `BACKUP_DOWNLOAD_BIOMETRIC`; treat the file like the face database itself
+  (encrypted storage, deleted after the drill).
+
 ### 3.1 Inputs
 
-- A `mongolz-backup-<ts>.zip` produced by `/api/admin/backup` (admin-only,
-  TOTP-gated).
+- A `mongolz-backup-<ts>.zip` (or `mongolz-backup-biometric-<ts>.zip`) produced
+  by `/backup` → *Download backup* (admin-only, TOTP step-up).
 - A clean Supabase project for restore (different `project_ref`).
+- `CAMERA_URL_KEY` from the source environment — `cameras.url` is an
+  AES-256-GCM ciphertext and stays unreadable without it (or
+  `CAMERA_URL_KEY_PREV` after a rotation).
+- `ML_ENCRYPTION_KEY` (and `ML_ENCRYPTION_KEY_PREV` if rotated) if the drill
+  includes reveal/playback of restored blobs.
 
 ### 3.2 Steps
 
-1. **Unzip the backup**
+1. **Unzip and read the manifest**
 
    ```bash
    unzip mongolz-backup-*.zip -d ./restore
-   ls restore/tables/      # 12 JSON files (one per table)
-   ls restore/buckets/     # 5 manifest.json files
+   ls restore/tables/                       # one JSON per table
+   ls restore/buckets/                      # 5 manifests, paths from the DB
+   jq '.include_biometrics, (.tables | map_values(.rows))' restore/manifest.json
+   jq -r '.tables | to_entries[] | select(.value.restorable | not)
+          | "\(.key): missing \(.value.missing_required | join(", "))"' restore/manifest.json
    ```
+
+   The last command prints exactly which tables this artifact cannot restore.
+   Without the biometric flag it prints `suspects`, `faces` (plus the always
+   reference-only `webhooks` and `push_subscriptions`).
 
 2. **Apply schema**
 
    ```bash
    cd mongolz-next
-   npx supabase db push --linked
+   npx supabase db push --linked        # linked to the RESTORE project
    ```
 
-3. **Load rows** (in dependency order)
+3. **Recreate the auth users** (nothing else works before this)
 
    ```bash
-   npx tsx scripts/restore-from-backup.ts ./restore --apply   # dry-run without --apply
+   jq -r '.[] | [.id, .email, .role] | @tsv' restore/tables/profiles.json
    ```
 
-   The script inserts in this order:
-   - `profiles` first (FK target for many tables).
-   - Then `cameras`, `suspects`, `alert_rules`.
-   - Then `alerts`, `recordings`, `reveal_jobs`.
-   - Then `webhooks`, `camera_permissions`, `masking_schedules`,
-     `retention_policies`.
-   - Finally `audit_log` in `created_at` order so the hash chain re-binds.
+   For each row, create the auth user with that **same UUID** (Dashboard →
+   Authentication → Add user, or the Admin API `auth.admin.createUser({ id, email })`),
+   set a temporary password and require a reset. TOTP and passkeys are not in
+   the backup: every operator re-enrols from `/settings`, and the super-admin
+   flag rides along in `profiles.is_super_admin`.
 
-4. **Re-encrypt blob bytes**
+4. **Preflight the row load** (no writes)
 
-   The backup ZIP does **not** contain encrypted MP4s — only manifests. To
-   actually restore recording bytes, copy them from your **offline** Supabase
-   storage mirror or rely on Supabase Pro point-in-time backup. After upload:
+   ```bash
+   npx tsx scripts/restore-from-backup.ts ./restore
+   ```
+
+   It reads every table file, checks it against the `NOT NULL` columns that
+   have no default and prints `✓` / `✗` per table with the reason. Nothing is
+   written; a `✗` here is the same failure Postgres would have raised mid-run.
+
+5. **Load rows**
+
+   ```bash
+   npx tsx scripts/restore-from-backup.ts ./restore --apply
+   # a default (non-biometric) export aborts with exit 3 and this instead:
+   npx tsx scripts/restore-from-backup.ts ./restore --apply --skip-unrestorable
+   ```
+
+   FK order: `profiles` → `cameras`, `suspects` → `recordings`, `faces`,
+   `clusters` → `alert_rules`, `alerts`, `reveal_jobs` → `webhooks`,
+   `camera_permissions`, `masking_schedules`, `privacy_zones`,
+   `retention_policies`, `push_subscriptions` → `audit_log` last, in `id`
+   order and only into an empty table so the hash chain re-binds. The run ends
+   with per-table counts and a **Skipped** list — copy both into the drill note.
+
+6. **Restore the Storage objects**
+
+   The ZIP holds no blob bytes. Re-upload from the Supabase Storage backup /
+   PITR or an offline mirror, preserving the exact paths, then check
+   completeness against the manifests (they are derived from the database, so
+   `total_objects` is what a healthy restore must end up with):
+
+   ```bash
+   jq -r '.bucket + ": " + (.total_objects|tostring)' restore/buckets/*.manifest.json
+   # per bucket, compare with the restored project:
+   #   recordings        recordings.storage_path + original_path
+   #   faces             faces.image_path (+ ".enc" when crop_sealed)
+   #   suspects          suspects.image_path
+   #   alert-screenshots alerts.screenshot_path
+   #   revealed          reveal_jobs.output_path
+   ```
+
+   The manifest lists what the database *references*. Two mismatches are
+   expected rather than failures, and both are worth writing down: objects in
+   the source bucket with no owning row (orphans) are not listed, and a listed
+   path whose object was already deleted in the source (a dangling reference)
+   comes back as a shortfall. Anything else is an incomplete restore.
+
+   Then decrypt-smoke-test a sample:
 
    ```bash
    npm run backup:verify
    ```
 
-5. **Re-key if rotation occurred**
+7. **Re-key if rotation occurred**
 
-   If `ML_ENCRYPTION_KEY` was rotated since the backup, set
-   `ML_ENCRYPTION_KEY_PREV` on the restore environment (see CLAUDE.md →
-   Key Rotation Procedure).
+   If `ML_ENCRYPTION_KEY` or `CAMERA_URL_KEY` was rotated since the backup, set
+   the matching `*_PREV` on the restore environment (see CLAUDE.md → Key
+   Rotation Procedure) before verifying reveal or camera connectivity.
 
-6. **Verify**
+8. **Verify**
 
    ```sql
    SELECT count(*) FROM verify_audit_chain();   -- 0 = healthy
-   -- expect 0
    ```
 
    ```bash
@@ -245,21 +323,33 @@ Run on a staging copy every semester.
    # expect status=ok, ml=ok, db=ok
    ```
 
-7. **Record drill outcome**
+   Then in the app: log in as a restored admin (after the password reset),
+   open `/cameras` (a camera must show its URL, proving `CAMERA_URL_KEY`), open
+   `/playback` on a restored recording, and — only for a biometric drill —
+   run a `/search` that matches a restored suspect.
+
+9. **Record drill outcome**
 
    ```sql
    INSERT INTO audit_log (action, detail)
    VALUES ('BACKUP_RESTORE_DRILL',
-           'Drill 2026-Q1: restore took <N> min, all checks ok, operator <name>');
+           'Drill 2026-Q1: restore took <N> min, biometrics=<yes|no>, tables restored <N>/<N>, storage objects <N>/<N>, operator <name>');
    ```
 
 ### 3.3 Acceptance criteria for "successful drill"
 
-- All 12 tables restored with row counts matching the manifest.
+- The **Skipped** list from step 5 contains only what the manifest predicted —
+  no surprise table.
+- Every restorable table's row count matches `manifest.json`.
+- Auth users recreated for every profile row; each operator can log in and
+  re-enrol TOTP.
 - `verify_audit_chain()` returns no mismatches.
+- Storage object counts per bucket match `buckets/*.manifest.json`.
 - `/api/uptime` returns `status: ok`.
-- A test alert can be inserted and triggers a webhook.
-- A test reveal job completes end-to-end on a sample recording.
+- A camera URL decrypts (`CAMERA_URL_KEY` present) and a test alert triggers a
+  re-created webhook.
+- A test reveal job completes end-to-end on a restored recording.
+- Biometric drill only: a `/search` hit re-identifies a restored suspect.
 
 If any check fails, file an issue with `[backup-restore]` label and treat as
 P2 until resolved.

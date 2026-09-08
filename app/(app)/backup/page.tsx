@@ -1,4 +1,4 @@
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ShieldAlert } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
@@ -7,7 +7,7 @@ import { BackupButton } from "./backup-button";
 export const dynamic = "force-dynamic";
 
 export default async function BackupPage() {
-  await requireAdmin();
+  const { profile } = await requireAdmin();
   const { t } = await getT();
 
   return (
@@ -15,7 +15,12 @@ export default async function BackupPage() {
       <PageHeader title={t("backup_title")} subtitle={t("backup_subtitle")} />
 
       <div className="max-w-2xl space-y-4 mt-4">
-        <BackupButton label={t("backup_download")} />
+        <BackupButton
+          label={t("backup_download")}
+          biometricLabel={t("backup_include_biometrics")}
+          biometricHelp={t("backup_include_biometrics_help")}
+          canIncludeBiometrics={profile.is_super_admin === true}
+        />
 
         <div className="card border border-warning/30 bg-warning/[0.06]">
           <div className="flex items-start gap-2.5">
@@ -26,29 +31,42 @@ export default async function BackupPage() {
           </div>
         </div>
 
-        <div className="card text-xs text-text-soft leading-relaxed space-y-2">
-          <h3 className="section-title">
-            What&apos;s in the ZIP
+        {/* The restore limits are the point of this page: an operator must not
+            discover them halfway through a drill. */}
+        <div className="card border border-danger/30 bg-danger-soft space-y-2">
+          <h3 className="section-title flex items-center gap-2 text-danger">
+            <ShieldAlert className="w-4 h-4 shrink-0" />
+            {t("backup_limits_title")}
           </h3>
-          <ul className="list-disc list-inside space-y-1 ml-2">
+          <ul className="list-disc list-outside ml-5 space-y-1.5 text-xs text-text-soft leading-relaxed">
+            <li>{t("backup_limits_biometric")}</li>
+            <li>{t("backup_limits_auth")}</li>
+            <li>{t("backup_limits_secrets")}</li>
+            <li>{t("backup_limits_storage")}</li>
+          </ul>
+        </div>
+
+        <div className="card text-xs text-text-soft leading-relaxed space-y-2">
+          <h3 className="section-title">{t("backup_zip_contents")}</h3>
+          <ul className="list-disc list-outside ml-5 space-y-1">
             <li>
-              <code className="text-accent">tables/*.json</code> — row dumps for{" "}
-              <code>profiles · cameras · suspects · alerts · alert_rules ·
-              audit_log · recordings · reveal_jobs · webhooks ·
-              camera_permissions · masking_schedules · retention_policies</code>
+              <code className="text-accent">tables/*.json</code> — {t("backup_zip_tables")}
             </li>
             <li>
-              <code className="text-accent">buckets/*.manifest.json</code> —
-              storage object lists (names + sizes only, no blob bytes)
+              <code className="text-accent">buckets/*.manifest.json</code> —{" "}
+              {t("backup_zip_buckets")}
             </li>
             <li>
-              <code className="text-accent">README.txt</code> — row counts +
-              restore instructions
+              <code className="text-accent">manifest.json</code> — {t("backup_zip_manifest")}
+            </li>
+            <li>
+              <code className="text-accent">README.txt</code> — {t("backup_zip_readme")}
             </li>
           </ul>
           <p className="pt-2 border-t border-text-muted/5 text-[10px] text-text-muted">
-            Action audited as{" "}
-            <code className="text-warning">BACKUP_DOWNLOAD</code>.
+            {t("backup_audited_as")}{" "}
+            <code className="text-warning">BACKUP_DOWNLOAD</code> ·{" "}
+            <code className="text-warning">BACKUP_DOWNLOAD_BIOMETRIC</code>
           </p>
         </div>
       </div>
