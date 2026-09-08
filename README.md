@@ -165,7 +165,7 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 | 1. UI | role-aware navigation — sidebar, header, tab bar and ⌘K palette share `lib/nav.ts` (admin / viewer / auditor) |
 | 2. Server gate | `requireAdmin()` / `requireUser()` redirect in every protected route |
 | 3. Middleware | auditor allow-list (only `/audit*`); per-camera redirect |
-| 4. RLS | on all 23 `public` tables; 56 policies across 22 of them (46 permissive + the 10 restrictive second-factor gates of row 16), `retention_deletion_queue` deliberately policy-less (service-role only); super-admin row protected by a BEFORE trigger |
+| 4. RLS | on all 23 `public` tables; 61 policies across 22 of them (45 permissive + 16 restrictive: the second-factor gates of row 16 plus the reveal-authority fence), `retention_deletion_queue` deliberately policy-less (service-role only); super-admin row protected by a BEFORE trigger. Counted live 2026-09-08 |
 | 5. Step-up reauth | password OR fresh TOTP, 15-min cookie TTL |
 | 6. Session pinning | IP/16 + UA fingerprint, HMAC-signed cookie, 7-day TTL |
 | 7. 4-eyes reveal | approver ≠ requester, defended at 3 layers |
@@ -177,7 +177,7 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 | 13. FastAPI `/docs` | disabled in production (`ALLOW_API_DOCS=1` to re-enable) |
 | 14. Dual-key crypto | `ML_ENCRYPTION_KEY_PREV` fallback during rotation |
 | 15. Webhook HMAC | SHA-256 signing for generic destinations |
-| 16. Second factor at the data tier | RLS restrictive policies AND `private.mfa_ok()` on `faces`, `alerts`, `recordings`, `cameras`, `suspects`, `clusters`, `reveal_jobs`, `audit_log`, `webhooks`, `camera_sessions`. If a profile has TOTP enabled, its token must carry an `amr` method other than `password` — so an admin password plus the public anon key can no longer read or write through PostgREST. Fails open when the claim is unreadable; `profiles` and the auth-flow tables are deliberately not gated; kill switch `update private.security_settings set mfa_required = false` (ADR 0011, `docs/adr/0011-mfa-at-the-data-tier.md`) |
+| 16. Second factor at the data tier | RLS restrictive policies AND `private.mfa_ok()` on the ten personal-data tables (`faces`, `alerts`, `recordings`, `cameras`, `suspects`, `clusters`, `reveal_jobs`, `audit_log`, `webhooks`, `camera_sessions`), the admin-writable configuration tables (`retention_policies`, `alert_rules`, `privacy_zones`, `masking_schedules`, `camera_permissions`), `storage.objects`, and inside the four SECURITY DEFINER RPCs, which RLS cannot reach. If a profile has TOTP enabled, its token must carry an `amr` method other than `password` — so an admin password plus the public anon key can no longer read or write through PostgREST. Fails open when the claim is unreadable; `profiles` and the auth-flow tables are deliberately not gated; kill switch `update private.security_settings set mfa_required = false` (ADR 0011, `docs/adr/0011-mfa-at-the-data-tier.md`) |
 
 ---
 
