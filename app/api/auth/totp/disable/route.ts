@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient, createClient } from "@/lib/supabase/server";
 import { hasFreshReauth } from "@/lib/auth/step-up";
-import { checkRateLimit, REAUTH_LIMIT } from "@/lib/rate-limit";
+import { checkRateLimit, releaseRateLimit, rateLimitResponse, REAUTH_LIMIT } from "@/lib/rate-limit";
 
 /**
  * Disable TOTP for the calling user.
@@ -19,20 +19,20 @@ export async function POST(request: NextRequest) {
   const ctx = auth;
   const svc = createServiceClient();
 
+  // Spend the shared step-up budget before anything is verified (atomic —
+  // parallel guesses cannot all pass). Refunded on the paths that are not a
+  // wrong credential: a missing step-up cookie, a malformed body, or success.
   const rl = await checkRateLimit(ctx.user.id, REAUTH_LIMIT);
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: rl.message ?? "Хэт олон оролдлого" },
-      { status: 429, headers: { "Retry-After": String(rl.resetSec) } },
-    );
-  }
+  if (!rl.ok) return rateLimitResponse(rl);
 
   if (!(await hasFreshReauth(ctx.user.id))) {
+    await releaseRateLimit(ctx.user.id, REAUTH_LIMIT);
     return NextResponse.json({ error: "REAUTH_REQUIRED" }, { status: 403 });
   }
 
   const { password } = await request.json().catch(() => ({}));
   if (!password || typeof password !== "string") {
+    await releaseRateLimit(ctx.user.id, REAUTH_LIMIT);
     return NextResponse.json({ error: "missing password" }, { status: 400 });
   }
 
@@ -51,6 +51,9 @@ export async function POST(request: NextRequest) {
     } catch {}
     return NextResponse.json({ error: "Нууц үг буруу" }, { status: 401 });
   }
+
+  // Correct password — hand the throttle unit back.
+  await releaseRateLimit(ctx.user.id, REAUTH_LIMIT);
 
   await svc
     .from("profiles")

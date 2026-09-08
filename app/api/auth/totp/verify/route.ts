@@ -1,9 +1,20 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
-import { createServiceClient } from "@/lib/supabase/server";
-import { verifyTOTP, verifyTOTPWithReplayCheck } from "@/lib/totp";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { generateRecoveryCodes } from "@/lib/totp-recovery";
+import { checkTotpCode, totpCheckResponse, REAUTH_LIMIT } from "@/lib/rate-limit";
 
+/**
+ * Verify a TOTP code — both the first-time enrolment check and every later
+ * verification.
+ *
+ * Until the 2026-09-08 audit (finding 5.9) this route checked codes with no
+ * throttle at all and wrote no audit row when one was wrong: an unlimited
+ * oracle against a 6-digit space, reachable with nothing but a hijacked
+ * session. It now goes through `checkTotpCode`, which spends the shared
+ * step-up budget BEFORE verifying, records every wrong code, and answers 429
+ * with Retry-After once the budget is gone.
+ */
 export async function POST(request: NextRequest) {
   const auth = await requireUserApi({ allowAuditor: true });
   if (isAuthErr(auth)) return auth.error;
@@ -25,30 +36,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "TOTP setup эхлээгүй" }, { status: 400 });
   }
 
-  // First-time setup (profile.totp_enabled === false) skips the replay check
-  // because the row is being created for the first time. Subsequent verifies
-  // go through replay tracking.
-  if (profile.totp_enabled) {
-    const result = await verifyTOTPWithReplayCheck(ctx.user.id, profile.totp_secret, code);
-    if (result !== "ok") {
-      await svc.from("audit_log").insert({
-        action: result === "replayed" ? "TOTP_REPLAY_BLOCKED" : "TOTP_VERIFY_FAILED",
-        user_id: ctx.user.id,
-        user_email: ctx.user.email,
-      });
-      return NextResponse.json(
-        { error: result === "replayed" ? "Код өмнө нь хэрэглэгдсэн" : "Код буруу. Дахин оролд." },
-        { status: 401 }
-      );
-    }
-  } else if (!verifyTOTP(profile.totp_secret, code)) {
-    await svc.from("audit_log").insert({
-      action: "TOTP_VERIFY_FAILED",
-      user_id: ctx.user.id,
-      user_email: ctx.user.email,
-    });
-    return NextResponse.json({ error: "Код буруу. Дахин оролд." }, { status: 401 });
-  }
+  const check = await checkTotpCode({
+    userId: ctx.user.id,
+    userEmail: ctx.user.email,
+    secret: profile.totp_secret,
+    code,
+    limit: REAUTH_LIMIT,
+    failAction: "TOTP_VERIFY_FAILED",
+    replayAction: "TOTP_REPLAY_BLOCKED",
+    // First-time enrolment (totp_enabled === false) skips the replay ledger:
+    // the seed is not active yet, so there is nothing to have replayed.
+    skipReplayCheck: !profile.totp_enabled,
+    detail: profile.totp_enabled ? "verify" : "enrolment",
+  });
+  if (!check.ok) return totpCheckResponse(check);
 
   let recovery: string[] | null = null;
 
@@ -68,11 +69,26 @@ export async function POST(request: NextRequest) {
       user_id: ctx.user.id,
       user_email: ctx.user.email,
     });
+
+    // The session this enrolment was made from is password-only (amr =
+    // ["password"]). From the moment totp_enabled flips, the data-tier gate
+    // (private.mfa_ok, migration 20260908110000) refuses that token, so the
+    // console would render empty until the operator happened to sign out.
+    // End it here and tell the client to send them back to login.
+    try {
+      const user = await createClient();
+      await user.auth.signOut();
+    } catch {
+      /* cookie writes can fail in some runtimes — the client still redirects */
+    }
   }
 
   return NextResponse.json({
     ok: true,
     enabled: true,
     recovery_codes: recovery,
+    // true when this call enrolled the user: their current session no longer
+    // satisfies the second-factor gate and they must sign in again.
+    relogin_required: recovery !== null,
   });
 }

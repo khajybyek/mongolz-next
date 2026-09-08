@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import * as Sentry from "@sentry/nextjs";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
-import { checkRateLimit, REAUTH_LIMIT } from "@/lib/rate-limit";
+import { checkRateLimit, releaseRateLimit, rateLimitResponse, REAUTH_LIMIT } from "@/lib/rate-limit";
 import { buildReauthCookieValue, getFreshReauth } from "@/lib/auth/step-up";
 
 const REAUTH_TTL_MIN = 15;
@@ -17,21 +18,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "missing password" }, { status: 400 });
   }
 
-  // Rate limit: brute force-аас сэргийлж 1 минутад 5 удаа max
+  // Rate limit: 5 wrong answers per minute, shared with every other step-up
+  // factor. The unit is spent BEFORE the password is checked (atomic, so
+  // parallel guesses cannot all pass) and refunded below once it verified —
+  // the bucket counts wrong passwords, not honest step-ups.
   const rl = await checkRateLimit(ctx.user.id, REAUTH_LIMIT);
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: rl.message ?? "Хэт олон оролдлого" },
-      { status: 429, headers: { "Retry-After": String(rl.resetSec) } }
-    );
-  }
+  if (!rl.ok) return rateLimitResponse(rl);
 
-  // Тухайн user-ийн email-ээр re-authenticate
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({
+  // Verify the password WITHOUT touching the caller's session. The cookie
+  // writing @supabase/ssr client would replace `sb-<ref>-auth-token` with a
+  // session GoTrue minted through grant_type=password — amr = ["password"] —
+  // and the data-tier second-factor gate (private.mfa_ok, migration
+  // 20260908110000) then refuses that token for every TOTP-enabled admin. A
+  // step-up would blind the operator's own console. A throwaway client with no
+  // persistence checks the credential and drops the session it receives.
+  const probe = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
+  );
+  const { error } = await probe.auth.signInWithPassword({
     email: ctx.user.email,
     password,
   });
+  // The probe minted a real session server-side; end it so the refresh token
+  // cannot be replayed from the GoTrue side.
+  try {
+    await probe.auth.signOut({ scope: "local" });
+  } catch {
+    /* best effort — the session is not persisted anywhere */
+  }
 
   if (error) {
     // Audit-аас үлдээгээрэй (амжилтгүй оролдлого)
@@ -45,6 +61,9 @@ export async function POST(request: NextRequest) {
     } catch {}
     return NextResponse.json({ error: "Нууц үг буруу" }, { status: 401 });
   }
+
+  // Correct password — hand the throttle unit back.
+  await releaseRateLimit(ctx.user.id, REAUTH_LIMIT);
 
   const expiresAt = new Date(Date.now() + REAUTH_TTL_MIN * 60 * 1000);
 

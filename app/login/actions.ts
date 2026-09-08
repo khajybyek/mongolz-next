@@ -6,8 +6,13 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import * as Sentry from "@sentry/nextjs";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { checkLoginRateLimit, checkRateLimit, TOTP_LOGIN_LIMIT } from "@/lib/rate-limit";
-import { verifyTOTPWithReplayCheck } from "@/lib/totp";
+import {
+  startLoginAttempt,
+  checkRateLimit,
+  releaseRateLimit,
+  checkTotpCode,
+  TOTP_LOGIN_LIMIT,
+} from "@/lib/rate-limit";
 import { hashCode } from "@/lib/totp-recovery";
 import { sanitizeNextPath } from "@/lib/auth/safe-next";
 import { bindSessionPin } from "@/lib/auth/session-pin";
@@ -123,14 +128,17 @@ export async function signInAction(formData: FormData) {
 
   const { ip, ctx } = await requestContext();
 
-  // Rate limit шалгах (5 fail/email/15min, 10 fail/IP/15min)
-  const rl = await checkLoginRateLimit({ ip, email });
-  if (!rl.ok) {
+  // Rate limit (5 fail/email/15min, 10 fail/IP/15min). The attempt is charged
+  // to both buckets up-front — atomically, so a burst of parallel guesses
+  // cannot all read "under the limit" — and refunded the moment the password
+  // verifies, so honest sign-ins never consume the budget.
+  const attempt = await startLoginAttempt({ ip, email });
+  if (!attempt.ok) {
     try {
       const svc = createServiceClient();
       await svc.from("audit_log").insert({
         action: "LOGIN_BLOCKED",
-        detail: `${rl.reason}: ${rl.message}${ctx ? ` · ${ctx}` : ""}`,
+        detail: `${attempt.reason}: ${attempt.message}${ctx ? ` · ${ctx}` : ""}`,
         user_email: email,
         ip,
       });
@@ -153,6 +161,10 @@ export async function signInAction(formData: FormData) {
     } catch {}
     return redirect(loginUrl("invalid_credentials"));
   }
+
+  // The password was right — give the budget back. Everything after this point
+  // is a second factor or a server-side problem, not a guess.
+  await attempt.release();
 
   const svc = createServiceClient();
   const user = signInData.user;
@@ -228,9 +240,11 @@ export async function signInAction(formData: FormData) {
  * magiclink exchange. Cookie is cleared on success, on expiry, and once the
  * user is rate-limited.
  *
- * Brute-force posture: per-user (5 wrong codes / 15 min, counted from the
- * audit log) AND the per-email / per-IP login lock, so a password holder
- * cannot grind the 6-digit space.
+ * Brute-force posture: per-user (5 wrong codes / 15 min) AND the per-email /
+ * per-IP login lock, so a password holder cannot grind the 6-digit space.
+ * Both budgets are spent atomically BEFORE the code is checked and refunded
+ * when it verifies — concurrent guesses can no longer all read the same
+ * pre-attempt count and walk through together (2026-09-08 audit, 5.10).
  */
 export async function verifyTotpAction(formData: FormData) {
   const raw = String(formData.get("totp_code") ?? "").trim();
@@ -270,15 +284,15 @@ export async function verifyTotpAction(formData: FormData) {
     return redirect(loginUrl("invalid_credentials"));
   }
 
-  // Rate limits — both dimensions. On lockout the pre-TOTP cookie is burnt
-  // so a fresh step 1 (itself rate-limited) is required to try again.
-  const perUser = await checkRateLimit(profile.id, TOTP_LOGIN_LIMIT);
-  const perLogin = perUser.ok ? await checkLoginRateLimit({ ip, email: profile.email }) : { ok: false };
-  if (!perUser.ok || !perLogin.ok) {
+  // Rate limits — both dimensions, both charged up-front and atomic. On
+  // lockout the pre-TOTP cookie is burnt so a fresh step 1 (itself
+  // rate-limited) is required to try again.
+  const attempt = await startLoginAttempt({ ip, email: profile.email });
+  if (!attempt.ok) {
     try {
       await svc.from("audit_log").insert({
         action: "LOGIN_BLOCKED",
-        detail: `totp step: ${perUser.ok ? "email/ip lock" : "too many wrong codes"}${ctx ? ` · ${ctx}` : ""}`,
+        detail: `totp step: email/ip lock (${attempt.reason})${ctx ? ` · ${ctx}` : ""}`,
         user_id: profile.id,
         user_email: profile.email,
         ip,
@@ -288,36 +302,70 @@ export async function verifyTotpAction(formData: FormData) {
     return redirect(loginUrl("too_many_attempts"));
   }
 
-  let outcome: "ok" | "invalid" | "replayed";
+  const userId = profile.id;
+  const userEmail = profile.email;
+
+  async function blockedAtTotpStep(reason: string): Promise<never> {
+    try {
+      await svc.from("audit_log").insert({
+        action: "LOGIN_BLOCKED",
+        detail: `totp step: ${reason}${ctx ? ` · ${ctx}` : ""}`,
+        user_id: userId,
+        user_email: userEmail,
+        ip,
+      });
+    } catch {}
+    await clearPreTotpCookie();
+    return redirect(loginUrl("too_many_attempts"));
+  }
+
   if (isTotp) {
-    outcome = await verifyTOTPWithReplayCheck(profile.id, profile.totp_secret, raw);
+    // One shared helper for every TOTP check: spends the per-user budget
+    // before verifying, writes the failure row itself, refunds on success.
+    const check = await checkTotpCode({
+      userId: profile.id,
+      userEmail: profile.email,
+      secret: profile.totp_secret,
+      code: raw,
+      limit: TOTP_LOGIN_LIMIT,
+      failAction: "TOTP_LOGIN_FAILED",
+      replayAction: "TOTP_LOGIN_REPLAY_BLOCKED",
+      detail: `2FA code invalid${ctx ? ` · ${ctx}` : ""}`,
+      ip,
+    });
+    if (!check.ok) {
+      if (check.reason === "rate_limited") return blockedAtTotpStep("too many wrong codes");
+      return redirect(totpStepUrl(check.reason === "replayed" ? "code_used" : "code_invalid", next));
+    }
   } else {
+    // Recovery code: same per-user budget, spent before the lookup so the
+    // 10-character space cannot be ground down either.
+    const perUser = await checkRateLimit(profile.id, TOTP_LOGIN_LIMIT);
+    if (!perUser.ok) return blockedAtTotpStep("too many wrong codes");
+
     // Atomic single-use consumption (public.consume_recovery_code).
     const { data: consumed } = await svc.rpc("consume_recovery_code", {
       p_user_id: profile.id,
       p_code_hash: hashCode(recoveryNormalized),
     });
-    outcome = consumed === true ? "ok" : "invalid";
+
+    if (consumed !== true) {
+      try {
+        await svc.from("audit_log").insert({
+          action: "TOTP_RECOVERY_FAILED",
+          detail: `Recovery code invalid${ctx ? ` · ${ctx}` : ""}`,
+          user_id: profile.id,
+          user_email: profile.email,
+          ip,
+        });
+      } catch {}
+      return redirect(totpStepUrl("code_invalid", next));
+    }
+    await releaseRateLimit(profile.id, TOTP_LOGIN_LIMIT);
   }
 
-  if (outcome !== "ok") {
-    try {
-      await svc.from("audit_log").insert({
-        action: isRecovery
-          ? "TOTP_RECOVERY_FAILED"
-          : outcome === "replayed"
-            ? "TOTP_LOGIN_REPLAY_BLOCKED"
-            : "TOTP_LOGIN_FAILED",
-        detail:
-          (isRecovery ? "Recovery code invalid" : outcome === "replayed" ? "Code reused" : "2FA code invalid") +
-          (ctx ? ` · ${ctx}` : ""),
-        user_id: profile.id,
-        user_email: profile.email,
-        ip,
-      });
-    } catch {}
-    return redirect(totpStepUrl(outcome === "replayed" ? "code_used" : "code_invalid", next));
-  }
+  // Second factor accepted — the login buckets get their unit back.
+  await attempt.release();
 
   if (isRecovery) {
     try {

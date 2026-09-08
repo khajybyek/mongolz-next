@@ -2,8 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import * as Sentry from "@sentry/nextjs";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
-import { verifyTOTPWithReplayCheck } from "@/lib/totp";
-import { checkRateLimit, REAUTH_LIMIT } from "@/lib/rate-limit";
+import { checkTotpCode, totpCheckResponse, REAUTH_LIMIT } from "@/lib/rate-limit";
 import { buildReauthCookieValue } from "@/lib/auth/step-up";
 
 const REAUTH_TTL_MIN = 15;
@@ -13,6 +12,10 @@ const REAUTH_TTL_MIN = 15;
  * (user CRUD, etc). Sets the same `mongolz-reauth` cookie as the
  * password-based endpoint — downstream code uses `requireFreshReauth()`
  * without caring which factor was presented.
+ *
+ * The throttle is spent BEFORE the code is verified (`checkTotpCode`, shared
+ * with every other TOTP endpoint), so concurrent guesses cannot all slip
+ * through the way they did against the old read-then-write counter.
  *
  * Body: { code: string }  (6-digit TOTP)
  * Cookie: mongolz-reauth (HMAC-signed, 15 min)
@@ -25,14 +28,6 @@ export async function POST(request: NextRequest) {
 
   if (!code || typeof code !== "string") {
     return NextResponse.json({ error: "missing code" }, { status: 400 });
-  }
-
-  const rl = await checkRateLimit(ctx.user.id, REAUTH_LIMIT);
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: rl.message ?? "Хэт олон оролдлого" },
-      { status: 429, headers: { "Retry-After": String(rl.resetSec) } }
-    );
   }
 
   const svc = createServiceClient();
@@ -49,20 +44,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await verifyTOTPWithReplayCheck(ctx.user.id, profile.totp_secret, code);
-  if (result !== "ok") {
-    try {
-      await svc.from("audit_log").insert({
-        action: result === "replayed" ? "REAUTH_TOTP_REPLAY_BLOCKED" : "REAUTH_TOTP_FAILED",
-        user_id: ctx.user.id,
-        user_email: ctx.user.email,
-      });
-    } catch {}
-    return NextResponse.json(
-      { error: result === "replayed" ? "Код өмнө нь хэрэглэгдсэн" : "Код буруу" },
-      { status: 401 }
-    );
-  }
+  const check = await checkTotpCode({
+    userId: ctx.user.id,
+    userEmail: ctx.user.email,
+    secret: profile.totp_secret,
+    code,
+    limit: REAUTH_LIMIT,
+    failAction: "REAUTH_TOTP_FAILED",
+    replayAction: "REAUTH_TOTP_REPLAY_BLOCKED",
+    detail: "step-up (totp)",
+  });
+  if (!check.ok) return totpCheckResponse(check);
 
   const expiresAt = new Date(Date.now() + REAUTH_TTL_MIN * 60 * 1000);
 

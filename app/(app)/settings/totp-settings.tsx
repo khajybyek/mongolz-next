@@ -61,6 +61,13 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
       setSecret(null);
       setCode("");
       setSuccess(t("set_totp_enabled_msg"));
+      if (data.relogin_required) {
+        // Enrolling ends the password-only session (see the verify route): the
+        // recovery codes stay on screen, and the next navigation goes to login.
+        setSuccess(`${t("set_totp_enabled_msg")} ${t("set_totp_relogin")}`);
+        setTimeout(() => router.push("/login?error=session_pin" as never), 15_000);
+        return;
+      }
       // Server-rendered "must set up TOTP" banner + middleware gate re-evaluate.
       router.refresh();
     } catch (e) {

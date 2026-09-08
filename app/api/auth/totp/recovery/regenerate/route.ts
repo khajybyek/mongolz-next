@@ -1,9 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
-import { verifyTOTPWithReplayCheck } from "@/lib/totp";
 import { generateRecoveryCodes } from "@/lib/totp-recovery";
+import { checkTotpCode, totpCheckResponse, REAUTH_LIMIT } from "@/lib/rate-limit";
 
+/**
+ * Re-issue the ten one-time recovery codes.
+ *
+ * This is the highest-value TOTP check in the product: whoever passes it walks
+ * away with ten durable 2FA bypasses. Until the 2026-09-08 audit (finding 5.9)
+ * it was also the least protected — no throttle, no audit row on a wrong code.
+ * `checkTotpCode` now spends the shared step-up budget before verifying,
+ * records every failure, and returns 429 with Retry-After when the budget is
+ * gone. The success row (TOTP_RECOVERY_REGENERATED) is unchanged.
+ */
 export async function POST(request: NextRequest) {
   const auth = await requireUserApi({ allowAuditor: true });
   if (isAuthErr(auth)) return auth.error;
@@ -25,13 +35,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "TOTP not enabled" }, { status: 400 });
   }
 
-  const result = await verifyTOTPWithReplayCheck(ctx.user.id, profile.totp_secret, code);
-  if (result !== "ok") {
-    return NextResponse.json(
-      { error: result === "replayed" ? "Code already used" : "Invalid TOTP code" },
-      { status: 401 }
-    );
-  }
+  const check = await checkTotpCode({
+    userId: ctx.user.id,
+    userEmail: ctx.user.email,
+    secret: profile.totp_secret,
+    code,
+    limit: REAUTH_LIMIT,
+    failAction: "TOTP_REGEN_FAILED",
+    replayAction: "TOTP_REGEN_REPLAY_BLOCKED",
+    detail: "recovery code regeneration",
+  });
+  if (!check.ok) return totpCheckResponse(check);
 
   const gen = generateRecoveryCodes();
   const { error } = await svc

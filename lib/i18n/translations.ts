@@ -1842,6 +1842,7 @@ export const T = {
   set_totp_verify_failed: { mn: "Код шалгах алдаа", en: "Verification failed", kr: "확인 실패" },
   set_totp_disable_failed: { mn: "Унтраах алдаа", en: "Could not disable TOTP", kr: "TOTP 비활성화 실패" },
   set_totp_enabled_msg: { mn: "✓ TOTP 2FA идэвхжлээ!", en: "✓ TOTP 2FA enabled!", kr: "✓ TOTP 2FA가 활성화되었습니다!" },
+  set_totp_relogin: { mn: "Хоёр дахь хүчин зүйл идэвхжсэн тул одоогийн сесс хаагдлаа — сэргээх кодоо хадгалаад дахин нэвтэрнэ үү.", en: "Your current session ended when the second factor was enabled — save the recovery codes, then sign in again.", kr: "2단계 인증을 켜면서 현재 세션이 종료되었습니다 — 복구 코드를 저장한 뒤 다시 로그인하세요." },
   set_totp_disabled_msg: { mn: "TOTP унтраагдлаа", en: "TOTP disabled", kr: "TOTP가 비활성화되었습니다" },
   set_disable: { mn: "Унтраах", en: "Disable", kr: "비활성화" },
   set_totp_step1: { mn: "1. Google Authenticator эсвэл Authy-г нээнэ", en: "1. Open Google Authenticator or Authy", kr: "1. Google Authenticator 또는 Authy를 엽니다" },
@@ -2065,6 +2066,60 @@ export const T = {
   // ── live stream refusals (/api/ml/stream returns a `code`; the tile shows why) ──
   grid_stream_forbidden: { mn: "Энэ камерыг шууд үзэх эрх олгогдоогүй", en: "You do not have live access to this camera", kr: "이 카메라의 실시간 영상 접근 권한이 없습니다" },
   grid_stream_disabled: { mn: "Камер идэвхгүй байна", en: "Camera is disabled", kr: "카메라가 비활성화되어 있습니다" },
+
+  // ── /users refusals (server actions return these strings verbatim) ──
+  users_err_invalid_input: { mn: "Оруулсан утга буруу байна", en: "Invalid input", kr: "입력값이 올바르지 않습니다" },
+  users_err_password_short: { mn: "Нууц үг дор хаяж 8 тэмдэгт байх ёстой", en: "The password must be at least 8 characters", kr: "비밀번호는 8자 이상이어야 합니다" },
+  users_err_role_self: { mn: "Өөрийн role-оо өөрчлөх боломжгүй", en: "You cannot change your own role", kr: "본인의 역할은 변경할 수 없습니다" },
+  users_err_delete_self: { mn: "Өөрийгөө устгах боломжгүй", en: "You cannot delete yourself", kr: "본인 계정은 삭제할 수 없습니다" },
+  users_err_last_admin: { mn: "Сүүлчийн admin-ыг устгах боломжгүй", en: "Cannot delete the last admin", kr: "마지막 관리자는 삭제할 수 없습니다" },
+  users_err_super_admin_role: { mn: "Super admin-ы role түгжээтэй — Supabase Studio-оос өөрчилнө", en: "The super admin role is locked — change it in Supabase Studio", kr: "슈퍼 관리자 역할은 잠겨 있습니다 — Supabase Studio에서 변경하세요" },
+  users_err_super_admin_delete: { mn: "Super admin-ыг устгах боломжгүй — Supabase Studio ашиглана уу", en: "The super admin cannot be deleted — use Supabase Studio", kr: "슈퍼 관리자는 삭제할 수 없습니다 — Supabase Studio를 사용하세요" },
+  users_err_super_admin_password: { mn: "Super admin-ы нууц үгийг өөр админ сэргээх боломжгүй", en: "Another admin cannot reset the super admin's password", kr: "다른 관리자는 슈퍼 관리자의 비밀번호를 재설정할 수 없습니다" },
+
+  // ── reveal authority (ADR 0009): lower number = broader authority ──
+  users_err_level_range: { mn: "Эрхийн түвшин 0–99 хооронд байх ёстой", en: "The authority level must be between 0 and 99", kr: "권한 수준은 0~99 사이여야 합니다" },
+  users_err_level_self: { mn: "Өөрийн эрхийн түвшнийг өөрөө өөрчлөх боломжгүй — өөр админ гүйцэтгэнэ", en: "You cannot change your own authority level — another admin must do it", kr: "본인의 권한 수준은 직접 변경할 수 없습니다 — 다른 관리자가 수행해야 합니다" },
+  users_err_level_ceiling: { mn: "Та өөрийнхөө эрхээс өргөн эрх олгож чадахгүй (хамгийн бага нь L{level})", en: "You cannot grant authority broader than your own (lowest you may assign: L{level})", kr: "본인보다 넓은 권한은 부여할 수 없습니다 (지정 가능한 최소 수준: L{level})" },
+  users_err_level_target_higher: { mn: "Танаас өргөн эрхтэй операторын түвшнийг өөрчлөх боломжгүй", en: "You cannot change the level of an operator whose authority is broader than yours", kr: "본인보다 넓은 권한을 가진 운영자의 수준은 변경할 수 없습니다" },
+  users_err_super_admin_level: { mn: "Super admin director (L0) хэвээр байх ёстой", en: "The super admin must remain director (level 0)", kr: "슈퍼 관리자는 디렉터(0단계)로 유지되어야 합니다" },
+  users_err_authority_unavailable: { mn: "Таны эрхийн түвшнийг тодорхойлж чадсангүй. Хэсэг хүлээгээд дахин оролдоно уу", en: "Could not determine your authority level — try again in a moment", kr: "권한 수준을 확인할 수 없습니다 — 잠시 후 다시 시도하세요" },
+  users_err_target_missing: { mn: "Хэрэглэгч олдсонгүй", en: "User not found", kr: "사용자를 찾을 수 없습니다" },
+
+  // ── GDPR self-erase refusals (/api/gdpr/delete) ──
+  gdpr_err_super_admin: {
+    mn: "Super admin бүртгэлээ өөрөө устгах боломжгүй. Энэ данс өгөгдлийн сангийн түвшинд түгжигдсэн — зөвхөн өгөгдлийн сангийн эзэмшигч Supabase Studio-оос (эсвэл шууд SQL сессээр) устгана.",
+    en: "The super admin account cannot erase itself. It is locked at the database level — only a database owner can remove it from Supabase Studio (or a direct SQL session).",
+    kr: "슈퍼 관리자 계정은 스스로 삭제할 수 없습니다. 이 계정은 데이터베이스 수준에서 잠겨 있으며, 데이터베이스 소유자만 Supabase Studio(또는 직접 SQL 세션)에서 삭제할 수 있습니다.",
+  },
+  gdpr_err_last_admin: {
+    mn: "Сүүлчийн admin бүртгэлийг устгах боломжгүй. Эхлээд өөр хэрэглэгчийг admin болгоно уу.",
+    en: "Cannot delete the last admin. Promote another user first.",
+    kr: "마지막 관리자 계정은 삭제할 수 없습니다. 먼저 다른 사용자를 관리자로 지정하세요.",
+  },
+
+  // ── throttling (lib/rate-limit.ts returns these in `error`; the retry
+  //    window is appended by the caller, so no placeholder is needed) ──
+  rl_too_many_attempts: {
+    mn: "Хэт олон оролдлого. Түр хүлээгээд дахин оролдоно уу.",
+    en: "Too many attempts. Please wait and try again.",
+    kr: "시도가 너무 많습니다. 잠시 후 다시 시도하세요.",
+  },
+  rl_unavailable: {
+    mn: "Хамгаалалтын тоолуур ажиллахгүй байгаа тул оролдлогыг зогсоолоо. Хэсэг хугацааны дараа дахин оролдоно уу.",
+    en: "The protection counter is unavailable, so the attempt was refused. Please try again shortly.",
+    kr: "보호 카운터를 사용할 수 없어 시도를 거부했습니다. 잠시 후 다시 시도하세요.",
+  },
+  rl_totp_code_invalid: {
+    mn: "Код буруу. Дахин оролдоно уу.",
+    en: "Invalid code. Please try again.",
+    kr: "잘못된 코드입니다. 다시 시도하세요.",
+  },
+  rl_totp_code_used: {
+    mn: "Код өмнө нь хэрэглэгдсэн байна.",
+    en: "That code has already been used.",
+    kr: "이미 사용된 코드입니다.",
+  },
 } as const;
 
 export type TranslationKey = keyof typeof T;
