@@ -45,6 +45,11 @@
 **/venv/
 **/__pycache__/
 **/*.pyc
+**/*.nosync/
+**/*.nosync
+/.next*
+/node_modules*
+/ml-service/venv*
 
 # Local SQLite / DB файл
 *.db

@@ -59,24 +59,24 @@ const config: Config = {
         },
         // Status colors — slightly desaturated for elegance
         danger: {
-          DEFAULT: "#f43f5e",
-          soft: "rgba(244,63,94,0.12)",
-          ring: "rgba(244,63,94,0.30)",
+          DEFAULT: "rgb(var(--danger) / <alpha-value>)",
+          soft: "rgb(var(--danger) / 0.10)",
+          ring: "rgb(var(--danger) / 0.30)",
         },
         success: {
-          DEFAULT: "#22c55e",
-          soft: "rgba(34,197,94,0.12)",
-          ring: "rgba(34,197,94,0.30)",
+          DEFAULT: "rgb(var(--success) / <alpha-value>)",
+          soft: "rgb(var(--success) / 0.10)",
+          ring: "rgb(var(--success) / 0.30)",
         },
         warning: {
-          DEFAULT: "#f59e0b",
-          soft: "rgba(245,158,11,0.12)",
-          ring: "rgba(245,158,11,0.30)",
+          DEFAULT: "rgb(var(--warning) / <alpha-value>)",
+          soft: "rgb(var(--warning) / 0.10)",
+          ring: "rgb(var(--warning) / 0.30)",
         },
         info: {
-          DEFAULT: "#3b82f6",
-          soft: "rgba(59,130,246,0.12)",
-          ring: "rgba(59,130,246,0.30)",
+          DEFAULT: "rgb(var(--info) / <alpha-value>)",
+          soft: "rgb(var(--info) / 0.10)",
+          ring: "rgb(var(--info) / 0.30)",
         },
       },
       fontFamily: {
@@ -96,8 +96,8 @@ const config: Config = {
         // Refined type scale (denser, more dashboard-appropriate)
         "2xs": ["0.6875rem", { lineHeight: "1rem" }],
         xs: ["0.75rem", { lineHeight: "1rem" }],
-        sm: ["0.8125rem", { lineHeight: "1.25rem" }],
-        base: ["0.875rem", { lineHeight: "1.375rem" }],
+        sm: ["0.875rem", { lineHeight: "1.375rem" }],
+        base: ["0.9375rem", { lineHeight: "1.5rem" }],
         lg: ["1rem", { lineHeight: "1.5rem" }],
         xl: ["1.125rem", { lineHeight: "1.625rem" }],
         "2xl": ["1.375rem", { lineHeight: "1.75rem" }],

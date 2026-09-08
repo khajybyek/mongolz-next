@@ -60,95 +60,65 @@ export default async function HomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-hero relative overflow-hidden">
-      {/* Decorative mesh + orbs */}
-      <div className="absolute inset-0 bg-gradient-mesh opacity-40 pointer-events-none" aria-hidden />
-      <div
-        className="absolute top-0 left-1/2 -translate-x-1/2 w-[1100px] h-[520px] rounded-full blur-3xl pointer-events-none"
-        style={{ background: "radial-gradient(circle, rgba(0,212,255,0.10) 0%, transparent 70%)" }}
-        aria-hidden
-      />
-      <div
-        className="absolute top-[28rem] right-[-10rem] w-[520px] h-[520px] rounded-full blur-3xl pointer-events-none opacity-70"
-        style={{ background: "radial-gradient(circle, rgba(124,58,237,0.14) 0%, transparent 70%)" }}
-        aria-hidden
-      />
-      {/* Fine grid texture under the hero */}
-      <div
-        className="absolute inset-x-0 top-0 h-[720px] pointer-events-none opacity-[0.35] [mask-image:linear-gradient(180deg,rgba(0,0,0,0.9),transparent)]"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgb(var(--text-muted) / 0.08) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--text-muted) / 0.08) 1px, transparent 1px)",
-          backgroundSize: "56px 56px",
-        }}
-        aria-hidden
-      />
-
-      {/* Top bar */}
-      <header className="relative z-10 flex items-center justify-between px-4 md:px-6 py-4 md:py-5 max-w-7xl mx-auto">
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="relative">
-            <div className="absolute inset-0 bg-accent/30 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden />
-            <MongolzLogo size={36} className="relative" />
-          </div>
-          <div>
-            <div className="text-sm font-bold tracking-tight">MONGOLZ</div>
-            <div className="text-[10px] text-text-muted uppercase tracking-[0.18em] font-medium">
-              Security
+      <header className="relative z-20 border-b border-border bg-bg/80 backdrop-blur-xl">
+        <div className="max-w-7xl mx-auto flex min-h-20 flex-wrap items-center justify-between gap-3 px-4 sm:px-6 lg:px-8 py-3">
+          <Link href="/" className="flex items-center gap-3" aria-label="MONGOLZ Security">
+            <MongolzLogo size={38} />
+            <div>
+              <div className="text-sm font-bold tracking-[0.06em]">MONGOLZ</div>
+              <div className="text-[10px] text-text-muted tracking-[0.2em] mt-0.5">SECURITY</div>
             </div>
+          </Link>
+          <nav aria-label={t("home_workspace")} className="hidden xl:flex items-center gap-7 text-sm text-text-muted">
+            <a href="#features" className="py-3 hover:text-text transition-colors">{t("home_workspace")}</a>
+            <a href="#privacy" className="py-3 hover:text-text transition-colors">{t("home_privacy_label")}</a>
+            <a href="#security" className="py-3 hover:text-text transition-colors">{t("home_access_label")}</a>
+          </nav>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <LanguageSwitcher current={lang} className="hidden sm:inline-flex" />
+            <ThemeToggle />
+            <Link href={signedIn ? "/dashboard" : "/login"} className="btn-secondary btn-sm max-w-[10rem]">
+              <span className="truncate">{signedIn ? t("nav_dashboard") : t("login_btn")}</span>
+              <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+            </Link>
           </div>
-        </Link>
-        <div className="flex items-center gap-2 md:gap-3">
-          <LanguageSwitcher current={lang} className="hidden sm:inline-flex" />
-          <ThemeToggle />
-          {signedIn ? (
-            <Link href={"/dashboard" as never} className="btn-primary btn-sm">
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              {t("nav_dashboard")}
-            </Link>
-          ) : (
-            <Link href="/login" className="btn-primary btn-sm">
-              <LogIn className="w-3.5 h-3.5" />
-              {t("login_btn")}
-            </Link>
-          )}
+          <div className="sm:hidden w-full flex justify-end border-t border-border pt-2">
+            <LanguageSwitcher current={lang} />
+          </div>
         </div>
       </header>
 
       <main className="relative z-10 max-w-7xl mx-auto px-4 md:px-6 lg:px-8 pb-16">
         {/* Hero */}
-        <section className="grid lg:grid-cols-[1.05fr_0.95fr] gap-10 lg:gap-12 items-center pt-8 md:pt-14 pb-14 md:pb-20">
-          <div className="text-center lg:text-left animate-fade-in-up">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-medium mb-5">
-              <Sparkles className="w-3 h-3" />
-              {t("home_pill")}
+        <section className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-14 items-center pt-12 md:pt-20 pb-12 md:pb-20">
+          <div className="text-left animate-fade-in-up">
+            <div className="inline-flex items-center gap-2.5 text-accent text-xs font-semibold tracking-wide mb-6">
+              <span className="w-6 h-px bg-accent" aria-hidden />
+              {t("home_workspace")}
             </div>
-            <h1 className="text-4xl md:text-5xl xl:text-6xl font-bold tracking-tight text-gradient-soft leading-[1.08] text-balance">
+            <h1 className="text-[2.35rem] sm:text-5xl xl:text-[3.5rem] font-semibold tracking-[-0.045em] text-gradient-soft leading-[1.13] text-balance">
               {t("home_hero_title")}
             </h1>
-            <p className="text-base md:text-lg text-text-soft mt-5 max-w-xl mx-auto lg:mx-0 text-pretty leading-relaxed">
+            <p className="text-base md:text-lg text-text-muted mt-6 max-w-xl text-pretty leading-relaxed">
               {t("home_hero_body")}
             </p>
-            <div className="mt-8 flex flex-wrap items-center justify-center lg:justify-start gap-3">
+            <div className="mt-8 flex flex-wrap items-center gap-3">
               {primaryCta}
               <a href="#features" className="btn-secondary btn-lg">
                 {t("home_cta_learn")}
                 <ArrowRight className="w-4 h-4" />
               </a>
             </div>
-            <p className="mt-6 text-2xs uppercase tracking-[0.16em] text-text-muted font-medium">
+            <p className="mt-7 text-[10px] sm:text-2xs tracking-[0.10em] text-text-muted font-medium">
               {t("home_trust_row")}
             </p>
           </div>
 
           <div className="relative animate-fade-in-up" style={{ animationDelay: "120ms" }}>
-            <div
-              className="absolute -inset-6 rounded-[2rem] blur-2xl pointer-events-none"
-              style={{
-                background:
-                  "radial-gradient(60% 60% at 30% 20%, rgba(0,212,255,0.22) 0%, transparent 70%), radial-gradient(50% 50% at 80% 90%, rgba(124,58,237,0.22) 0%, transparent 70%)",
-              }}
-              aria-hidden
-            />
+            <div className="flex items-center justify-between gap-3 mb-3 text-xs text-text-muted">
+              <span className="inline-flex items-center gap-2 font-medium"><LayoutDashboard className="w-3.5 h-3.5" />{t("home_preview_label")}</span>
+              <span className="font-mono text-[10px]">MONGOLZ / 01</span>
+            </div>
             <HeroMockup
               labels={{
                 url: "aicctv.dev/dashboard",
@@ -162,23 +132,25 @@ export default async function HomePage() {
                 approved: t("home_mock_approved"),
               }}
             />
+            <p className="mt-8 text-[11px] text-text-muted text-center">{t("home_preview_note")}</p>
           </div>
         </section>
 
         {/* Stats strip */}
         <section className="mb-16 md:mb-20 animate-fade-in-up" style={{ animationDelay: "160ms" }}>
           <div className="card p-0 overflow-hidden">
-            <dl className="grid grid-cols-2 md:grid-cols-4 divide-y md:divide-y-0 divide-x-0 md:divide-x divide-border">
+            <dl className="grid grid-cols-2 md:grid-cols-4 [&>div]:border-border [&>div:nth-child(odd)]:border-r [&>div:nth-child(n+3)]:border-t md:[&>div:nth-child(n+3)]:border-t-0 md:[&>div:not(:last-child)]:border-r">
               <Stat value="512-d" label={t("home_stat_embed")} />
               <Stat value="AES-256" label={t("home_stat_enc")} />
               <Stat value="3 + 4-eyes" label={t("home_stat_roles")} />
-              <Stat value="< 50 ms" label={t("home_stat_latency")} />
+              <Stat value={t("home_stat_locales_value")} label={t("home_stat_locales")} />
             </dl>
           </div>
         </section>
 
         {/* 1. Problem */}
         <Section
+          id="privacy"
           index={1}
           eyebrow={t("demo_section_problem")}
           title={t("demo_problem_title")}
@@ -250,23 +222,30 @@ export default async function HomePage() {
               icon={<Cctv className="w-5 h-5" />}
               title={t("nav_live")}
               body={t("demo_demos_live_body")}
+              href={signedIn ? "/live" : "/login?next=%2Flive"}
+              cta={t("home_open_feature")}
             />
             <DemoCard
               icon={<Sparkles className="w-5 h-5" />}
               title={t("compare_title")}
               body={t("demo_demos_compare_body")}
+              href={signedIn ? "/compare" : "/login?next=%2Fcompare"}
+              cta={t("home_open_feature")}
               highlight
             />
             <DemoCard
               icon={<Sparkles className="w-5 h-5" />}
               title={t("nav_ai")}
               body={t("demo_demos_ai_body")}
+              href={signedIn ? "/ai" : "/login?next=%2Fai"}
+              cta={t("home_open_feature")}
             />
           </div>
         </Section>
 
         {/* 4. Security stack */}
         <Section
+          id="security"
           index={4}
           eyebrow={t("demo_section_security")}
           title={t("demo_sec_title")}
@@ -324,7 +303,7 @@ export default async function HomePage() {
             © {new Date().getFullYear()} MONGOLZ Security — {t("home_footer_tagline")}
           </span>
           <span className="shrink-0 flex items-center gap-3">
-            <LiveStatus />
+            <LiveStatus lang={lang} />
             <span aria-hidden>·</span>
             Next.js 16 · Supabase · Railway · Vercel
           </span>
@@ -500,9 +479,9 @@ function MiniStat({
 
 function Stat({ value, label }: { value: string; label: string }) {
   return (
-    <div className="px-5 py-5 text-center md:text-left">
-      <dt className="text-2xs uppercase tracking-[0.12em] text-text-muted font-medium order-2">{label}</dt>
-      <dd className="text-2xl md:text-3xl font-bold tracking-tight text-gradient-accent tabular-nums mb-1">
+    <div className="flex flex-col-reverse gap-2 px-4 sm:px-6 py-6 sm:py-7 text-left">
+      <dt className="text-xs text-text-muted font-medium">{label}</dt>
+      <dd className="text-xl sm:text-2xl md:text-3xl font-semibold tracking-tight text-text tabular-nums">
         {value}
       </dd>
     </div>
@@ -527,7 +506,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="mb-14 md:mb-16 animate-fade-in-up">
+    <section id={id} className="mb-14 md:mb-20 border-t border-border pt-10 md:pt-12 animate-fade-in-up">
       <div className="flex items-center gap-3 mb-3">
         <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-accent/10 text-accent border border-accent/20 text-sm font-mono font-bold">
           {String(index).padStart(2, "0")}
@@ -559,11 +538,11 @@ function Tile({
       ? "bg-danger-soft border-danger/20 text-danger"
       : "bg-accent/10 border-accent/20 text-accent";
   return (
-    <div className="card-hover hover-lift">
+    <div className="card p-6 sm:p-7">
       <div className={`w-10 h-10 inline-flex items-center justify-center rounded-lg border mb-3 ${cls}`}>
         {icon}
       </div>
-      <h4 className="text-base font-semibold tracking-tight text-text">{title}</h4>
+      <h3 className="text-base font-semibold tracking-tight text-text">{title}</h3>
       <p className="text-sm text-text-soft mt-1.5 leading-relaxed">{body}</p>
     </div>
   );
@@ -602,20 +581,25 @@ function DemoCard({
   title,
   body,
   highlight,
+  href,
+  cta,
 }: {
   icon: React.ReactNode;
   title: string;
   body: string;
   highlight?: boolean;
+  href: string;
+  cta: string;
 }) {
   return (
-    <div className={`${highlight ? "card-glow" : "card-hover"} h-full hover-lift`}>
+    <Link href={href as never} className={`${highlight ? "card-glow" : "card-hover"} group flex flex-col h-full p-6 sm:p-7`}>
       <div className="w-12 h-12 rounded-xl bg-accent/15 text-accent border border-accent/20 inline-flex items-center justify-center mb-3.5">
         {icon}
       </div>
-      <h4 className="text-base font-semibold tracking-tight text-text">{title}</h4>
-      <p className="text-sm text-text-soft mt-1.5 leading-relaxed">{body}</p>
-    </div>
+      <h3 className="text-base font-semibold tracking-tight text-text">{title}</h3>
+      <p className="text-sm text-text-muted mt-2 leading-relaxed flex-1">{body}</p>
+      <span className="mt-5 inline-flex items-center gap-2 text-xs font-medium text-accent">{cta}<ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-1" /></span>
+    </Link>
   );
 }
 

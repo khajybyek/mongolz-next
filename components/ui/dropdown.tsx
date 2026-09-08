@@ -36,28 +36,41 @@ export function Dropdown({
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
 
   const close = useCallback(() => setOpen(false), []);
 
   useEffect(() => {
     if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      panelRef.current?.querySelector<HTMLElement>("[role='menuitem']:not(:disabled)")?.focus();
+    });
     function onPointer(e: PointerEvent) {
       if (!rootRef.current?.contains(e.target as Node)) close();
     }
     function onKey(e: KeyboardEvent) {
+      if (!rootRef.current?.contains(document.activeElement)) return;
       if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+        triggerRef.current?.focus();
+        return;
+      }
+      if (e.key === "Tab") {
         close();
         return;
       }
-      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-      const items = rootRef.current?.querySelectorAll<HTMLElement>("[role='menuitem']");
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+      const items = panelRef.current?.querySelectorAll<HTMLElement>("[role='menuitem']:not(:disabled)");
       if (!items || items.length === 0) return;
       e.preventDefault();
       const list = Array.from(items);
       const idx = list.indexOf(document.activeElement as HTMLElement);
       const next =
-        e.key === "ArrowDown"
+        e.key === "Home" ? list[0] : e.key === "End" ? list.at(-1) : e.key === "ArrowDown"
           ? list[(idx + 1) % list.length]
           : list[(idx - 1 + list.length) % list.length];
       next?.focus();
@@ -65,6 +78,7 @@ export function Dropdown({
     document.addEventListener("pointerdown", onPointer);
     document.addEventListener("keydown", onKey);
     return () => {
+      cancelAnimationFrame(frame);
       document.removeEventListener("pointerdown", onPointer);
       document.removeEventListener("keydown", onKey);
     };
@@ -73,6 +87,7 @@ export function Dropdown({
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -85,14 +100,19 @@ export function Dropdown({
       </button>
       {open && (
         <div
+          ref={panelRef}
           id={panelId}
           role="menu"
+          aria-label={ariaLabel}
           onClick={(e) => {
             const el = (e.target as HTMLElement).closest("[data-dropdown-close]");
-            if (el) close();
+            if (el) {
+              close();
+              triggerRef.current?.focus();
+            }
           }}
           className={cn(
-            "absolute top-full mt-2 z-40 min-w-[13rem] rounded-xl border border-border-strong bg-surface-elevated shadow-overlay p-1.5 animate-scale-in origin-top",
+            "absolute top-full mt-2 z-40 min-w-[13rem] max-w-[calc(100vw-2rem)] max-h-[min(32rem,70dvh)] overflow-y-auto overscroll-contain rounded-xl border border-border-strong bg-surface-elevated shadow-overlay p-1.5 animate-scale-in origin-top",
             align === "end" ? "right-0" : "left-0",
             panelClassName,
           )}
@@ -124,7 +144,7 @@ export function DropdownItem({
       role="menuitem"
       data-dropdown-close
       className={cn(
-        "w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-left transition-colors",
+        "w-full min-h-11 flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
         tone === "danger"
           ? "text-danger hover:bg-danger-soft"
           : active

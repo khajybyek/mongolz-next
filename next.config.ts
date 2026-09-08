@@ -38,6 +38,11 @@ const config: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // The web server does not ship the Python/edge runtimes or local build
+  // caches. Include .nosync paths used by this checkout's iCloud-safe links.
+  outputFileTracingExcludes: {
+    "**/*": ["./ml-service/**", "./edge-agent/**", "./.next.nosync/cache/**", "./.next.nosync/dev/**"],
+  },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "*.supabase.co" },

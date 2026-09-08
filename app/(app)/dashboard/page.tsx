@@ -20,6 +20,9 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  Server,
+  Database,
+  ArrowUpRight,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -31,6 +34,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { cn, formatDate, pct } from "@/lib/utils";
 import { alertStateLabelKey, asAlertState, stateBadgeVariant } from "@/lib/alerts";
+import type { Lang } from "@/lib/i18n/translations";
 import { LiveActivityFeed, type ActivityItem } from "./live-activity-feed";
 import { probeDb, probeMl } from "@/lib/health-probes";
 
@@ -41,7 +45,6 @@ const kstDay = new Intl.DateTimeFormat("en-CA", {
   month: "2-digit",
   day: "2-digit",
 });
-const kstWeekday = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Seoul", weekday: "short" });
 
 export default async function DashboardPage({
   searchParams,
@@ -50,7 +53,7 @@ export default async function DashboardPage({
 }) {
   const { profile } = await requireUser();
   const supabase = await createClient();
-  const { t } = await getT();
+  const { t, lang } = await getT();
   const sp = (await searchParams) ?? {};
   const bounceMessage =
     sp.error === "admin-only" ? t("err_admin_only") : sp.error === "forbidden" ? t("err_forbidden") : null;
@@ -58,7 +61,7 @@ export default async function DashboardPage({
 
   const now = Date.now();
   const since24h = new Date(now - DAY_MS).toISOString();
-  const sinceToday = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+  const sinceToday = new Date(`${kstDay.format(new Date(now))}T00:00:00+09:00`).toISOString();
   const since14d = new Date(now - 14 * DAY_MS).toISOString();
 
   const [
@@ -115,7 +118,7 @@ export default async function DashboardPage({
   const prev7 = series.slice(0, 7);
   const last7Total = last7.reduce((s, d) => s + d.count, 0);
   const prev7Total = prev7.reduce((s, d) => s + d.count, 0);
-  const delta = prev7Total === 0 ? (last7Total > 0 ? 100 : 0) : Math.round(((last7Total - prev7Total) / prev7Total) * 100);
+  const delta = prev7Total === 0 ? (last7Total > 0 ? null : 0) : Math.round(((last7Total - prev7Total) / prev7Total) * 100);
 
   // Live-activity initial payload — last N alerts + audit rows merged.
   const [{ data: feedAlerts }, { data: feedAudit }] = await Promise.all([
@@ -212,371 +215,292 @@ export default async function DashboardPage({
   ];
   const quickActions = allActions.filter((a) => isAdmin || !a.adminOnly);
 
+  const countLabel = (count: number | null) => count == null ? "—" : count.toLocaleString();
+
   return (
     <>
       {bounceMessage && (
-        <div className="mb-4 rounded-xl border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-warning" role="status">
+        <div className="mb-5 rounded-xl border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-warning" role="status">
           {bounceMessage}
         </div>
       )}
       <PageHeader
         title={t("nav_dashboard")}
-        subtitle={t("dashboard_subtitle") || "AI-Powered Surveillance — overview"}
-        icon={<Activity className="w-5 h-5" />}
+        subtitle={t("dashboard_subtitle")}
+        icon={<Activity className="h-5 w-5" />}
         actions={
-          isAdmin ? (
-            <Link href={"/ai" as never} className="btn-secondary btn-sm">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{t("nav_ai")}</span>
+          <>
+            {isAdmin && (
+              <Link href={"/ai" as never} className="btn-secondary">
+                <Sparkles className="h-4 w-4" />
+                {t("nav_ai")}
+              </Link>
+            )}
+            <Link href="/live" className="btn-primary">
+              <Video className="h-4 w-4" />
+              {t("qa_start_live")}
+              <ArrowUpRight className="h-3.5 w-3.5" />
             </Link>
-          ) : undefined
+          </>
         }
       />
 
-      {/* Stat grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6">
+      <section aria-label={t("dash_operations")} className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <StatCard
           label={t("total_faces")}
-          value={(faceCount ?? 0).toLocaleString()}
+          value={countLabel(faceCount)}
           icon={Users}
           accent="info"
           href={isAdmin ? "/faces" : undefined}
         />
         <StatCard
           label={t("suspects")}
-          value={(suspectCount ?? 0).toLocaleString()}
+          value={countLabel(suspectCount)}
           icon={UserSearch}
           accent="warning"
           href={isAdmin ? "/suspects" : undefined}
         />
         <StatCard
           label={t("today_alerts")}
-          value={(alertCount ?? 0).toLocaleString()}
+          value={countLabel(alertCount)}
           icon={Bell}
           accent={alertCount && alertCount > 0 ? "danger" : "default"}
-          hint={`${alerts24h ?? 0} ${t("alerts_24h") || "in 24h"} · ${newAlerts ?? 0} ${t("al_new_count")}`}
+          hint={`${countLabel(newAlerts)} ${t("al_new_count")}`}
           href={isAdmin ? "/alerts" : undefined}
         />
         <StatCard
-          label={t("recording_days")}
-          value={(recordingCount ?? 0).toLocaleString()}
-          icon={Video}
+          label={t("total_recordings")}
+          value={countLabel(recordingCount)}
+          icon={FileVideo}
           accent="default"
           href="/playback"
         />
-      </div>
+      </section>
 
-      {/* Quick actions */}
-      <div className="mb-4 md:mb-6">
-        <div className="flex items-center justify-between mb-2.5">
-          <h2 className="section-title">{t("dash_quick_actions")}</h2>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-          {quickActions.map((a) => {
-            const Icon = a.icon;
-            return (
-              <Link
-                key={a.href}
-                href={a.href as never}
-                className={cn(
-                  "group flex items-center gap-3 rounded-xl border px-3.5 py-3 text-sm font-medium transition-all hover-lift",
-                  a.tone === "accent"
-                    ? "border-accent/30 bg-accent/10 text-accent hover:bg-accent/15 hover:border-accent/50"
-                    : "border-border bg-surface hover:border-border-strong hover:bg-surface-elevated text-text",
+      <div className="mb-6 grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-3">
+        <section className="card min-w-0 p-5 sm:p-6 xl:col-span-2" aria-labelledby="alert-trend-title">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 id="alert-trend-title" className="text-sm font-semibold text-text">{t("dash_trend_7d")}</h2>
+              <p className="mt-1 text-xs text-text-muted">{t("dash_trend_description")}</p>
+            </div>
+            <Link href={"/analytics" as never} className="inline-flex items-center gap-1.5 rounded-md py-1 text-xs font-medium text-text-soft transition-colors hover:text-accent">
+              <span className="hidden sm:inline">{t("qa_analytics")}</span>
+              <ArrowUpRight className="h-4 w-4" aria-hidden />
+              <span className="sr-only sm:hidden">{t("qa_analytics")}</span>
+            </Link>
+          </div>
+          <div className="mb-5 mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <span className="text-4xl font-semibold tracking-tight tabular-nums text-text">{trendRows ? last7Total.toLocaleString() : "—"}</span>
+            {trendRows && (
+              <div>
+                {delta == null ? (
+                  <span className="text-xs text-text-muted">{t("dash_no_baseline")}</span>
+                ) : (
+                  <>
+                    <span className={cn("inline-flex items-center gap-1 text-xs font-medium", delta > 0 ? "text-warning" : delta < 0 ? "text-success" : "text-text-soft")}>
+                      {delta > 0 ? <TrendingUp className="h-3.5 w-3.5" /> : delta < 0 ? <TrendingDown className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
+                      {delta > 0 ? "+" : ""}{delta}%
+                    </span>
+                    <p className="mt-0.5 text-xs text-text-muted">{t("dash_vs_prev")}</p>
+                  </>
                 )}
-              >
-                <span
-                  className={cn(
-                    "w-8 h-8 rounded-lg inline-flex items-center justify-center shrink-0 border transition-transform group-hover:scale-110",
-                    a.tone === "accent"
-                      ? "bg-accent/15 border-accent/20"
-                      : "bg-text-muted/[0.05] border-border text-text-soft",
-                  )}
-                >
-                  <Icon className="w-4 h-4" />
-                </span>
-                <span className="truncate">{a.label}</span>
-              </Link>
-            );
-          })}
-        </div>
+              </div>
+            )}
+          </div>
+          {trendRows ? <TrendBars data={last7} lang={lang} /> : (
+            <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border text-sm text-text-muted">{t("dash_data_unavailable")}</div>
+          )}
+        </section>
+
+        <section className="card flex min-w-0 flex-col p-5 sm:p-6" aria-labelledby="system-status-title">
+          <div className="mb-5 flex items-center gap-2.5">
+            <Server className="h-4 w-4 text-text-muted" />
+            <h2 id="system-status-title" className="text-sm font-semibold text-text">{t("system_status")}</h2>
+          </div>
+          <div className="space-y-4">
+            <StatusRow icon={Server} label={t("dash_ml_service")} value={mlHealth.ok ? t("operational") : t("status_ml_down")} status={mlHealth.ok ? "ok" : "down"} />
+            <StatusRow icon={Database} label={t("dash_database")} value={dbHealth.ok ? t("status_db_connected") : t("status_db_down")} status={dbHealth.ok ? "ok" : "down"} />
+            <div className="border-t border-border" />
+            <StatusRow icon={Cctv} label={t("dash_enabled_cameras")} value={countLabel(cameraCount)} />
+            <StatusRow icon={Bell} label={t("alerts_24h")} value={countLabel(alerts24h)} />
+          </div>
+          {isAdmin && (
+            <Link href={"/ai" as never} className="group mt-5 flex items-start gap-3 rounded-xl border border-accent/15 bg-accent/[0.04] p-3.5 transition-colors hover:bg-accent/[0.08]">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2 text-xs font-semibold text-text">
+                  {t("ai_card_title")}
+                  <ArrowUpRight className="h-3.5 w-3.5 text-text-muted transition-colors group-hover:text-accent" />
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-text-muted">{t("ai_card_desc")}</p>
+              </div>
+            </Link>
+          )}
+        </section>
       </div>
 
-      {/* Two-column section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Recent alerts (2/3) */}
-        <div className="lg:col-span-2 card p-0 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <div className="flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-text-soft" />
-              <h2 className="text-sm font-semibold tracking-tight">{t("recent_alerts")}</h2>
+      <nav aria-label={t("dash_quick_actions")} className="mb-6">
+        <h2 className="mb-3 text-xs font-medium text-text-muted">{t("dash_quick_actions")}</h2>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 2xl:flex 2xl:flex-wrap">
+          {quickActions.map(({ href, icon: Icon, label, tone }) => (
+            <Link
+              key={href}
+              href={href as never}
+              className={cn(
+                "group inline-flex min-h-11 min-w-0 items-center gap-2.5 rounded-xl border px-3.5 py-3 text-xs font-medium transition-colors 2xl:flex-1",
+                tone === "accent" ? "border-accent/20 bg-accent/[0.06] text-accent hover:bg-accent/10" : "border-border bg-surface text-text-soft hover:border-border-strong hover:bg-surface-elevated hover:text-text",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="leading-snug">{label}</span>
+            </Link>
+          ))}
+        </div>
+      </nav>
+
+      <div className="mb-6 grid min-w-0 grid-cols-1 items-start gap-5 xl:grid-cols-3">
+        <section className="card min-w-0 overflow-hidden p-0 xl:col-span-2" aria-labelledby="recent-alerts-title">
+          <div className="flex min-h-[76px] items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-6">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <ShieldAlert className="h-4 w-4 text-text-muted" />
+              <h2 id="recent-alerts-title" className="text-sm font-semibold text-text">{t("recent_alerts")}</h2>
+              {newAlerts != null && newAlerts > 0 && <Badge variant="accent">{newAlerts} {t("al_new_count")}</Badge>}
             </div>
             {isAdmin && (
-              <Link
-                href={"/alerts" as never}
-                className="text-xs text-text-soft hover:text-accent transition inline-flex items-center gap-1"
-              >
-                {t("see_all") || "See all"}
-                <ArrowRight className="w-3 h-3" />
+              <Link href={"/alerts" as never} className="inline-flex shrink-0 items-center gap-1.5 rounded-md py-1 text-xs font-medium text-text-soft transition-colors hover:text-accent">
+                {t("see_all")}<ArrowRight className="h-3.5 w-3.5" />
               </Link>
             )}
           </div>
-
           {!recentAlerts?.length ? (
-            <div className="p-6">
-              <Empty
-                icon={Bell}
-                message={t("no_alerts")}
-                description={t("ai_card_desc")}
-              />
-            </div>
+            <Empty
+              icon={Bell}
+              message={recentAlerts ? t("no_alerts") : t("dash_data_unavailable")}
+              description={recentAlerts ? t("dash_alerts_empty_description") : undefined}
+              className="min-h-[330px] rounded-none border-0 bg-transparent shadow-none"
+              action={<Link href="/grid" className="btn-secondary btn-sm"><LayoutGrid className="h-4 w-4" />{t("nav_grid")}</Link>}
+            />
           ) : (
             <ul className="divide-y divide-border">
               {recentAlerts.map((a) => (
-                <li
-                  key={a.id}
-                  className="px-5 py-3.5 flex items-center justify-between gap-3 hover:bg-text-muted/[0.02] transition-colors"
-                >
-                  <div className="min-w-0 flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-danger-soft border border-danger/20 inline-flex items-center justify-center shrink-0">
-                      <ShieldAlert className="w-4 h-4 text-danger" />
+                <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 transition-colors hover:bg-surface-elevated sm:flex-nowrap sm:px-6">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-elevated">
+                      <ShieldAlert className="h-4 w-4 text-text-soft" />
                     </div>
                     <div className="min-w-0">
-                      <div className="font-medium text-sm text-text truncate">{a.suspect_name}</div>
-                      <div className="text-xs text-text-muted mt-0.5 flex items-center gap-1.5">
-                        <Cctv className="w-3 h-3 opacity-60" />
-                        <span className="truncate">{a.camera_name ?? "—"}</span>
-                        <span className="opacity-40">·</span>
-                        <span className="tabular-nums">{formatDate(a.created_at)}</span>
+                      <p className="truncate text-sm font-medium text-text">{a.suspect_name ?? t("label_unknown")}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-text-muted">
+                        <span className="inline-flex min-w-0 items-center gap-1"><Cctv className="h-3 w-3 shrink-0" /><span className="max-w-40 truncate">{a.camera_name ?? "—"}</span></span>
+                        <time dateTime={a.created_at} className="tabular-nums">{formatDate(a.created_at)}</time>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <Badge variant={stateBadgeVariant(asAlertState(a.state))} dot>
-                      {t(alertStateLabelKey(asAlertState(a.state)))}
-                    </Badge>
-                    <Badge variant={(a.similarity ?? 0) >= 0.7 ? "danger" : (a.similarity ?? 0) >= 0.5 ? "warning" : "info"}>
-                      {pct(a.similarity ?? 0)}
-                    </Badge>
+                  <div className="ml-12 flex shrink-0 items-center gap-2 sm:ml-0">
+                    <Badge variant={stateBadgeVariant(asAlertState(a.state))} dot>{t(alertStateLabelKey(asAlertState(a.state)))}</Badge>
+                    <span title={t("col_similarity")} className="min-w-10 text-right font-mono text-xs text-text-soft">{a.similarity == null ? "—" : pct(a.similarity)}</span>
                   </div>
                 </li>
               ))}
             </ul>
           )}
-        </div>
-
-        {/* Right column: system status + AI card */}
-        <div className="space-y-4">
-          <div className="card">
-            <h3 className="section-title mb-3">{t("system_status") || "System status"}</h3>
-            <div className="space-y-3">
-              <StatusRow label={t("cameras_online") || "Cameras"} value={`${cameraCount ?? 0}`} status="ok" />
-              <StatusRow
-                label="ML Service"
-                value={mlHealth.ok ? t("operational") : t("status_ml_down")}
-                status={mlHealth.ok ? "ok" : "down"}
-              />
-              <StatusRow
-                label="Database"
-                value={dbHealth.ok ? t("status_db_connected") : t("status_db_down")}
-                status={dbHealth.ok ? "ok" : "down"}
-              />
-              <StatusRow
-                label={t("alerts_24h") || "Alerts (24h)"}
-                value={`${alerts24h ?? 0}`}
-                status={alerts24h && alerts24h > 10 ? "warn" : "ok"}
-              />
-            </div>
-          </div>
-
-          {isAdmin && (
-            <div className="card-glow">
-              <div className="flex items-start gap-3">
-                <div className="icon-tile w-10 h-10">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <h4 className="text-sm font-semibold tracking-tight">{t("ai_card_title") || "AI Insights"}</h4>
-                  <p className="text-xs text-text-soft mt-1 text-pretty">
-                    {t("ai_card_desc") ||
-                      "Run anomaly detection and natural-language summaries on your alert stream."}
-                  </p>
-                  <Link href={"/ai" as never} className="link text-xs mt-2 inline-flex items-center gap-1">
-                    {t("ai_card_cta") || "Open AI"}
-                    <ArrowRight className="w-3 h-3" />
-                  </Link>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+        </section>
+        <LiveActivityFeed initial={initialActivity} />
       </div>
 
-      {/* Trend + cameras + recordings */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
-        <div className="card">
-          <div className="flex items-start justify-between gap-3 mb-3">
-            <div>
-              <h3 className="section-title">{t("dash_trend_7d")}</h3>
-              <div className="mt-1.5 flex items-baseline gap-2">
-                <span className="text-2xl font-bold tracking-tight tabular-nums">{last7Total.toLocaleString()}</span>
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1 text-xs font-medium",
-                    delta > 0 ? "text-danger" : delta < 0 ? "text-success" : "text-text-muted",
-                  )}
-                >
-                  {delta > 0 ? <TrendingUp className="w-3.5 h-3.5" /> : delta < 0 ? <TrendingDown className="w-3.5 h-3.5" /> : <Minus className="w-3.5 h-3.5" />}
-                  {delta > 0 ? "+" : ""}
-                  {delta}%
-                </span>
-              </div>
-              <div className="text-2xs text-text-muted mt-0.5">{t("dash_vs_prev")}</div>
-            </div>
-            <span className="icon-tile w-9 h-9 bg-danger-soft text-danger border-danger/20">
-              <Bell className="w-4 h-4" />
-            </span>
-          </div>
-          <TrendBars data={last7} />
-        </div>
-
-        <div className="card">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="section-title">{t("dash_cameras")}</h3>
-            {isAdmin ? (
-              <Link href={"/cameras" as never} className="text-xs text-text-soft hover:text-accent transition inline-flex items-center gap-1">
-                {t("dash_manage")}
-                <ArrowRight className="w-3 h-3" />
-              </Link>
-            ) : (
-              // /cameras is admin-only — viewers monitor from the NVR grid instead.
-              <Link href={"/grid" as never} className="text-xs text-text-soft hover:text-accent transition inline-flex items-center gap-1">
-                {t("nav_grid")}
-                <ArrowRight className="w-3 h-3" />
-              </Link>
-            )}
-          </div>
-          {!cameraRows?.length ? (
-            <p className="text-xs text-text-muted py-6 text-center">{t("dash_no_cameras")}</p>
-          ) : (
-            <ul className="divide-y divide-border -mx-1">
-              {cameraRows.map((c) => (
-                <li key={c.id} className="flex items-center gap-3 px-1 py-2.5">
-                  <span className="w-8 h-8 rounded-lg bg-text-muted/[0.05] border border-border inline-flex items-center justify-center text-text-soft shrink-0">
-                    <Cctv className="w-4 h-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-text truncate">{c.name}</div>
-                    <div className="text-2xs text-text-muted font-mono uppercase">{c.cam_type}</div>
-                  </div>
-                  <Badge variant={c.enabled ? "success" : "muted"} dot>
-                    {c.enabled ? t("dash_cam_enabled") : t("dash_cam_disabled")}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="card md:col-span-2 xl:col-span-1">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="section-title">{t("dash_recent_recordings")}</h3>
-            <Link href={"/playback" as never} className="text-xs text-text-soft hover:text-accent transition inline-flex items-center gap-1">
-              {t("see_all") || "See all"}
-              <ArrowRight className="w-3 h-3" />
+      <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
+        <section className="card min-w-0 p-5 sm:p-6" aria-labelledby="dashboard-cameras-title">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5"><Cctv className="h-4 w-4 text-text-muted" /><h2 id="dashboard-cameras-title" className="text-sm font-semibold text-text">{t("dash_cameras")}</h2></div>
+            <Link href={(isAdmin ? "/cameras" : "/grid") as never} className="inline-flex items-center gap-1.5 rounded-md py-1 text-xs font-medium text-text-soft transition-colors hover:text-accent">
+              {isAdmin ? t("dash_manage") : t("nav_grid")}<ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
-          {!recordingRows?.length ? (
-            <p className="text-xs text-text-muted py-6 text-center">{t("dash_no_recordings")}</p>
+          {!cameraRows?.length ? (
+            <Empty icon={Cctv} message={cameraRows ? t("dash_no_cameras") : t("dash_data_unavailable")} size="compact" className="border-dashed bg-transparent shadow-none"
+              action={isAdmin ? <Link href={"/cameras" as never} className="btn-secondary btn-sm">{t("dash_manage")}<ArrowRight className="h-3.5 w-3.5" /></Link> : undefined}
+            />
           ) : (
-            <ul className="divide-y divide-border -mx-1">
-              {recordingRows.map((r) => (
-                <li key={r.id}>
-                  <Link
-                    href={`/playback/${r.id}` as never}
-                    className="flex items-center gap-3 px-1 py-2.5 rounded-lg hover:bg-text-muted/[0.03] transition-colors"
-                  >
-                    <span className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 inline-flex items-center justify-center text-accent shrink-0">
-                      <FileVideo className="w-4 h-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-text truncate inline-flex items-center gap-1.5 max-w-full">
-                        <span className="truncate">{r.filename}</span>
-                        {r.encrypted && <Lock className="w-3 h-3 text-warning shrink-0" />}
-                      </div>
-                      <div className="text-2xs text-text-muted truncate tabular-nums">
-                        {formatDate(r.started_at)} · {r.camera_name ?? "—"}
-                        {r.duration_sec ? ` · ${Math.round(r.duration_sec)}s` : ""}
-                      </div>
-                    </div>
-                    <PlayCircle className="w-4 h-4 text-text-muted shrink-0" />
+            <ul className="divide-y divide-border">
+              {cameraRows.map((c) => (
+                <li key={c.id}>
+                  <Link href={`/grid?focus=${c.id}` as never} className="group flex items-center gap-3 rounded-lg py-3.5 transition-colors hover:bg-surface-elevated">
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-elevated text-text-soft"><Cctv className="h-4 w-4" /></span>
+                    <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-text">{c.name}</p><p className="mt-0.5 font-mono text-xs uppercase text-text-muted">{c.cam_type}</p></div>
+                    <Badge variant={c.enabled ? "accent" : "muted"}>{c.enabled ? t("dash_cam_enabled") : t("dash_cam_disabled")}</Badge>
+                    <ArrowUpRight className="h-4 w-4 shrink-0 text-text-muted group-hover:text-accent" />
                   </Link>
                 </li>
               ))}
             </ul>
           )}
-        </div>
-      </div>
+        </section>
 
-      {/* Live activity feed — realtime stream of alerts + audit events. */}
-      <div className="mt-4">
-        <LiveActivityFeed initial={initialActivity} />
+        <section className="card min-w-0 p-5 sm:p-6" aria-labelledby="dashboard-recordings-title">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5"><FileVideo className="h-4 w-4 text-text-muted" /><h2 id="dashboard-recordings-title" className="text-sm font-semibold text-text">{t("dash_recent_recordings")}</h2></div>
+            <Link href="/playback" className="inline-flex shrink-0 items-center gap-1.5 rounded-md py-1 text-xs font-medium text-text-soft transition-colors hover:text-accent">{t("see_all")}<ArrowRight className="h-3.5 w-3.5" /></Link>
+          </div>
+          {!recordingRows?.length ? (
+            <Empty icon={FileVideo} message={recordingRows ? t("dash_no_recordings") : t("dash_data_unavailable")} size="compact" className="border-dashed bg-transparent shadow-none"
+              action={<Link href="/live" className="btn-secondary btn-sm"><Video className="h-3.5 w-3.5" />{t("qa_start_live")}</Link>}
+            />
+          ) : (
+            <ul className="divide-y divide-border">
+              {recordingRows.map((r) => (
+                <li key={r.id}>
+                  <Link href={`/playback/${r.id}` as never} className="group flex items-center gap-3 rounded-lg py-3.5 transition-colors hover:bg-surface-elevated">
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-accent/15 bg-accent/[0.06] text-accent"><FileVideo className="h-4 w-4" /></span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 text-sm font-medium text-text"><span className="truncate">{r.filename}</span>{r.encrypted && <Lock className="h-3 w-3 shrink-0 text-text-muted" aria-label={t("rec_encrypted")} />}</div>
+                      <p className="mt-1 truncate text-xs tabular-nums text-text-muted">{formatDate(r.started_at)} · {r.camera_name ?? "—"}{r.duration_sec ? ` · ${Math.round(r.duration_sec)}s` : ""}</p>
+                    </div>
+                    <PlayCircle className="h-5 w-5 shrink-0 text-text-muted group-hover:text-accent" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </>
   );
 }
 
-function TrendBars({ data }: { data: Array<{ day: string; count: number }> }) {
+function TrendBars({ data, lang }: { data: Array<{ day: string; count: number }>; lang: Lang }) {
   const max = Math.max(1, ...data.map((d) => d.count));
+  const formatter = new Intl.DateTimeFormat(lang === "kr" ? "ko-KR" : lang === "mn" ? "mn-MN" : "en-US", { timeZone: "Asia/Seoul", weekday: "short" });
   return (
-    <div className="flex items-end gap-1.5 h-24" role="img" aria-label={data.map((d) => `${d.day}: ${d.count}`).join(", ")}>
-      {data.map((d) => {
-        const h = Math.max(4, Math.round((d.count / max) * 100));
-        return (
-          <div key={d.day} className="flex-1 flex flex-col items-center gap-1.5 min-w-0" title={`${d.day} · ${d.count}`}>
-            <div className="w-full flex items-end h-16">
+    <div className="relative pt-5" role="img" aria-label={data.map((d) => `${d.day}: ${d.count}`).join(", ")}>
+      <div className="pointer-events-none absolute inset-x-0 bottom-7 top-5 flex flex-col justify-between" aria-hidden>
+        {[0, 1, 2].map((line) => <div key={line} className="border-t border-dashed border-border" />)}
+      </div>
+      <div className="relative flex gap-3 sm:gap-5">
+        {data.map((d, index) => (
+          <div key={d.day} className="group flex min-w-0 flex-1 flex-col items-center" title={`${d.day} · ${d.count}`}>
+            <div className="relative flex h-28 w-full max-w-14 items-end sm:h-32">
               <div
-                className={cn(
-                  "w-full rounded-md transition-colors",
-                  d.count === 0 ? "bg-text-muted/[0.08]" : d.count === max ? "bg-danger/70" : "bg-accent/60",
-                )}
-                style={{ height: `${h}%` }}
-              />
+                className={cn("relative w-full rounded-t-md", d.count === 0 ? "bg-text-muted/20" : index === data.length - 1 ? "bg-accent" : "bg-accent/35 group-hover:bg-accent/60")}
+                style={{ height: d.count === 0 ? "2px" : `${Math.max(3, (d.count / max) * 100)}%` }}
+              >
+                <span className="absolute -top-5 inset-x-0 text-center text-xs font-medium tabular-nums text-text-soft">{d.count}</span>
+              </div>
             </div>
-            <span className="text-[10px] text-text-muted uppercase truncate">
-              {kstWeekday.format(new Date(d.day + "T12:00:00+09:00"))}
-            </span>
+            <span className="mt-3 max-w-full truncate text-xs text-text-muted">{formatter.format(new Date(`${d.day}T12:00:00+09:00`))}</span>
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 }
 
-function StatusRow({
-  label,
-  value,
-  status,
-}: {
-  label: string;
-  value: string;
-  status: "ok" | "warn" | "down";
-}) {
-  const dotColor = status === "ok" ? "bg-success" : status === "warn" ? "bg-warning" : "bg-danger";
+function StatusRow({ icon: Icon, label, value, status }: { icon: LucideIcon; label: string; value: string; status?: "ok" | "down" }) {
   return (
-    <div className="flex items-center justify-between text-sm gap-3">
-      <div className="flex items-center gap-2.5 min-w-0">
-        <span className={`relative inline-flex w-2 h-2 rounded-full shrink-0 ${dotColor}`}>
-          {status === "ok" && (
-            <span
-              className={`absolute inset-0 rounded-full ${dotColor} opacity-60 animate-ping`}
-              style={{ animationDuration: "2s" }}
-            />
-          )}
-        </span>
-        <span className="text-text-soft truncate">{label}</span>
-      </div>
-      <span className={cn("text-xs font-medium tabular-nums shrink-0", status === "down" ? "text-danger" : "text-text")}>
+    <div className="flex items-center justify-between gap-3">
+      <span className="flex min-w-0 items-center gap-2.5 text-xs text-text-soft"><Icon className="h-3.5 w-3.5 shrink-0 text-text-muted" /><span>{label}</span></span>
+      <span className={cn("inline-flex shrink-0 items-center gap-1.5 text-xs font-medium tabular-nums", status === "down" ? "text-warning" : "text-text")}>
+        {status && <span className={cn("h-1.5 w-1.5 rounded-full", status === "ok" ? "bg-success" : "bg-warning")} aria-hidden />}
         {value}
       </span>
     </div>

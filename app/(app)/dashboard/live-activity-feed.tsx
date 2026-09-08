@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Bell,
@@ -14,9 +14,9 @@ import {
   XCircle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import type { TranslationKey } from "@/lib/i18n/translations";
 import { useT } from "@/lib/i18n/client";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 
 type Kind =
   | "alert_match"
@@ -117,11 +117,17 @@ function dedupe(items: ActivityItem[]): ActivityItem[] {
 
 export function LiveActivityFeed({ initial }: { initial: ActivityItem[] }) {
   const { t } = useT();
-  const [items, setItems] = useState<ActivityItem[]>(initial);
-  const channelsRef = useRef<RealtimeChannel[]>([]);
+  const [items, setItems] = useState<ActivityItem[]>(() => dedupe(initial).slice(0, MAX_ITEMS));
+  const [connections, setConnections] = useState<{ alerts: ConnectionState; audit: ConnectionState }>({ alerts: "connecting", audit: "connecting" });
 
   useEffect(() => {
     const supabase = createClient();
+    let active = true;
+    const updateConnection = (channel: "alerts" | "audit", status: string) => {
+      if (!active) return;
+      const next = status === "SUBSCRIBED" ? "connected" : ["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status) ? "offline" : "connecting";
+      setConnections((previous) => ({ ...previous, [channel]: next }));
+    };
 
     const alertChan = supabase
       .channel("dashboard-live-alerts")
@@ -134,7 +140,7 @@ export function LiveActivityFeed({ initial }: { initial: ActivityItem[] }) {
           setItems((prev) => dedupe([item, ...prev]).slice(0, MAX_ITEMS));
         },
       )
-      .subscribe();
+      .subscribe((status) => updateConnection("alerts", status));
 
     const auditChan = supabase
       .channel("dashboard-live-audit")
@@ -148,12 +154,12 @@ export function LiveActivityFeed({ initial }: { initial: ActivityItem[] }) {
           setItems((prev) => dedupe([item, ...prev]).slice(0, MAX_ITEMS));
         },
       )
-      .subscribe();
+      .subscribe((status) => updateConnection("audit", status));
 
-    channelsRef.current = [alertChan, auditChan];
     return () => {
-      for (const ch of channelsRef.current) supabase.removeChannel(ch);
-      channelsRef.current = [];
+      active = false;
+      void supabase.removeChannel(alertChan);
+      void supabase.removeChannel(auditChan);
     };
   }, []);
 
@@ -162,68 +168,72 @@ export function LiveActivityFeed({ initial }: { initial: ActivityItem[] }) {
     [items],
   );
 
-  return (
-    <div className="card p-0 overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-        <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-text-soft" />
-          <h2 className="text-sm font-semibold tracking-tight">
-            {t("dash_live_activity") || "Live activity"}
-          </h2>
-          <span
-            className="ml-1 w-1.5 h-1.5 rounded-full bg-success animate-pulse"
-            aria-hidden
-            title="realtime"
-          />
-        </div>
-        <span className="text-2xs text-text-faint">{sorted.length}</span>
-      </div>
+  const connection: ConnectionState = Object.values(connections).every((state) => state === "connected")
+    ? "connected"
+    : Object.values(connections).some((state) => state === "offline") ? "offline" : "connecting";
 
+  return (
+    <section className="card min-w-0 overflow-hidden p-0" aria-labelledby="dashboard-activity-title">
+      <div className="flex min-h-[76px] items-start gap-2.5 border-b border-border px-5 py-4">
+        <Activity className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
+        <div className="min-w-0 flex-1">
+          <h2 id="dashboard-activity-title" className="text-sm font-semibold text-text">{t("dash_live_activity")}</h2>
+          <p className="mt-1 text-xs text-text-muted">{t("dash_activity_description")}</p>
+        </div>
+      </div>
       {sorted.length === 0 ? (
-        <div className="p-6 text-center text-xs text-text-muted">
-          {t("dash_live_empty") || "Waiting for the next event…"}
+        <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+          <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-surface-elevated"><Activity className="h-5 w-5 text-text-muted" /></span>
+          <p className="max-w-56 text-sm leading-relaxed text-text-muted">{t("dash_live_empty")}</p>
         </div>
       ) : (
-        <ul className="divide-y divide-border max-h-[480px] overflow-y-auto">
-          {sorted.map((it) => (
-            <Row key={it.id} item={it} />
-          ))}
+        <ul className="max-h-[448px] divide-y divide-border overflow-y-auto overscroll-contain" tabIndex={0} aria-label={t("dash_live_activity")}>
+          {sorted.map((it) => <Row key={it.id} item={it} />)}
         </ul>
       )}
-    </div>
+      <div className="flex items-center justify-between gap-3 border-t border-border bg-surface-elevated/40 px-5 py-3">
+        <span className="inline-flex items-center gap-2 text-xs text-text-muted" role="status">
+          <span className={cn("h-1.5 w-1.5 rounded-full", connection === "connected" ? "bg-success" : connection === "offline" ? "bg-warning" : "bg-text-muted")} aria-hidden />
+          {t(connection === "connected" ? "dash_realtime_connected" : connection === "offline" ? "dash_realtime_offline" : "dash_realtime_connecting")}
+        </span>
+        <span className="font-mono text-xs tabular-nums text-text-muted" aria-hidden>{sorted.length.toString().padStart(2, "0")}</span>
+      </div>
+    </section>
   );
 }
 
+type ConnectionState = "connecting" | "connected" | "offline";
+
+const LABEL_KEYS: Record<string, TranslationKey> = {
+  Login: "login_title",
+  Logout: "logout",
+  "Login failed": "dash_login_failed",
+  "Login blocked": "dash_login_blocked",
+  "reveal requested": "dash_reveal_requested",
+  "reveal approved": "dash_reveal_approved",
+  "reveal rejected": "dash_reveal_rejected",
+  "reveal completed": "dash_reveal_completed",
+};
+
 function Row({ item }: { item: ActivityItem }) {
+  const { t } = useT();
   const { tone, Icon } = ICONS[item.kind] ?? ICONS.audit_other;
+  const label = item.kind === "alert_anomaly"
+    ? `${t("ai_mode_anomaly")} · ${item.label.slice("Anomaly · ".length) === "Camera" ? t("anomaly_camera") : item.label.slice("Anomaly · ".length)}`
+    : item.kind === "alert_match"
+      ? item.label === "Unknown suspect" ? t("label_unknown") : item.label
+      : LABEL_KEYS[item.label] ? t(LABEL_KEYS[item.label]) : item.label;
   return (
-    <li className="px-5 py-2.5 flex items-center gap-3 text-sm">
-      <div
-        className={
-          "w-7 h-7 rounded-full border inline-flex items-center justify-center shrink-0 " +
-          tone
-        }
-      >
-        <Icon className="w-3.5 h-3.5" />
-      </div>
+    <li className="flex items-start gap-3 px-5 py-4 transition-colors hover:bg-surface-elevated">
+      <span className={cn("mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border", tone)}>
+        <Icon className="h-3.5 w-3.5" />
+      </span>
       <div className="min-w-0 flex-1">
-        <div className="text-text truncate text-xs">
-          <span className="font-medium">{item.label}</span>
-          {item.detail && (
-            <>
-              <span className="opacity-40 mx-1.5">·</span>
-              <span className="text-text-soft">{item.detail}</span>
-            </>
-          )}
-        </div>
-        <div className="text-2xs text-text-faint mt-0.5 flex items-center gap-1.5">
-          {item.actor && (
-            <>
-              <span className="truncate max-w-[180px]">{item.actor}</span>
-              <span className="opacity-40">·</span>
-            </>
-          )}
-          <time>{formatDate(item.ts)}</time>
+        <p className="truncate text-sm font-medium text-text" title={label}>{label}</p>
+        {item.detail && <p className="mt-0.5 truncate text-xs text-text-soft" title={item.detail}>{item.detail}</p>}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-muted">
+          {item.actor && <span className="max-w-full truncate" title={item.actor}>{item.actor}</span>}
+          <time dateTime={item.ts} className="tabular-nums">{formatDate(item.ts)}</time>
         </div>
       </div>
     </li>

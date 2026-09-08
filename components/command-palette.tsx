@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Languages, LogOut, Moon, Search, Sun, type LucideIcon } from "lucide-react";
+import { CornerDownLeft, Languages, LogOut, Moon, Search, Sun, X, type LucideIcon } from "lucide-react";
 import { useT } from "@/lib/i18n/client";
 import { useTheme } from "@/lib/theme/client";
 import { LANGUAGES, type Lang } from "@/lib/i18n/translations";
@@ -10,6 +10,7 @@ import { visibleNavGroups, type Role } from "@/lib/nav";
 import { useShell } from "./shell-context";
 import { applyLanguage } from "./language-switcher";
 import { cn } from "@/lib/utils";
+import { useModalFocus } from "@/lib/use-modal-focus";
 
 interface Entry {
   id: string;
@@ -30,6 +31,9 @@ export function CommandPalette({ role }: { role: Role }) {
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
+  useModalFocus({ open, onClose: () => setOpen(false), ref: dialogRef, initialFocusRef: inputRef });
 
   const entries = useMemo<Entry[]>(() => {
     const nav: Entry[] = visibleNavGroups(role).flatMap((group) =>
@@ -83,11 +87,11 @@ export function CommandPalette({ role }: { role: Role }) {
   }, [role, t, lang, theme, toggleTheme, router]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return entries;
+    const terms = query.normalize("NFKC").trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return entries;
     return entries.filter((e) => {
-      const hay = [e.label, e.section, e.hint ?? "", ...(e.keywords ?? [])].join(" ").toLowerCase();
-      return hay.includes(q);
+      const hay = [e.label, e.section, e.hint ?? "", ...(e.keywords ?? [])].join(" ").normalize("NFKC").toLowerCase();
+      return terms.every((term) => hay.includes(term));
     });
   }, [entries, query]);
 
@@ -99,11 +103,10 @@ export function CommandPalette({ role }: { role: Role }) {
         togglePalette();
         return;
       }
-      if (!open) return;
-      if (e.key === "Escape") setOpen(false);
+      if (!open || document.activeElement !== inputRef.current) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setActive((a) => Math.min(filtered.length - 1, a + 1));
+        setActive((a) => Math.max(0, Math.min(filtered.length - 1, a + 1)));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setActive((a) => Math.max(0, a - 1));
@@ -124,7 +127,6 @@ export function CommandPalette({ role }: { role: Role }) {
     if (open) {
       setQuery("");
       setActive(0);
-      setTimeout(() => inputRef.current?.focus(), 30);
     }
   }, [open]);
 
@@ -150,35 +152,59 @@ export function CommandPalette({ role }: { role: Role }) {
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
+      tabIndex={-1}
       aria-modal="true"
       aria-label={t("cmdk_title")}
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] md:pt-[14vh] px-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[max(1rem,env(safe-area-inset-top))] sm:pt-[12dvh] px-3 sm:px-4 animate-fade-in outline-none"
     >
       <div className="backdrop" onClick={() => setOpen(false)} aria-hidden />
       <div className="relative w-full max-w-xl bg-surface-elevated border border-border-strong rounded-2xl shadow-overlay overflow-hidden animate-scale-in">
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
-          <Search className="w-4 h-4 text-text-muted" />
+        <div className="flex min-h-16 items-center gap-3 pl-4 pr-2 border-b border-border">
+          <Search className="w-5 h-5 shrink-0 text-accent" aria-hidden />
           <input
             ref={inputRef}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setActive(0);
+            }}
             placeholder={t("cmdk_placeholder")}
-            className="flex-1 bg-transparent outline-none text-base md:text-sm placeholder:text-text-muted"
+            className="min-w-0 flex-1 h-12 bg-transparent outline-none text-[16px] sm:text-sm placeholder:text-text-muted"
+            role="combobox"
+            aria-expanded="true"
+            aria-autocomplete="list"
+            aria-controls={listId}
+            aria-activedescendant={filtered[active] ? `${listId}-option-${active}` : undefined}
+            autoComplete="off"
+            spellCheck={false}
             aria-label={t("cmdk_placeholder")}
           />
-          <kbd className="kbd">ESC</kbd>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label={t("al_close")}
+            title={t("al_close")}
+            className="inline-flex shrink-0 w-11 h-11 items-center justify-center rounded-lg text-text-muted hover:bg-text-muted/[0.06] hover:text-text transition-colors"
+          >
+            <X className="w-4 h-4" aria-hidden />
+          </button>
         </div>
-        <ul ref={listRef} className="max-h-[55vh] overflow-y-auto py-1.5" role="listbox">
+        <ul ref={listRef} id={listId} className="max-h-[min(60dvh,28rem)] overflow-y-auto overscroll-contain py-2" role="listbox" aria-label={t("cmdk_title")}>
           {filtered.length === 0 ? (
-            <li className="px-4 py-8 text-center text-xs text-text-muted">{t("cmdk_empty")}</li>
+            <li role="presentation" className="px-6 py-12 text-center text-sm text-text-muted">
+              <Search className="w-7 h-7 mx-auto mb-3 text-text-faint" aria-hidden />
+              <span role="status">{t("cmdk_empty")}</span>
+            </li>
           ) : (
             rows.map((row) => {
               if (row.type === "section") {
                 return (
                   <li
                     key={`s:${row.label}`}
-                    className="px-4 pt-2.5 pb-1 text-2xs font-semibold uppercase tracking-[0.12em] text-text-faint"
+                    className="px-4 pt-3 pb-1.5 text-2xs font-semibold uppercase tracking-[0.1em] text-text-muted"
+                    role="presentation"
                     aria-hidden
                   >
                     {row.label}
@@ -192,6 +218,7 @@ export function CommandPalette({ role }: { role: Role }) {
                 <li
                   key={entry.id}
                   data-index={index}
+                  id={`${listId}-option-${index}`}
                   role="option"
                   aria-selected={isActive}
                   onMouseEnter={() => setActive(index)}
@@ -200,19 +227,19 @@ export function CommandPalette({ role }: { role: Role }) {
                     entry.run();
                   }}
                   className={cn(
-                    "mx-1.5 px-2.5 py-2 rounded-lg flex items-center gap-3 text-sm cursor-pointer transition-colors",
+                    "mx-2 min-h-11 px-3 py-2.5 rounded-lg flex items-center gap-3 text-sm cursor-pointer transition-colors",
                     isActive ? "bg-accent/10 text-accent" : "text-text-soft hover:bg-text-muted/[0.04]",
                   )}
                 >
-                  <Icon className="w-4 h-4 shrink-0" />
+                  <Icon className="w-[18px] h-[18px] shrink-0" aria-hidden />
                   <span className="flex-1 truncate">{entry.label}</span>
-                  {entry.hint && <code className="text-2xs text-text-faint font-mono hidden sm:inline">{entry.hint}</code>}
+                  {isActive && <CornerDownLeft className="w-3.5 h-3.5 shrink-0 opacity-60" aria-hidden />}
                 </li>
               );
             })
           )}
         </ul>
-        <div className="px-4 py-2 border-t border-border flex items-center justify-between text-2xs text-text-muted">
+        <div className="hidden sm:flex px-4 py-3 border-t border-border items-center justify-between text-2xs text-text-muted">
           <span className="flex items-center gap-2">
             <kbd className="kbd">↑↓</kbd>
             {t("cmdk_navigate")}

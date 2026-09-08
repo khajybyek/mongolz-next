@@ -13,16 +13,16 @@
   color-scheme: dark;
 
   --bg: 8 9 13;
-  --bg-secondary: 15 16 22;
-  --bg-tertiary: 22 23 31;
-  --surface: 15 16 22;
-  --surface-elevated: 22 23 31;
-  --surface-overlay: 28 30 40;
+  --bg-secondary: 12 17 25;
+  --bg-tertiary: 23 32 45;
+  --surface: 16 22 32;
+  --surface-elevated: 21 29 41;
+  --surface-overlay: 29 39 54;
 
   --text: 244 244 245;
-  --text-soft: 161 161 170;
-  --text-muted: 113 113 122;
-  --text-faint: 82 82 91;
+  --text-soft: 181 191 205;
+  --text-muted: 145 158 178;
+  --text-faint: 120 135 157;
 
   --accent: 0 212 255;
   --accent-hover: 51 223 255;
@@ -30,8 +30,14 @@
 
   /* Borders are derived from white-on-dark, so a separate alpha-friendly token */
   --border-color: 255 255 255;
-  --border-alpha: 0.06;
-  --border-strong-alpha: 0.10;
+  --border-alpha: 0.08;
+  --border-strong-alpha: 0.14;
+
+  --success: 74 222 128;
+  --warning: 251 191 36;
+  --danger: 251 113 133;
+  --info: 96 165 250;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.12);
 
   /* Gradient overlay tints — used by bg-gradient-hero / bg-gradient-mesh */
   --hero-tint: rgba(0, 212, 255, 0.18);
@@ -43,21 +49,27 @@ html[data-theme="light"] {
   color-scheme: light;
 
   --bg: 255 255 255;
-  --bg-secondary: 244 244 245;
-  --bg-tertiary: 228 228 231;
+  --bg-secondary: 245 247 251;
+  --bg-tertiary: 232 237 244;
   --surface: 255 255 255;
-  --surface-elevated: 250 250 250;
+  --surface-elevated: 248 250 253;
   --surface-overlay: 255 255 255;
 
-  --text: 24 24 27;
-  --text-soft: 63 63 70;
-  --text-muted: 113 113 122;
-  --text-faint: 161 161 170;
+  --text: 20 32 49;
+  --text-soft: 65 81 103;
+  --text-muted: 94 109 130;
+  --text-faint: 105 119 140;
 
   /* Deeper cyan for AA contrast against white. */
-  --accent: 0 153 204;
-  --accent-hover: 0 184 230;
-  --accent-muted: 0 117 153;
+  --accent: 0 110 145;
+  --accent-hover: 0 89 120;
+  --accent-muted: 0 99 132;
+
+  --success: 21 128 61;
+  --warning: 153 94 5;
+  --danger: 190 35 64;
+  --info: 29 78 216;
+  --shadow-card: 0 2px 6px rgb(20 32 49 / 0.025), 0 1px 2px rgb(20 32 49 / 0.025);
 
   /* Borders flip to black-on-light */
   --border-color: 0 0 0;
@@ -82,6 +94,7 @@ body {
 
 body {
   font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+  overflow-wrap: break-word;
 }
 
 * {
@@ -89,8 +102,8 @@ body {
 }
 
 ::selection {
-  background: rgba(0, 212, 255, 0.30);
-  color: #fff;
+  background: rgb(var(--accent) / 0.22);
+  color: rgb(var(--text));
 }
 
 ::-webkit-scrollbar {
@@ -101,12 +114,12 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-text-muted/[0.06] rounded-full;
+  @apply bg-text-muted/20 rounded-full;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-text-muted/[0.12];
+  @apply bg-text-muted/35;
   background-clip: content-box;
   border: 2px solid transparent;
 }
@@ -156,7 +169,7 @@ body {
   /* ─────────── Cards ─────────── */
   .card {
     @apply bg-surface border border-border rounded-xl p-5;
-    background-image: linear-gradient(180deg, rgb(var(--text-muted) / 0.025) 0%, transparent 100%);
+    box-shadow: var(--shadow-card);
   }
   .card-hover {
     @apply card transition hover:border-border-strong hover:bg-surface-elevated;
@@ -170,8 +183,8 @@ body {
     backdrop-filter: blur(20px) saturate(180%);
   }
   .card-glow {
-    @apply card relative;
-    box-shadow: 0 0 0 1px rgba(0,212,255,0.20), 0 0 40px rgba(0,212,255,0.10);
+    @apply card relative border-accent/20;
+    background-image: linear-gradient(135deg, rgb(var(--accent) / 0.06), transparent 70%);
   }
 
   /* ─────────── Buttons ─────────── */
@@ -193,14 +206,14 @@ body {
   }
   .btn-primary {
     @apply btn relative overflow-hidden;
-    background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
-    color: #08090d;
+    background: rgb(var(--accent));
+    color: rgb(var(--bg));
     font-weight: 600;
-    box-shadow: 0 1px 0 rgba(255,255,255,0.20) inset, 0 1px 2px rgba(0,0,0,0.30);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
   }
   .btn-primary:hover:not(:disabled) {
-    background: linear-gradient(135deg, #33dfff 0%, #00d4ff 100%);
-    box-shadow: 0 0 0 1px rgba(0,212,255,0.40), 0 0 20px rgba(0,212,255,0.30);
+    background: rgb(var(--accent-hover));
+    box-shadow: 0 2px 6px rgb(var(--accent) / 0.16);
   }
   .btn-secondary {
     @apply btn bg-surface-elevated border border-border-strong text-text hover:bg-surface-overlay hover:border-text-muted/15;
@@ -245,8 +258,8 @@ body {
     @apply border-text-muted/15;
   }
   .input:focus {
-    @apply outline-none border-accent/60;
-    box-shadow: 0 0 0 3px rgba(0,212,255,0.15);
+    @apply outline-none border-accent;
+    box-shadow: 0 0 0 3px rgb(var(--accent) / 0.12);
   }
   .input:disabled {
     opacity: 0.5;
@@ -282,8 +295,7 @@ body {
     }
   }
   .label {
-    @apply text-xs uppercase tracking-wide text-text-soft mb-1.5 block font-medium;
-    letter-spacing: 0.06em;
+    @apply text-sm text-text-soft mb-2 block font-medium;
   }
   .helper {
     @apply text-xs text-text-muted mt-1.5;
@@ -294,7 +306,7 @@ body {
 
   /* ─────────── Badges ─────────── */
   .badge {
-    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-medium border;
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium border;
     border-color: transparent;
   }
   .badge-accent {
@@ -330,11 +342,11 @@ body {
   /* Wrap every data table: horizontal scroll on phones, rounded frame,
      sticky header while the table body scrolls under it. */
   .tbl-wrap {
-    @apply overflow-x-auto rounded-xl border border-border bg-surface;
+    @apply max-w-full overflow-x-auto rounded-xl border border-border bg-surface;
     -webkit-overflow-scrolling: touch;
   }
   .tbl-wrap .tbl thead th {
-    @apply sticky top-0 bg-surface z-[1];
+    @apply sticky top-0 bg-surface-elevated z-[1];
   }
   .tbl {
     @apply w-full text-sm;
@@ -344,19 +356,18 @@ body {
     @apply text-right tabular-nums;
   }
   .tbl thead {
-    @apply text-2xs uppercase tracking-wide text-text-muted font-medium;
+    @apply text-xs text-text-muted font-medium;
   }
   /* :where() keeps these at zero specificity so a utility on the cell
      (text-right, text-danger, py-2 …) still wins. */
   :where(.tbl thead th) {
-    @apply text-left px-4 py-2.5 border-b border-border;
-    letter-spacing: 0.04em;
+    @apply text-left px-4 py-3.5 border-b border-border whitespace-nowrap;
   }
   .tbl tbody tr {
     @apply border-b border-border transition-colors;
   }
   .tbl tbody tr:hover {
-    @apply bg-text-muted/[0.02];
+    @apply bg-text-muted/[0.04];
   }
   .tbl tbody tr:last-child {
     @apply border-b-0;
@@ -367,10 +378,10 @@ body {
 
   /* ─────────── Tabs ─────────── */
   .tabs {
-    @apply flex gap-1 border-b border-border;
+    @apply flex gap-1 border-b border-border overflow-x-auto;
   }
   .tab {
-    @apply px-4 py-2.5 text-sm text-text-soft border-b-2 border-transparent transition-colors -mb-px;
+    @apply min-h-11 shrink-0 whitespace-nowrap px-4 py-2.5 text-sm text-text-soft border-b-2 border-transparent transition-colors;
   }
   .tab:hover {
     @apply text-text;
@@ -419,8 +430,7 @@ body {
 
   /* ─────────── Section header (page-level small heading) ─────────── */
   .section-title {
-    @apply text-2xs font-semibold uppercase tracking-wide text-text-muted;
-    letter-spacing: 0.08em;
+    @apply text-sm font-semibold tracking-tight text-text;
   }
 
   /* ─────────── Inline link ─────────── */
@@ -431,6 +441,13 @@ body {
   /* ─────────── Icon tile (page headers, feature cards) ─────────── */
   .icon-tile {
     @apply inline-flex items-center justify-center rounded-xl border bg-accent/10 text-accent border-accent/20 shrink-0;
+  }
+}
+
+@media (pointer: coarse) {
+  .btn-sm, .btn-icon {
+    min-height: 44px;
+    min-width: 44px;
   }
 }
 

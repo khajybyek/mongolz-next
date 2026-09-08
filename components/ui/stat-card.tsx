@@ -22,14 +22,6 @@ const accentBg: Record<NonNullable<StatCardProps["accent"]>, string> = {
   info: "bg-info-soft text-info border-info/20",
 };
 
-const accentGlow: Record<NonNullable<StatCardProps["accent"]>, string> = {
-  default: "rgba(0,212,255,0.5)",
-  success: "rgba(34,197,94,0.45)",
-  warning: "rgba(245,158,11,0.45)",
-  danger: "rgba(244,63,94,0.45)",
-  info: "rgba(59,130,246,0.45)",
-};
-
 export function StatCard({
   label,
   value,
@@ -42,25 +34,18 @@ export function StatCard({
 }: StatCardProps) {
   const body = (
     <>
-      {/* Accent corner glow */}
-      <div
-        className="absolute -top-12 -right-12 w-32 h-32 rounded-full blur-2xl opacity-0 group-hover:opacity-40 transition-opacity duration-300 pointer-events-none"
-        style={{ background: `radial-gradient(circle, ${accentGlow[accent]} 0%, transparent 70%)` }}
-        aria-hidden
-      />
-
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-2xs uppercase tracking-wider text-text-muted font-medium truncate">{label}</span>
+      <div className="flex items-start justify-between gap-2 mb-5">
+        <span className="text-xs sm:text-sm leading-snug text-text-soft font-medium">{label}</span>
         {Icon && (
-          <div className={cn("w-8 h-8 rounded-lg inline-flex items-center justify-center border shrink-0", accentBg[accent])}>
+          <div className={cn("w-8 h-8 sm:w-9 sm:h-9 rounded-lg inline-flex items-center justify-center border shrink-0", accentBg[accent])}>
             <Icon className="w-4 h-4" />
           </div>
         )}
       </div>
 
-      <div className="text-2xl md:text-3xl font-bold tracking-tight text-text tabular-nums">{value}</div>
+      <div className="text-3xl lg:text-4xl font-semibold tracking-tight text-text tabular-nums">{value}</div>
 
-      <div className="flex items-center gap-2 mt-2 min-h-[1rem]">
+      <div className="flex items-center gap-2 mt-3 min-h-[1rem]">
         {delta && (
           <span
             className={cn(
@@ -73,12 +58,12 @@ export function StatCard({
             {delta.label && <span className="text-text-muted font-normal ml-1">{delta.label}</span>}
           </span>
         )}
-        {hint && !delta && <span className="text-xs text-text-muted truncate">{hint}</span>}
+        {hint && !delta && <span className="text-xs leading-relaxed text-text-muted pr-4">{hint}</span>}
       </div>
 
       {href && (
         <ArrowUpRight
-          className="absolute bottom-4 right-4 w-4 h-4 text-text-faint opacity-0 -translate-x-1 translate-y-1 group-hover:opacity-100 group-hover:translate-x-0 group-hover:translate-y-0 transition-all"
+          className="absolute bottom-4 right-4 w-3.5 h-3.5 text-text-faint group-hover:text-accent transition-colors"
           aria-hidden
         />
       )}
@@ -86,9 +71,8 @@ export function StatCard({
   );
 
   const cls = cn(
-    "card relative overflow-hidden group transition-all duration-200",
-    "hover:border-border-strong hover:bg-surface-elevated",
-    href && "hover-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
+    "card min-w-0 p-4 sm:p-5 relative overflow-hidden group transition-colors duration-200",
+    href && "hover:border-accent/30 hover:bg-surface-elevated focus-visible:ring-2 focus-visible:ring-accent/50",
     className,
   );
 

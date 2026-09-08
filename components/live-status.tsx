@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useT } from "@/lib/i18n/client";
+import { t as translate, type Lang, type TranslationKey } from "@/lib/i18n/translations";
 
 type Uptime = {
   status: "ok" | "degraded";
@@ -12,8 +12,8 @@ type Uptime = {
   };
 };
 
-export function LiveStatus() {
-  const { t } = useT();
+export function LiveStatus({ lang = "mn" }: { lang?: Lang }) {
+  const t = (key: TranslationKey) => translate(key, lang);
   const [data, setData] = useState<Uptime | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -22,14 +22,21 @@ export function LiveStatus() {
 
     async function tick() {
       try {
-        const res = await fetch("/api/uptime", { cache: "no-store" });
+        const res = await fetch("/api/uptime", { cache: "no-store", signal: AbortSignal.timeout(10_000) });
         const json = (await res.json()) as Uptime;
+        if ((!res.ok && res.status !== 503) || !["ok", "degraded"].includes(json?.status) ||
+            typeof json?.checks?.ml?.ok !== "boolean" || typeof json?.checks?.db?.ok !== "boolean") {
+          throw new Error("Invalid status response");
+        }
         if (!cancelled) {
           setData(json);
           setFailed(false);
         }
       } catch {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) {
+          setData(null);
+          setFailed(true);
+        }
       }
     }
 
@@ -64,10 +71,10 @@ export function LiveStatus() {
   const textClass = allOk ? "text-text-muted" : "text-warning";
 
   return (
-    <span className={`inline-flex items-center gap-1.5 text-2xs ${textClass}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${dotClass} animate-pulse`} aria-hidden />
+    <span className={`inline-flex items-center gap-1.5 text-2xs ${textClass}`} role="status">
+      <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} aria-hidden />
       <span>
-        ML {data.checks.ml.latency} · DB {data.checks.db.latency}
+        {t(allOk ? "status_all_ok" : "status_degraded")}
       </span>
     </span>
   );

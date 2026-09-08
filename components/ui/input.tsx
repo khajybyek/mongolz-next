@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useId, type InputHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -13,7 +13,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   { label, helper, error, leading, trailing, className, id, ...rest },
   ref
 ) {
-  const inputId = id ?? rest.name;
+  const generatedId = useId();
+  const inputId = id ?? rest.name ?? generatedId;
+  const description = [rest["aria-describedby"], error ? `${inputId}-error` : helper ? `${inputId}-helper` : null].filter(Boolean).join(" ") || undefined;
   return (
     <div className="w-full">
       {label && (
@@ -29,9 +31,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         )}
         <input
           ref={ref}
+          {...rest}
           id={inputId}
-          aria-invalid={error ? "true" : undefined}
-          aria-describedby={error ? `${inputId}-error` : helper ? `${inputId}-helper` : undefined}
+          aria-invalid={error ? "true" : rest["aria-invalid"]}
+          aria-describedby={description}
           className={cn(
             "input",
             error && "input-error",
@@ -39,10 +42,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             trailing && "pr-10",
             className
           )}
-          {...rest}
         />
         {trailing && (
-          <span className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-text-muted">
+          <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-text-muted">
             {trailing}
           </span>
         )}

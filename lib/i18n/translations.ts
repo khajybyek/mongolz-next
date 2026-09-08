@@ -12,6 +12,35 @@ export const LANGUAGES = {
 export type Lang = keyof typeof LANGUAGES;
 
 export const T = {
+  close: { mn: "Хаах", en: "Close", kr: "닫기" },
+  // UI copy for the operations overview and public preview.
+  dash_operations: { mn: "Аюулгүй байдлын хяналт", en: "Security overview", kr: "보안 현황" },
+  dash_trend_description: { mn: "Өдөр тутмын сэрэмжлүүлэг · Солонгосын цагаар", en: "Daily alert volume · Korea Standard Time", kr: "일별 알림 수 · 한국 표준시" },
+  dash_alerts_empty_description: { mn: "Шинэ илрүүлэлт энд харагдана. Холбогдсон камеруудыг хяналтын хэсгээс үзээрэй.", en: "New detections will appear here. Open monitoring to watch connected cameras.", kr: "새로운 감지 내역이 여기에 표시됩니다. 모니터링에서 연결된 카메라를 확인하세요." },
+  dash_activity_description: { mn: "Сүүлийн сэрэмжлүүлэг болон хэрэглэгчийн үйлдэл", en: "Recent alerts and account activity", kr: "최근 알림 및 계정 활동" },
+  dash_data_unavailable: { mn: "Мэдээлэл авах боломжгүй", en: "Data unavailable", kr: "데이터를 불러올 수 없습니다" },
+  dash_realtime_connected: { mn: "Холбогдсон", en: "Connected", kr: "연결됨" },
+  dash_realtime_connecting: { mn: "Холбогдож байна", en: "Connecting", kr: "연결 중" },
+  dash_realtime_offline: { mn: "Холболт тасарсан", en: "Connection interrupted", kr: "연결 끊김" },
+  dash_ml_service: { mn: "Таних үйлчилгээ", en: "Recognition service", kr: "인식 서비스" },
+  dash_database: { mn: "Өгөгдлийн сан", en: "Database", kr: "데이터베이스" },
+  dash_no_baseline: { mn: "Өмнөх хугацаанд сэрэмжлүүлэг бүртгэгдээгүй", en: "No previous-period alerts", kr: "이전 기간의 알림 없음" },
+  dash_enabled_cameras: { mn: "Идэвхжүүлсэн камер", en: "Enabled cameras", kr: "활성화된 카메라" },
+  dash_login_failed: { mn: "Нэвтрэх оролдлого амжилтгүй", en: "Sign-in failed", kr: "로그인 실패" },
+  dash_login_blocked: { mn: "Нэвтрэхийг хориглосон", en: "Sign-in blocked", kr: "로그인 차단됨" },
+  dash_reveal_requested: { mn: "Нүүр ил болгох хүсэлт", en: "Reveal requested", kr: "공개 요청됨" },
+  dash_reveal_approved: { mn: "Нүүр ил болгохыг зөвшөөрсөн", en: "Reveal approved", kr: "공개 승인됨" },
+  dash_reveal_rejected: { mn: "Нүүр ил болгохоос татгалзсан", en: "Reveal rejected", kr: "공개 거부됨" },
+  dash_reveal_completed: { mn: "Нүүр ил болгож дууссан", en: "Reveal completed", kr: "공개 완료됨" },
+  home_preview_label: { mn: "Интерфэйсийн жишээ", en: "Product preview", kr: "제품 미리보기" },
+  home_preview_note: { mn: "Жишээ өгөгдөл · Бодит хяналтын мэдээлэл нэвтэрсний дараа харагдана", en: "Illustrative data · Sign in to view your workspace", kr: "예시 데이터 · 로그인하여 실제 현황을 확인하세요" },
+  home_workspace: { mn: "Хяналтын төв", en: "Control center", kr: "통합 관제" },
+  home_privacy_label: { mn: "Нууцлалын хамгаалалт", en: "Privacy protection", kr: "개인정보 보호" },
+  home_access_label: { mn: "Эрхийн удирдлага", en: "Access control", kr: "접근 권한 관리" },
+  home_open_feature: { mn: "Нээх", en: "Explore", kr: "살펴보기" },
+  home_stat_locales: { mn: "Интерфэйсийн хэл", en: "Interface languages", kr: "인터페이스 언어" },
+  home_stat_locales_value: { mn: "MN · EN · KR", en: "MN · EN · KR", kr: "MN · EN · KR" },
+
   // ── Navigation ──
   nav_dashboard: { mn: "Хяналтын самбар", en: "Dashboard", kr: "대시보드" },
   nav_live: { mn: "Live бичлэг", en: "Live Feed", kr: "라이브" },
@@ -1858,6 +1887,12 @@ export const T = {
   set_erase_confirm_placeholder: { mn: "DELETE MY ACCOUNT гэж бичнэ үү", en: "Type DELETE MY ACCOUNT", kr: "DELETE MY ACCOUNT 를 입력하세요" },
   // live
   live_recorder_unsupported: { mn: "MediaRecorder дэмжигдээгүй", en: "MediaRecorder not supported", kr: "MediaRecorder를 지원하지 않습니다" },
+  live_upload_unconfirmed: { mn: "Сервер бичлэгийг хүлээн авснаа баталгаажуулсангүй. Дахин илгээнэ үү.", en: "The server did not confirm receipt. Retry the upload.", kr: "서버 수신 확인이 없습니다. 업로드를 다시 시도하세요." },
+  live_upload_retained: { mn: "Илгээгдээгүй бичлэг энэ хуудсанд хадгалагдсан. Дахин илгээж дуустал хуудсаа нээлттэй байлгана уу.", en: "Unsent footage is kept on this page. Keep it open until the retry finishes.", kr: "전송하지 못한 영상이 이 페이지에 보관되어 있습니다. 재시도가 끝날 때까지 열어 두세요." },
+  live_retry_upload: { mn: "Бичлэгийг дахин илгээх", en: "Retry recording upload", kr: "녹화 업로드 재시도" },
+  cam_stop_pending: { mn: "Зогсоох хүсэлт хадгалагдсан. Камер зогссоныг хараахан баталгаажуулаагүй.", en: "Stop requested. Capture has not yet been confirmed stopped.", kr: "중지 요청이 저장되었습니다. 촬영 중지는 아직 확인되지 않았습니다." },
+  cam_ml_unreachable: { mn: "Камерын сервис холбогдохгүй байна. Бодит төлөвийг шалгах боломжгүй.", en: "Camera service is unreachable. Actual capture status is unavailable.", kr: "카메라 서비스에 연결할 수 없어 실제 촬영 상태를 확인할 수 없습니다." },
+  cam_update_failed: { mn: "Камерын төлөвийг хадгалж чадсангүй. Дахин оролдоно уу.", en: "Could not save camera state. Please retry.", kr: "카메라 상태를 저장하지 못했습니다. 다시 시도하세요." },
   live_chunk_upload_failed: { mn: "Chunk upload алдаа", en: "Chunk upload failed", kr: "청크 업로드 실패" },
   live_chunk_failed: { mn: "амжилтгүй", en: "failed", kr: "실패" },
   live_chunk_too_big: { mn: "Chunk хэт том — Vercel 4MB лимит", en: "Chunk too large — Vercel 4MB limit", kr: "청크가 너무 큽니다 — Vercel 4MB 제한" },

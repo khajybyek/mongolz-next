@@ -1,17 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, Crown, LogOut, X } from "lucide-react";
 import { MongolzLogo } from "./logo";
 import { useShell } from "./shell-context";
 import { cn } from "@/lib/utils";
+import { useModalFocus } from "@/lib/use-modal-focus";
 import { isActivePath, visibleNavGroups, type Role } from "@/lib/nav";
 import type { Lang } from "@/lib/i18n/translations";
 import { t } from "@/lib/i18n/translations";
 
 const COLLAPSE_STORAGE_KEY = "mongolz-sidebar-collapsed";
+const DEFAULT_COLLAPSED: Record<string, boolean> = {
+  search: true, analytics: true, admin: true, ml: true, other: true,
+};
 
 interface SidebarProps {
   lang: Lang;
@@ -24,6 +28,9 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
   const pathname = usePathname();
   const { mobileNavOpen, setMobileNavOpen } = useShell();
   const groups = useMemo(() => visibleNavGroups(role), [role]);
+  const drawerRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useModalFocus({ open: mobileNavOpen, onClose: () => setMobileNavOpen(false), ref: drawerRef, initialFocusRef: closeRef });
 
   const activeGroupId = useMemo(() => {
     for (const group of groups) {
@@ -32,21 +39,25 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
     return null;
   }, [pathname, groups]);
 
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [hydrated, setHydrated] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(DEFAULT_COLLAPSED);
 
   useEffect(() => {
-    setHydrated(true);
     try {
       const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Record<string, boolean>;
-        if (parsed && typeof parsed === "object") setCollapsed(parsed);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          setCollapsed({ ...DEFAULT_COLLAPSED, ...Object.fromEntries(Object.entries(parsed).filter(([, value]) => typeof value === "boolean")) });
+        }
       }
     } catch {
       /* ignore corrupt state */
     }
   }, []);
+
+  useEffect(() => {
+    if (activeGroupId) setCollapsed((previous) => ({ ...previous, [activeGroupId]: false }));
+  }, [activeGroupId]);
 
   function toggleGroup(id: string) {
     setCollapsed((prev) => {
@@ -65,22 +76,14 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
     setMobileNavOpen(false);
   }, [pathname, setMobileNavOpen]);
 
-  // Lock body scroll while the drawer is open.
   useEffect(() => {
-    document.body.style.overflow = mobileNavOpen ? "hidden" : "";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [mobileNavOpen]);
-
-  useEffect(() => {
-    if (!mobileNavOpen) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setMobileNavOpen(false);
+    const desktop = window.matchMedia("(min-width: 768px)");
+    function onResize() {
+      if (desktop.matches) setMobileNavOpen(false);
     }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [mobileNavOpen, setMobileNavOpen]);
+    desktop.addEventListener("change", onResize);
+    return () => desktop.removeEventListener("change", onResize);
+  }, [setMobileNavOpen]);
 
   const roleLabel = isSuperAdmin
     ? "Super admin"
@@ -90,31 +93,23 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
     ? t("role_auditor", lang)
     : t("role_viewer", lang);
 
-  const navContent = (
+  const navContent = (surface: "mobile" | "desktop") => (
     <>
-      <div className="px-5 h-14 flex items-center border-b border-border shrink-0">
-        <Link href={"/dashboard" as never} className="flex items-center gap-2.5 group">
-          <div className="relative">
-            <div
-              className="absolute inset-0 bg-accent/25 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-              aria-hidden
-            />
-            <MongolzLogo size={32} className="relative" />
-          </div>
+      <div className="px-5 h-16 flex items-center border-b border-border shrink-0">
+        <Link href={(role === "auditor" ? "/audit" : "/dashboard") as never} onClick={() => setMobileNavOpen(false)} className="flex min-h-11 items-center gap-3 rounded-lg">
+          <MongolzLogo size={34} />
           <div className="leading-none">
-            <div className="text-sm font-bold tracking-tight text-text">MONGOLZ</div>
-            <div className="text-[10px] text-text-muted uppercase tracking-[0.18em] font-medium mt-1">
+            <div className="text-sm font-bold tracking-[0.08em] text-text">MONGOLZ</div>
+            <div className="text-[10px] text-text-muted uppercase tracking-[0.2em] font-medium mt-1.5">
               Security
             </div>
           </div>
         </Link>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4" aria-label="Main">
+      <nav className="flex-1 overflow-y-auto overscroll-contain px-3 py-3 space-y-1" aria-label={t("open_menu", lang)}>
         {groups.map((group) => {
-          // Pre-hydration always render open to avoid an SSR/CSR mismatch;
-          // afterwards honour the stored toggle even for the active group.
-          const userCollapsed = hydrated && collapsed[group.id] === true;
+          const userCollapsed = collapsed[group.id] === true;
           const containsActive = group.id === activeGroupId;
           const open = !userCollapsed;
           const GroupIcon = group.icon;
@@ -124,10 +119,10 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
                 type="button"
                 onClick={() => toggleGroup(group.id)}
                 aria-expanded={open}
-                aria-controls={`sidebar-group-${group.id}`}
+                aria-controls={`sidebar-${surface}-group-${group.id}`}
                 className={cn(
-                  "w-full flex items-center gap-2 px-2 py-1 text-2xs uppercase tracking-[0.14em] font-semibold transition-colors rounded-md",
-                  containsActive ? "text-text" : "text-text-faint hover:text-text-soft",
+                  "w-full min-h-11 flex items-center gap-2.5 px-3 py-2 text-2xs uppercase tracking-[0.1em] font-semibold transition-colors rounded-lg hover:bg-text-muted/[0.05]",
+                  containsActive ? "text-text-soft" : "text-text-muted hover:text-text",
                 )}
               >
                 <GroupIcon className="w-3.5 h-3.5 shrink-0 opacity-70" aria-hidden />
@@ -137,41 +132,42 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
                 )}
                 <ChevronDown
                   className={cn(
-                    "w-3.5 h-3.5 shrink-0 transition-transform opacity-60",
+                    "w-3.5 h-3.5 shrink-0 transition-transform opacity-60 motion-reduce:transition-none",
                     open ? "" : "-rotate-90",
                   )}
                   aria-hidden
                 />
               </button>
-              <div id={`sidebar-group-${group.id}`} hidden={!open} className="mt-1 space-y-0.5">
-                {group.items.map((item) => {
+              <div id={`sidebar-${surface}-group-${group.id}`} hidden={!open && !containsActive} className="space-y-0.5 pb-1">
+                {group.items.filter((item) => open || isActivePath(pathname, item.href)).map((item) => {
                   const active = isActivePath(pathname, item.href);
                   const Icon = item.icon;
                   return (
                     <Link
                       key={item.href}
                       href={item.href as never}
+                      onClick={() => setMobileNavOpen(false)}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150 group",
+                        "relative flex min-h-11 items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-150 group",
                         active
-                          ? "bg-accent/10 text-accent font-medium"
+                          ? "bg-accent/[0.11] text-accent font-semibold shadow-[inset_0_0_0_1px_rgb(var(--accent)/0.14)]"
                           : "text-text-soft hover:bg-text-muted/[0.05] hover:text-text",
                       )}
                     >
                       {active && (
                         <span
-                          className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"
+                          className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full bg-accent"
                           aria-hidden
                         />
                       )}
                       <Icon
                         className={cn(
-                          "w-4 h-4 shrink-0 transition-transform group-hover:scale-110",
+                          "w-[18px] h-[18px] shrink-0",
                           active ? "text-accent" : "text-text-muted group-hover:text-text-soft",
                         )}
                       />
-                      <span className="truncate">{t(item.labelKey, lang)}</span>
+                      <span className="truncate" title={t(item.labelKey, lang)}>{t(item.labelKey, lang)}</span>
                     </Link>
                   );
                 })}
@@ -182,14 +178,14 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
       </nav>
 
       <div className="px-3 py-3 border-t border-border shrink-0">
-        <div className="flex items-center gap-2.5 rounded-xl bg-text-muted/[0.03] border border-border p-2.5">
+        <div className="flex items-center gap-2.5 rounded-xl bg-text-muted/[0.03] p-2">
           <div className="relative shrink-0">
             <div className="w-8 h-8 rounded-full bg-accent/15 text-accent border border-accent/20 inline-flex items-center justify-center text-xs font-semibold uppercase">
               {(email ?? "?").charAt(0)}
             </div>
             {isSuperAdmin && (
               <Crown
-                className="absolute -top-1 -right-1 w-3 h-3 text-accent drop-shadow-[0_0_4px_rgba(0,212,255,0.6)]"
+                className="absolute -top-1 -right-1 w-3 h-3 text-accent"
                 aria-label="Super admin"
               />
             )}
@@ -212,7 +208,7 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
           <form action="/auth/logout" method="post" className="shrink-0">
             <button
               type="submit"
-              className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-text-muted hover:text-danger hover:bg-danger-soft transition-colors"
+              className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-text-muted hover:text-danger hover:bg-danger-soft transition-colors"
               title={t("logout", lang)}
               aria-label={t("logout", lang)}
             >
@@ -230,31 +226,38 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
       {mobileNavOpen && (
         <>
           <div
+            data-modal-backdrop
             className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm animate-fade-in"
             onClick={() => setMobileNavOpen(false)}
             aria-hidden
           />
           <aside
-            className="md:hidden fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] flex flex-col bg-surface border-r border-border-strong shadow-overlay animate-slide-in-left"
-            aria-label="Navigation"
+            ref={drawerRef}
+            id="mobile-navigation"
+            role="dialog"
+            aria-modal="true"
+            tabIndex={-1}
+            className="md:hidden fixed inset-y-0 left-0 z-50 w-80 max-w-[calc(100vw-2rem)] flex flex-col bg-surface border-r border-border-strong shadow-overlay animate-slide-in-left outline-none"
+            aria-label={t("open_menu", lang)}
           >
             <button
+              ref={closeRef}
               type="button"
               onClick={() => setMobileNavOpen(false)}
               aria-label={t("close_menu", lang)}
-              className="absolute top-2.5 right-3 w-9 h-9 inline-flex items-center justify-center rounded-lg bg-text-muted/[0.04] hover:bg-text-muted/[0.08] transition z-10"
+              className="absolute top-2.5 right-3 w-11 h-11 inline-flex items-center justify-center rounded-lg text-text-muted hover:text-text hover:bg-text-muted/[0.08] transition-colors z-10"
             >
               <X className="w-5 h-5" />
             </button>
-            {navContent}
+            {navContent("mobile")}
           </aside>
         </>
       )}
 
       {/* Desktop sidebar (≥768px) — sticky full-height; the inner <nav>
           scrolls on its own when the menu is taller than the viewport. */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-surface/50 backdrop-blur sticky top-0 self-start h-screen max-h-screen">
-        {navContent}
+      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-surface sticky top-0 self-start h-dvh max-h-dvh">
+        {navContent("desktop")}
       </aside>
     </>
   );

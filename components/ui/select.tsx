@@ -1,4 +1,4 @@
-import { forwardRef, type SelectHTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useId, type SelectHTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
@@ -12,7 +12,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   { label, helper, error, className, id, children, ...rest },
   ref
 ) {
-  const selectId = id ?? rest.name;
+  const generatedId = useId();
+  const selectId = id ?? rest.name ?? generatedId;
+  const description = [rest["aria-describedby"], error ? `${selectId}-error` : helper ? `${selectId}-helper` : null].filter(Boolean).join(" ") || undefined;
   return (
     <div className="w-full">
       {label && (
@@ -22,17 +24,18 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       )}
       <select
         ref={ref}
-        id={selectId}
-        aria-invalid={error ? "true" : undefined}
-        className={cn("select", error && "input-error", className)}
         {...rest}
+        id={selectId}
+        aria-invalid={error ? "true" : rest["aria-invalid"]}
+        aria-describedby={description}
+        className={cn("select", error && "input-error", className)}
       >
         {children}
       </select>
       {error ? (
-        <p className="helper-error">{error}</p>
+        <p id={`${selectId}-error`} className="helper-error">{error}</p>
       ) : helper ? (
-        <p className="helper">{helper}</p>
+        <p id={`${selectId}-helper`} className="helper">{helper}</p>
       ) : null}
     </div>
   );

@@ -60,7 +60,7 @@ export function LanguageSwitcher({ current, className }: Props) {
           disabled={pending}
           aria-pressed={l === current}
           className={cn(
-            "min-w-[40px] h-8 px-2.5 rounded-md transition font-medium touch-manipulation select-none active:scale-95",
+            "min-w-11 min-h-11 px-2.5 rounded-md transition font-medium touch-manipulation select-none active:scale-95 disabled:opacity-60 disabled:cursor-wait",
             l === current
               ? "bg-accent/15 text-accent shadow-inner-soft"
               : "text-text-soft hover:bg-text-muted/[0.06] hover:text-text",
