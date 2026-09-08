@@ -42,7 +42,7 @@ export default async function AlertsPage({
   let query = supabase
     .from("alerts")
     .select(
-      "id, suspect_id, suspect_name, similarity, screenshot_path, camera_id, camera_name, created_at, state, note, acknowledged_by, acknowledged_at, closed_by, closed_at",
+      "id, suspect_id, suspect_name, similarity, screenshot_path, camera_id, camera_name, created_at, state, note, acknowledged_by, acknowledged_at, closed_by, closed_at, match_count, last_seen_at",
     )
     .order("created_at", { ascending: false })
     .limit(500);
@@ -231,6 +231,14 @@ export default async function AlertsPage({
                         <Clock className="w-3.5 h-3.5 opacity-60" />
                         {formatDate(a.created_at)}
                       </span>
+                      {/* Repeat sightings merge into the open alert, so without
+                          these the row silently understates the incident. */}
+                      {(a.match_count ?? 1) > 1 && (
+                        <span className="ml-2 inline-flex items-center gap-1 text-2xs text-text-soft whitespace-nowrap">
+                          <Badge variant="warning">×{a.match_count}</Badge>
+                          {a.last_seen_at ? `${t("al_last_seen")} ${formatDate(a.last_seen_at)}` : null}
+                        </span>
+                      )}
                     </td>
                     <td>
                       <AlertStateActions id={a.id} state={state} note={a.note} />

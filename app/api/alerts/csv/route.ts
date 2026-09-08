@@ -10,11 +10,13 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const { data: alerts } = await supabase
     .from("alerts")
-    .select("suspect_name, similarity, camera_name, created_at, state, screenshot_path")
+    .select("suspect_name, similarity, camera_name, created_at, state, screenshot_path, match_count, last_seen_at")
     .order("created_at", { ascending: false })
     .limit(10000);
 
-  const header = ["suspect_name", "similarity", "camera_name", "created_at", "state", "screenshot_path"];
+  // match_count / last_seen_at: repeat sightings merge into the open alert,
+  // so an export without them understates every recurring incident.
+  const header = ["suspect_name", "similarity", "camera_name", "created_at", "state", "screenshot_path", "match_count", "last_seen_at"];
   const lines = [header.join(",")];
 
   for (const a of alerts ?? []) {

@@ -13,9 +13,10 @@ import {
   Upload,
 } from "lucide-react";
 import { HlsPlayer } from "@/components/hls-player";
-import { startCameraAction, stopCameraAction, getStreamTicketAction } from "./actions";
+import { startCameraAction, stopCameraAction, getStreamTicketAction, type StartCameraCode } from "./actions";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
+import type { TranslationKey } from "@/lib/i18n/translations";
 import { isUploadAcknowledged, RecordingUploadQueue } from "@/lib/recording-upload";
 
 interface Camera {
@@ -23,6 +24,9 @@ interface Camera {
   name: string;
   url: string | null;
   cam_type: string;
+  /** Operator switch. A disabled camera is never offered a Start button and
+   *  the server action refuses it, so the switch means what it says. */
+  enabled: boolean;
 }
 
 type Mode = "device" | "phone" | "cctv" | "file";
@@ -703,11 +707,29 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Server actions cannot ship an error message to the browser in production
+  // (Next redacts it), so the action returns a code and the copy lives here.
+  const START_ERROR: Record<StartCameraCode, TranslationKey> = {
+    INVALID_ID: "live_start_failed",
+    CAMERA_NOT_FOUND: "live_camera_not_found",
+    CAMERA_DISABLED: "live_camera_disabled",
+    CAMERA_URL_UNAVAILABLE: "live_camera_url_unavailable",
+    ML_UNREACHABLE: "live_ml_unreachable",
+  };
+
   async function start(c: Camera) {
     setError(null);
+    if (!c.enabled) {
+      setError(t("live_camera_disabled"));
+      return;
+    }
     setBusy(true);
     try {
-      await startCameraAction(c.id);
+      const res = await startCameraAction(c.id);
+      if (!res.ok) {
+        setError(t(START_ERROR[res.code]));
+        return;
+      }
       const ticketStr = await getStreamTicketAction(c.id);
       setTicket(ticketStr);
       setActive(c.id);
@@ -774,7 +796,16 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
               <div className="text-sm font-medium truncate">{c.name}</div>
               <div className="text-[10px] text-text-muted uppercase">{c.cam_type}</div>
             </div>
-            {active === c.id ? (
+            {!c.enabled ? (
+              // No Start button for a camera the operator switched off — and
+              // the server action refuses it too, so this is not the only gate.
+              <span
+                className="text-2xs uppercase tracking-wide text-text-faint border border-border rounded px-1.5 py-0.5 shrink-0"
+                title={t("live_camera_disabled")}
+              >
+                {t("disabled")}
+              </span>
+            ) : active === c.id ? (
               <button
                 type="button"
                 onClick={() => stop(c)}

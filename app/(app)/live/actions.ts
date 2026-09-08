@@ -14,20 +14,61 @@ async function audit(action: string, detail: string, userId: string, userEmail: 
   } catch {}
 }
 
-export async function startCameraAction(cameraId: string) {
-  const { user } = await requireAdmin();
-  if (!UUID_RE.test(cameraId)) throw new Error("invalid camera id");
-  const supabase = await createClient();
-  const { data: cam } = await supabase
-    .from("cameras")
-    .select("id, url, name")
-    .eq("id", cameraId)
-    .single();
+/**
+ * Why a result object and not a thrown Error: Next.js redacts Server Action
+ * error messages in production (the client only gets a digest), so a thrown
+ * `new Error("CAMERA_DISABLED")` reaches the browser as "an unexpected
+ * response was received from the server" and every caller renders the same
+ * useless string. The code travels in the return value instead.
+ */
+export type StartCameraCode =
+  | "INVALID_ID"
+  | "CAMERA_NOT_FOUND"
+  | "CAMERA_DISABLED"
+  | "CAMERA_URL_UNAVAILABLE"
+  | "ML_UNREACHABLE";
 
-  if (!cam) throw new Error("Камер олдсонгүй");
-  const plainUrl = unwrapCameraUrlForRuntime(cam.url);
-  await mlStartCamera(cam.id, plainUrl, cam.name);
+export type StartCameraResult = { ok: true } | { ok: false; code: StartCameraCode };
+
+export async function startCameraAction(cameraId: string): Promise<StartCameraResult> {
+  const { user } = await requireAdmin();
+  if (!UUID_RE.test(cameraId)) return { ok: false, code: "INVALID_ID" };
+
+  const supabase = await createClient();
+  const { data: cam, error } = await supabase
+    .from("cameras")
+    .select("id, url, name, enabled")
+    .eq("id", cameraId)
+    .maybeSingle();
+
+  if (error || !cam) return { ok: false, code: "CAMERA_NOT_FOUND" };
+
+  // The disable switch is an authorisation decision, not a UI preference: a
+  // camera an operator switched off must not be capturable by anyone who can
+  // still name its id (the button was merely hidden before).
+  if (!cam.enabled) {
+    await audit("CAMERA_START_REFUSED", `camera ${cam.id} — disabled`, user.id, user.email);
+    return { ok: false, code: "CAMERA_DISABLED" };
+  }
+
+  let plainUrl: string;
+  try {
+    plainUrl = unwrapCameraUrlForRuntime(cam.url);
+  } catch {
+    // Sealed under a retired CAMERA_URL_KEY, or plaintext while plaintext is
+    // refused — either way the operator needs to know it is not an ML outage.
+    await audit("CAMERA_START_REFUSED", `camera ${cam.id} — url unreadable`, user.id, user.email);
+    return { ok: false, code: "CAMERA_URL_UNAVAILABLE" };
+  }
+
+  try {
+    await mlStartCamera(cam.id, plainUrl, cam.name);
+  } catch {
+    return { ok: false, code: "ML_UNREACHABLE" };
+  }
+
   await audit("CAMERA_START", `camera ${cam.id}`, user.id, user.email);
+  return { ok: true };
 }
 
 export async function stopCameraAction(cameraId: string) {

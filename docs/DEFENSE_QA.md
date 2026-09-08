@@ -136,7 +136,7 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 > - Better margin loss for hard-negative discrimination than FaceNet's triplet loss.
 > - Excellent compatibility with pgvector for sub-millisecond top-k search at scale.
 >
-> Threshold defaults: alert 0.45, dedup 0.35. Per-suspect threshold can be auto-tuned via active learning labels."
+> Threshold defaults: alert 0.45, dedup 0.35 — both are ML-service constants and are what decide whether an alert is created. Active learning suggests a per-suspect review threshold from TP/FP labels, which is stored as an alert-rule floor (it selects which dedup window and quiet hours apply); it does not filter alerting."
 
 ### Q15. "How do you handle anti-spoofing?"
 

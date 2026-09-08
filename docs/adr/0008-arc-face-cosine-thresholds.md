@@ -26,7 +26,7 @@ Two distinct thresholds, both queryable as `match_suspects` /
 
 | Use case | Threshold | Rationale |
 |---|---|---|
-| Suspect alert (`ALERT_THRESHOLD`) | **0.45** | Balanced operating point; a TP-FP curve on our test set peaked F1 here. Operators see a manageable rate without missing obvious matches. Tunable per-suspect via `/active-learning` page (F1-optimal threshold from feedback) |
+| Suspect alert (`ALERT_THRESHOLD`) | **0.45** | Balanced operating point; a TP-FP curve on our test set peaked F1 here. Operators see a manageable rate without missing obvious matches. The `/active-learning` suggestion is saved as `alert_rules.min_similarity`, which selects WHICH rule applies (dedup window, quiet hours) — it does not gate whether an alert is created; the ML detection gate does page (F1-optimal threshold from feedback) |
 | Dedup (`DEDUP_THRESHOLD`) | **0.35** | More aggressive merging — the same person at the same camera within a minute should *almost certainly* be one alert. Slight risk of merging two similar-looking strangers, accepted because the cost is just a missed second alert |
 
 Both are exposed as environment variables on the ML service so they can

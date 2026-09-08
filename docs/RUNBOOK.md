@@ -361,10 +361,111 @@ P2 until resolved.
 | Cadence | Task |
 |---|---|
 | Daily | Confirm `/api/uptime` ok, Sentry quiet, `/api/cron/backup-verify` ran |
-| Weekly | Review `audit_log` for `KEY_ROTATION_DUE`, `BREAK_GLASS_*`, `ADMIN_COUNT_ZERO` rows; check **Nuclei** + **OWASP ZAP** DAST reports (Monday 06:00 UTC) |
+| Weekly | Review `audit_log` for `KEY_ROTATION_DUE` (clear it by rotating — see *Key rotation* below), `BREAK_GLASS_*`, `ADMIN_COUNT_ZERO` rows; check **Nuclei** + **OWASP ZAP** DAST reports (Monday 06:00 UTC) |
 | Monthly | Confirm `npm audit --omit=dev`, Semgrep, and the DAST baseline have no new criticals |
 | Quarterly | Restore drill on staging (§3) |
 | Semi-annually | Review COMPLIANCE.md for regulation changes |
+
+### Key rotation
+
+`/api/cron/key-rotation-check` runs Mondays 05:00 UTC and reports a key as due
+when the newest `<NAME>_ROTATED` row in `audit_log` is older than its cadence.
+A key that has never been rotated is dated from the deployment's first audit
+row, so a fresh install is not overdue on day one — but an old deployment with
+no rotation history is, and rightly.
+
+**The warning is cleared by rotating, not by ignoring it.** `scripts/rotate-keys.ts`
+writes the `<NAME>_ROTATED` row itself (service role) at the end of a
+successful rotation; nothing else does.
+
+| Key | Where | Cadence | Command |
+|---|---|---|---|
+| `STREAM_TICKET_SECRET` | Vercel | 180d | `npm run rotate:keys -- --key=STREAM_TICKET_SECRET` |
+| `REAUTH_COOKIE_SECRET` | Vercel | 180d | `npm run rotate:keys -- --key=REAUTH_COOKIE_SECRET` |
+| `SESSION_PIN_SECRET` | Vercel | 180d | `npm run rotate:keys -- --key=SESSION_PIN_SECRET` |
+| `CAMERA_URL_KEY` | Vercel | 180d | rotate → redeploy → `npm run encrypt:camera-urls -- --reencrypt` → `--finalize` |
+| `ML_ENCRYPTION_KEY` | Railway | 180d | rotate → `railway up --detach` → **keep the PREV key** (BREAK_GLASS §4) |
+| `ML_SERVICE_TOKEN` | Railway **and** Vercel | 90d | by hand (below), then `--mark-rotated` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard | 365d | by hand, then `--mark-rotated` |
+
+```bash
+# The service-role credentials must come from the vault — `vercel env pull`
+# writes NAME="" for every project variable and cannot supply them:
+#   export NEXT_PUBLIC_SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...   # for the audit row
+npm run rotate:keys -- --list                       # every key + the parser its value must satisfy
+npm run rotate:keys -- --key=<NAME> --dry-run       # show what would change, write nothing
+npm run rotate:keys -- --key=<NAME>                 # rotate + record the audit row
+```
+
+The audit row is written with the service role from the local env. Without
+`.env.production.tmp` the script falls back to `.env.local`, which points at a
+local `supabase start` stack — it refuses to write there and prints the SQL to
+insert by hand instead, so a rotation is never recorded in the wrong database.
+
+The script generates a value in the encoding the **consumer** parses (padded
+URL-safe base64 for the Python side, padded standard base64 for
+`lib/camera-crypto`, an opaque 256-bit string for the HMAC secrets) and
+round-trips it through that parser before writing anything to a provider. If
+validation fails nothing is changed — that is a bug in the generator, not a
+reason to set the value by hand.
+
+**Dual-key keys need the outgoing value, and Vercel will not give it to you.**
+`vercel env pull` writes `NAME=""` for every project variable — the values are
+never disclosed (verified: all 30 come back empty). Railway's CLI does return
+them. So rotating `CAMERA_URL_KEY` requires the current key from your own vault:
+
+```bash
+CAMERA_URL_KEY_CURRENT='<outgoing key>' \
+  npm run rotate:keys -- --key=CAMERA_URL_KEY --emit=./camera-url-key.new
+# → move ./camera-url-key.new into the vault, then delete it
+```
+
+`--emit=<file>` writes the **new** value (mode 0600, refuses to overwrite) —
+the only chance to capture it, since Vercel will not disclose it later and the
+next rotation needs it as `CAMERA_URL_KEY_CURRENT`. The script warns when you
+rotate a Vercel dual-key secret without it.
+
+The value is read from the environment, never from argv, and the script
+validates it before copying it into `CAMERA_URL_KEY_PREV`. Without it the
+rotation is **refused** — silently overwriting the active key would leave every
+sealed camera URL unreadable. If the outgoing key is genuinely lost, do not
+rotate: re-enter each camera's URL on `/cameras` (saving re-seals it with the
+current key), then rotate from a known-good state. Whatever new value you set,
+**store it in the vault immediately** — this is the last moment it can be
+captured on the Vercel side.
+
+Rotating a secret changes live behaviour, so expect these:
+
+- `REAUTH_COOKIE_SECRET` → every step-up cookie is void; admins re-verify TOTP.
+- `SESSION_PIN_SECRET` → session pins stop matching; TOTP users are signed out once.
+- `STREAM_TICKET_SECRET` → in-flight HLS tickets stop verifying; viewers reload.
+- `CAMERA_URL_KEY` → until `--reencrypt` finishes, camera URLs decrypt via the
+  PREV key; `/live` shows "camera address could not be read" if the PREV key is
+  missing.
+
+**Rotating the two manual keys**
+
+```bash
+# ML_SERVICE_TOKEN — both sides, in this order, then record it
+NEW=$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64url"))')
+cd ml-service && railway variables --set "ML_SERVICE_TOKEN=$NEW" && railway up --detach
+cd .. && printf '%s\n' "$NEW" | vercel env add ML_SERVICE_TOKEN production --force && vercel deploy --prod --yes
+npm run rotate:keys -- --key=ML_SERVICE_TOKEN --mark-rotated
+unset NEW
+```
+
+Recording and reveal fail for the seconds between the two deploys; do it
+outside a recording window. `SUPABASE_SERVICE_ROLE_KEY` is reissued in the
+Supabase dashboard (Settings → API), updated on Vercel + Railway, then
+recorded the same way.
+
+**Finalising a dual-key rotation.** `--finalize` drops `<NAME>_PREV`. It is
+allowed only for `CAMERA_URL_KEY`, and only after the script has verified from
+the database that zero camera rows are still sealed with the retired key. For
+`ML_ENCRYPTION_KEY` it refuses: no re-encryption pass exists, and dropping the
+PREV key would destroy every recording and sealed face crop still under it —
+see docs/BREAK_GLASS.md §4 for what would have to be built first and for the
+deliberate accept-the-loss path.
 
 ### Continuous security testing matrix
 

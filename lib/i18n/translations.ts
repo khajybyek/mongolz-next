@@ -576,6 +576,7 @@ export const T = {
     kr: "모든 알림, 최신순",
   },
   alerts_high: { mn: "Өндөр зэрэг", en: "High severity", kr: "높은 심각도" },
+  al_last_seen: { mn: "сүүлд", en: "last seen", kr: "마지막 감지" },
   alerts_24h: { mn: "Сүүлийн 24 цаг", en: "Last 24h", kr: "지난 24시간" },
   see_all: { mn: "Бүгдийг харах", en: "See all", kr: "모두 보기" },
   system_status: { mn: "Системийн төлөв", en: "System status", kr: "시스템 상태" },
@@ -1568,13 +1569,17 @@ export const T = {
   },
 
   // ── Sidebar group labels ──
-  nav_group_overview: { mn: "Үндсэн ажиглалт", en: "Overview", kr: "개요" },
-  nav_group_live: { mn: "Live / Recording", en: "Live / Recording", kr: "라이브 / 녹화" },
-  nav_group_search: { mn: "Хайлт / Алерт", en: "Search / Alerts", kr: "검색 / 알림" },
-  nav_group_analytics: { mn: "Аналитик", en: "Analytics", kr: "분석" },
+  nav_group_workspace: { mn: "Үндсэн цэс", en: "Workspace", kr: "작업 공간" },
+  nav_group_monitoring: { mn: "Хяналт", en: "Monitoring", kr: "모니터링" },
+  nav_group_investigation: { mn: "Шинжилгээ", en: "Investigation", kr: "조사" },
   nav_group_admin: { mn: "Удирдлага", en: "Administration", kr: "관리" },
-  nav_group_ml: { mn: "ML / Хөгжүүлэлт", en: "ML / Dev", kr: "ML / 개발" },
-  nav_group_other: { mn: "Бусад", en: "Other", kr: "기타" },
+  nav_group_ml: { mn: "Лаборатори", en: "Lab & tools", kr: "실험실 및 도구" },
+  nav_group_resources: { mn: "Тусламж ба нууцлал", en: "Resources", kr: "자료 및 개인정보" },
+  nav_primary: { mn: "Өдөр тутмын ажил", en: "Daily workspace", kr: "주요 작업" },
+  nav_expand_sidebar: { mn: "Хажуугийн цэс дэлгэх", en: "Expand sidebar", kr: "사이드바 펼치기" },
+  nav_collapse_sidebar: { mn: "Хажуугийн цэс хураах", en: "Collapse sidebar", kr: "사이드바 접기" },
+  nav_workspace_caption: { mn: "Аюулгүй байдлын хяналт", en: "Security workspace", kr: "보안 작업 공간" },
+  nav_navigation: { mn: "Үндсэн навигац", en: "Main navigation", kr: "주요 탐색" },
 
   // ── Face crops (ADR 0009 seal state) ──
   face_sealed_badge: {
@@ -1672,6 +1677,8 @@ export const T = {
   pb_selected: { mn: "Сонгогдсон", en: "Selected", kr: "선택됨" },
 
   // ── App shell (header / tab bar / palette) ──
+  nav_mobile_navigation: { mn: "Гар утасны үндсэн цэс", en: "Mobile navigation", kr: "모바일 탐색" },
+  nav_breadcrumb: { mn: "Хуудасны байршил", en: "Breadcrumb", kr: "현재 위치" },
   nav_more: { mn: "Цэс", en: "More", kr: "더보기" },
   nav_review: { mn: "Шалгах дараалал", en: "Review queue", kr: "검토 대기열" },
   nav_jobs: { mn: "Ажлын дараалал", en: "Jobs", kr: "작업 큐" },
@@ -2119,6 +2126,56 @@ export const T = {
     mn: "Код өмнө нь хэрэглэгдсэн байна.",
     en: "That code has already been used.",
     kr: "이미 사용된 코드입니다.",
+  },
+
+  // ─── active-learning: review threshold vs alert-rule floor ───
+  // The suggestion is a REVIEW threshold; saving it sets the rule floor
+  // (which rule governs a match), never whether an alert is created.
+  al_review_thresholds: {
+    mn: "Санал болгож буй хяналтын босго",
+    en: "Suggested review thresholds",
+    kr: "추천 검토 임계값",
+  },
+  al_current_floor: { mn: "Одоогийн дүрмийн босго", en: "Current rule floor", kr: "현재 규칙 하한" },
+  al_no_rule: { mn: "Дүрэмгүй", en: "No rule", kr: "규칙 없음" },
+  al_set_rule_floor: {
+    mn: "Дүрмийн босго болгох",
+    en: "Set as rule floor",
+    kr: "규칙 하한으로 설정",
+  },
+  al_detection_gate: { mn: "ML илрүүлэх босго", en: "ML detection gate", kr: "ML 탐지 기준" },
+  al_global_floor: { mn: "Ерөнхий дүрмийн босго", en: "Global rule floor", kr: "전역 규칙 하한" },
+  al_floor_band_warning: {
+    mn: "Энэ босгоос доош боловч ML илрүүлэх босго (0.45)-аас дээш таарц сэрэмжлүүлэг үүсгэсээр байна — зөвхөн энэ дүрмийн давхардал арилгах цонх болон чимээгүй цагт хамаарахаа болино.",
+    en: "Matches below this floor but above the ML detection gate (0.45) still raise alerts — they simply stop being governed by this rule's dedup window and quiet hours.",
+    kr: "이 하한보다 낮지만 ML 탐지 기준(0.45)보다 높은 매치는 여전히 알림을 생성합니다. 다만 이 규칙의 중복 제거 창과 방해 금지 시간이 더 이상 적용되지 않습니다.",
+  },
+  al_floor_explainer: {
+    mn: "Санал болгосон утга нь шошголсон сэрэмжлүүлгээс тооцсон F1-оптимал ХЯНАЛТЫН босго. Хадгалахад тухайн сэжигтний сэрэмжлүүлэх дүрмийн босго болно: дүрэм зөвхөн тэр түвшнээс дээш таарцад үйлчилнэ. Энэ нь шүүлтүүр БИШ — сэрэмжлүүлэг үүсэх эсэхийг ML үйлчилгээний илрүүлэх босго шийднэ.",
+    en: "The suggestion is the F1-optimal REVIEW threshold computed from your labels. Saving it sets this suspect's alert-rule floor: the rule then governs only matches at or above that similarity. It is not a filter — whether an alert is created at all is decided by the ML service's detection gate.",
+    kr: "추천값은 라벨에서 계산한 F1 최적 검토 임계값입니다. 저장하면 해당 용의자의 알림 규칙 하한이 되며, 규칙은 그 이상 유사도의 매치에만 적용됩니다. 필터가 아닙니다 — 알림 생성 여부는 ML 서비스의 탐지 기준이 결정합니다.",
+  },
+
+  // ─── live: camera start refusals (server action returns a code) ───
+  live_camera_disabled: {
+    mn: "Энэ камер идэвхгүй байна. /cameras хуудсанд идэвхжүүлээд дахин оролдоно уу.",
+    en: "This camera is disabled. Enable it on /cameras and try again.",
+    kr: "이 카메라는 비활성 상태입니다. /cameras에서 활성화한 뒤 다시 시도하세요.",
+  },
+  live_camera_not_found: {
+    mn: "Камер олдсонгүй — устгагдсан эсвэл эрх байхгүй байна.",
+    en: "Camera not found — it was removed, or you cannot see it.",
+    kr: "카메라를 찾을 수 없습니다 — 삭제되었거나 접근 권한이 없습니다.",
+  },
+  live_camera_url_unavailable: {
+    mn: "Камерын хаяг уншигдахгүй байна (түлхүүр солигдсон эсвэл нууцлагдаагүй хаяг). /cameras дээр дахин хадгална уу.",
+    en: "The camera address could not be read (rotated key, or an unsealed URL). Re-save it on /cameras.",
+    kr: "카메라 주소를 읽을 수 없습니다(키 교체 또는 암호화되지 않은 URL). /cameras에서 다시 저장하세요.",
+  },
+  live_start_failed: {
+    mn: "Камер эхлүүлж чадсангүй.",
+    en: "Could not start the camera.",
+    kr: "카메라를 시작하지 못했습니다.",
   },
 } as const;
 

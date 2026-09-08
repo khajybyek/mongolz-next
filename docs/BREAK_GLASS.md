@@ -75,9 +75,64 @@ Send a same-day notification to the team listing what happened and who is now an
 
 ## 4. AES-256-GCM data key compromise
 
-If `ML_ENCRYPTION_KEY` is known to have leaked, follow the **dual-key rotation** procedure documented in CLAUDE.md → "Key Rotation Procedure" (sets `ML_ENCRYPTION_KEY_PREV` so existing recordings remain decryptable while new files use the rotated key).
+If `ML_ENCRYPTION_KEY` is known to have leaked, rotate it **dual-key** — the outgoing value moves to `ML_ENCRYPTION_KEY_PREV`, so everything already sealed stays readable while new artifacts use the new key:
 
-After rotation, optionally re-encrypt historical recordings with a maintenance script.
+```bash
+npm run rotate:keys -- --key=ML_ENCRYPTION_KEY        # validates the value against the Python parser first
+cd ml-service && railway up --detach                   # restart into dual-key mode
+```
+
+The script writes an `ML_ENCRYPTION_KEY_ROTATED` audit row, which is what clears the weekly `KEY_ROTATION_DUE` warning (see RUNBOOK §4).
+
+### Keep `ML_ENCRYPTION_KEY_PREV`. There is no re-encryption tool.
+
+Earlier versions of this document promised a "maintenance script" that re-encrypts historical recordings. **It does not exist**, and `npm run rotate:keys -- --key=ML_ENCRYPTION_KEY --finalize` now refuses rather than pretending otherwise. Dropping `ML_ENCRYPTION_KEY_PREV` permanently destroys everything still sealed under the retired key:
+
+- encrypted recordings (`recordings.original_path`, `recordings.storage_path`);
+- every sealed face crop and embedding written since Tier 2 — those have **no plaintext copy anywhere**.
+
+Nothing outside the ML container can even count how many of those remain: the per-recording HKDF keys and the per-face hash-chain keys only exist there. Before the gate can open, all of this has to exist first:
+
+1. an ML maintenance endpoint that, per artifact, decrypts with the key candidates, re-encrypts under the active key, verifies the round-trip, replaces the object, and records progress so an interrupted run resumes (sealed crops must keep their chain position);
+2. a report from it saying **zero** artifacts decrypt only under the PREV key;
+3. a verified backup taken *after* that pass (`npm run backup:verify`).
+
+A retired key sitting in Railway's env costs nothing. Leave it there.
+
+### Accepting the loss deliberately (last resort)
+
+Only if the retired key must be destroyed (e.g. a legal or contractual requirement following the leak) **and** the loss of every artifact still sealed under it is accepted in writing by the project owner:
+
+```bash
+cd ml-service
+railway variables --unset ML_ENCRYPTION_KEY_PREV      # irreversible
+railway up --detach
+```
+
+```sql
+INSERT INTO audit_log (action, detail, user_email)
+VALUES ('BREAK_GLASS_ML_PREV_KEY_DESTROYED',
+        'Dropped ML_ENCRYPTION_KEY_PREV without a re-encryption pass — approved by <OWNER>, operator: <YOUR_NAME>',
+        '<YOUR_EMAIL>');
+```
+
+Then verify what survived (`npm run backup:verify`) and record the count of recordings that no longer decrypt in the same-day email.
+
+### `CAMERA_URL_KEY` is different — that one is verifiable
+
+Camera URLs live in the database, so the script can prove the re-seal finished:
+
+```bash
+# Vercel never discloses a stored value, so the outgoing key comes from the vault
+# and the new one is captured with --emit (move it into the vault, then delete it):
+CAMERA_URL_KEY_CURRENT='<outgoing key>' \
+  npm run rotate:keys -- --key=CAMERA_URL_KEY --emit=./camera-url-key.new
+vercel deploy --prod --yes
+npm run encrypt:camera-urls -- --reencrypt            # repeat until it reports 0
+npm run rotate:keys -- --key=CAMERA_URL_KEY --finalize # refuses unless 0 rows are still under the PREV key
+```
+
+Without `CAMERA_URL_KEY_CURRENT` the rotation is refused — there would be no `CAMERA_URL_KEY_PREV` and every sealed camera URL would become unreadable. If that key is already lost, re-enter each camera's URL on `/cameras` (saving re-seals it) instead of rotating.
 
 ---
 
