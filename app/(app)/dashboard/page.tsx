@@ -23,6 +23,7 @@ import {
   Server,
   Database,
   ArrowUpRight,
+  RotateCw,
   type LucideIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
@@ -34,17 +35,36 @@ import { requireUser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { cn, formatDate, pct } from "@/lib/utils";
 import { alertStateLabelKey, asAlertState, stateBadgeVariant } from "@/lib/alerts";
-import type { Lang } from "@/lib/i18n/translations";
-import { LiveActivityFeed, type ActivityItem } from "./live-activity-feed";
+import {
+  anyErrored,
+  deltaPct,
+  formatMetric,
+  kstStartOfDayISO,
+  metricNumber,
+  readMfaOk,
+  readScope,
+  rpcRows,
+  shapeCount,
+  shapeRows,
+  type MetricList,
+  type MetricValue,
+  type RpcCapableClient,
+} from "@/lib/metrics";
+import type { Lang, TranslationKey } from "@/lib/i18n/translations";
+import {
+  LiveActivityFeed,
+  type ActivityItem,
+  type AlertRow as AlertFeedRow,
+  type AuditRow as AuditFeedRow,
+} from "./live-activity-feed";
 import { probeDb, probeMl } from "@/lib/health-probes";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const kstDay = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Seoul",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
+/** Trend window: 14 KST days, split into "last 7" vs "previous 7". */
+const TREND_DAYS = 14;
+
+/** One row of public.alerts_daily_kst (20260909100000_analytics_aggregates.sql). */
+type DailyAlertRow = { day_kst: string; n_total: number | string; n_high: number | string };
 
 export default async function DashboardPage({
   searchParams,
@@ -59,26 +79,27 @@ export default async function DashboardPage({
     sp.error === "admin-only" ? t("err_admin_only") : sp.error === "forbidden" ? t("err_forbidden") : null;
   const isAdmin = profile.role === "admin";
 
-  const now = Date.now();
-  const since24h = new Date(now - DAY_MS).toISOString();
-  const sinceToday = new Date(`${kstDay.format(new Date(now))}T00:00:00+09:00`).toISOString();
-  const since14d = new Date(now - 14 * DAY_MS).toISOString();
+  const now = new Date();
+  const since24h = new Date(now.getTime() - DAY_MS).toISOString();
+  const sinceToday = kstStartOfDayISO(now);
 
   const [
-    { count: faceCount },
-    { count: suspectCount },
-    { count: alertCount },
-    { count: recordingCount },
-    { count: cameraCount },
-    { count: alerts24h },
-    { count: newAlerts },
-    { data: recentAlerts },
-    { data: trendRows },
-    { data: cameraRows },
-    { data: recordingRows },
+    mfaOk,
+    faceRes,
+    suspectRes,
+    todayRes,
+    recordingRes,
+    cameraRes,
+    alerts24hRes,
+    newAlertsRes,
+    recentAlertsRes,
+    trendRes,
+    cameraRowsRes,
+    recordingRowsRes,
     mlHealth,
     dbHealth,
   ] = await Promise.all([
+    readMfaOk(supabase as unknown as RpcCapableClient),
     supabase.from("faces").select("*", { count: "exact", head: true }),
     supabase.from("suspects").select("*", { count: "exact", head: true }),
     supabase.from("alerts").select("*", { count: "exact", head: true }).gte("created_at", sinceToday),
@@ -91,7 +112,12 @@ export default async function DashboardPage({
       .select("id, suspect_name, similarity, created_at, camera_name, state")
       .order("created_at", { ascending: false })
       .limit(8),
-    supabase.from("alerts").select("created_at").gte("created_at", since14d).limit(5000),
+    // Counted in SQL, on Asia/Seoul day boundaries, with no row cap — the old
+    // path pulled the newest 5000 rows and bucketed them here, so a busy
+    // fortnight silently understated the older bars.
+    rpcRows<DailyAlertRow>(supabase as unknown as RpcCapableClient, "alerts_daily_kst", {
+      p_days: TREND_DAYS,
+    }),
     supabase
       .from("cameras")
       .select("id, name, cam_type, enabled")
@@ -106,22 +132,54 @@ export default async function DashboardPage({
     probeDb(2500),
   ]);
 
-  // 14-day daily buckets (KST) → last 7 vs previous 7.
-  const buckets = new Map<string, number>();
-  for (let i = 13; i >= 0; i--) buckets.set(kstDay.format(new Date(now - i * DAY_MS)), 0);
-  for (const row of trendRows ?? []) {
-    const key = kstDay.format(new Date(row.created_at));
-    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + 1);
-  }
-  const series = [...buckets.entries()].map(([day, count]) => ({ day, count }));
-  const last7 = series.slice(7);
-  const prev7 = series.slice(0, 7);
+  // What may this caller read at all? RLS answers a refused read with an empty
+  // set, not an error, so without this every denied table would print as 0.
+  const scope = readScope(profile.role, mfaOk);
+
+  const faces = shapeCount(faceRes, scope.faces);
+  const suspects = shapeCount(suspectRes, scope.suspects);
+  const todayAlerts = shapeCount(todayRes, scope.alerts);
+  const recordings = shapeCount(recordingRes, scope.recordings);
+  const cameras = shapeCount(cameraRes, scope.cameras);
+  const alerts24h = shapeCount(alerts24hRes, scope.alerts);
+  const newAlerts = shapeCount(newAlertsRes, scope.alerts);
+  const recentAlerts = shapeRows(recentAlertsRes, scope.alerts, { limit: 8 });
+  const trend = shapeRows<DailyAlertRow>(trendRes, scope.alerts, { rowsProveAccess: false });
+  const cameraList = shapeRows(cameraRowsRes, scope.cameras, { limit: 6 });
+  const recordingList = shapeRows(recordingRowsRes, scope.recordings, { limit: 4 });
+
+  // "—" plus a reason, never a fabricated zero.
+  const deniedKey: TranslationKey = mfaOk ? "metric_no_access" : "metric_mfa_session";
+  const hintFor = (m: MetricValue | MetricList<unknown>, okHint?: string): string | undefined =>
+    m.state === "ok" ? okHint : m.state === "denied" ? t(deniedKey) : t("metric_unavailable");
+  const accentFor = (m: MetricValue, when: (n: number) => boolean, on: "danger" | "warning" | "info") =>
+    m.state === "ok" && when(m.value) ? on : "default";
+
+  const trendSeries = trend.state === "ok"
+    ? trend.rows.map((r) => ({ day: r.day_kst, count: Number(r.n_total) || 0 }))
+    : [];
+  const last7 = trendSeries.slice(-7);
+  const prev7 = trendSeries.slice(0, Math.max(0, trendSeries.length - 7));
   const last7Total = last7.reduce((s, d) => s + d.count, 0);
   const prev7Total = prev7.reduce((s, d) => s + d.count, 0);
-  const delta = prev7Total === 0 ? (last7Total > 0 ? null : 0) : Math.round(((last7Total - prev7Total) / prev7Total) * 100);
+  const delta = deltaPct(last7Total, prev7Total);
+
+  const showRetry = anyErrored(
+    faces,
+    suspects,
+    todayAlerts,
+    recordings,
+    cameras,
+    alerts24h,
+    newAlerts,
+    recentAlerts,
+    trend,
+    cameraList,
+    recordingList,
+  );
 
   // Live-activity initial payload — last N alerts + audit rows merged.
-  const [{ data: feedAlerts }, { data: feedAudit }] = await Promise.all([
+  const [feedAlertsRes, feedAuditRes] = await Promise.all([
     supabase
       .from("alerts")
       .select("id, created_at, type, suspect_name, similarity, camera_name, anomaly_z")
@@ -143,6 +201,31 @@ export default async function DashboardPage({
       .order("created_at", { ascending: false })
       .limit(20),
   ]);
+
+  // The feed reads two admin-only tables. Under RLS a viewer — or an admin on a
+  // password-only session — gets an empty set with NO error, so an unshaped
+  // read renders "waiting for the next event" next to tiles that correctly say
+  // the rows are not theirs.
+  // The generated row type widens `type` to string; the feed narrows it for
+  // display, so the reply is shaped structurally and cast at the boundary.
+  const feedAlertsShaped = shapeRows<AlertFeedRow>(
+    feedAlertsRes as unknown as { data: AlertFeedRow[] | null; error: { message?: string } | null },
+    scope.alerts,
+    { limit: 20 },
+  );
+  const feedAuditShaped = shapeRows<AuditFeedRow>(
+    feedAuditRes as unknown as { data: AuditFeedRow[] | null; error: { message?: string } | null },
+    scope.audit_log,
+    { limit: 20 },
+  );
+  const feedState: "ok" | "denied" | "error" =
+    feedAlertsShaped.state === "error" || feedAuditShaped.state === "error"
+      ? "error"
+      : feedAlertsShaped.state === "denied" && feedAuditShaped.state === "denied"
+        ? "denied"
+        : "ok";
+  const feedAlerts = feedAlertsShaped.state === "ok" ? feedAlertsShaped.rows : [];
+  const feedAudit = feedAuditShaped.state === "ok" ? feedAuditShaped.rows : [];
 
   const initialActivity: ActivityItem[] = [];
   for (const a of (feedAlerts ?? []) as Array<{
@@ -215,8 +298,6 @@ export default async function DashboardPage({
   ];
   const quickActions = allActions.filter((a) => isAdmin || !a.adminOnly);
 
-  const countLabel = (count: number | null) => count == null ? "—" : count.toLocaleString();
-
   return (
     <>
       {bounceMessage && (
@@ -245,35 +326,40 @@ export default async function DashboardPage({
         }
       />
 
+      {showRetry && <RetryBanner href="/dashboard" t={t} />}
+
       <section aria-label={t("dash_operations")} className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <StatCard
           label={t("total_faces")}
-          value={countLabel(faceCount)}
+          value={formatMetric(faces)}
           icon={Users}
-          accent="info"
-          href={isAdmin ? "/faces" : undefined}
+          accent={faces.state === "ok" ? "info" : "default"}
+          hint={hintFor(faces)}
+          href={isAdmin && faces.state === "ok" ? "/faces" : undefined}
         />
         <StatCard
           label={t("suspects")}
-          value={countLabel(suspectCount)}
+          value={formatMetric(suspects)}
           icon={UserSearch}
-          accent="warning"
-          href={isAdmin ? "/suspects" : undefined}
+          accent={suspects.state === "ok" ? "warning" : "default"}
+          hint={hintFor(suspects)}
+          href={isAdmin && suspects.state === "ok" ? "/suspects" : undefined}
         />
         <StatCard
           label={t("today_alerts")}
-          value={countLabel(alertCount)}
+          value={formatMetric(todayAlerts)}
           icon={Bell}
-          accent={alertCount && alertCount > 0 ? "danger" : "default"}
-          hint={`${countLabel(newAlerts)} ${t("al_new_count")}`}
-          href={isAdmin ? "/alerts" : undefined}
+          accent={accentFor(todayAlerts, (n) => n > 0, "danger")}
+          hint={hintFor(todayAlerts, newAlerts.state === "ok" ? `${newAlerts.value.toLocaleString()} ${t("al_new_count")}` : undefined)}
+          href={isAdmin && todayAlerts.state === "ok" ? "/alerts" : undefined}
         />
         <StatCard
           label={t("total_recordings")}
-          value={countLabel(recordingCount)}
+          value={formatMetric(recordings)}
           icon={FileVideo}
           accent="default"
-          href="/playback"
+          hint={hintFor(recordings, !isAdmin ? t("metric_scoped_permissions") : undefined)}
+          href={recordings.state === "ok" ? "/playback" : undefined}
         />
       </section>
 
@@ -290,26 +376,30 @@ export default async function DashboardPage({
               <span className="sr-only sm:hidden">{t("qa_analytics")}</span>
             </Link>
           </div>
-          <div className="mb-5 mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
-            <span className="text-4xl font-semibold tracking-tight tabular-nums text-text">{trendRows ? last7Total.toLocaleString() : "—"}</span>
-            {trendRows && (
-              <div>
-                {delta == null ? (
-                  <span className="text-xs text-text-muted">{t("dash_no_baseline")}</span>
-                ) : (
-                  <>
-                    <span className={cn("inline-flex items-center gap-1 text-xs font-medium", delta > 0 ? "text-warning" : delta < 0 ? "text-success" : "text-text-soft")}>
-                      {delta > 0 ? <TrendingUp className="h-3.5 w-3.5" /> : delta < 0 ? <TrendingDown className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
-                      {delta > 0 ? "+" : ""}{delta}%
-                    </span>
-                    <p className="mt-0.5 text-xs text-text-muted">{t("dash_vs_prev")}</p>
-                  </>
-                )}
+          {trend.state === "ok" ? (
+            <>
+              <div className="mb-5 mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <span className="text-4xl font-semibold tracking-tight tabular-nums text-text">{last7Total.toLocaleString()}</span>
+                <div>
+                  {delta == null ? (
+                    <span className="text-xs text-text-muted">{t("dash_no_baseline")}</span>
+                  ) : (
+                    <>
+                      <span className={cn("inline-flex items-center gap-1 text-xs font-medium", delta > 0 ? "text-warning" : delta < 0 ? "text-success" : "text-text-soft")}>
+                        {delta > 0 ? <TrendingUp className="h-3.5 w-3.5" /> : delta < 0 ? <TrendingDown className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
+                        {delta > 0 ? "+" : ""}{delta}%
+                      </span>
+                      <p className="mt-0.5 text-xs text-text-muted">{t("dash_vs_prev")}</p>
+                    </>
+                  )}
+                </div>
               </div>
-            )}
-          </div>
-          {trendRows ? <TrendBars data={last7} lang={lang} /> : (
-            <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-border text-sm text-text-muted">{t("dash_data_unavailable")}</div>
+              <TrendBars data={last7} lang={lang} />
+            </>
+          ) : (
+            <div className="mt-5">
+              <MetricPanel state={trend.state} mfaOk={mfaOk} t={t} retryHref="/dashboard" />
+            </div>
           )}
         </section>
 
@@ -322,8 +412,8 @@ export default async function DashboardPage({
             <StatusRow icon={Server} label={t("dash_ml_service")} value={mlHealth.ok ? t("operational") : t("status_ml_down")} status={mlHealth.ok ? "ok" : "down"} />
             <StatusRow icon={Database} label={t("dash_database")} value={dbHealth.ok ? t("status_db_connected") : t("status_db_down")} status={dbHealth.ok ? "ok" : "down"} />
             <div className="border-t border-border" />
-            <StatusRow icon={Cctv} label={t("dash_enabled_cameras")} value={countLabel(cameraCount)} />
-            <StatusRow icon={Bell} label={t("alerts_24h")} value={countLabel(alerts24h)} />
+            <StatusRow icon={Cctv} label={t("dash_enabled_cameras")} value={formatMetric(cameras)} note={hintFor(cameras)} />
+            <StatusRow icon={Bell} label={t("alerts_24h")} value={formatMetric(alerts24h)} note={hintFor(alerts24h)} />
           </div>
           {isAdmin && (
             <Link href={"/ai" as never} className="group mt-5 flex items-start gap-3 rounded-xl border border-accent/15 bg-accent/[0.04] p-3.5 transition-colors hover:bg-accent/[0.08]">
@@ -365,25 +455,29 @@ export default async function DashboardPage({
             <div className="flex flex-wrap items-center gap-2.5">
               <ShieldAlert className="h-4 w-4 text-text-muted" />
               <h2 id="recent-alerts-title" className="text-sm font-semibold text-text">{t("recent_alerts")}</h2>
-              {newAlerts != null && newAlerts > 0 && <Badge variant="accent">{newAlerts} {t("al_new_count")}</Badge>}
+              {metricNumber(newAlerts) ? <Badge variant="accent">{metricNumber(newAlerts)} {t("al_new_count")}</Badge> : null}
             </div>
-            {isAdmin && (
+            {isAdmin && recentAlerts.state === "ok" && (
               <Link href={"/alerts" as never} className="inline-flex shrink-0 items-center gap-1.5 rounded-md py-1 text-xs font-medium text-text-soft transition-colors hover:text-accent">
                 {t("see_all")}<ArrowRight className="h-3.5 w-3.5" />
               </Link>
             )}
           </div>
-          {!recentAlerts?.length ? (
+          {recentAlerts.state !== "ok" ? (
+            <div className="p-5 sm:p-6">
+              <MetricPanel state={recentAlerts.state} mfaOk={mfaOk} t={t} retryHref="/dashboard" />
+            </div>
+          ) : recentAlerts.rows.length === 0 ? (
             <Empty
               icon={Bell}
-              message={recentAlerts ? t("no_alerts") : t("dash_data_unavailable")}
-              description={recentAlerts ? t("dash_alerts_empty_description") : undefined}
+              message={t("no_alerts")}
+              description={t("dash_alerts_empty_description")}
               className="min-h-[330px] rounded-none border-0 bg-transparent shadow-none"
               action={<Link href="/grid" className="btn-secondary btn-sm"><LayoutGrid className="h-4 w-4" />{t("nav_grid")}</Link>}
             />
           ) : (
             <ul className="divide-y divide-border">
-              {recentAlerts.map((a) => (
+              {recentAlerts.rows.map((a) => (
                 <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 transition-colors hover:bg-surface-elevated sm:flex-nowrap sm:px-6">
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-elevated">
@@ -406,7 +500,7 @@ export default async function DashboardPage({
             </ul>
           )}
         </section>
-        <LiveActivityFeed initial={initialActivity} />
+        <LiveActivityFeed initial={initialActivity} state={feedState} mfaOk={mfaOk} />
       </div>
 
       <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-2">
@@ -417,13 +511,15 @@ export default async function DashboardPage({
               {isAdmin ? t("dash_manage") : t("nav_grid")}<ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
-          {!cameraRows?.length ? (
-            <Empty icon={Cctv} message={cameraRows ? t("dash_no_cameras") : t("dash_data_unavailable")} size="compact" className="border-dashed bg-transparent shadow-none"
+          {cameraList.state !== "ok" ? (
+            <MetricPanel state={cameraList.state} mfaOk={mfaOk} t={t} retryHref="/dashboard" />
+          ) : cameraList.rows.length === 0 ? (
+            <Empty icon={Cctv} message={t("dash_no_cameras")} size="compact" className="border-dashed bg-transparent shadow-none"
               action={isAdmin ? <Link href={"/cameras" as never} className="btn-secondary btn-sm">{t("dash_manage")}<ArrowRight className="h-3.5 w-3.5" /></Link> : undefined}
             />
           ) : (
             <ul className="divide-y divide-border">
-              {cameraRows.map((c) => (
+              {cameraList.rows.map((c) => (
                 <li key={c.id}>
                   <Link href={`/grid?focus=${c.id}` as never} className="group flex items-center gap-3 rounded-lg py-3.5 transition-colors hover:bg-surface-elevated">
                     <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-elevated text-text-soft"><Cctv className="h-4 w-4" /></span>
@@ -442,13 +538,15 @@ export default async function DashboardPage({
             <div className="flex items-center gap-2.5"><FileVideo className="h-4 w-4 text-text-muted" /><h2 id="dashboard-recordings-title" className="text-sm font-semibold text-text">{t("dash_recent_recordings")}</h2></div>
             <Link href="/playback" className="inline-flex shrink-0 items-center gap-1.5 rounded-md py-1 text-xs font-medium text-text-soft transition-colors hover:text-accent">{t("see_all")}<ArrowRight className="h-3.5 w-3.5" /></Link>
           </div>
-          {!recordingRows?.length ? (
-            <Empty icon={FileVideo} message={recordingRows ? t("dash_no_recordings") : t("dash_data_unavailable")} size="compact" className="border-dashed bg-transparent shadow-none"
+          {recordingList.state !== "ok" ? (
+            <MetricPanel state={recordingList.state} mfaOk={mfaOk} t={t} retryHref="/dashboard" />
+          ) : recordingList.rows.length === 0 ? (
+            <Empty icon={FileVideo} message={t("dash_no_recordings")} size="compact" className="border-dashed bg-transparent shadow-none"
               action={<Link href="/live" className="btn-secondary btn-sm"><Video className="h-3.5 w-3.5" />{t("qa_start_live")}</Link>}
             />
           ) : (
             <ul className="divide-y divide-border">
-              {recordingRows.map((r) => (
+              {recordingList.rows.map((r) => (
                 <li key={r.id}>
                   <Link href={`/playback/${r.id}` as never} className="group flex items-center gap-3 rounded-lg py-3.5 transition-colors hover:bg-surface-elevated">
                     <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-accent/15 bg-accent/[0.06] text-accent"><FileVideo className="h-4 w-4" /></span>
@@ -465,6 +563,59 @@ export default async function DashboardPage({
         </section>
       </div>
     </>
+  );
+}
+
+/**
+ * Shown in place of a figure or a list. "denied" and "error" are different
+ * facts and must not collapse into the same silence: the first says the rows
+ * exist but are not yours, the second says the query failed and the operator
+ * should retry.
+ */
+function MetricPanel({
+  state,
+  mfaOk,
+  t,
+  retryHref,
+}: {
+  state: "denied" | "error";
+  mfaOk: boolean;
+  t: (k: TranslationKey) => string;
+  retryHref: string;
+}) {
+  if (state === "denied") {
+    return (
+      <div className="rounded-xl border border-dashed border-border bg-surface/40 px-4 py-6 text-center">
+        <p className="text-sm font-medium text-text-soft">{mfaOk ? t("metric_denied_title") : t("metric_mfa_session")}</p>
+        <p className="mt-1.5 text-xs leading-relaxed text-text-muted">{t("metric_denied_desc")}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-warning/30 bg-warning-soft px-4 py-6 text-center">
+      <p className="text-sm font-medium text-warning">{t("metric_error_title")}</p>
+      <p className="mt-1.5 text-xs leading-relaxed text-text-muted">{t("metric_error_desc")}</p>
+      <a href={retryHref} className="btn-secondary btn-sm mt-4 inline-flex">
+        <RotateCw className="h-3.5 w-3.5" />
+        {t("metric_retry")}
+      </a>
+    </div>
+  );
+}
+
+/** Page-level "something on this page is missing" notice with a full reload. */
+function RetryBanner({ href, t }: { href: string; t: (k: TranslationKey) => string }) {
+  return (
+    <div role="status" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning-soft px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-warning">{t("metric_error_title")}</p>
+        <p className="mt-0.5 text-xs text-text-muted">{t("metric_error_desc")}</p>
+      </div>
+      <a href={href} className="btn-secondary btn-sm shrink-0">
+        <RotateCw className="h-3.5 w-3.5" />
+        {t("metric_retry")}
+      </a>
+    </div>
   );
 }
 
@@ -495,13 +646,16 @@ function TrendBars({ data, lang }: { data: Array<{ day: string; count: number }>
   );
 }
 
-function StatusRow({ icon: Icon, label, value, status }: { icon: LucideIcon; label: string; value: string; status?: "ok" | "down" }) {
+function StatusRow({ icon: Icon, label, value, status, note }: { icon: LucideIcon; label: string; value: string; status?: "ok" | "down"; note?: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex items-start justify-between gap-3">
       <span className="flex min-w-0 items-center gap-2.5 text-xs text-text-soft"><Icon className="h-3.5 w-3.5 shrink-0 text-text-muted" /><span>{label}</span></span>
-      <span className={cn("inline-flex shrink-0 items-center gap-1.5 text-xs font-medium tabular-nums", status === "down" ? "text-warning" : "text-text")}>
-        {status && <span className={cn("h-1.5 w-1.5 rounded-full", status === "ok" ? "bg-success" : "bg-warning")} aria-hidden />}
-        {value}
+      <span className="shrink-0 text-right">
+        <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium tabular-nums", status === "down" ? "text-warning" : "text-text")}>
+          {status && <span className={cn("h-1.5 w-1.5 rounded-full", status === "ok" ? "bg-success" : "bg-warning")} aria-hidden />}
+          {value}
+        </span>
+        {note && <span className="mt-0.5 block text-2xs text-text-muted">{note}</span>}
       </span>
     </div>
   );

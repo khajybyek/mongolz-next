@@ -36,7 +36,7 @@ export type ActivityItem = {
   ts: string;
 };
 
-interface AlertRow {
+export interface AlertRow {
   id: string;
   created_at: string;
   type: "match" | "anomaly" | null;
@@ -46,7 +46,7 @@ interface AlertRow {
   anomaly_z: number | null;
 }
 
-interface AuditRow {
+export interface AuditRow {
   id: number;
   action: string;
   detail: string | null;
@@ -115,7 +115,17 @@ function dedupe(items: ActivityItem[]): ActivityItem[] {
   return out;
 }
 
-export function LiveActivityFeed({ initial }: { initial: ActivityItem[] }) {
+export function LiveActivityFeed({
+  initial,
+  state = "ok",
+  mfaOk = true,
+}: {
+  initial: ActivityItem[];
+  /** "denied" = RLS withheld the rows; "error" = the read failed. */
+  state?: "ok" | "denied" | "error";
+  /** false = the session never proved the second factor (see private.mfa_ok). */
+  mfaOk?: boolean;
+}) {
   const { t } = useT();
   const [items, setItems] = useState<ActivityItem[]>(() => dedupe(initial).slice(0, MAX_ITEMS));
   const [connections, setConnections] = useState<{ alerts: ConnectionState; audit: ConnectionState }>({ alerts: "connecting", audit: "connecting" });
@@ -184,7 +194,15 @@ export function LiveActivityFeed({ initial }: { initial: ActivityItem[] }) {
       {sorted.length === 0 ? (
         <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 px-6 py-10 text-center">
           <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-surface-elevated"><Activity className="h-5 w-5 text-text-muted" /></span>
-          <p className="max-w-56 text-sm leading-relaxed text-text-muted">{t("dash_live_empty")}</p>
+          <p className="max-w-56 text-sm leading-relaxed text-text-muted">
+            {state === "error"
+              ? t("metric_error_desc")
+              : state === "denied"
+                ? mfaOk
+                  ? t("metric_denied_desc")
+                  : t("metric_mfa_desc")
+                : t("dash_live_empty")}
+          </p>
         </div>
       ) : (
         <ul className="max-h-[448px] divide-y divide-border overflow-y-auto overscroll-contain" tabIndex={0} aria-label={t("dash_live_activity")}>

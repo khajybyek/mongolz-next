@@ -1,10 +1,11 @@
 import { PageHeader } from "@/components/ui/page-header";
-import { TrendingUp, AlertTriangle, Check, AlertCircle, Cctv } from "lucide-react";
+import { TrendingUp, AlertTriangle, Check, AlertCircle, Cctv, RotateCw } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { Empty } from "@/components/ui/empty";
 import { formatDate } from "@/lib/utils";
+import { isDeniedError } from "@/lib/metrics";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,11 @@ export default async function AnomalyPage() {
     p_window_hours: 24,
     p_baseline_days: 28,
   });
+  // A refusal and a failure are different facts. The RPC raises 42501 when the
+  // caller is not an admin or the session never proved a second factor;
+  // anything else is a broken query the operator should retry. Neither may be
+  // rendered as "no anomalies".
+  const denied = isDeniedError(error);
   const rows = ((data ?? []) as Row[]).map((r) => ({ ...r, observed: Number(r.observed) }));
 
   // Group by camera: pick the worst |z| in the recent window
@@ -52,13 +58,28 @@ export default async function AnomalyPage() {
     <>
       <PageHeader
         title={t("anomaly_title")}
-        subtitle={t("anomaly_subtitle")}
+        subtitle={`${t("anomaly_subtitle")} · ${t("metric_tz_kst")}`}
         icon={<TrendingUp className="w-5 h-5" />}
       />
 
-      {error ? (
-        <div className="card border-danger/40 bg-danger-soft p-3 text-sm text-danger-ring">
-          {error.message}
+      {denied ? (
+        <div className="card border-dashed border-border bg-surface/40 p-6 text-center">
+          <p className="text-sm font-medium text-text-soft">{t("metric_denied_title")}</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-text-muted">
+            {/* requireAdmin() already passed, so the RPC's 42501 can only mean
+                the session never proved the second factor — telling this user
+                to ask an administrator for access would send them nowhere. */}
+            {t("metric_mfa_desc")}
+          </p>
+        </div>
+      ) : error ? (
+        <div className="card border-warning/40 bg-warning-soft p-6 text-center">
+          <p className="text-sm font-medium text-warning">{t("metric_error_title")}</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-text-muted">{t("metric_error_desc")}</p>
+          <a href="/anomaly" className="btn-secondary btn-sm mt-4 inline-flex">
+            <RotateCw className="w-3.5 h-3.5" />
+            {t("metric_retry")}
+          </a>
         </div>
       ) : summary.length === 0 ? (
         <Empty message={t("anomaly_none")} />

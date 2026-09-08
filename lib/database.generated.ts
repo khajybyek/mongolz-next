@@ -279,6 +279,7 @@ export type Database = {
           camera_name: string | null
           fps: number
           last_error: string | null
+          last_heartbeat_at: string | null
           sealed_url: string
           started_at: string
           updated_at: string
@@ -289,6 +290,7 @@ export type Database = {
           camera_name?: string | null
           fps?: number
           last_error?: string | null
+          last_heartbeat_at?: string | null
           sealed_url: string
           started_at?: string
           updated_at?: string
@@ -299,6 +301,7 @@ export type Database = {
           camera_name?: string | null
           fps?: number
           last_error?: string | null
+          last_heartbeat_at?: string | null
           sealed_url?: string
           started_at?: string
           updated_at?: string
@@ -728,6 +731,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      retention_deletion_queue: {
+        Row: {
+          attempts: number
+          available_at: string
+          bucket: string
+          created_at: string
+          id: string
+          last_error: string | null
+          lease_token: string | null
+          locked_until: string | null
+          object_path: string
+        }
+        Insert: {
+          attempts?: number
+          available_at?: string
+          bucket: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          lease_token?: string | null
+          locked_until?: string | null
+          object_path: string
+        }
+        Update: {
+          attempts?: number
+          available_at?: string
+          bucket?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          lease_token?: string | null
+          locked_until?: string | null
+          object_path?: string
+        }
+        Relationships: []
       }
       retention_policies: {
         Row: {
@@ -1193,6 +1232,23 @@ export type Database = {
       }
     }
     Functions: {
+      alerts_daily_kst: {
+        Args: { p_days?: number }
+        Returns: {
+          day_kst: string
+          n_high: number
+          n_total: number
+        }[]
+      }
+      alerts_severity_kst: {
+        Args: { p_days?: number }
+        Returns: {
+          n_high: number
+          n_low: number
+          n_medium: number
+          n_total: number
+        }[]
+      }
       camera_anomaly_scores: {
         Args: { p_baseline_days?: number; p_window_hours?: number }
         Returns: {
@@ -1210,9 +1266,12 @@ export type Database = {
         Returns: {
           cam_type: string
           camera_id: string
+          capturing: boolean
+          detection_status: string
           enabled: boolean
           faces_1h: number
           faces_24h: number
+          last_heartbeat: string
           last_seen: string
           name: string
           status: string
@@ -1236,6 +1295,15 @@ export type Database = {
           similarity: number
         }[]
       }
+      claim_retention_deletions: {
+        Args: { p_limit?: number }
+        Returns: {
+          bucket: string
+          id: string
+          lease_token: string
+          object_path: string
+        }[]
+      }
       consume_recovery_code: {
         Args: { p_code_hash: string; p_user_id: string }
         Returns: boolean
@@ -1250,6 +1318,20 @@ export type Database = {
       }
       email_for_username: { Args: { p_username: string }; Returns: string }
       face_in_privacy_zone: { Args: { p_face_id: string }; Returns: boolean }
+      faces_daily_kst: {
+        Args: { p_days?: number }
+        Returns: {
+          day_kst: string
+          n_faces: number
+        }[]
+      }
+      faces_hourly_kst: {
+        Args: { p_days?: number }
+        Returns: {
+          hour_kst: number
+          n_faces: number
+        }[]
+      }
       faces_in_recording: {
         Args: { rec_id: string }
         Returns: {
@@ -1301,7 +1383,25 @@ export type Database = {
           similarity: number
         }[]
       }
+      mfa_status: { Args: never; Returns: Json }
       ping: { Args: never; Returns: boolean }
+      rate_limit_hit: {
+        Args: {
+          p_cost?: number
+          p_key: string
+          p_max: number
+          p_window_sec: number
+        }
+        Returns: Json
+      }
+      rate_limit_release: {
+        Args: { p_cost?: number; p_key: string; p_window_sec: number }
+        Returns: undefined
+      }
+      settle_retention_deletions: {
+        Args: { p_error?: string; p_ids: string[]; p_lease_token: string }
+        Returns: number
+      }
       suggested_threshold: {
         Args: { p_suspect_id: string }
         Returns: {
@@ -1321,6 +1421,13 @@ export type Database = {
           query: string
           rows_avg: number
           total_ms: number
+        }[]
+      }
+      top_suspects_kst: {
+        Args: { p_days?: number; p_limit?: number }
+        Returns: {
+          n_alerts: number
+          suspect: string
         }[]
       }
       user_can_see_camera: { Args: { p_camera_id: string }; Returns: boolean }
