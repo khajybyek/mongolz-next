@@ -1,7 +1,9 @@
 # 0009 — Hierarchical per-face keys via hash chain
 
-* **Status:** Accepted
-* **Date:** 2026-05-19
+* **Status:** Accepted · implemented · **partially deployed** (settable from
+  `/users`, but every production profile is still level 0 and self-promotion is
+  an open gap — see "Deployment status" at the end)
+* **Date:** 2026-05-19 · deployment status revised 2026-09-08
 
 ## Context
 
@@ -51,7 +53,8 @@ Role → level mapping (illustrative):
 | Kₙ | Operator | only face N |
 
 Implementation: `ml-service/hierarchical_keys.py`
-(+ `tests/test_hierarchical_keys.py`, 19 cases;
+(+ `tests/test_hierarchical_keys.py`, 23 cases as of 2026-09-08 —
+`pytest tests/test_hierarchical_keys.py --collect-only -q`;
 `demo_hierarchical_reveal.py` for a visual matrix).
 
 ## Consequences
@@ -118,10 +121,39 @@ impossibility against our own backend.
 
 ### Deployment status (be accurate in the defense)
 
-`profiles.reveal_level` exists and is honoured end-to-end, **but no admin UI
-currently sets it** — every admin keeps the default `0` (director), so in the
-*current* deployment every admin can reveal/decrypt every face. The hierarchy
-is fully wired and testable; it is simply not yet populated. To make it a
-live control, expose `reveal_level` in `/users` (deferred — see CLAUDE.md).
-Do not claim "least-privilege enforced in production" until that ships; do
-claim "hierarchical per-face key scheme implemented + verified (22 tests)."
+*Rewritten 2026-09-08. The previous text said "no admin UI currently sets it";
+that has been false since the Tier 1 work landed — `/users` has set
+`reveal_level` since commit `1f7b8ef`.*
+
+**What is true today:**
+
+1. **The control exists and is wired end-to-end.** `profiles.reveal_level`
+   (0–99) is set from `/users` — `setRevealLevelAction` in
+   `app/(app)/users/actions.ts`, surfaced as the Layers control in
+   `users-table.tsx`. The action requires an admin session plus step-up
+   reauth, validates with zod, writes an audit row (`USER_REVEAL_LEVEL`), and
+   pins the super admin to level 0. The level is honoured by `reveal_job` and
+   by `/api/faces/[id]/secure-crop` (`chain_index < level → 403`).
+2. **It is not yet populated.** Every profile in production is still at level
+   `0`: 3 admins, 1 viewer, 1 auditor, all director-level (verified
+   2026-09-08: `select role, reveal_level, count(*) from public.profiles
+   group by 1,2`). So in the deployment as it stands, every admin can still
+   decrypt every face — not because the mechanism is missing, but because
+   nobody has been graded down.
+3. **KNOWN GAP — an admin can raise their own level.**
+   `setRevealLevelAction` checks that the *target* is not the super admin, but
+   it does **not** check that the caller is not the target, nor that the level
+   being granted is at or below the caller's own. An admin at level 5 can set
+   their own row to level 0 and unlock every face; the audit row records it
+   after the fact but nothing stops it. Found in the 2026-09-08 audit
+   (`docs/audits/2026-09-08-full-audit.mn.md` §5.2, remediation P1 #8) and
+   **not fixed at the time of writing** — it is being handled as a separate
+   change. Until it lands, the chain is a boundary against *stolen blobs* and
+   *out-of-band delegated keys* (the two threats above), not against a hostile
+   admin with a session.
+
+**Say this, and nothing stronger:** "the hierarchical per-face key scheme is
+implemented, verified by 23 tests
+(`ml-service/tests/test_hierarchical_keys.py`), and settable from the admin UI;
+levels are not yet assigned in production, and self-promotion is a known open
+gap." Do not say "least-privilege enforced in production".

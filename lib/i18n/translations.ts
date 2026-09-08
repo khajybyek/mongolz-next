@@ -2000,6 +2000,71 @@ export const T = {
   camd_err_url: { mn: "URL төрөлдөө тохирохгүй (rtsp:// · http(s):// · demo://<нэр> эсвэл төхөөрөмжийн дугаар)", en: "URL does not match the type (rtsp:// · http(s):// · demo://<name> or a device index)", kr: "URL이 유형과 맞지 않습니다 (rtsp:// · http(s):// · demo://<이름> 또는 장치 번호)" },
   rt_ack_failed: { mn: "Хүлээн авах амжилтгүй", en: "Acknowledge failed", kr: "확인 처리 실패" },
   toast_totp_required: { mn: "TOTP идэвхжүүлээгүй байна — Тохиргоо хэсэгт идэвхжүүлнэ үү", en: "TOTP is not enabled — enable it under Settings", kr: "TOTP가 활성화되지 않았습니다 — 설정에서 활성화하세요" },
+  // ── Backup: what the artifact can and cannot restore ──
+  backup_zip_contents: { mn: "ZIP-д юу байгаа вэ", en: "What is in the ZIP", kr: "ZIP에 들어 있는 것" },
+  backup_zip_tables: {
+    mn: "хүснэгт бүрийн мөрүүд JSON-оор (хуудаслаж, хүснэгт тус бүр 50,000 мөр хүртэл)",
+    en: "row dumps per table as JSON (paged, up to 50,000 rows each)",
+    kr: "테이블별 행 덤프 JSON (페이지 처리, 테이블당 최대 5만 행)",
+  },
+  backup_zip_buckets: {
+    mn: "Storage объектын жагсаалт — DB-ээс гаргасан зам ба bucket тус бүрийн нийт тоо (blob bytes ороогүй)",
+    en: "storage object lists — paths derived from the database plus a total per bucket (no blob bytes)",
+    kr: "스토리지 객체 목록 — DB에서 도출한 경로와 버킷별 총계 (blob 바이트 없음)",
+  },
+  backup_zip_manifest: {
+    mn: "багана бүрийн жагсаалт, мөрийн тоо, сэргээх хязгаарууд (машин уншихад зориулсан)",
+    en: "column lists, row counts and restore limits (machine-readable)",
+    kr: "컬럼 목록, 행 수, 복원 한계 (기계 판독용)",
+  },
+  backup_zip_readme: {
+    mn: "хүн уншихад зориулсан тайлбар + сэргээх алхмууд",
+    en: "human-readable summary + restore steps",
+    kr: "사람이 읽는 요약 + 복원 절차",
+  },
+  backup_include_biometrics: {
+    mn: "Биометрик embedding-ийг оруулах (suspects.embedding, faces.embedding)",
+    en: "Include biometric embeddings (suspects.embedding, faces.embedding)",
+    kr: "생체 임베딩 포함 (suspects.embedding, faces.embedding)",
+  },
+  backup_include_biometrics_help: {
+    mn: "512 хэмжээст ArcFace вектор нь хүнийг таних биометрик хувийн мэдээлэл. Зөвхөн энэ сонголттой архиваас `suspects` болон `faces` хүснэгтийг сэргээж чадна. Татахад TOTP дахин баталгаажуулалт шаардана, audit_log-д BACKUP_DOWNLOAD_BIOMETRIC гэж тусад нь бүртгэгдэнэ. Файлыг шифрлэсэн хадгалалтад л байлга.",
+    en: "A 512-dim ArcFace vector identifies the person it was computed from — biometric personal data. Only an export with this box ticked can restore `suspects` and `faces`. It requires fresh TOTP step-up and is audited separately as BACKUP_DOWNLOAD_BIOMETRIC. Keep the file in encrypted storage only.",
+    kr: "512차원 ArcFace 벡터는 해당 인물을 식별하는 생체 개인정보입니다. 이 항목을 선택한 내보내기만 `suspects` 와 `faces` 를 복원할 수 있습니다. 최신 TOTP 재인증이 필요하며 BACKUP_DOWNLOAD_BIOMETRIC 으로 별도 감사 기록됩니다. 파일은 암호화된 저장소에만 보관하세요.",
+  },
+  backup_limits_title: {
+    mn: "Энэ архиваас юуг сэргээх боломжгүй вэ",
+    en: "What this artifact cannot restore",
+    kr: "이 아카이브로 복원할 수 없는 것",
+  },
+  backup_limits_biometric: {
+    mn: "Дээрх сонголтгүйгээр `suspects`, `faces` хүснэгтийг сэргээх боломжгүй: suspects.embedding, faces.embedding нь NOT NULL боловч экспортод ордоггүй. Нүүр таних чадвар сэргэхгүй.",
+    en: "Without the box above, `suspects` and `faces` cannot be restored: suspects.embedding and faces.embedding are NOT NULL but are not exported. Face matching does not come back.",
+    kr: "위 옵션 없이는 `suspects` 와 `faces` 를 복원할 수 없습니다. suspects.embedding 과 faces.embedding 은 NOT NULL 이지만 내보내지 않습니다. 얼굴 매칭 기능은 복구되지 않습니다.",
+  },
+  backup_limits_auth: {
+    mn: "Supabase auth.users (нууц үг, сесс, identity) экспортод ОРДОГГҮЙ. profiles.id нь түүн рүү FK-тай тул эхлээд хэрэглэгчдийг дахин үүсгэх/урих (эсвэл auth схемийг PITR-ээр сэргээх) хэрэгтэй. TOTP түлхүүр, recovery код, passkey мөн ордоггүй — операторууд 2FA-гаа дахин бүртгүүлнэ.",
+    en: "Supabase auth.users (passwords, sessions, identities) is NOT exported. profiles.id is a FK onto it, so recreate or re-invite the accounts first (or restore the auth schema from PITR). TOTP seeds, recovery codes and passkeys are excluded too — operators re-enrol 2FA.",
+    kr: "Supabase auth.users(비밀번호, 세션, ID)는 내보내지 않습니다. profiles.id 가 이를 참조하므로 계정을 먼저 다시 만들거나 초대해야 합니다(또는 PITR 로 auth 스키마 복원). TOTP 시크릿, 복구 코드, 패스키도 제외됩니다 — 운영자는 2FA 를 다시 등록합니다.",
+  },
+  backup_limits_secrets: {
+    mn: "webhooks.url ба HMAC secret, push_subscriptions-ийн endpoint/p256dh/auth нь итгэмжлэл тул хэзээ ч экспортлогддоггүй — тэр хоёр хүснэгт зөвхөн лавлагаа. Камерын url нь CAMERA_URL_KEY-ээр шифрлэгдсэн хэвээр экспортлогддог: тэр түлхүүргүй бол унших боломжгүй.",
+    en: "webhooks.url + the HMAC secret and push_subscriptions endpoint/p256dh/auth are credentials and are never exported — those two tables are reference-only. cameras.url ships as the CAMERA_URL_KEY ciphertext: without that key it stays unreadable.",
+    kr: "webhooks.url 과 HMAC 시크릿, push_subscriptions 의 endpoint/p256dh/auth 는 자격증명이므로 내보내지 않습니다 — 두 테이블은 참조용입니다. cameras.url 은 CAMERA_URL_KEY 로 암호화된 상태로 포함되며, 그 키 없이는 읽을 수 없습니다.",
+  },
+  backup_limits_storage: {
+    mn: "Storage-ийн blob bytes ZIP-д ороогүй. Manifest нь DB-ээс (recordings.storage_path/original_path, faces.image_path + .enc, suspects.image_path, alerts.screenshot_path, reveal_jobs.output_path) гаргасан бүрэн жагсаалт ба bucket тус бүрийн нийт тоог агуулна — сэргээлт бүрэн эсэхийг түүгээр шалгана.",
+    en: "Storage blob bytes are not in the ZIP. The manifest lists every path the database references (recordings.storage_path/original_path, faces.image_path + .enc, suspects.image_path, alerts.screenshot_path, reveal_jobs.output_path) plus a total per bucket — check a restore for completeness against those totals.",
+    kr: "스토리지 blob 바이트는 ZIP 에 없습니다. 매니페스트에는 DB 가 참조하는 모든 경로(recordings.storage_path/original_path, faces.image_path + .enc, suspects.image_path, alerts.screenshot_path, reveal_jobs.output_path)와 버킷별 총계가 들어 있어 복원 완전성을 확인할 수 있습니다.",
+  },
+  backup_audited_as: {
+    mn: "Үйлдэл audit_log-д бүртгэгдэнэ:",
+    en: "Audited in audit_log as:",
+    kr: "audit_log 에 다음으로 기록됩니다:",
+  },
+  // ── live stream refusals (/api/ml/stream returns a `code`; the tile shows why) ──
+  grid_stream_forbidden: { mn: "Энэ камерыг шууд үзэх эрх олгогдоогүй", en: "You do not have live access to this camera", kr: "이 카메라의 실시간 영상 접근 권한이 없습니다" },
+  grid_stream_disabled: { mn: "Камер идэвхгүй байна", en: "Camera is disabled", kr: "카메라가 비활성화되어 있습니다" },
 } as const;
 
 export type TranslationKey = keyof typeof T;

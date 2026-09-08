@@ -16,15 +16,30 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 
 ### Q3. ML service-ийг яагаад Railway-ээс host хийсэн?
 
-> "FastAPI + InsightFace + OpenCV + FFmpeg — Vercel serverless-ийн 50MB limit-аас давах учир. Singapore region-руу latency 50ms-аас бага, contour deployment автомат, env-var management cleanly. Production бол Kubernetes (EKS / GKE) дээр шилжих байсан."
+> "FastAPI + InsightFace + OpenCV + FFmpeg — Vercel serverless-ийн 50MB limit-аас давах учир. Container deployment автомат, env-var management цэвэрхэн. **Гэхдээ нэг илэн далангүй зүйл**: Railway service маань одоогоор `us-west2` (АНУ) регионд ажиллаж байна — Supabase (`ap-southeast-1`) болон Vercel (`sin1`) Сингапурт байхад. Тиймээс frame бүр Сингапур → АНУ → Сингапур гэж явдаг: latency-д ~150ms нэмэгддэг, GDPR Art.44 талаас нь бол SG→US дамжуулалт болдог. Үүнийг `docs/COMPLIANCE.md` §2 болон DPIA §D.5-д бүртгэсэн; засах арга нь Railway-г APAC регион руу зөөх. Production бол Kubernetes (EKS / GKE) дээр, storage-тайгаа нэг регионд шилжүүлнэ."
 
 ### Q4. Cubist Mosaic algorithm нь яагаад Gaussian Blur-аас илүү вэ?
 
-> "Хоёр тал. **Privacy**: Cubist нь Voronoi-based tessellation, irreversible — pixel-аас гарсан structure recover хийхгүй. SSIM 0.3 орчим (Gaussian 0.7, Pixelate 0.5). **Aesthetics**: Cubist нь нүдэнд таатай харагдах art-style, хүний нүдэнд бачимдуулдаггүй. Defense-д live demo энэ хоёрыг харуулдаг."
+> "Бидний өөрийн хэмжилтээр (20 photo-realistic нүүр, 2026-05-18, `docs/BENCHMARK_REAL.md` + `ml-service/docs/BENCHMARK_REAL_FACES.json`):
+>
+> | Алгоритм | SSIM (бага = илүү нууцлалтай) |
+> |---|---|
+> | cubist_relaxed | 0.598 ± 0.061 |
+> | **cubist_standard** | **0.613 ± 0.058** |
+> | cubist_vip | 0.626 ± 0.059 |
+> | pixelate 8×8 | 0.627 ± 0.061 |
+> | gaussian 21×21 | 0.778 ± 0.058 |
+>
+> Гурван зүйлийг илэн далангүй хэлнэ:
+> 1. **Gaussian-аас тодорхой хүчтэй** (0.61 vs 0.78) — Gaussian-ыг татгалзсан шийдвэр маань хэмжилтээр батлагдсан.
+> 2. **Pixelation-аас статистикийн хувьд ялгарахгүй** (0.613 vs 0.627, σ ≈ 0.06). Cubist-ийн давуу тал нь энд нууцлалын хүч биш — visual affordance: pixelation нь «энд мэдээлэл байсан» гэж хашгирдаг бол cubist нь operator-ын нүдийг ядраадаггүй.
+> 3. **SSIM бол structural similarity, re-identification-ы хэмжүүр биш.** Жинхэнэ хэмжүүр — masked нүүрийг ArcFace-аар дахин encode хийж cosine-ыг харах — `eval/benchmark_mask_algorithms.py`-д stub хэвээр, хараахан ажиллуулаагүй. Тиймээс би «re-identification боломжгүй» гэж хэлэхгүй, «structure-ийн ихэнхийг устгасан, эх хувь нь шифрлэгдсэн, reveal нь 4-eyes» гэж хэлнэ.
+>
+> (Хуучин слайд дээр «SSIM 0.3» гэж явсан нь буруу байсан — тэр тоо `docs/BENCHMARK.md`-ийн synthetic 12 зурган run-аас гаралтай бөгөөд scikit-image байхгүй үед correlation-squared fallback ашигласан; тэр run-д бүх алгоритм 0.457–0.479 гарч ялгагдахгүй байсан.)"
 
 ### Q5. RLS policy яаж organize хийсэн?
 
-> "14 хүснэгт дээр нийт 24 policy. Pattern нь:
+> "`public` schema-д 23 хүснэгт, бүгд дээр RLS асаалттай; 22 хүснэгт дээр нийт 46 policy. Үлдсэн нэг нь (`retention_deletion_queue`) policy-гүй — RLS асаалттай мөртлөө policy байхгүй нь Postgres-д «хэн ч уншиж чадахгүй» гэсэн үг, зөвхөн `service_role` cron хандана. Pattern нь:
 > - admin (full access via `current_user_role()` helper, SECURITY DEFINER)
 > - viewer (read-only, no `cameras.url`, no recording bytes)
 > - auditor (зөвхөн `audit_log` хүснэгт + `/audit*` route)
@@ -43,9 +58,9 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 > - **trufflehog secret scan** — PR + weekly, 0 verified leaks.
 > - **Nuclei DAST** — 8000+ CVE templates, weekly. 0 findings.
 > - **OWASP ZAP baseline** — passive rules + AJAX spider. 52 PASS, 18 WARN (each triaged in `docs/PENTEST_REPORT.pdf`), **0 FAIL**.
-> - **Multi-agent manual audit** — 27 findings raised, 11 verified bugs fixed.
+> - **Multi-agent manual audit** — repeated passes; the most recent (2026-09-08, `docs/audits/2026-09-08-full-audit.mn.md`) raised **78 findings**, put the 24 serious ones through independent refutation, and confirmed 10 High / 13 Medium / 1 Low. Nothing was refuted. That report is checked into the repo unedited, including the findings that are still open.
 >
-> External annual pentest by an accredited firm is documented as a deferred residual risk pre-production."
+> External annual pentest by an accredited firm is documented as a deferred residual risk pre-production. And the honest framing: an audit that finds 78 things is not a sign the system is bad — it is the reason the documentation you are reading matches the code."
 
 ### Q7. "All admins lose their TOTP. What happens?"
 
@@ -57,14 +72,20 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 
 ### Q8. "Insider threat? What if an admin abuses their access?"
 
-> "Three layers of defense in depth:
+> "Three layers of defense in depth — and one honest boundary:
 > 1. **4-eyes principle on reveal** — opening a recording's encrypted original requires a 2nd admin to approve. Single admin cannot unilaterally unmask.
 > 2. **Hash-chained audit log** — `verify_audit_chain()` RPC catches row deletion or modification. Even service-role tampering would break the chain.
-> 3. **TOTP step-up on every destructive op** — adding/deleting suspects, users, rules, webhooks, plus backup download. Compromised session cannot exfiltrate without TOTP."
+> 3. **TOTP step-up on every destructive op** — adding/deleting suspects, users, rules, webhooks, plus backup download. Compromised session cannot exfiltrate without TOTP.
+>
+> **What the ledger does and does not see.** It records every privileged change, every login/step-up, and the read paths that actually expose personal data — sealed-crop decryption, recording playback, the live-stream playlist (allowed *and* denied), 1:N face search, cross-camera re-id trails, alert CSV export, reveal-output download — one row per operator per object per 5 minutes. It does **not** record page views, dashboard/analytics aggregates, or a read the browser makes straight against PostgREST with its own token (RLS still bounds the rows; the read leaves no row in the ledger). So: an insider's *data extraction* is attributable, their *browsing* is not. I'd rather state that than claim 'everything is logged'."
 
 ### Q9. "What is your RTO and RPO?"
 
-> "RTO ≤ 60 min, RPO ≤ 24 h. Backup ZIP is verified daily via cron — the `/api/cron/backup-verify` endpoint runs 5 randomly-sampled recordings through the ML service's `/reveal/verify-blob` decrypt smoke test. Restore drill procedure is documented in `docs/RUNBOOK.md` §3 with explicit acceptance criteria. Drill timed at 35-50 min on a staging copy."
+> "RTO ≤ 60 min, RPO ≤ 24 h. Two different things are verified, and I keep them apart:
+> - **Ciphertext is decryptable** — `/api/cron/backup-verify` samples recordings daily and runs them through the ML service's `/reveal/verify-blob` smoke test.
+> - **The backup ZIP** (`/backup`) contains `tables/*.json` plus `buckets/*.manifest.json` — object paths derived from the database, **not** the blob bytes. Media is restored from Supabase Storage / point-in-time recovery; the ZIP tells you exactly which objects must come back and how many. The README inside the ZIP states that limit, and `scripts/restore-from-backup.ts` reads the same manifest.
+>
+> Restore drill procedure is in `docs/RUNBOOK.md` §3 with explicit acceptance criteria; drill timed at 35–50 min on a staging copy."
 
 ### Q10. "How does the AES-256 key derivation work?"
 
@@ -81,8 +102,9 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 > "Capstone-scope compliance documented in `docs/COMPLIANCE.md`. Mapped to GDPR Articles:
 > - **Art. 5** (data minimization) — raw frames discarded after embedding extraction.
 > - **Art. 15 / 17 / 20** (access / erasure / portability) — `/privacy` self-service page + `/api/gdpr/export` + `/api/gdpr/delete`.
-> - **Art. 25** (privacy by design) — Cubist mosaic at capture, AES-256-GCM on originals.
-> - **Art. 30** (records of processing) — hash-chained `audit_log`.
+> - **Art. 25** (privacy by design) — AES-256-GCM on originals; the Cubist mosaic is rendered on demand for playback so no plaintext view is stored (ADR 0010). The live feed is the acknowledged exception.
+> - **Art. 30** (records of processing) — hash-chained `audit_log` (coverage boundary in Q8).
+> - **Art. 44** (transfers) — storage in Singapore, ML processing in the US; recorded in COMPLIANCE.md §2 and DPIA §D.5.
 > - **Art. 32** (security of processing) — full security stack documented.
 > - **Art. 33/34** (breach notification) — process in `docs/BREAK_GLASS.md`.
 > - **Art. 35** (DPIA) — this document is the lightweight DPIA.
@@ -91,10 +113,12 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 
 ### Q12. "Korean PIPA compliance?"
 
-> "Same `docs/COMPLIANCE.md` maps to PIPA Articles 15 / 17 / 23 / 28-2 / 29 / 35 / 36 / 39. Three Korean talking points:
-> - 원본은 암호화되어 저장되고 열람 시점에 비식별화됩니다 (encrypted at rest, anonymised at view time — ADR 0010).
+> "Same `docs/COMPLIANCE.md` maps to PIPA Articles 15 / 17 / 23 / 28-2 / 28-8 / 29 / 35 / 36 / 39. Three Korean talking points:
+> - 저장된 원본은 암호화되어 있고, 재생 화면은 열람 시점에 비식별화됩니다 (stored original encrypted, playback view anonymised at request time — ADR 0010; the live feed is a separate, unmasked path).
 > - 원본은 AES-256-GCM 으로 암호화되며, 4-eyes 승인 후에만 복원됩니다 (originals encrypted, 4-eyes reveal).
-> - 모든 권한 있는 액세스는 해시 체인 감사 로그에 기록됩니다 (privileged access in hash-chained audit log)."
+> - 권한 변경과 개인정보 열람 경로(복호화·재생·검색·내보내기)는 해시 체인 감사 로그에 기록됩니다 (privileged changes **and the personal-data read paths** in the hash-chained audit log — not page views, not direct PostgREST reads).
+>
+> One thing I volunteer rather than wait to be asked: 국외 이전 (Art. 28-8). Storage is in Singapore, but the ML service that decrypts and embeds faces runs in the United States (`us-west2`). It is recorded in COMPLIANCE.md §2/§4 and DPIA §D.5, and the fix is to move the service to an APAC region."
 
 ### Q13. "What is the legal basis for processing biometric data?"
 
@@ -135,7 +159,7 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 
 ### Q17. "Why a Vercel-based production?"
 
-> "Vercel + Supabase + Railway co-located in Singapore (`sin1` / `ap-southeast-1`) gives sub-50ms inter-service latency. Edge functions for nonce-based CSP. Auto-deploy on git push for capstone iteration speed. Production launch in a real org would likely shift to Kubernetes for stricter network policies."
+> "Vercel (`sin1`) and Supabase (`ap-southeast-1`) are co-located in Singapore, which gives sub-50 ms latency for everything that is only rows and blobs. The Railway ML service is the exception — it sits in `us-west2` (United States), so any request that has to touch face detection pays a trans-Pacific round trip and, more importantly, moves biometric data across a border (COMPLIANCE.md §2, DPIA §D.5). Edge functions give us nonce-based CSP. Auto-deploy on git push for capstone iteration speed. Production launch in a real org would shift to Kubernetes for stricter network policies — and would pin ML to the same region as storage."
 
 ### Q18. "How many lines of code? How long did it take?"
 
@@ -146,7 +170,7 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 > "Three things:
 > 1. **Plan for light mode from day 1**. Adding it retroactively to a dark-only design system is painful — every color decision has to be re-evaluated.
 > 2. **Move all blob bytes off Supabase Storage** to a dedicated object store like Backblaze B2. Supabase Storage egress pricing scales with recording size, and we're storing AES-encrypted MP4s that don't need PostgREST RLS.
-> 3. **Hire an external pentest earlier**. We replaced it with automated SAST/DAST + agent audit which caught 13 real bugs — but an experienced pentester's intuition for chained vulnerabilities is irreplaceable."
+> 3. **Hire an external pentest earlier**. We replaced it with automated SAST/DAST plus repeated multi-agent audits — which did catch real bugs, including several the green test suite never saw — but an experienced pentester's intuition for chained vulnerabilities is irreplaceable. The 2026-09-08 audit made that concrete: the strongest findings were not broken crypto, they were gaps between what the documentation claimed and what the code did."
 
 ### Q20. "Is the code open source?"
 

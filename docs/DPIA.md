@@ -1,7 +1,7 @@
 # Data Protection Impact Assessment — MONGOLZ Security
 
 > **GDPR Art.35 + Korean PIPA Art.33** · Capstone 2026-01-CD-03-07 · 3B-26-1
-> Last reviewed 2026-05-18
+> Last reviewed 2026-09-08
 
 This DPIA template follows the EU EDPB structure (Sept-2017 guidelines) and
 the ICO's UK GDPR DPIA template, adapted for an academic capstone deployment.
@@ -26,10 +26,24 @@ the ICO's UK GDPR DPIA template, adapted for an academic capstone deployment.
 
 ### B.1 Nature, scope, context and purposes
 
-**Nature**: Continuous video capture from networked cameras; on-capture
-privacy mask (Voronoi-tessellation Cubist mosaic); AES-256-GCM encrypted
-archive of the unprocessed original; admin-initiated reveal workflow with
-4-eyes approval to recover original frames of specific subjects.
+**Nature**: Continuous video capture from networked cameras; AES-256-GCM
+encrypted archive of the unprocessed original; a privacy mask
+(Voronoi-tessellation Cubist mosaic) applied **when a stored recording is
+played back** — the masked view is rendered on demand from the encrypted
+original and never persisted in Storage (ADR 0010); admin-initiated reveal
+workflow with 4-eyes approval to recover original frames of specific subjects.
+
+**Where the mask is *not* applied**: the live HLS feed. Frames go to the live
+writer unmasked (`ml-service/recording_pipeline.py`, "LIVE = unblurred"), so an
+operator watching `/live`, `/grid` or `/wall` sees faces in the clear. That path
+is authenticated, recorded (`STREAM_VIEWED`, refusals as `STREAM_DENIED`) and
+authorised per camera: the camera must be enabled, an admin passes, and every
+other role needs an explicit `camera_permissions` row. The RLS helper
+`user_can_see_camera()` is still default-allow by design, so the rule is
+enforced in the stream route on top of it. `camera_permissions` is empty in the
+current deployment, so no non-admin can watch live video today. The residual
+gap is that the live frames themselves are unmasked — see
+`docs/audits/2026-09-08-full-audit.mn.md`.
 
 **Scope (per-recording typical)**:
 - Resolution 1280×720 @ 15fps
@@ -118,8 +132,8 @@ Documented in detail in `docs/THREAT_MODEL.md` §3 STRIDE matrix. Highlights:
 | Access control | Role-based (admin / viewer / auditor / super-admin) + RLS + middleware allow-list |
 | 4-eyes for high-impact actions | Reveal jobs gated by `reveal-approvals` page |
 | Auth factors | password + TOTP 2FA (mandatory for admin) + WebAuthn passkey |
-| Audit | Hash-chained log + `verify_audit_chain()` RPC |
-| Pseudonymisation | Masking-at-capture; embeddings stored separately from raw images |
+| Audit | Hash-chained log + `verify_audit_chain()` RPC. Covers every privileged mutation, every authentication/step-up event, and the personal-data read paths — `FACE_CROP_VIEWED`, `RECORDING_VIEWED`, `STREAM_VIEWED`/`STREAM_DENIED`, `FACE_SEARCH`, `REID_TRAIL`, `ALERTS_EXPORTED`, `REVEAL_OUTPUT_DOWNLOADED` (`lib/audit.ts`). Object-scoped reads collapse to one row per user per object per 5 minutes; for live streams only the playlist request is logged, not each segment. Does **not** cover page views, dashboard/analytics aggregates, the audit-log's own CSV export, or reads a browser makes directly against PostgREST under RLS |
+| Pseudonymisation | Cubist mask applied to the playback view (not at capture, and not on the live feed — see §B.1); embeddings stored separately from raw images |
 | Backup | Supabase point-in-time recovery (24 h RPO) + weekly `backup-verify` cron tests decryption |
 | Incident response | `BREAK_GLASS.md` 5 procedures + Sentry + Slack alert on lockout |
 | Continuous security testing | Semgrep (681 rules) + trufflehog + Nuclei + OWASP ZAP — all weekly |
@@ -129,12 +143,71 @@ Documented in detail in `docs/THREAT_MODEL.md` §3 STRIDE matrix. Highlights:
 
 | Risk | Likelihood | Severity | Mitigation | Residual |
 |---|---|---|---|---|
-| Subject re-identified despite mask | Low | High | Cubist Voronoi mosaic SSIM ≈ 0.3 (vs Gaussian ≈ 0.7); embedding-based identification is the explicit decryption purpose, not an attack | Low |
+| Subject re-identified despite mask | Medium | High | Cubist Voronoi mosaic measured at **SSIM 0.613 ± 0.058** (standard tier, n = 20) vs Gaussian 0.778 and 8×8 pixelation 0.627 — see the measurement note below. Masking is one layer; the originals are encrypted and the reveal path is 4-eyes gated | **Medium** — the mask beats Gaussian clearly, but its margin over pixelation is inside one standard deviation, and no face-recovery rate has been measured |
+| Faces visible unmasked on the live feed | High | High | Live HLS is not masked (§B.1). Access requires an authenticated session, is recorded per view, and is restricted to admins plus holders of an explicit `camera_permissions` grant; the unmasked segments are deleted when the session stops | **Medium** — the audience is now bounded and attributable, but the frames are still unmasked: do not describe live viewing as privacy-preserving |
+| Decrypted biometric data processed outside the storage region | High (by design) | Medium | Recordings are stored in Singapore but decrypted, detected and embedded by the Railway ML service in **`us-west2` (United States)**; transport is TLS 1.3 and the blobs are AES-256-GCM at rest on both ends | **Medium** — an unpapered SG → US transfer of Art. 9 data; see §D.5 |
 | Mask bypass via reveal misuse | Low | Critical | 4-eyes approval + step-up TOTP + audit chain + time-bounded scope + watermark on output | Very low |
 | Bystander face captured + revealed | Medium | Medium | Reveal flow targets specific face_id only; everyone else stays masked even after reveal; time-bounded window limits temporal scope | Low |
 | Storage breach | Low | High | AES-256-GCM means breach alone yields ciphertext; HKDF per-recording means single-key compromise affects one file | Very low |
-| Insider abuse | Medium | High | RLS + audit + 4-eyes + lockout alerts + super-admin DB lock; auditor role is read-only | Low |
+| Insider abuse | Medium | High | RLS + 4-eyes reveal + lockout alerts + super-admin DB lock; auditor role is read-only. The hash-chained log records every privileged change, every login/step-up, and the personal-data read paths listed in §D.3 — so decrypting a crop, opening a recording, running a 1:N search, exporting a CSV or pulling a reveal output is attributable. It does **not** record page views, dashboard aggregates, or direct PostgREST reads, so a curious operator's browsing is only partially reconstructable | **Medium** — attributable for the paths that expose data, blind for ordinary browsing |
 | Data subject not notified of breach | Medium | High | Sentry incident → Slack alert → manual notification per Art.33(1) timeline; `BREAK_GLASS.md` §3 documents the 72-hour clock | Low |
+
+#### Measurement note — where the masking numbers come from
+
+Earlier revisions of this DPIA justified a *Low* residual with "Cubist SSIM ≈ 0.3
+(vs Gaussian ≈ 0.7)". No run in this repository produced 0.3. The two runs that
+exist are:
+
+| Run | Corpus | Cubist standard | Cubist VIP | Pixelate 8×8 | Gaussian 21×21 |
+|---|---|---|---|---|---|
+| `ml-service/docs/BENCHMARK_REAL_FACES.json` → `docs/BENCHMARK_REAL.md`, 2026-05-18 | 20 StyleGAN3 face crops (~600², photo-realistic) | **0.613 ± 0.058** | 0.626 ± 0.059 | 0.627 ± 0.061 | 0.778 ± 0.058 |
+| `docs/BENCHMARK_RESULTS.json` → `docs/BENCHMARK.md`, 2026-05-18 | 12 synthetic crops drawn with OpenCV primitives | 0.457 ± 0.016 | 0.457 ± 0.013 | 0.476 ± 0.003 | 0.479 ± 0.007 |
+
+The second run is the source of the "0.457" figure quoted in the 2026-09-08
+audit. It is **not** comparable to the first: it uses drawn shapes rather than
+faces, and `docs/BENCHMARK.md` records that scikit-image was absent so SSIM fell
+back to a correlation-squared approximation. Its own spread (0.457 → 0.479
+across every algorithm, Gaussian included) shows it cannot discriminate between
+masks and should not be quoted as a privacy figure.
+
+The real-face run is the one to cite. What it supports:
+
+- Cubist is materially stronger than Gaussian blur (0.613 vs 0.778) — the
+  design decision to reject Gaussian is evidence-backed.
+- Cubist standard is **not** meaningfully stronger than 8×8 pixelation
+  (0.613 vs 0.627, σ ≈ 0.06). The tier ordering relaxed < standard < VIP holds
+  for PSNR but the SSIM differences between cubist tiers are within noise.
+- SSIM is a structural-similarity proxy, not a re-identification measure. The
+  metric that would justify a *Low* residual — ArcFace cosine between the
+  original face and the masked face (face-recovery rate) — is still a stub in
+  `ml-service/eval/benchmark_mask_algorithms.py` and has never been run.
+
+Reproduce: `cd ml-service && ./venv/bin/python eval/benchmark_mask_algorithms.py
+--input-dir samples/ --output docs/BENCHMARK_REAL_FACES.json` (needs
+`scikit-image`; the sample fetcher is `eval/fetch_face_samples.py`).
+
+### D.5 International transfers (Art. 44–49)
+
+| Hop | What crosses | Region |
+|---|---|---|
+| Browser → Vercel | Session, UI requests, uploaded frames | Vercel `sin1`, Singapore (`vercel.json`) |
+| Vercel → Supabase | Rows, encrypted blobs, signed URLs | Supabase `ap-southeast-1`, Singapore |
+| Vercel/Supabase → Railway ML | **Decrypted frames, face crops, embeddings** | Railway **`us-west2`, United States** |
+| Vercel → Anthropic (Claude) | Alert summaries — text only, no images/embeddings | us-east |
+| App → Sentry | Error events (scrubbed) | us-east |
+
+The third hop is the material one: the ML service holds `ML_ENCRYPTION_KEY`,
+decrypts recordings and computes embeddings, so Art. 9 biometric data is
+processed in the United States even though it is stored in Singapore. Verified
+2026-09-08 from the Railway API (`railway status --json`, `multiRegionConfig`
+for deployment `194b45c0`); earlier revisions of this DPIA and of
+`docs/COMPLIANCE.md` incorrectly recorded it as Singapore.
+
+For any EU or Korean subject this needs SCCs (plus a transfer risk assessment
+for Art. 9 data), or the ML service pinned to an APAC region so processing
+follows storage. For the current capstone deployment the only subjects are the
+project owner and consenting test subjects, which is why the DPIA does not stop
+here — but the transfer is now on the record.
 
 ---
 
@@ -145,7 +218,8 @@ Documented in detail in `docs/THREAT_MODEL.md` §3 STRIDE matrix. Highlights:
 | Art.15 | Lawful purpose for collection | Documented in §B.1 |
 | Art.17 | Provision to third parties | None — single-deployment architecture |
 | Art.23 | Sensitive data handling (incl. biometrics) | AES-256-GCM + RLS + admin-only retrieval |
-| Art.28-2 | De-identification | Masking at capture is the de-identification step |
+| Art.28-2 | De-identification | The Cubist mask on the playback view is the de-identification step; it is not applied to the live feed (§B.1), and its measured strength is in the note under §D.4 |
+| Art.28-8 | Cross-border transfer (국외 이전) | Biometric processing is outsourced to Railway in the United States — see §D.5. Consent / SCC basis to be papered before any non-test subject is captured |
 | Art.29 | Technical safeguards | See §D.3 |
 | Art.35 | Data subject rights | Mirror of GDPR Art.15–22 above |
 | Art.39 | Penalties for negligence | Audit log + lockout alerts ensure incident traceability |
@@ -160,5 +234,9 @@ Documented in detail in `docs/THREAT_MODEL.md` §3 STRIDE matrix. Highlights:
 | Data subject representative | N/A (test deployment) | — |
 | Review trigger | Quarterly + on auth/RLS/encryption change | See §6 of `THREAT_MODEL.md` |
 
-**Document version**: 1.0
-**Next review**: 2026-08-18 OR on first feature touching auth/RLS/encryption.
+**Document version**: 1.1 — 2026-09-08 correction pass after the full audit
+(`docs/audits/2026-09-08-full-audit.mn.md`): masking is at view time and absent
+from the live feed, the SSIM figures now match the repository's own benchmark
+runs, audit-log coverage is stated with its boundary, and the SG → US processing
+transfer is recorded in §D.5.
+**Next review**: 2027-03-08 OR on first feature touching auth/RLS/encryption.

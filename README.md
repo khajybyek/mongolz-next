@@ -1,16 +1,36 @@
 # MONGOLZ Security
 
 > Privacy-preserving CCTV face recognition with hierarchical reveal authority,
-> hash-chained audit trail, and end-to-end encrypted recordings.
+> a hash-chained audit trail, and server-side encrypted recordings
+> (AES-256-GCM at rest, TLS in transit — **not** end-to-end: the ML service
+> holds the key and decrypts server-side to render a view).
 >
 > Live at **[aicctv.dev](https://aicctv.dev)** · capstone project (3B-26-1).
 
 Saved recordings store ONE encrypted MP4 of the original footage; every viewer
 sees a derived, on-demand blurred render. Per-face crops are sealed with a
 hash-chain key (ADR 0009) so a "Level N" operator can unblur faces ≥ N but
-not below. Reveals require 4-eyes approval; HLS streams are per-camera
-authorised. No plaintext face crop is persisted at rest for any new
-detection — only the AES-256-GCM blob.
+not below. Reveals require 4-eyes approval. No plaintext face crop is uploaded
+to Storage for any new detection — only the AES-256-GCM blob.
+
+**What "encrypted" does and does not mean here.** Blobs are encrypted at rest
+in Supabase Storage with per-recording HKDF-derived AES-256-GCM keys, and the
+master key lives only in the ML service's environment. But that service holds
+the key, decrypts on every playback render and every reveal, and keeps
+transient plaintext on its own disk (`/tmp/mongolz-hls` for live segments,
+`/tmp/mongolz-views` for the masked render cache). A compromise of the ML
+service or its master key exposes the footage. Threat model:
+**stolen storage blobs and stolen database rows, not a malicious server** — the
+honest boundary is written out in `docs/adr/0009-*.md` §"Honest threat model".
+
+**One more thing to know before the feature list.** Masking happens at
+*playback*. The live HLS feed is unmasked: an operator on `/live`, `/grid` or
+`/wall` sees faces in the clear. Since the 2026-09-08 audit that path is
+authorised per camera and every view is recorded: an admin passes, and any
+other role needs an explicit `camera_permissions` row. `camera_permissions` is
+empty in production, so today only admins can watch live video until grants are
+added at `/cameras/<id>/permissions`
+(`docs/audits/2026-09-08-full-audit.mn.md`).
 
 ---
 
@@ -21,17 +41,26 @@ Browser ──► Vercel (Next.js 16 / sin1) ──► Supabase Cloud (ap-southe
                     │                            │ Postgres 17 + pgvector
                     ▼                            │ Auth / Storage / RLS
             Railway (Python ML)                  │ Edge Functions
-            asia-southeast1                      ▼
+            us-west2  ⚠ crosses SG → US          ▼
        InsightFace + OpenCV + FFmpeg     Claude · Telegram (pg_net async)
 ```
 
 | Layer | Tech | Region |
 |---|---|---|
-| Frontend | Next.js 16 · React 19 · TypeScript · Tailwind · hls.js · ONNX (WebGPU+WASM) | Vercel sin1 |
-| Auth + DB + Storage | Supabase (Postgres 17 · pgvector · 20 tables · 6 buckets · RLS on every table) | Supabase ap-southeast-1 |
-| ML service | Python 3.11 · FastAPI · InsightFace (buffalo_l) · OpenCV · FFmpeg | Railway asia-southeast1 |
+| Frontend | Next.js 16 · React 19 · TypeScript · Tailwind · hls.js · ONNX (WebGPU+WASM) | Vercel `sin1` (Singapore) — `vercel.json` |
+| Auth + DB + Storage | Supabase (Postgres 17 · pgvector · 23 tables · 6 buckets · RLS on every table) | Supabase `ap-southeast-1` (Singapore) |
+| ML service | Python 3.11 · FastAPI · InsightFace (buffalo_l) · OpenCV · FFmpeg | Railway **`us-west2` (United States)** |
 | AI insights | Claude (anomaly/summary/chat) via Supabase Edge | Cloudflare |
 | Observability | Sentry (`@sentry/nextjs`) · OpenTelemetry SDK | — |
+
+⚠ **The ML service is not co-located with storage.** Recordings live in
+Singapore; the service that decrypts them, detects faces and computes
+embeddings runs in the United States, so every frame crosses SG → US → SG. That
+is a GDPR Art. 44 / PIPA Art. 28-8 transfer of biometric data and it is
+recorded in `docs/COMPLIANCE.md` §2 + §4 and `docs/DPIA.md` §D.5. Verified
+2026-09-08 from `railway status --json` (`multiRegionConfig`, deployment
+`194b45c0`); earlier revisions of this table said `asia-southeast1`, which was
+wrong. Remediation on file: pin the Railway service to an APAC region.
 
 ---
 
@@ -52,7 +81,10 @@ Browser ──► Vercel (Next.js 16 / sin1) ──► Supabase Cloud (ap-southe
   with `chain_index ≥ N` and only those — a "director" (level 0) sees all
 - `/users` admin UI sets `reveal_level` per profile; super-admin is pinned to 0
 - Unified `/api/faces/[id]/secure-crop` proxies sealed crops through ML
-  (authority-gated) or streams the 41 pre-chain legacy plaintext crops
+  (authority-gated) or streams the pre-chain legacy plaintext crops. As of
+  2026-09-08 the production table holds 42 face rows, of which 39 predate the
+  chain (`chain_index is null`, unsealable) and 1 is sealed — the encrypt-only
+  pipeline is live but most stored faces are historical
 
 ### 4-eyes reveal (Tier 1, enforced)
 - `/reveal/start` inserts `status='pending_approval'`; ML does NOT trigger
@@ -70,10 +102,21 @@ Browser ──► Vercel (Next.js 16 / sin1) ──► Supabase Cloud (ap-southe
   `/playback`, reveal modal) consume crops through `<FaceThumb faceId>` →
   the unified endpoint
 
-### Per-camera authorisation (Tier 1, T1.4)
-- HLS playlist + every segment fetch calls `user_can_see_camera()` RPC
-- Viewer/non-admin cannot stream a camera they have no permission for, even
-  if they know its UUID and forge a ticket
+### Per-camera authorisation for live video — enforced
+- The HLS playlist and every segment run the same check: the camera must be
+  `enabled`, an admin passes, and every other role needs a row naming them in
+  `camera_permissions` for that camera
+- `user_can_see_camera()` is still called first (it mirrors the RLS helper) but
+  it is default-allow by design, so the route adds the explicit-grant rule on
+  top. Grants are managed at `/cameras/<id>/permissions`
+- A refusal returns 403 with `code` = `camera_disabled` /
+  `camera_not_authorized` / `permission_check_failed` and writes a
+  `STREAM_DENIED` audit row; a successful view writes `STREAM_VIEWED`
+  (one row per operator per camera per 5 minutes)
+- The live feed carries **unmasked** frames (masking is a playback-time step),
+  so this gate is the only thing standing between a non-admin account and faces
+  in the clear — `camera_permissions` is empty in production, which now means
+  no live video for non-admins rather than live video for everyone
 
 ### Live + recording (3 modes)
 - 💻 Device — `getUserMedia` (laptop / external webcam)
@@ -122,14 +165,14 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 | 1. UI | role-aware navigation — sidebar, header, tab bar and ⌘K palette share `lib/nav.ts` (admin / viewer / auditor) |
 | 2. Server gate | `requireAdmin()` / `requireUser()` redirect in every protected route |
 | 3. Middleware | auditor allow-list (only `/audit*`); per-camera redirect |
-| 4. RLS | every table; super-admin row protected by BEFORE trigger |
+| 4. RLS | on all 23 `public` tables; 46 policies across 22 of them, `retention_deletion_queue` deliberately policy-less (service-role only); super-admin row protected by a BEFORE trigger |
 | 5. Step-up reauth | password OR fresh TOTP, 15-min cookie TTL |
 | 6. Session pinning | IP/16 + UA fingerprint, HMAC-signed cookie, 7-day TTL |
 | 7. 4-eyes reveal | approver ≠ requester, defended at 3 layers |
-| 8. Reveal authority | hash-chain `K_index` forward-only (ADR 0009) |
-| 9. Crops encrypt-only | new faces never persist plaintext (Tier 2) |
-| 10. Audit hash-chain | tamper-evident; `verify_audit_chain()` SQL helper |
-| 11. Storage RLS | every bucket private; signed URLs ≤30min where needed |
+| 8. Reveal authority | hash-chain `K_index` forward-only (ADR 0009) — settable from `/users`, but every profile is still level 0 and an admin can currently raise their own level (open gap, see the ADR) |
+| 9. Crops encrypt-only | new faces never upload a plaintext crop to Storage (Tier 2) |
+| 10. Audit hash-chain | tamper-evident; `verify_audit_chain()` SQL helper. Covers every privileged mutation, every auth/step-up event, and the personal-data read paths (sealed-crop decrypt, playback view, live-stream playlist, 1:N search, re-id trail, alert CSV export, reveal-output download — `lib/audit.ts`), collapsed to one row per user per object per 5 min. Does **not** cover page views, dashboard aggregates, HLS segments, the audit-log CSV export, or direct PostgREST reads |
+| 11. Storage RLS | every data bucket private (`recordings`, `faces`, `suspects`, `revealed`, `alert-screenshots`); `branding` is public by design (logo + icons only); signed URLs ≤30min where needed |
 | 12. CSP + nonce | strict; violations forwarded to Sentry via `/api/csp-report` |
 | 13. FastAPI `/docs` | disabled in production (`ALLOW_API_DOCS=1` to re-enable) |
 | 14. Dual-key crypto | `ML_ENCRYPTION_KEY_PREV` fallback during rotation |
@@ -185,11 +228,11 @@ mongolz-next/
 │   ├── crypto_utils.py              # AES-256-GCM + dual-key rotation
 │   ├── anti_spoof.py / embedding_fusion.py / dp_embeddings.py
 │   ├── zk_reveal.py / telemetry.py / storage.py / camera_worker.py
-│   ├── tests/                       # 135 pytest cases
+│   ├── tests/                       # pytest suite (210 cases on 2026-09-08)
 │   └── Dockerfile + railway.json
 ├── supabase/
 │   ├── config.toml
-│   ├── migrations/                  # 76 migrations — files mirror cloud history 1:1 (`supabase migration list --linked`)
+│   ├── migrations/                  # 85 migrations — files mirror cloud history 1:1 (`supabase migration list --linked`)
 │   └── functions/{claude-analysis,telegram-alerts}/
 ├── e2e/                             # Playwright (public probes, i18n)
 └── scripts/                         # create-admin / demo-seed / rotate-keys / backup:restore / …
@@ -256,8 +299,8 @@ npx supabase functions deploy telegram-alerts --project-ref ulybenitqmqjfxtaregp
 ```bash
 npm run typecheck                    # tsc --noEmit
 npm run lint                         # eslint .
-npm test                             # jest — 107 tests
-cd ml-service && venv/bin/pytest -q  # 135 tests
+npm test                             # jest (222 tests in 25 suites on 2026-09-08)
+cd ml-service && venv/bin/pytest -q  # pytest (210 tests on 2026-09-08)
 npm run lint:db                      # supabase db lint --linked
 npm run lint:migrations              # migration filename + safety-waiver lint
 npm run gen:types                    # regenerate lib/database.generated.ts after every migration
@@ -275,7 +318,7 @@ npm run demo:seed / npm run demo:wipe
 
 Full start-to-finish audit (DB → auth → API → UI → ML). Highlights:
 
-- Migration history mirrors the cloud project 1:1 (76 files). `npm run gen:types`
+- Migration history mirrors the cloud project 1:1 (85 files as of 2026-09-08). `npm run gen:types`
   regenerates `lib/database.generated.ts`; every Supabase client is typed.
 - Self-signup is blocked at the DB (`handle_new_user` requires a confirmed
   identity and always assigns `viewer`); the super-admin guard reads JWT
@@ -332,4 +375,9 @@ Storage · Edge Functions) · Python 3.11 · FastAPI · InsightFace ArcFace
 (buffalo_l, 512-dim) · OpenCV · FFmpeg · AES-256-GCM · pg_net · Claude
 (anomaly/summary/chat) · Sentry · Playwright · Jest 30 · pytest.
 
-135 pytest + 107 jest = **242 tests**, all green at the time of this README.
+Suite sizes move every week, so take them from the runners rather than from
+this line: on 2026-09-08 it was **222 Jest** (25 suites, `npx jest`) +
+**210 pytest** (`pytest --collect-only -q`) + **98 Playwright** cases
+(6 spec files × 2 browser projects), all green. Note what that number does not
+cover: there is no component test and no server-action test, so the login,
+passkey and recovery-code paths are exercised only end-to-end.
