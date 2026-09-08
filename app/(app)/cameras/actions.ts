@@ -18,6 +18,18 @@ function isCamType(value: string): value is CamType {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+async function disableCameraAutoResume(id: string, message: string): Promise<void> {
+  try {
+    await createServiceClient()
+      .from("camera_sessions")
+      .update({ auto_resume: false, last_error: message.slice(0, 500), updated_at: new Date().toISOString() })
+      .eq("camera_id", id);
+  } catch {
+    // The action still returns the ML error; this best-effort write is only a
+    // second line of defence for the next ML-service restart.
+  }
+}
+
 /**
  * Built-in ML sample sources: demo://lobby | demo://gate | demo://parking.
  * The name is a short slug so the ML side can map it to a bundled clip and
@@ -93,11 +105,17 @@ export async function deleteCameraAction(
   id: string,
 ): Promise<{ error: string } | { ok: true }> {
   const { user } = await requireAdmin();
+  const { t } = await getT();
   const reauth = await ensureFreshReauth(user.id);
   if (reauth) return reauth;
   if (!UUID_RE.test(id)) return { error: "missing id" };
 
-  await mlStopCamera(id).catch(() => undefined);
+  try {
+    await mlStopCamera(id);
+  } catch {
+    await disableCameraAutoResume(id, "ML stop failed during camera deletion");
+    return { error: t("cam_stop_pending") };
+  }
 
   const supabase = await createClient();
   const { error } = await supabase.from("cameras").delete().eq("id", id);
@@ -117,8 +135,9 @@ export async function deleteCameraAction(
   return { ok: true };
 }
 
-export async function toggleCameraAction(formData: FormData) {
+export async function toggleCameraAction(formData: FormData): Promise<void> {
   const { user } = await requireAdmin();
+  const { t } = await getT();
   const id = String(formData.get("id") ?? "");
   const enabled = String(formData.get("enabled") ?? "false") === "true";
 
@@ -127,9 +146,14 @@ export async function toggleCameraAction(formData: FormData) {
   const supabase = await createClient();
   const { error } = await supabase.from("cameras").update({ enabled }).eq("id", id);
   if (error) return;
-  // A disabled camera must not keep capturing (or auto-resume after a
-  // redeploy): tell the ML service, best-effort.
-  if (!enabled) await mlStopCamera(id).catch(() => undefined);
+  if (!enabled) {
+    try {
+      await mlStopCamera(id);
+    } catch {
+      await disableCameraAutoResume(id, "ML stop failed after camera disabled");
+      throw new Error(t("cam_stop_pending"));
+    }
+  }
 
   try {
     await createServiceClient().from("audit_log").insert({
@@ -184,7 +208,14 @@ export async function updateCameraAction(
   } catch {
     sourceChanged = true;
   }
-  if (sourceChanged) await mlStopCamera(id).catch(() => undefined);
+  if (sourceChanged) {
+    try {
+      await mlStopCamera(id);
+    } catch {
+      await disableCameraAutoResume(id, "ML stop failed after camera source update");
+      return { error: t("cam_stop_pending") };
+    }
+  }
 
   try {
     const svc = createServiceClient();

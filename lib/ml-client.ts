@@ -25,7 +25,9 @@ async function mlFetch(path: string, init: RequestInit = {}): Promise<Response> 
   const headers = new Headers(init.headers);
   if (ML_TOKEN) headers.set("Authorization", `Bearer ${ML_TOKEN}`);
 
-  const res = await fetch(`${ML_URL}${path}`, { ...init, headers, cache: "no-store" });
+  const timeout = AbortSignal.timeout(15_000);
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+  const res = await fetch(`${ML_URL}${path}`, { ...init, headers, signal, cache: "no-store" });
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
