@@ -16,6 +16,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { formatDate } from "@/lib/utils";
 import { getT } from "@/lib/i18n/server";
+import { ACCESS_THROTTLE_MS, READ_ACTIONS, recordAccess } from "@/lib/audit";
 import { PlaybackPlayer } from "./playback-player";
 import { FaceThumb } from "@/components/face-thumb";
 import type { FaceInRecording } from "@/lib/database.types";
@@ -35,7 +36,7 @@ export default async function PlaybackDetailPage({
   const { id } = await params;
   const sp = await searchParams;
   const initialFaceId = typeof sp.face === "string" ? sp.face : null;
-  const { profile } = await requireUser();
+  const { user, profile } = await requireUser();
   const { t } = await getT();
   const supabase = await createClient();
   const isAdmin = profile.role === "admin";
@@ -65,6 +66,19 @@ export default async function PlaybackDetailPage({
       .from("recordings")
       .createSignedUrl(rec.storage_path, 60 * 30);
     blurredUrl = signed?.signedUrl ?? null;
+    // A `baked` recording is fetched straight from Storage with this signed
+    // link, so the audited /api/recordings/[id]/view route never sees it —
+    // 28 of the 29 recordings in production are baked. Record the read here,
+    // or "playback view is logged" would be false for almost every recording.
+    if (blurredUrl) {
+      await recordAccess({
+        action: READ_ACTIONS.RECORDING_VIEWED,
+        detail: `recording=${rec.id} · baked · signed url ttl=1800s`,
+        userId: user.id,
+        userEmail: user.email,
+        throttleMs: ACCESS_THROTTLE_MS,
+      });
+    }
   }
 
   // Face metadata — admin only. Viewer-д face илрүүлэлтийн өгөгдөл харагдахгүй

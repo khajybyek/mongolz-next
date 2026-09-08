@@ -21,6 +21,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
+import { recordAccess, READ_ACTIONS, ACCESS_THROTTLE_MS } from "@/lib/audit";
 
 const ML_URL = process.env.NEXT_PUBLIC_ML_SERVICE_URL ?? "";
 const ML_TOKEN = process.env.ML_SERVICE_TOKEN ?? "";
@@ -29,7 +30,7 @@ const UUID_RE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
@@ -91,6 +92,20 @@ export async function GET(
       { status: upstream.status === 404 ? 404 : 502 },
     );
   }
+
+  // The masked view of a recording is still personal data: record who watched
+  // which recording. Written only after the ML service accepted the render —
+  // the 404/502 branches above are refusals, not viewings. Collapsed to one
+  // row per operator per recording per window, matching the 5-minute browser
+  // cache below (inside it a re-watch may never reach this route at all).
+  await recordAccess({
+    action: READ_ACTIONS.RECORDING_VIEWED,
+    detail: `recording=${id} · on-demand masked view`,
+    userId: auth.user.id,
+    userEmail: auth.user.email,
+    request,
+    throttleMs: ACCESS_THROTTLE_MS,
+  });
 
   // Stream the MP4 body straight through. Cache hint = "private" (per-user)
   // because the URL is auth-gated; "max-age=300" gives the browser 5 min of

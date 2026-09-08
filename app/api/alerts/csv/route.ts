@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { csvCell } from "@/lib/csv";
+import { recordAccess, READ_ACTIONS } from "@/lib/audit";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const auth = await requireAdminApi();
   if (isAuthErr(auth)) return auth.error;
   const supabase = await createClient();
@@ -28,6 +29,17 @@ export async function GET() {
       ].join(",")
     );
   }
+
+  // Alert history leaving the system as a file is an export, not a page view:
+  // it survives outside every control the app has. Logged with the row count
+  // once the file is built.
+  await recordAccess({
+    action: READ_ACTIONS.ALERTS_EXPORTED,
+    detail: `alerts csv · rows=${alerts?.length ?? 0}`,
+    userId: auth.user.id,
+    userEmail: auth.user.email,
+    request,
+  });
 
   return new NextResponse(lines.join("\n"), {
     headers: {

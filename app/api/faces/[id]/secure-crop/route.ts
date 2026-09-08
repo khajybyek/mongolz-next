@@ -24,6 +24,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { readRevealAuthority } from "@/lib/reveal-authority";
+import { recordAccess, READ_ACTIONS, ACCESS_THROTTLE_MS } from "@/lib/audit";
 
 const ML_URL = process.env.NEXT_PUBLIC_ML_SERVICE_URL ?? "";
 const ML_TOKEN = process.env.ML_SERVICE_TOKEN ?? "";
@@ -32,7 +33,7 @@ const UUID_RE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
@@ -69,6 +70,7 @@ export async function GET(
       return NextResponse.json({ error: "crop unavailable" }, { status: 404 });
     }
     const buf = Buffer.from(await blob.arrayBuffer());
+    await logCropRead(id, "legacy-plain", authority.level, auth.user, request);
     return new NextResponse(buf, {
       status: 200,
       headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, no-store" },
@@ -102,8 +104,36 @@ export async function GET(
     );
   }
 
+  await logCropRead(id, "sealed", authority.level, auth.user, request);
+
   return new NextResponse(upstream.body, {
     status: 200,
     headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, no-store" },
+  });
+}
+
+/**
+ * One ledger row per operator per face per throttle window. Written only once
+ * the pixels are on their way back — a 403 from the authority gate or a 404
+ * from storage is a refusal, not a look, and must not appear as one.
+ *
+ * Galleries render dozens of crops at once and `no-store` means a revisit
+ * re-fetches every one of them, so an un-throttled row per request would bury
+ * the ledger (and serialise on its hash-chain lock) without adding meaning.
+ */
+async function logCropRead(
+  faceId: string,
+  kind: "sealed" | "legacy-plain",
+  level: number,
+  user: { id: string; email: string },
+  request: NextRequest,
+): Promise<void> {
+  await recordAccess({
+    action: READ_ACTIONS.FACE_CROP_VIEWED,
+    detail: `face=${faceId} · ${kind} · level=${level}`,
+    userId: user.id,
+    userEmail: user.email,
+    request,
+    throttleMs: ACCESS_THROTTLE_MS,
   });
 }

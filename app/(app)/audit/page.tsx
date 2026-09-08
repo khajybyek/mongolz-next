@@ -7,6 +7,7 @@ import { requireAdminOrAuditor } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { formatDate } from "@/lib/utils";
 import { AuditFilters } from "./audit-filters";
+import { READ_ACTIONS } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,18 @@ const ACTION_COLORS: Record<string, string> = {
   REAUTH_OK: "bg-success/15 text-success",
   REAUTH_FAILED: "bg-danger/15 text-danger",
   REVEAL_REQUEST: "bg-warning/15 text-warning",
+  // Read events (2026-09-08 audit): who *looked* at personal data. Tinted
+  // apart from the mutations so an operator can scan a page for them; the
+  // action dropdown itself is fed by the audit_actions view, so these appear
+  // there as soon as the first row exists.
+  [READ_ACTIONS.FACE_CROP_VIEWED]: "bg-accent-2/15 text-accent-2",
+  [READ_ACTIONS.RECORDING_VIEWED]: "bg-accent-2/15 text-accent-2",
+  [READ_ACTIONS.STREAM_VIEWED]: "bg-accent-2/15 text-accent-2",
+  [READ_ACTIONS.FACE_SEARCH]: "bg-accent-2/15 text-accent-2",
+  [READ_ACTIONS.REID_TRAIL]: "bg-accent-2/15 text-accent-2",
+  [READ_ACTIONS.ALERTS_EXPORTED]: "bg-accent-2/15 text-accent-2",
+  [READ_ACTIONS.REVEAL_OUTPUT_DOWNLOADED]: "bg-warning/15 text-warning",
+  [READ_ACTIONS.STREAM_DENIED]: "bg-danger/15 text-danger",
 };
 
 interface SearchParams {

@@ -3,6 +3,7 @@ import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { mlEmbed } from "@/lib/ml-client";
 import { createServiceClient } from "@/lib/supabase/server";
 import { vectorParam } from "@/lib/pgvector";
+import { recordAccess, READ_ACTIONS } from "@/lib/audit";
 
 interface MatchRow {
   id: string;
@@ -35,6 +36,21 @@ export async function POST(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const matches = (rows ?? []) as MatchRow[];
+
+  // A 1:N biometric query ran against every stored face — the single most
+  // invasive read in the product, and until the 2026-09-08 audit it left no
+  // trace at all. Logged once the search actually resolved, hit or miss; the
+  // uploaded probe image itself is never described in the ledger.
+  await recordAccess({
+    action: READ_ACTIONS.FACE_SEARCH,
+    detail: `1:N face search · threshold=0.5 · matches=${matches.length}${
+      matches[0] ? ` · top=${matches[0].id} (${Number(matches[0].similarity).toFixed(3)})` : ""
+    }`,
+    userId: auth.user.id,
+    userEmail: auth.user.email,
+    request,
+  });
+
   if (matches.length === 0) return NextResponse.json({ matches: [] });
 
   const ids = matches.map((m) => m.id);

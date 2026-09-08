@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
+import { recordAccess, READ_ACTIONS } from "@/lib/audit";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -39,6 +40,18 @@ export async function GET(req: Request) {
     bbox: unknown;
     recording_id: string | null;
   }>;
+
+  // A trail reconstructs one person's movement across cameras — the reason
+  // Art. 35 calls this high risk. Logged after the RPC returned, with the
+  // query shape (window, threshold) so a reviewer can tell a targeted lookup
+  // from a wide sweep. Not throttled: every call is a distinct question.
+  await recordAccess({
+    action: READ_ACTIONS.REID_TRAIL,
+    detail: `face=${faceId} · hits=${rows.length} · window=${windowHours}h · threshold=${threshold}`,
+    userId: auth.user.id,
+    userEmail: auth.user.email,
+    request: req,
+  });
 
   // ADR 0009 / Tier 2: crop thumbnail-уудыг хариунд орохгүй — UI <FaceThumb
   // faceId> ашиглан unified endpoint-аас унш.

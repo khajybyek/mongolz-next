@@ -559,6 +559,18 @@ class RecordingSession:
         # Upload + DB-д бичих
         await self._finalize()
 
+        # The HLS window is the one place un-masked faces touch the disk: the
+        # live view is deliberately unblurred, and until now those segments
+        # were only cleared when the SAME camera started again, so a stopped,
+        # disabled or deleted camera left identifiable frames on the volume
+        # indefinitely. Clear them here so "deleted when the session ends" is
+        # true. Best-effort: a failure must never break stop().
+        try:
+            shutil.rmtree(self.hls_dir, ignore_errors=True)
+            log.info("Камер %s: HLS цонх цэвэрлэгдлээ", self.camera_id)
+        except Exception as e:  # noqa: BLE001
+            log.warning("camera %s: HLS cleanup failed: %s", self.camera_id, type(e).__name__)
+
     async def _finalize(self):
         # Race-condition засвар: бүх in-flight arcface task-уудыг дуусгана
         # эс тэгвээс late-finishing face insert-ууд recording_id NULL хэвээр
