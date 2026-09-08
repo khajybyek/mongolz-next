@@ -4,6 +4,7 @@ import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { verifyTOTPWithReplayCheck } from "@/lib/totp";
 import { checkRateLimit, REAUTH_LIMIT } from "@/lib/rate-limit";
+import { getT } from "@/lib/i18n/server";
 
 /**
  * Right to erasure (GDPR Art.17 / PIPA §36).
@@ -21,6 +22,16 @@ import { checkRateLimit, REAUTH_LIMIT } from "@/lib/rate-limit";
  *
  * Last-admin protection: if the only remaining admin tries to self-delete, the
  * request is rejected — must promote another admin first.
+ *
+ * Super-admin protection (2026-09-08 audit, 5.3): the DB trigger
+ * `public.protect_super_admin` exempts `service_role`, which is exactly the
+ * role every app write uses, so the "DB-locked" account could erase itself
+ * through this route while README/COMPLIANCE told the committee it could not.
+ * The refusal lives here, before any TOTP code is consumed. Removing the
+ * account genuinely requires a database owner in Supabase Studio (clear
+ * `profiles.is_super_admin`, or delete the row over a direct SQL session
+ * where the trigger's privileged-caller branch applies) — that is the
+ * documented break-glass path, and nothing in the app can substitute for it.
  *
  * Requires fresh TOTP if the user has TOTP enabled. Every write is checked;
  * the route never reports success for an account that still exists.
@@ -52,20 +63,39 @@ export async function POST(req: NextRequest) {
   }
 
   const svc = createServiceClient();
+  const { t } = await getT();
+
+  // Pull the canonical profile for totp_secret + role + the DB-locked flag.
+  const { data: full } = await svc
+    .from("profiles")
+    .select("id, email, role, totp_enabled, totp_secret, is_super_admin")
+    .eq("id", user.id)
+    .single();
+  if (!full) return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+
+  // The one account the app may never remove. Checked before the throttle and
+  // before the TOTP verify: this request can never succeed, so it must not
+  // burn a one-time code or the caller's shared step-up budget.
+  if (full.is_super_admin) {
+    try {
+      await svc.from("audit_log").insert({
+        action: "GDPR_ERASE_DENIED",
+        detail: "super admin self-erase refused — DB-locked account",
+        user_id: user.id,
+        user_email: user.email,
+      });
+    } catch {}
+    return NextResponse.json(
+      { error: t("gdpr_err_super_admin"), code: "SUPER_ADMIN_LOCKED" },
+      { status: 403 },
+    );
+  }
 
   // Same throttle as every other TOTP-checking endpoint.
   const rl = await checkRateLimit(user.id, REAUTH_LIMIT);
   if (!rl.ok) {
     return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.resetSec) } });
   }
-
-  // Pull the canonical profile for totp_secret + role
-  const { data: full } = await svc
-    .from("profiles")
-    .select("id, email, role, totp_enabled, totp_secret")
-    .eq("id", user.id)
-    .single();
-  if (!full) return NextResponse.json({ error: "Profile not found" }, { status: 404 });
 
   // Fresh TOTP if enabled
   if (full.totp_enabled) {
@@ -90,7 +120,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Super admin is DB-locked; last-admin protection for everyone else.
+  // Super admin is refused above; last-admin protection for everyone else.
   if (full.role === "admin") {
     const { count } = await svc
       .from("profiles")
@@ -98,7 +128,7 @@ export async function POST(req: NextRequest) {
       .eq("role", "admin");
     if ((count ?? 0) <= 1) {
       return NextResponse.json(
-        { error: "Cannot delete the last admin. Promote another user first." },
+        { error: t("gdpr_err_last_admin"), code: "LAST_ADMIN" },
         { status: 409 },
       );
     }

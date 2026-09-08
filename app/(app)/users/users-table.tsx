@@ -27,6 +27,11 @@ type PendingAction =
 
 export function UsersTable({ users, currentUserId }: { users: User[]; currentUserId: string }) {
   const { t } = useT();
+  // Reveal authority of the signed-in admin (ADR 0009): a LOWER number is
+  // broader authority. The server is the boundary (see setRevealLevelAction);
+  // this only stops the console from offering a change it will refuse.
+  // Unknown own row → 0, which offers nothing extra: the server still checks.
+  const callerLevel = users.find((u) => u.id === currentUserId)?.reveal_level ?? 0;
   const [pending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ id: string; type: "ok" | "err"; msg: string } | null>(
@@ -124,7 +129,15 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
   function saveLevel(user: User) {
     const n = Number(levelValue);
     if (!Number.isInteger(n) || n < 0 || n > 99) {
-      showFeedback(user.id, "err", "Reveal level 0–99 байх ёстой");
+      showFeedback(user.id, "err", t("users_err_level_range"));
+      return;
+    }
+    if (n < callerLevel) {
+      showFeedback(
+        user.id,
+        "err",
+        t("users_err_level_ceiling").replace("{level}", String(callerLevel)),
+      );
       return;
     }
     runPending({ kind: "level", user, level: n });
@@ -227,13 +240,19 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                             </button>
                             {u.role === "admin" && (
                               <button
-                                disabled={pending && busyId === u.id}
+                                disabled={
+                                  (pending && busyId === u.id) || u.reveal_level < callerLevel
+                                }
                                 onClick={() => {
                                   setLevelUserId(u.id);
                                   setLevelValue(String(u.reveal_level));
                                 }}
-                                title="Reveal authority level (ADR 0009)"
-                                className="btn-icon hover:text-accent"
+                                title={
+                                  u.reveal_level < callerLevel
+                                    ? t("users_err_level_target_higher")
+                                    : "Reveal authority level (ADR 0009)"
+                                }
+                                className="btn-icon hover:text-accent disabled:opacity-40"
                               >
                                 <Layers className="w-3.5 h-3.5" />
                               </button>
@@ -311,7 +330,7 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                           </span>
                           <input
                             type="number"
-                            min={0}
+                            min={callerLevel}
                             max={99}
                             value={levelValue}
                             onChange={(e) => setLevelValue(e.target.value)}
