@@ -129,9 +129,9 @@ Documented in detail in `docs/THREAT_MODEL.md` §3 STRIDE matrix. Highlights:
 |---|---|
 | Encryption at rest | AES-256-GCM per-recording HKDF keys |
 | Encryption in transit | TLS 1.3 via Vercel + Supabase + Railway edge |
-| Access control | Role-based (admin / viewer / auditor / super-admin) + RLS + middleware allow-list |
+| Access control | Role-based (admin / viewer / auditor / super-admin) + RLS + middleware allow-list. Ten personal-data tables additionally carry a restrictive RLS policy (`private.mfa_ok()`) that refuses a TOTP-enabled account's token unless it proves a factor other than a password — see "Auth factors" below |
 | 4-eyes for high-impact actions | Reveal jobs gated by `reveal-approvals` page |
-| Auth factors | password + TOTP 2FA (mandatory for admin) + WebAuthn passkey |
+| Auth factors | password + TOTP 2FA (mandatory for admin) + WebAuthn passkey. Enforced **at the data tier** as well as in the application since 2026-09-08: the access token of a TOTP-enabled account must carry an `amr` method other than `password`, so a stolen password used directly against the public Supabase REST endpoint reaches no personal data ([ADR 0011](adr/0011-mfa-at-the-data-tier.md)). Fail-open where the claim is unreadable; `service_role` still bypasses RLS |
 | Audit | Hash-chained log + `verify_audit_chain()` RPC. Covers every privileged mutation, every authentication/step-up event, and the personal-data read paths — `FACE_CROP_VIEWED`, `RECORDING_VIEWED`, `STREAM_VIEWED`/`STREAM_DENIED`, `FACE_SEARCH`, `REID_TRAIL`, `ALERTS_EXPORTED`, `REVEAL_OUTPUT_DOWNLOADED` (`lib/audit.ts`). Object-scoped reads collapse to one row per user per object per 5 minutes; for live streams only the playlist request is logged, not each segment. Does **not** cover page views, dashboard/analytics aggregates, the audit-log's own CSV export, or reads a browser makes directly against PostgREST under RLS |
 | Pseudonymisation | Cubist mask applied to the playback view (not at capture, and not on the live feed — see §B.1); embeddings stored separately from raw images |
 | Backup | Supabase point-in-time recovery (24 h RPO) + weekly `backup-verify` cron tests decryption |
@@ -149,7 +149,8 @@ Documented in detail in `docs/THREAT_MODEL.md` §3 STRIDE matrix. Highlights:
 | Mask bypass via reveal misuse | Low | Critical | 4-eyes approval + step-up TOTP + audit chain + time-bounded scope + watermark on output | Very low |
 | Bystander face captured + revealed | Medium | Medium | Reveal flow targets specific face_id only; everyone else stays masked even after reveal; time-bounded window limits temporal scope | Low |
 | Storage breach | Low | High | AES-256-GCM means breach alone yields ciphertext; HKDF per-recording means single-key compromise affects one file | Very low |
-| Insider abuse | Medium | High | RLS + 4-eyes reveal + lockout alerts + super-admin DB lock; auditor role is read-only. The hash-chained log records every privileged change, every login/step-up, and the personal-data read paths listed in §D.3 — so decrypting a crop, opening a recording, running a 1:N search, exporting a CSV or pulling a reveal output is attributable. It does **not** record page views, dashboard aggregates, or direct PostgREST reads, so a curious operator's browsing is only partially reconstructable | **Medium** — attributable for the paths that expose data, blind for ordinary browsing |
+| Insider abuse | Medium | High | RLS + 4-eyes reveal + lockout alerts + super-admin DB lock; auditor role is read-only. The hash-chained log records every privileged change, every login/step-up, and the personal-data read paths listed in §D.3 — so decrypting a crop, opening a recording, running a 1:N search, exporting a CSV or pulling a reveal output is attributable. It does **not** record page views, dashboard aggregates, or direct PostgREST reads, so a curious operator's browsing is only partially reconstructable — those direct reads now at least require a session that passed the second factor (ADR 0011) | **Medium** — attributable for the paths that expose data, blind for ordinary browsing |
+| Admin password used directly against the Supabase API | Medium | High | The REST/Auth endpoints are public and the anon key ships in the browser bundle, so a stolen admin password used to be enough to read and delete surveillance data over plain HTTP, outside every application control and outside the audit log. Since 2026-09-08 the ten personal-data tables require `private.mfa_ok()`: a TOTP-enabled account's token must prove a factor other than a password (ADR 0011). Non-TOTP accounts (viewer, auditor) hold no such access by role | **Low** — a password alone no longer reaches personal data; a stolen *post-TOTP* session token still does, and `service_role` compromise remains out of scope of this control |
 | Data subject not notified of breach | Medium | High | Sentry incident → Slack alert → manual notification per Art.33(1) timeline; `BREAK_GLASS.md` §3 documents the 72-hour clock | Low |
 
 #### Measurement note — where the masking numbers come from
@@ -234,9 +235,12 @@ here — but the transfer is now on the record.
 | Data subject representative | N/A (test deployment) | — |
 | Review trigger | Quarterly + on auth/RLS/encryption change | See §6 of `THREAT_MODEL.md` |
 
-**Document version**: 1.1 — 2026-09-08 correction pass after the full audit
+**Document version**: 1.2 — 2026-09-08 correction pass after the full audit
 (`docs/audits/2026-09-08-full-audit.mn.md`): masking is at view time and absent
 from the live feed, the SSIM figures now match the repository's own benchmark
 runs, audit-log coverage is stated with its boundary, and the SG → US processing
-transfer is recorded in §D.5.
+transfer is recorded in §D.5. Revised again the same day for audit §4.1: the
+second factor is now enforced at the data tier, so a stolen admin password used
+directly against the public Supabase API no longer reaches personal data
+([ADR 0011](adr/0011-mfa-at-the-data-tier.md)).
 **Next review**: 2027-03-08 OR on first feature touching auth/RLS/encryption.

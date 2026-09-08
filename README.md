@@ -165,18 +165,19 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 | 1. UI | role-aware navigation — sidebar, header, tab bar and ⌘K palette share `lib/nav.ts` (admin / viewer / auditor) |
 | 2. Server gate | `requireAdmin()` / `requireUser()` redirect in every protected route |
 | 3. Middleware | auditor allow-list (only `/audit*`); per-camera redirect |
-| 4. RLS | on all 23 `public` tables; 46 policies across 22 of them, `retention_deletion_queue` deliberately policy-less (service-role only); super-admin row protected by a BEFORE trigger |
+| 4. RLS | on all 23 `public` tables; 56 policies across 22 of them (46 permissive + the 10 restrictive second-factor gates of row 16), `retention_deletion_queue` deliberately policy-less (service-role only); super-admin row protected by a BEFORE trigger |
 | 5. Step-up reauth | password OR fresh TOTP, 15-min cookie TTL |
 | 6. Session pinning | IP/16 + UA fingerprint, HMAC-signed cookie, 7-day TTL |
 | 7. 4-eyes reveal | approver ≠ requester, defended at 3 layers |
 | 8. Reveal authority | hash-chain `K_index` forward-only (ADR 0009) — settable from `/users`, but every profile is still level 0 and an admin can currently raise their own level (open gap, see the ADR) |
 | 9. Crops encrypt-only | new faces never upload a plaintext crop to Storage (Tier 2) |
-| 10. Audit hash-chain | tamper-evident; `verify_audit_chain()` SQL helper. Covers every privileged mutation, every auth/step-up event, and the personal-data read paths (sealed-crop decrypt, playback view, live-stream playlist, 1:N search, re-id trail, alert CSV export, reveal-output download — `lib/audit.ts`), collapsed to one row per user per object per 5 min. Does **not** cover page views, dashboard aggregates, HLS segments, the audit-log CSV export, or direct PostgREST reads |
+| 10. Audit hash-chain | tamper-evident; `verify_audit_chain()` SQL helper. Covers every privileged mutation, every auth/step-up event, and the personal-data read paths (sealed-crop decrypt, playback view, live-stream playlist, 1:N search, re-id trail, alert CSV export, reveal-output download — `lib/audit.ts`), collapsed to one row per user per object per 5 min. Does **not** cover page views, dashboard aggregates, HLS segments, the audit-log CSV export, or direct PostgREST reads — those reads are now gated by the data-tier second factor (row 16), but they are still not recorded |
 | 11. Storage RLS | every data bucket private (`recordings`, `faces`, `suspects`, `revealed`, `alert-screenshots`); `branding` is public by design (logo + icons only); signed URLs ≤30min where needed |
 | 12. CSP + nonce | strict; violations forwarded to Sentry via `/api/csp-report` |
 | 13. FastAPI `/docs` | disabled in production (`ALLOW_API_DOCS=1` to re-enable) |
 | 14. Dual-key crypto | `ML_ENCRYPTION_KEY_PREV` fallback during rotation |
 | 15. Webhook HMAC | SHA-256 signing for generic destinations |
+| 16. Second factor at the data tier | RLS restrictive policies AND `private.mfa_ok()` on `faces`, `alerts`, `recordings`, `cameras`, `suspects`, `clusters`, `reveal_jobs`, `audit_log`, `webhooks`, `camera_sessions`. If a profile has TOTP enabled, its token must carry an `amr` method other than `password` — so an admin password plus the public anon key can no longer read or write through PostgREST. Fails open when the claim is unreadable; `profiles` and the auth-flow tables are deliberately not gated; kill switch `update private.security_settings set mfa_required = false` (ADR 0011, `docs/adr/0011-mfa-at-the-data-tier.md`) |
 
 ---
 

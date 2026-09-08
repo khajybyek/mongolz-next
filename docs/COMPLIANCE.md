@@ -37,7 +37,7 @@ qualified DPO and conduct a full audit.
 | **Art. 22** Automated decisions | Human-in-the-loop on alerts | Reveal flow requires 4-eyes approval; no automated enforcement |
 | **Art. 25** Privacy by design | Encrypt-at-rest + mask-at-view pipeline (ADR 0010) | Originals AES-256-GCM encrypted; the blurred view is derived at request time and never persisted in Storage; face crops sealed per face (ADR 0009). Encryption is **server-side**, not end-to-end — the ML service holds the key. The live feed is not masked (see §3 caveat) |
 | **Art. 30** Records of processing | This document + `audit_log` | Maintained. `audit_log` covers privileged changes, auth events and the personal-data read paths — **not** page views or direct PostgREST reads; see "Audit-log coverage" in §3 |
-| **Art. 32** Security of processing | RLS, AES-256, TOTP, audit hash-chain | See [SECURITY.md](../SECURITY.md) + CLAUDE.md `Security Features` |
+| **Art. 32** Security of processing | RLS, AES-256, TOTP (enforced at the data tier as well as in the app — see "Second factor at the data tier" in §3), audit hash-chain | See [SECURITY.md](../SECURITY.md) + CLAUDE.md `Security Features` |
 | **Art. 33/34** Breach notification | 72-hour rule | Process documented in [docs/BREAK_GLASS.md](BREAK_GLASS.md). 3rd-party SIEM not yet integrated |
 | **Art. 35** DPIA | High-risk processing (biometric data, surveillance) | This document serves as the lightweight DPIA. Full DPIA template recommended pre-production |
 | **Art. 37** DPO | Designate a Data Protection Officer | Not required for academic scope; recommended for production |
@@ -79,6 +79,31 @@ Two properties of that ledger an auditor should be told before they infer more t
 - **Edges.** For live streaming only the playlist request is recorded (`STREAM_VIEWED` / `STREAM_DENIED`); the individual `.ts` segments that follow are not. `ALERTS_EXPORTED` covers the alert-history CSV; the audit-log's own CSV export (`/api/audit/export`) is currently not recorded.
 
 It does **not** record: page views and the queries that render them, dashboard and analytics aggregates, or any read a signed-in browser makes directly against PostgREST with its own token — RLS still limits *which* rows such a read returns, but the read itself leaves no ledger entry. "Every privileged access is recorded" is therefore an over-claim; the accurate claim is "every privileged change, every login, and every personal-data read path in the application is recorded".
+
+**Second factor at the data tier.** Until 2026-09-08 the second factor was an
+application control only: the Supabase REST endpoint is on the public internet,
+the anon key ships in every browser bundle, and the RLS policies asked nothing
+beyond `profiles.role`. An admin password alone was therefore enough to read —
+and, through the `FOR ALL` policies, delete — faces, alerts, cameras and
+recordings over plain HTTP, with none of the application's TOTP, session-pin,
+step-up or 4-eyes controls in the way and no audit row produced.
+
+The database now checks the token itself. Ten tables (`faces`, `alerts`,
+`recordings`, `cameras`, `suspects`, `clusters`, `reveal_jobs`, `audit_log`,
+`webhooks`, `camera_sessions`) carry a restrictive RLS policy requiring
+`private.mfa_ok()`: if the profile has TOTP enabled, the access token must carry
+an `amr` method other than `password`. Sessions the application mints after a
+verified TOTP or passkey step qualify; a raw `grant_type=password` token does
+not. Accounts without TOTP (viewer, auditor) are unaffected. See
+[ADR 0011](adr/0011-mfa-at-the-data-tier.md).
+
+State the limits with the control: it is **fail-open** where it cannot tell
+(a token with no readable `amr` claim is allowed, so that a change in the auth
+provider cannot lock the operator out), `profiles` and the tables read during
+login are deliberately not gated, `service_role` still bypasses RLS entirely,
+and a session that has already passed TOTP remains a bearer token — this closes
+the password-only path, not token theft. It also does not make direct PostgREST
+reads *auditable*; it only bounds who can make them.
 
 **Live-stream caveat.** Masking is applied to the stored/derived playback view, not to the live HLS feed: an operator watching `/grid`, `/wall` or `/live` sees unmasked faces. Access to that feed is authenticated, recorded (`STREAM_VIEWED`, and `STREAM_DENIED` for refusals) and authorised per camera: the camera must be `enabled`, an admin always passes, and every other role needs an explicit `camera_permissions` row for that camera. `private.user_can_see_camera()` remains default-allow and is kept only as defence-in-depth mirroring RLS; the stricter rule is enforced in `app/api/ml/stream/[cameraId]/[segment]/route.ts`. Refusals return 403 with a machine-readable `code` (`camera_disabled`, `camera_not_authorized`, `permission_check_failed`) and are recorded as `STREAM_DENIED`. `camera_permissions` holds no rows in production, so at the time of writing no non-admin account can watch live video at all.
 
@@ -127,9 +152,11 @@ These are knowingly deferred — they would block a real production launch but a
 
 ## 6. Document control
 
-- **Version:** 1.1
+- **Version:** 1.2
 - **Last reviewed:** 2026-09-08 (correction pass after the full audit —
   `docs/audits/2026-09-08-full-audit.mn.md` §4.10 and §6.2: ML region, audit-log
-  coverage, live-feed masking)
+  coverage, live-feed masking; then, the same day, §4.1: the second factor is
+  now enforced at the data tier — see "Second factor at the data tier" in §3 and
+  [ADR 0011](adr/0011-mfa-at-the-data-tier.md))
 - **Next review:** 2027-03-08 (or upon significant feature change)
 - **Owner:** MONGOLZ Security capstone team (3B-26-1)

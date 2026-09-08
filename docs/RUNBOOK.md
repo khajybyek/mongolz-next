@@ -380,6 +380,83 @@ P2 until resolved.
 
 To trigger a one-off DAST scan: GitHub Actions → Security workflow → `Run workflow`.
 
+### Storage bucket policies
+
+Storage is not a second door into personal data: every bucket that holds faces
+or reveal output is reachable **only** through an API route that checks the
+caller's authority and writes an audit row. The policies live in
+`supabase/migrations/20260908111000_storage_bucket_policies.sql`, which
+replaced the old blanket `storage: admin all-buckets all` grant (audit
+2026-09-08 §4.2 — an admin refused at `/api/faces/[id]/secure-crop` could
+still download the same plaintext crop straight from the `faces` bucket).
+
+`service_role` has `BYPASSRLS`, so every server route using
+`createServiceClient()` and the ML service (`SUPABASE_SERVICE_ROLE_KEY`) is
+unaffected by this table. What follows is what a **logged-in browser session**
+(`authenticated`) can reach with its own access token.
+
+| Bucket | `authenticated` may | How the app actually reads it |
+|---|---|---|
+| `faces` | nothing (restrictive fence) | `/api/faces/[id]/secure-crop` → reveal_level gate + `FACE_CROP_VIEWED` audit row; `components/face-thumb.tsx` renders that route |
+| `revealed` | nothing (restrictive fence, since 20260907100000) | `/api/reveal/[jobId]/output` → job authority + fresh re-auth |
+| `recordings` | SELECT of `recordings.storage_path` only, admin **or** viewer, and only for cameras the user may see | `/playback/[id]` signs the baked artifact; `on_demand` recordings stream through `/api/recordings/[id]/view` → ML |
+| `suspects` | admin: read + write + delete | `/suspects` pages sign, upload and remove enrolment photos with the user-scoped client |
+| `alert-screenshots` | admin: read | `/suspects/[id]` signs the latest alert screenshot |
+| `branding` | public read of `logo.png`, `logo-text.svg`, `favicon.png`, `apple-icon.png`; admin write | public bucket, served straight to the browser |
+
+Encrypted originals (`recordings.original_path`, `<face>.enc`) are not in that
+table on purpose: only the ML service decrypts, so only the ML service reads
+them.
+
+**Verify (read-only).** After the migration the table holds seven permissive
+policies — `storage: operator read recordings (permission aware)`,
+`storage: admin suspects`, `storage: admin read alert screenshots`, and the
+four pre-existing `branding_*` ones — plus two restrictive fences:
+
+```bash
+supabase db query --linked "select policyname, permissive, roles::text, cmd \
+  from pg_policies where schemaname='storage' and tablename='objects' \
+  order by permissive desc, policyname;"
+```
+
+Expect the two `RESTRICTIVE` rows (`bucket_id <> 'faces'`, `bucket_id <>
+'revealed'`) and **no** policy whose `qual` is a bare `private.is_admin()`
+with no `bucket_id` test. The code side is asserted in CI:
+
+```bash
+npx jest __tests__/storage-policy-inventory.test.ts
+```
+
+That suite fails if a new call site reaches a bucket the policies do not
+cover, if `faces`/`revealed` are touched with a user-scoped client, or if a
+later migration adds an unscoped permissive policy.
+
+**Empirical check (optional, ~2 min).** In an admin browser session, copy the
+`access_token` from the `sb-<project>-auth-token` entry in DevTools →
+Application → Local Storage, then:
+
+```bash
+# faces: expect an error / empty result — the fence denies the row
+curl -s -X POST "$NEXT_PUBLIC_SUPABASE_URL/storage/v1/object/sign/faces/<some>.jpg" \
+  -H "Authorization: Bearer <access_token>" -H 'Content-Type: application/json' \
+  -d '{"expiresIn":60}'
+# same face through the gateway: 200 for a director, 403 for a narrower level
+curl -s -o /dev/null -w '%{http_code}\n' https://aicctv.dev/api/faces/<face-id>/secure-crop \
+  -H 'Cookie: <browser session cookies>'
+```
+
+**Symptoms if a bucket was narrowed too far** — never a lockout, always a
+missing image: a placeholder instead of a suspect photo on `/suspects`, a
+blank player on `/playback/[id]` for a `baked` recording, or `UPLOAD_FAILED`
+when adding a suspect photo. The Vercel log shows a row-level-security error
+for the upload case.
+
+**Kill switch.** The migration header carries two paste-able rollbacks: a
+narrow one that reopens only `faces` (for a one-off sealing job) and a full
+one that restores the old blanket admin grant. Both are plain SQL — no deploy,
+no code change. Restoring the blanket grant re-opens the crop bypass, so treat
+it as break-glass and note it in `audit_log`.
+
 ---
 
 ## 5. Notifications
