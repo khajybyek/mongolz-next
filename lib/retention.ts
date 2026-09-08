@@ -2,50 +2,82 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.generated";
 
 /**
- * Retention sweep = SQL row deletion (public.sweep_retention) + storage
- * object removal for the paths the RPC reports. Shared by the daily cron and
- * the manual "sweep now" action so both leave no orphaned blobs behind
- * (encrypted originals, face crops, un-blurred reveal outputs).
+ * SQL retires rows and durably queues Storage paths in the same transaction.
+ * Workers lease that queue and acknowledge only successful Storage removals.
+ * Failed requests and crashed workers leave work available for a later sweep.
  */
 export type SweepResult = {
   rows: Record<string, unknown>;
   objects: Record<string, { requested: number; removed: number; error?: string }>;
 };
 
-const BUCKET_FOR: Record<string, string> = {
-  recordings: "recordings",
-  faces: "faces",
-  revealed: "revealed",
+type Deletion = { id: string; bucket: string; object_path: string; lease_token: string };
+type RpcResult<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>;
+
+// Forward migration contract; regenerate deployed DB types after applying
+// 20260907101000_retention_deletion_queue.sql.
+type QueueRpc = {
+  (name: "claim_retention_deletions", args: { p_limit: number }): RpcResult<Deletion[]>;
+  (name: "settle_retention_deletions", args: {
+    p_ids: string[]; p_lease_token: string; p_error: string | null;
+  }): RpcResult<number>;
 };
+
+const BATCH_SIZE = 250;
+const MAX_BATCHES = 4;
+const BUCKETS = new Set(["recordings", "faces", "revealed"]);
 
 export async function runRetentionSweep(svc: SupabaseClient<Database>): Promise<SweepResult> {
   const { data, error } = await svc.rpc("sweep_retention");
   if (error) throw new Error(error.message);
-
-  const result = (data ?? {}) as Record<string, unknown>;
-  const objects = (result.objects ?? {}) as Record<string, unknown>;
+  const { objects: _oldPathList, ...rows } = (data ?? {}) as Record<string, unknown>;
   const summary: SweepResult["objects"] = {};
+  const queueRpc = svc.rpc.bind(svc) as unknown as QueueRpc;
 
-  for (const [key, bucket] of Object.entries(BUCKET_FOR)) {
-    const paths = Array.isArray(objects[key])
-      ? (objects[key] as unknown[]).filter((p): p is string => typeof p === "string" && p.length > 0)
-      : [];
-    if (paths.length === 0) continue;
-    let removed = 0;
-    let errMsg: string | undefined;
-    // Storage remove() accepts up to ~1000 keys per call.
-    for (let i = 0; i < paths.length; i += 500) {
-      const chunk = paths.slice(i, i + 500);
-      const { data: gone, error: rmErr } = await svc.storage.from(bucket).remove(chunk);
-      if (rmErr) {
-        errMsg = rmErr.message;
-        break;
+  // Bounded batches leave large backlogs for later invocations. Exclusive
+  // claims expire after a crash; unclaimed work always remains queued.
+  for (let batch = 0; batch < MAX_BATCHES; batch++) {
+    const { data: claimed, error: claimError } = await queueRpc("claim_retention_deletions", {
+      p_limit: BATCH_SIZE,
+    });
+    if (claimError) throw new Error(`Retention queue claim failed: ${claimError.message}`);
+    if (!claimed?.length) break;
+
+    const groups = new Map<string, Deletion[]>();
+    for (const item of claimed) {
+      if (!BUCKETS.has(item.bucket) || !item.object_path || !item.lease_token) {
+        throw new Error("Retention queue returned an invalid deletion");
       }
-      removed += gone?.length ?? 0;
+      const key = `${item.bucket}:${item.lease_token}`;
+      const group = groups.get(key) ?? [];
+      group.push(item);
+      groups.set(key, group);
     }
-    summary[bucket] = { requested: paths.length, removed, ...(errMsg ? { error: errMsg } : {}) };
-  }
 
-  const { objects: _dropped, ...rows } = result;
+    for (const group of groups.values()) {
+      const { bucket, lease_token } = group[0];
+      const entry = summary[bucket] ??= { requested: 0, removed: 0 };
+      entry.requested += group.length;
+      let removalError: string | null = null;
+      try {
+        const removed = await svc.storage.from(bucket).remove(group.map((item) => item.object_path));
+        removalError = removed.error?.message ?? null;
+        if (!removalError) entry.removed += removed.data?.length ?? 0;
+      } catch (err) {
+        removalError = err instanceof Error ? err.message : "Storage removal failed";
+      }
+      if (removalError) entry.error = removalError;
+      const { data: settled, error: settleError } = await queueRpc("settle_retention_deletions", {
+        p_ids: group.map((item) => item.id),
+        p_lease_token: lease_token,
+        p_error: removalError,
+      });
+      if (settleError || settled !== group.length) {
+        // Failed acknowledgement or a replaced lease must not look complete.
+        // A retry may remove already-absent paths, which is safe.
+        throw new Error(`Retention queue settlement failed: ${settleError?.message ?? "lease expired"}`);
+      }
+    }
+  }
   return { rows, objects: summary };
 }
