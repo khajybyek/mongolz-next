@@ -95,6 +95,10 @@ export function MultiCameraGrid({
   const [streams, setStreams] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState<Map<string, "start" | "stop">>(new Map());
   const [failed, setFailed] = useState<Set<string>>(new Set());
+  // A 403 from the stream route is not a glitch: the camera is disabled or the
+  // operator has no grant for it, so the tile says that instead of offering a
+  // Retry that can never succeed.
+  const [denied, setDenied] = useState<Map<string, number>>(new Map());
   const [playing, setPlaying] = useState<Set<string>>(new Set());
   const [focused, setFocused] = useState<string | null>(null);
   const [isFull, setIsFull] = useState(false);
@@ -478,6 +482,7 @@ export function MultiCameraGrid({
               streamUrl={streams.get(focusedCam.id)}
               busy={busy.get(focusedCam.id) ?? null}
               failed={failed.has(focusedCam.id)}
+              deniedStatus={denied.get(focusedCam.id)}
               playing={playing.has(focusedCam.id)}
               fill
               focused
@@ -486,7 +491,10 @@ export function MultiCameraGrid({
               onStop={() => stop(focusedCam)}
               onFocus={leaveFocus}
               onPlaying={() => setPlaying((p) => new Set(p).add(focusedCam.id))}
-              onError={() => setFailed((p) => new Set(p).add(focusedCam.id))}
+              onError={(status) => {
+                setFailed((p) => new Set(p).add(focusedCam.id));
+                if (status) setDenied((p) => new Map(p).set(focusedCam.id, status));
+              }}
               onRetry={() => void attach(focusedCam.id)}
               reachable={reachable}
             />
@@ -504,6 +512,7 @@ export function MultiCameraGrid({
               streamUrl={streams.get(cam.id)}
               busy={busy.get(cam.id) ?? null}
               failed={failed.has(cam.id)}
+              deniedStatus={denied.get(cam.id)}
               playing={playing.has(cam.id)}
               fill={fill}
               focused={false}
@@ -512,7 +521,10 @@ export function MultiCameraGrid({
               onStop={() => stop(cam)}
               onFocus={() => setFocused(cam.id)}
               onPlaying={() => setPlaying((p) => new Set(p).add(cam.id))}
-              onError={() => setFailed((p) => new Set(p).add(cam.id))}
+              onError={(status) => {
+                setFailed((p) => new Set(p).add(cam.id));
+                if (status) setDenied((p) => new Map(p).set(cam.id, status));
+              }}
               onRetry={() => void attach(cam.id)}
               reachable={reachable}
             />
@@ -539,6 +551,7 @@ function GridTile({
   streamUrl,
   busy,
   failed,
+  deniedStatus,
   playing,
   fill,
   focused,
@@ -555,6 +568,8 @@ function GridTile({
   streamUrl: string | undefined;
   busy: "start" | "stop" | null;
   failed: boolean;
+  /** HTTP status when the stream was refused (403 = disabled or not granted). */
+  deniedStatus?: number;
   playing: boolean;
   fill: boolean;
   focused: boolean;
@@ -564,11 +579,12 @@ function GridTile({
   onStop: () => void;
   onFocus: () => void;
   onPlaying: () => void;
-  onError: () => void;
+  onError: (status?: number) => void;
   onRetry: () => void;
   reachable: boolean;
 }) {
   const { t } = useT();
+  const refused = deniedStatus === 403;
   const live = Boolean(streamUrl) && playing && !failed;
   const loading = busy !== null || (Boolean(streamUrl) && !playing && !failed);
 
@@ -592,7 +608,13 @@ function GridTile({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-text-faint">
           <Cctv className="w-8 h-8 opacity-40" />
           <span className="text-xs">
-            {failed ? t("grid_stream_failed") : canControl ? t("grid_idle") : t("grid_waiting_stream")}
+            {failed
+              ? refused
+                ? t("grid_stream_forbidden")
+                : t("grid_stream_failed")
+              : canControl
+                ? t("grid_idle")
+                : t("grid_waiting_stream")}
           </span>
         </div>
       )}
@@ -615,13 +637,19 @@ function GridTile({
       )}
 
       {failed && (
-        <div className="absolute inset-0 z-[3] flex flex-col items-center justify-center gap-2 bg-black/60">
-          <AlertTriangle className="w-6 h-6 text-warning" />
-          <span className="text-xs text-white/90">{t("grid_stream_failed")}</span>
-          <button type="button" onClick={onRetry} className="btn-secondary btn-sm relative z-[4]">
-            <RefreshCw className="w-3.5 h-3.5" />
-            {t("grid_retry")}
-          </button>
+        <div className="absolute inset-0 z-[3] flex flex-col items-center justify-center gap-2 bg-black/60 px-4 text-center">
+          <AlertTriangle className={cn("w-6 h-6", refused ? "text-danger" : "text-warning")} />
+          <span className="text-xs text-white/90">
+            {refused ? t("grid_stream_forbidden") : t("grid_stream_failed")}
+          </span>
+          {/* Retrying a refusal can never succeed — an admin has to grant
+              access on /cameras/<id>/permissions or re-enable the camera. */}
+          {!refused && (
+            <button type="button" onClick={onRetry} className="btn-secondary btn-sm relative z-[4]">
+              <RefreshCw className="w-3.5 h-3.5" />
+              {t("grid_retry")}
+            </button>
+          )}
         </div>
       )}
 

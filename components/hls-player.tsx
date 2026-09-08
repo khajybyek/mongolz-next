@@ -10,8 +10,12 @@ interface HlsPlayerProps {
   controls?: boolean;
   /** Fired once the first frames are rendering. */
   onPlaying?: () => void;
-  /** Fired on a fatal playback / network error (after hls.js gave up). */
-  onError?: () => void;
+  /**
+   * Fired on a fatal playback / network error (after hls.js gave up). The HTTP
+   * status is passed when the failure came from a response, so a tile can tell
+   * "no access to this camera" (403) apart from "the stream is not running".
+   */
+  onError?: (status?: number) => void;
 }
 
 export function HlsPlayer({
@@ -87,7 +91,14 @@ export function HlsPlayer({
           hls?.recoverMediaError();
           return;
         }
-        errorRef.current?.();
+        // hls.js attaches the failing response on load errors; a 403 from the
+        // stream route means the camera is disabled or not granted, which the
+        // tile should say instead of offering a Retry that can never work.
+        const status =
+          typeof data.response === "object" && data.response
+            ? (data.response as { code?: number }).code
+            : undefined;
+        errorRef.current?.(status);
       });
       hls.loadSource(src);
       hls.attachMedia(video);
