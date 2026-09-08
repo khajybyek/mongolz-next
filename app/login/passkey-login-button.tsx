@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useFormStatus } from "react-dom";
 import { Fingerprint, Loader2 } from "lucide-react";
 
 /** Convert base64url → ArrayBuffer for the WebAuthn browser API. */
@@ -25,6 +26,10 @@ interface Props {
   /** i18n labels resolved server-side. */
   labels: {
     button: string;            // "Passkey-ээр нэвтрэх"
+    busy: string;
+    hint: string;
+    divider: string;
+    tooMany: string;
     needEmail: string;         // "Email эсвэл username оруулна уу"
     notEnrolled: string;       // "Passkey бүртгэгдээгүй..."
     unsupported: string;       // "Браузер passkey дэмждэггүй"
@@ -34,6 +39,7 @@ interface Props {
 }
 
 export function PasskeyLoginButton({ next, labels }: Props) {
+  const { pending } = useFormStatus();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,7 +51,7 @@ export function PasskeyLoginButton({ next, labels }: Props) {
   }, []);
 
   async function run() {
-    if (busy) return;
+    if (busy || pending) return;
     setError(null);
     const emailInput = document.getElementById(
       "email",
@@ -67,7 +73,8 @@ export function PasskeyLoginButton({ next, labels }: Props) {
       });
       const opts = await beginRes.json();
       if (!beginRes.ok) {
-        throw new Error(opts?.error ?? labels.notEnrolled);
+        setError(beginRes.status === 429 ? labels.tooMany : labels.notEnrolled);
+        return;
       }
 
       // 2. navigator.credentials.get
@@ -84,7 +91,10 @@ export function PasskeyLoginButton({ next, labels }: Props) {
       const cred = (await navigator.credentials.get({ publicKey })) as
         | PublicKeyCredential
         | null;
-      if (!cred) throw new Error(labels.cancelled);
+      if (!cred) {
+        setError(labels.cancelled);
+        return;
+      }
 
       const ass = cred.response as AuthenticatorAssertionResponse;
 
@@ -111,9 +121,9 @@ export function PasskeyLoginButton({ next, labels }: Props) {
           },
         }),
       });
-      const finishJson = await finishRes.json();
       if (!finishRes.ok) {
-        throw new Error(finishJson?.error ?? labels.generic);
+        setError(finishRes.status === 429 ? labels.tooMany : labels.generic);
+        return;
       }
 
       // 4. Cookies set by /finish → reload into the protected area.
@@ -121,7 +131,8 @@ export function PasskeyLoginButton({ next, labels }: Props) {
       // the freshly-set session cookie and renders the authed shell.
       window.location.assign(next || "/dashboard");
     } catch (e) {
-      setError(e instanceof Error ? e.message : labels.generic);
+      const cancelled = e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "AbortError");
+      setError(cancelled ? labels.cancelled : labels.generic);
     } finally {
       setBusy(false);
     }
@@ -130,22 +141,30 @@ export function PasskeyLoginButton({ next, labels }: Props) {
   if (!supported) return null;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 pb-1 text-xs text-text-muted">
+        <span className="h-px flex-1 bg-border" aria-hidden />
+        <span>{labels.divider}</span>
+        <span className="h-px flex-1 bg-border" aria-hidden />
+      </div>
       <button
         type="button"
         onClick={run}
-        disabled={busy}
-        className="btn-secondary w-full"
+        disabled={busy || pending}
+        aria-busy={busy}
+        aria-describedby="passkey-hint"
+        className="btn-secondary min-h-12 w-full justify-center gap-2.5"
       >
         {busy ? (
-          <Loader2 className="w-4 h-4 animate-spin" />
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
         ) : (
-          <Fingerprint className="w-4 h-4" />
+          <Fingerprint className="w-4 h-4" aria-hidden />
         )}
-        {labels.button}
+        <span aria-live="polite">{busy ? labels.busy : labels.button}</span>
       </button>
+      <p id="passkey-hint" className="text-xs leading-5 text-text-muted">{labels.hint}</p>
       {error && (
-        <p className="text-2xs text-danger text-center">{error}</p>
+        <p role="alert" className="rounded-lg border border-danger/20 bg-danger-soft px-3 py-2.5 text-xs leading-5 text-danger">{error}</p>
       )}
     </div>
   );

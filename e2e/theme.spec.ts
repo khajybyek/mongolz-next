@@ -18,15 +18,36 @@ async function setLangAndTheme(page: Page, lang: "mn" | "en" | "kr", theme: "dar
   ]);
 }
 
-function rgbToHex(rgb: string): string {
-  // "rgb(8, 9, 13)" → "#08090d"
-  const m = rgb.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
-  if (!m) return rgb;
-  const [, r, g, b] = m;
-  return (
-    "#" +
-    [r, g, b].map((c) => Number(c).toString(16).padStart(2, "0")).join("")
-  );
+function relativeLuminance(rgb: string): number {
+  const channels = rgb.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+  if (!channels || channels.length !== 3) throw new Error(`Invalid RGB color: ${rgb}`);
+  const [r, g, b] = channels.map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+async function expectTokenContrast(page: Page, foreground: "text-muted" | "accent") {
+  const pairs = await page.evaluate((token) => {
+    const surfaces = ["bg", "bg-secondary", "surface", "surface-elevated", "surface-overlay"];
+    const probe = document.createElement("span");
+    probe.style.color = `rgb(var(--${token}))`;
+    document.body.appendChild(probe);
+    const result = surfaces.map((surface) => {
+      probe.style.backgroundColor = `rgb(var(--${surface}))`;
+      const computed = getComputedStyle(probe);
+      return { surface, color: computed.color, background: computed.backgroundColor };
+    });
+    probe.remove();
+    return result;
+  }, foreground);
+
+  for (const { surface, color, background } of pairs) {
+    const luminances = [relativeLuminance(color), relativeLuminance(background)].sort((a, b) => b - a);
+    const contrast = (luminances[0] + 0.05) / (luminances[1] + 0.05);
+    expect(contrast, `${foreground} on ${surface}: ${contrast.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+  }
 }
 
 test.describe("Theme — dark mode (default)", () => {
@@ -107,21 +128,10 @@ test.describe("Theme — light mode flips correctly", () => {
     expect(styles.bgImage).not.toContain("#f4f4f5"); // legacy hardcoded
   });
 
-  test("admin /alerts redirect text-color paints dark on white", async ({ page }) => {
-    // We can't hit admin routes (auth-gated), but /login is reachable and
-    // shares the same theme tokens.
+  test("muted copy has AA contrast across light surfaces", async ({ page }) => {
     await setLangAndTheme(page, "mn", "light");
     await page.goto("/login");
-    const muted = await page.evaluate(() => {
-      const probe = document.createElement("span");
-      probe.className = "text-text-muted";
-      document.body.appendChild(probe);
-      const c = getComputedStyle(probe).color;
-      probe.remove();
-      return c;
-    });
-    // text-muted in light mode = rgb(113 113 122) (same in both, but stable)
-    expect(muted).toMatch(/rgb\(113,\s*113,\s*122\)/);
+    await expectTokenContrast(page, "text-muted");
   });
 });
 
@@ -142,14 +152,18 @@ test.describe("Theme — gradient backgrounds are theme-aware", () => {
     expect(rootBgImage).toContain("rgb(255, 255, 255)");
   });
 
-  test("accent token shifts to deeper cyan in light for AA contrast", async ({ page }) => {
-    await setLangAndTheme(page, "mn", "light");
-    await page.goto("/");
-    const accent = await page.evaluate(() =>
-      getComputedStyle(document.documentElement).getPropertyValue("--accent").trim(),
-    );
-    // Dark accent = 0 212 255 (#00d4ff); light accent should be deeper = 0 153 204
-    expect(accent).toBe("0 153 204");
+  for (const theme of ["light", "dark"] as const) {
+    test(`accent copy has AA contrast across ${theme} surfaces`, async ({ page }) => {
+      await setLangAndTheme(page, "mn", theme);
+      await page.goto("/login");
+      await expectTokenContrast(page, "accent");
+    });
+  }
+
+  test("muted copy has AA contrast across dark surfaces", async ({ page }) => {
+    await setLangAndTheme(page, "mn", "dark");
+    await page.goto("/login");
+    await expectTokenContrast(page, "text-muted");
   });
 });
 
