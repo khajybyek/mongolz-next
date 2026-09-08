@@ -76,7 +76,9 @@ jobs:
           path: .
           base: ${{ github.event_name == 'push' && github.event.before || '' }}
           head: ${{ github.event_name == 'push' && github.sha || '' }}
-          extra_args: --only-verified --no-update
+          # The action already passes --no-update; repeating it makes
+          # trufflehog exit 1 with "flag 'no-update' cannot be repeated".
+          extra_args: --only-verified
 
   # ─── DAST (dynamic application security testing) ──────────────────────
   # These probe the LIVE production URL. To keep WAF noise low and avoid
