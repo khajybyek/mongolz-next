@@ -9,6 +9,12 @@ interface AlertProps {
   title?: ReactNode;
   children?: ReactNode;
   onClose?: () => void;
+  /**
+   * Accessible name for the dismiss button. Defaults to English because this
+   * primitive also renders on the public pages, which sit outside the app
+   * shell's <LangProvider>; app-side callers should pass t("close").
+   */
+  closeLabel?: string;
   icon?: LucideIcon | null;
   className?: string;
 }
@@ -32,6 +38,7 @@ export function Alert({
   title,
   children,
   onClose,
+  closeLabel = "Close",
   icon,
   className,
 }: AlertProps) {
@@ -55,7 +62,7 @@ export function Alert({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label={closeLabel}
           className="shrink-0 -mr-1 -mt-0.5 p-1 rounded hover:bg-text-muted/10 transition"
         >
           <X className="w-3.5 h-3.5" />

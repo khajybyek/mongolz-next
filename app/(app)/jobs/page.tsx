@@ -3,6 +3,7 @@ import { Empty } from "@/components/ui/empty";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { formatDate } from "@/lib/utils";
+import { getT } from "@/lib/i18n/server";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default async function JobsPage() {
   await requireAdmin();
+  const { t } = await getT();
   const supabase = await createClient();
 
   const { data: jobs } = await supabase
@@ -33,17 +35,17 @@ export default async function JobsPage() {
   return (
     <>
       <PageHeader
-        title="Job Queue"
-        subtitle={`${waiting.length} awaiting approval · ${active.length} active · ${done.length} finished`}
+        title={t("jobs_title")}
+        subtitle={`${waiting.length} ${t("jobs_stat_waiting")} · ${active.length} ${t("jobs_stat_active")} · ${done.length} ${t("jobs_stat_finished")}`}
       />
 
       {!jobs?.length ? (
-        <Empty message="No reveal jobs yet" />
+        <Empty message={t("jobs_empty")} />
       ) : (
         <div className="space-y-4">
           {waiting.length > 0 && (
             <div className="card space-y-3">
-              <h3 className="text-xs uppercase tracking-wide text-warning">Awaiting 4-eyes approval</h3>
+              <h3 className="text-xs uppercase tracking-wide text-warning">{t("jobs_waiting_title")}</h3>
               {waiting.map((j) => (
                 <div key={j.id} className="bg-bg-tertiary rounded-lg p-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -57,7 +59,7 @@ export default async function JobsPage() {
           )}
           {active.length > 0 && (
             <div className="card space-y-3">
-              <h3 className="text-xs uppercase tracking-wide text-text-soft">Active Jobs</h3>
+              <h3 className="text-xs uppercase tracking-wide text-text-soft">{t("jobs_active_title")}</h3>
               {active.map((j) => (
                 <div key={j.id} className="bg-bg-tertiary rounded-lg p-3 space-y-2">
                   <div className="flex items-center justify-between">
@@ -83,11 +85,11 @@ export default async function JobsPage() {
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>Job ID</th>
-                  <th>Method</th>
-                  <th>Status</th>
-                  <th>Requested By</th>
-                  <th>Created</th>
+                  <th>{t("jobs_col_id")}</th>
+                  <th>{t("jobs_col_method")}</th>
+                  <th>{t("col_status")}</th>
+                  <th>{t("jobs_col_requested_by")}</th>
+                  <th>{t("jobs_col_created")}</th>
                 </tr>
               </thead>
               <tbody>

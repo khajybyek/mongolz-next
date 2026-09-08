@@ -83,7 +83,7 @@ export default async function RevealApprovalsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1 min-w-0">
                     <div className="flex items-center gap-2 text-xs">
-                      <span className="badge bg-warning/15 text-warning">pending</span>
+                      <span className="badge bg-warning/15 text-warning">{t("approvals_pending_badge")}</span>
                       <span className="font-mono text-text-soft">{j.id.slice(0, 8)}</span>
                     </div>
                     <div className="text-sm">
@@ -136,11 +136,11 @@ export default async function RevealApprovalsPage() {
           <table className="tbl">
             <thead>
               <tr>
-                <th>Job</th>
-                <th>Хүсэлт</th>
-                <th>Шийдвэр</th>
-                <th>Status</th>
-                <th className="num">Цаг</th>
+                <th>{t("approvals_col_job")}</th>
+                <th>{t("approvals_col_requester")}</th>
+                <th>{t("approvals_col_decision")}</th>
+                <th>{t("col_status")}</th>
+                <th className="num">{t("approvals_col_time")}</th>
               </tr>
             </thead>
             <tbody>

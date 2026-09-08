@@ -4,6 +4,7 @@ import type { Route } from "next";
 import { PageHeader } from "@/components/ui/page-header";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
+import { getT } from "@/lib/i18n/server";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ interface Step {
 
 export default async function SetupPage() {
   const { profile } = await requireAdmin();
+  const { t } = await getT();
   const supabase = await createClient();
 
   const [
@@ -32,38 +34,38 @@ export default async function SetupPage() {
 
   const steps: Step[] = [
     {
-      title: "1. Add a camera",
-      desc: "Register an RTSP/IP/webcam camera source",
+      title: t("setup_s1_title"),
+      desc: t("setup_s1_desc"),
       done: (cameraCount ?? 0) > 0,
       href: "/cameras",
     },
     {
-      title: "2. Record footage",
-      desc: "Start a live stream or upload a recording",
+      title: t("setup_s2_title"),
+      desc: t("setup_s2_desc"),
       done: (recordingCount ?? 0) > 0,
       href: "/live",
     },
     {
-      title: "3. Add suspects",
-      desc: "Upload photos of persons of interest",
+      title: t("setup_s3_title"),
+      desc: t("setup_s3_desc"),
       done: (suspectCount ?? 0) > 0,
       href: "/suspects",
     },
     {
-      title: "4. Verify face detection",
-      desc: "Check detected faces from recordings",
+      title: t("setup_s4_title"),
+      desc: t("setup_s4_desc"),
       done: (faceCount ?? 0) > 0,
       href: "/faces",
     },
     {
-      title: "5. Enable 2FA",
-      desc: "Set up TOTP two-factor authentication",
+      title: t("setup_s5_title"),
+      desc: t("setup_s5_desc"),
       done: Boolean(profile.totp_enabled),
       href: "/settings",
     },
     {
-      title: "6. Check system health",
-      desc: "Verify all services are connected",
+      title: t("setup_s6_title"),
+      desc: t("setup_s6_desc"),
       done: false,
       href: "/health",
     },
@@ -74,8 +76,8 @@ export default async function SetupPage() {
   return (
     <>
       <PageHeader
-        title="Setup Guide"
-        subtitle={`${completed} / ${steps.length} completed`}
+        title={t("setup_title")}
+        subtitle={`${completed} / ${steps.length} ${t("setup_completed")}`}
       />
 
       <div className="max-w-2xl space-y-3">
@@ -101,8 +103,7 @@ export default async function SetupPage() {
         ))}
 
         <div className="card bg-accent/5 border border-accent/20 text-xs text-text-soft leading-relaxed">
-          Complete all steps to have a fully operational surveillance system with face detection,
-          suspect matching, and encrypted recording playback.
+          {t("setup_footer")}
         </div>
       </div>
     </>

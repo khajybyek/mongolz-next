@@ -146,6 +146,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/benchmarks", icon: Gauge, labelKey: "nav_benchmarks", adminOnly: true, keywords: ["latency", "fps"] },
       { href: "/edge-detect", icon: Cpu, labelKey: "nav_edge_detect", adminOnly: true, keywords: ["onnx", "webgpu", "browser"] },
       { href: "/zk-reveal", icon: KeyRound, labelKey: "nav_zk_reveal", adminOnly: true, keywords: ["zero knowledge", "proof"] },
+      // The (ε, δ) research demo. It lives here, with the other lab surfaces,
+      // rather than under Resources where it read as a GDPR self-service page.
+      { href: "/privacy", icon: UserRoundCheck, labelKey: "nav_privacy_dp", adminOnly: true, keywords: ["differential privacy", "epsilon", "noise"] },
       { href: "/perf-budget", icon: Activity, labelKey: "nav_perf", adminOnly: true, keywords: ["vitals", "performance"] },
     ],
   },
@@ -154,7 +157,10 @@ export const NAV_GROUPS: NavGroup[] = [
     labelKey: "nav_group_resources",
     icon: BookOpen,
     items: [
-      { href: "/privacy", icon: UserRoundCheck, labelKey: "nav_privacy", keywords: ["gdpr", "export", "erase"] },
+      // Every role can open this one: /privacy is the admin-only differential-
+      // privacy demo, so pointing "Privacy (GDPR)" at it bounced viewers and
+      // left nobody but admins able to export or erase their own data.
+      { href: "/my-data", icon: UserRoundCheck, labelKey: "nav_my_data", keywords: ["gdpr", "privacy", "export", "erase"] },
       { href: "/docs", icon: BookOpen, labelKey: "nav_docs", adminOnly: true, keywords: ["help", "documentation"] },
     ],
   },

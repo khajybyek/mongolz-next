@@ -363,7 +363,7 @@ P2 until resolved.
 | Daily | Confirm `/api/uptime` ok, Sentry quiet, `/api/cron/backup-verify` ran |
 | Weekly | Review `audit_log` for `KEY_ROTATION_DUE` (clear it by rotating — see *Key rotation* below), `BREAK_GLASS_*`, `ADMIN_COUNT_ZERO` rows; check **Nuclei** + **OWASP ZAP** DAST reports (Monday 06:00 UTC) |
 | Monthly | Confirm `npm audit --omit=dev`, Semgrep, and the DAST baseline have no new criticals |
-| Quarterly | Restore drill on staging (§3) |
+| Quarterly | Restore drill on staging (§3); re-check pgvector index sizing against the current row counts (*Vector index sizing* below) |
 | Semi-annually | Review COMPLIANCE.md for regulation changes |
 
 ### Key rotation
@@ -557,6 +557,111 @@ narrow one that reopens only `faces` (for a one-off sealing job) and a full
 one that restores the old blanket admin grant. Both are plain SQL — no deploy,
 no code change. Restoring the blanket grant re-opens the crop bypass, so treat
 it as break-glass and note it in `audit_log`.
+
+### Vector index sizing (pgvector) — revisit as the tables grow
+
+`faces.embedding` and `suspects.embedding` are searched with cosine distance
+(`<=>`) by `match_faces()` / `match_suspects()`. Both were indexed with
+**ivfflat sized for data that did not exist** — `lists=200` over 42 face rows
+and `lists=100` over 4 suspects. ivfflat picks its centroids at *build* time
+and a query probes `ivfflat.probes` lists (default **1**), so with more lists
+than rows almost every list is empty and one probe inspects a single, nearly
+random cell. That is a silent recall failure, not a slow query: a watch-listed
+face simply is not returned. Migration
+`20260909110000_alert_evidence_and_vector_indexes.sql` rebuilds both as
+**HNSW** (`m=16, ef_construction=64`, pgvector 0.8.0), which is built
+incrementally, has no training set to get wrong, and needs no rebuild as rows
+accumulate.
+
+Check the live state (read-only):
+
+```bash
+supabase db query --linked "
+select i.indexrelid::regclass::text as index_name, am.amname as method,
+       pg_get_indexdef(i.indexrelid) as def,
+       (select reltuples::bigint from pg_class c where c.oid = i.indrelid) as est_rows
+  from pg_index i
+  join pg_class ic on ic.oid = i.indexrelid
+  join pg_am am on am.oid = ic.relam
+ where am.amname in ('ivfflat','hnsw');"
+```
+
+**When to revisit**
+
+| Signal | Action |
+|---|---|
+| `faces` passes ~100k rows | Raise recall/latency deliberately: `set hnsw.ef_search = 100` in the RPC session (default 40) and measure; consider `m=32` on a rebuild |
+| Search latency climbs while the table is idle | Check the index is actually used (`explain analyze` the RPC body); an unused HNSW index is dead weight, not a recall risk |
+| Someone proposes ivfflat again | Only with `lists ≈ rows/1000` **at build time** and a scheduled `REINDEX` as the table grows — that is the maintenance HNSW avoids |
+| A rebuild is needed on a large table | Build with `CREATE INDEX CONCURRENTLY` outside a migration (Supabase runs migrations in a transaction), then drop the old index |
+
+`ml-service/tests/test_vector_index_sizing.py` fails if a later migration
+reintroduces an ivfflat index or drops the cosine ops class.
+
+### Camera liveness (capture heartbeat)
+
+The status dots on `/grid`, `/wall` and `/cameras` used to be derived from the
+newest **face detection**, so a working camera watching an empty corridor read
+`stale` after 5 minutes and `offline` after 30 — and a camera whose feed had
+died an hour ago still read `healthy` for 5 minutes. Only the capture loop can
+answer "are frames arriving", so it now says so: every `CAMERA_HEARTBEAT_SEC`
+(default 30 s, Railway env) of successful reads it stamps
+`camera_sessions.last_heartbeat_at`, and `camera_health()` derives `status`
+from that stamp. Detection recency moved to its own column.
+
+| `status` | Meaning |
+|---|---|
+| `healthy` | last heartbeat < 90 s ago — frames are arriving |
+| `stale` | last heartbeat < 10 min ago — wedged or the source dropped; the supervisor is retrying with backoff |
+| `offline` | we *are* supposed to be capturing and frames stopped arriving (heartbeat older than 10 min). The only value that asserts a fault |
+| `unknown` | nothing is capturing this camera (never started, stopped, disabled), or it is capturing and has not reported yet |
+
+| `detection_status` | Meaning |
+|---|---|
+| `none` / `idle` | no faces ever / none in the last 30 min — normal for an empty corridor |
+| `active` / `recent` | a face within 5 / 30 minutes |
+
+So **"camera up, nothing detected"** is `status='healthy'` with `faces_1h = 0`
+(the tile shows both), and **"camera not sending frames"** is `stale` /
+`offline`.
+
+**Rollout order matters:** apply the migration first, deploy the ML service
+second. In between, every running camera reports `unknown` (honest) rather
+than a wrong `healthy` or `offline`.
+
+```sql
+-- Who is actually capturing right now, and when did they last deliver?
+select cs.camera_id, c.name, cs.auto_resume, cs.last_heartbeat_at,
+       now() - cs.last_heartbeat_at as since_beat, cs.last_error
+  from public.camera_sessions cs
+  join public.cameras c on c.id = cs.camera_id
+ order by cs.last_heartbeat_at desc nulls last;
+```
+
+`stale` with no `last_error` and a rising `restart_count` on `/camera/active`
+usually means the source is reachable but not delivering (RTSP handshake OK,
+no frames) — the loop exits after 100 consecutive failed reads and the
+supervisor restarts it with backoff (5 s · 2ⁿ, capped at 300 s).
+
+### ML benchmark (`/eval/bench` → `/benchmarks`)
+
+The benchmark used to run on a uniform-noise image in which the detector finds
+no face, so the "Embedding generation" row and the headline FPS timed a
+*failed* detection. It now runs on a committed sample face
+(`ml-service/samples/00.jpg`, scaled to a 640 px camera frame) and publishes
+what it measured:
+
+- `input_source` / `input_resolution` — the frame that was used;
+- `faces_detected`, `embedding_measured` — **if `embedding_measured` is false
+  the embedding and end-to-end rows are meaningless** (no face was found) and
+  the response carries a `warning` saying so;
+- `effective_fps` = `1000 / mean(detection)` — sustained frames per second on
+  the capture path (InsightFace produces the embedding during detection);
+  `effective_fps_end_to_end` keeps the old detect-then-embed figure, which
+  double-counts detection;
+- `measures` — one sentence per row describing the call it timed.
+
+Numbers are not comparable with runs recorded before 2026-09-09.
 
 ---
 

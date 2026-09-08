@@ -1,10 +1,12 @@
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { Shield, Server, Cpu, Key, Database, Globe, Camera, Zap } from "lucide-react";
+import { getT } from "@/lib/i18n/server";
+import type { TranslationKey } from "@/lib/i18n/translations";
 
 const sections = [
   {
-    title: "Architecture",
+    titleKey: "docs_sec_architecture" as TranslationKey,
     icon: Server,
     items: [
       { label: "Frontend", value: "Next.js 16 (App Router) on Vercel — sin1, Singapore" },
@@ -23,7 +25,7 @@ const sections = [
     ],
   },
   {
-    title: "ML Pipeline",
+    titleKey: "docs_sec_ml" as TranslationKey,
     icon: Cpu,
     items: [
       { label: "Detection", value: "Multi-layer: Haar Cascade + InsightFace RetinaFace (min confidence 0.55)" },
@@ -44,7 +46,7 @@ const sections = [
     ],
   },
   {
-    title: "Security",
+    titleKey: "docs_sec_security" as TranslationKey,
     icon: Shield,
     items: [
       { label: "Auth", value: "Supabase Auth (email or username + password) + TOTP 2FA (mandatory for admins) + WebAuthn passkeys" },
@@ -76,7 +78,7 @@ const sections = [
     ],
   },
   {
-    title: "API Endpoints (ML)",
+    titleKey: "docs_sec_api" as TranslationKey,
     icon: Zap,
     items: [
       { label: "POST /embed", value: "Image → 512-dim ArcFace embedding" },
@@ -96,7 +98,7 @@ const sections = [
     ],
   },
   {
-    title: "Database",
+    titleKey: "docs_sec_database" as TranslationKey,
     icon: Database,
     items: [
       { label: "Schema", value: "23 tables in public, RLS enabled on every one. Core tables below; the rest cover auth (webauthn_*, totp_used_codes, push_subscriptions), policy (alert_rules, camera_permissions, masking_schedules, privacy_zones, retention_*), and ops (camera_sessions, uptime_checks, webhooks, web_vitals)" },
@@ -112,7 +114,7 @@ const sections = [
     ],
   },
   {
-    title: "Encryption",
+    titleKey: "docs_sec_encryption" as TranslationKey,
     icon: Key,
     items: [
       { label: "Algorithm", value: "AES-256-GCM (AEAD)" },
@@ -128,19 +130,19 @@ const sections = [
     ],
   },
   {
-    title: "Deployment",
+    titleKey: "docs_sec_deployment" as TranslationKey,
     icon: Globe,
     items: [
       { label: "Frontend", value: "git push origin main (Vercel auto-deploy) — vercel deploy --prod --yes to override" },
       { label: "ML Service", value: "railway up --detach (from ml-service/)" },
       { label: "Edge Functions", value: "supabase functions deploy <name> --project-ref <ref>" },
       { label: "CI", value: "GitHub Actions — ci.yml (lint + build, frontend tests, ML tests) + security.yml (Semgrep, trufflehog, Nuclei, ZAP)" },
-      { label: "Monitoring", value: "Sentry server + edge (instrumentation.ts); browser reporting is an open item from the 2026-09-08 audit. pg_cron probes /api/uptime every 5 min → uptime_checks + Telegram on ML up/down transitions" },
+      { label: "Monitoring", value: "Sentry browser (instrumentation-client.ts) + server/edge (instrumentation.ts); no DSN ⇒ the SDK stays silent and the error screens stop claiming a report. Failure-rate cron runs hourly over a 1h window. pg_cron probes /api/uptime every 5 min → uptime_checks + Telegram on ML up/down transitions" },
       { label: "Public probe", value: "GET /api/uptime — bucketed ml + db latency, no auth" },
     ],
   },
   {
-    title: "Live Streaming",
+    titleKey: "docs_sec_streaming" as TranslationKey,
     icon: Camera,
     items: [
       { label: "Protocol", value: "HLS (HTTP Live Streaming) via FFmpeg" },
@@ -163,20 +165,25 @@ const sections = [
 
 export default async function DocsPage() {
   await requireAdmin();
+  const { t } = await getT();
 
   return (
     <>
-      <PageHeader
-        title="Documentation"
-        subtitle="System architecture and API reference — figures verified 2026-09-08 against the live project"
-      />
+      <PageHeader title={t("docs_title")} subtitle={t("docs_subtitle")} />
+
+      {/* The rows below are a technical reference that must stay word-for-word
+          identical to the source documents (ADRs, COMPLIANCE.md, env names), so
+          only the headings are localised. */}
+      <p className="mb-4 text-xs text-text-muted leading-relaxed">
+        {t("docs_reference_english")}
+      </p>
 
       <div className="grid gap-4 md:grid-cols-2">
         {sections.map((section) => (
-          <div key={section.title} className="card space-y-3">
+          <div key={section.titleKey} className="card space-y-3">
             <div className="flex items-center gap-2">
               <section.icon className="w-4 h-4 text-accent" />
-              <h3 className="section-title">{section.title}</h3>
+              <h3 className="section-title">{t(section.titleKey)}</h3>
             </div>
             <div className="space-y-1.5">
               {section.items.map((item) => (

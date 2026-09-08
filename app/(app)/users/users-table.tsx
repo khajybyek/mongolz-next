@@ -151,8 +151,8 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
             <tr>
               <th>{t("users_col_email")}</th>
               <th>{t("users_col_name")}</th>
-              <th>Role</th>
-              <th>2FA</th>
+              <th>{t("users_role")}</th>
+              <th>{t("users_2fa")}</th>
               <th>{t("users_col_created")}</th>
               <th className="text-right">{t("col_action")}</th>
             </tr>
@@ -174,10 +174,10 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                       {u.is_super_admin && (
                         <span
                           className="ml-2 inline-flex items-center gap-1 text-2xs font-semibold uppercase tracking-wider text-accent"
-                          title="Зөвхөн Supabase Studio-аас устгана"
+                          title={t("users_super_admin_delete_hint")}
                         >
                           <Crown className="w-3 h-3" />
-                          Super admin
+                          {t("users_super_admin")}
                         </span>
                       )}
                     </td>
@@ -199,7 +199,7 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                       {(u.role === "admin" || u.is_super_admin) && (
                         <span
                           className="ml-1.5 inline-flex items-center gap-0.5 text-2xs font-mono text-text-muted"
-                          title="Reveal authority (ADR 0009): 0 = director (бүх нүүр), N = зөвхөн chain_index ≥ N"
+                          title={t("users_reveal_level_hint")}
                         >
                           <Layers className="w-3 h-3" />
                           {u.reveal_level === 0 ? "director" : `L${u.reveal_level}`}
@@ -208,9 +208,9 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                     </td>
                     <td>
                       {u.totp_enabled ? (
-                        <span className="badge-success">enabled</span>
+                        <span className="badge-success">{t("users_2fa_on")}</span>
                       ) : (
-                        <span className="badge-muted">disabled</span>
+                        <span className="badge-muted">{t("users_2fa_off")}</span>
                       )}
                     </td>
                     <td className="text-xs">{u.created_at}</td>
@@ -219,10 +219,10 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                         {u.is_super_admin ? (
                           <span
                             className="inline-flex items-center gap-1 text-2xs text-text-muted"
-                            title="Зөвхөн Supabase Studio-аас засна"
+                            title={t("users_super_admin_edit_hint")}
                           >
                             <Lock className="w-3 h-3" />
-                            Protected
+                            {t("users_protected")}
                           </span>
                         ) : !isSelf ? (
                           <>

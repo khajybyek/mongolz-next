@@ -34,8 +34,10 @@ export function EraseForm({ email, role, totpEnabled }: Props) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? t("set_erase_failed"));
-      // Logged out — go to login
-      router.push(("/login?error=" + encodeURIComponent("Account erased")) as never);
+      // Logged out — go to login. No ?error= code: /login only renders codes
+      // it knows and falls back to "Sign-in failed", which would be the wrong
+      // thing to tell someone whose erasure just succeeded.
+      router.push("/login" as never);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("ui_error_title"));
     } finally {

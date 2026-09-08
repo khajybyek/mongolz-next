@@ -105,9 +105,9 @@ export function CreateUserForm() {
             className="input text-sm"
           />
           <select name="role" defaultValue="viewer" required className="select text-sm">
-            <option value="viewer">Viewer (read-only)</option>
-            <option value="auditor">Auditor (audit log only)</option>
-            <option value="admin">Admin (full access)</option>
+            <option value="viewer">{t("users_role_viewer_opt")}</option>
+            <option value="auditor">{t("users_role_auditor_opt")}</option>
+            <option value="admin">{t("users_role_admin_opt")}</option>
           </select>
         </div>
 

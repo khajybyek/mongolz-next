@@ -11,6 +11,7 @@ import {
 } from "react";
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/client";
 
 export type ToastTone = "success" | "danger" | "warning" | "info";
 
@@ -58,6 +59,9 @@ const TONE_CLASS: Record<ToastTone, { ring: string; icon: string }> = {
  * collides with the realtime alert popups pinned to the top-right corner.
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
+  // Mounted inside the app shell's <LangProvider>, so the hook resolves the
+  // operator's chosen language rather than the "mn" fallback.
+  const { t } = useT();
   const [items, setItems] = useState<ToastRecord[]>([]);
   const counter = useRef(0);
   const timers = useRef(new Map<number, number>());
@@ -117,7 +121,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={() => dismiss(item.id)}
-                aria-label="Close"
+                aria-label={t("close")}
                 className="shrink-0 -mr-1 -mt-1 w-7 h-7 inline-flex items-center justify-center rounded-md text-text-muted hover:text-text hover:bg-text-muted/[0.08] transition-colors"
               >
                 <X className="w-3.5 h-3.5" />

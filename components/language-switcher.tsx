@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Languages } from "lucide-react";
-import { LANGUAGES, type Lang } from "@/lib/i18n/translations";
+import { LANGUAGES, t, type Lang } from "@/lib/i18n/translations";
 import { cn } from "@/lib/utils";
 
 /**
@@ -45,7 +45,7 @@ export function LanguageSwitcher({ current, className }: Props) {
   return (
     <div
       role="group"
-      aria-label="Language"
+      aria-label={t("language", current)}
       className={cn(
         "inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated/60 p-0.5 text-xs",
         className,
@@ -65,7 +65,7 @@ export function LanguageSwitcher({ current, className }: Props) {
               ? "bg-accent/15 text-accent shadow-inner-soft"
               : "text-text-soft hover:bg-text-muted/[0.06] hover:text-text",
           )}
-          aria-label={`Switch to ${LANGUAGES[l]}`}
+          aria-label={`${t("lang_switch_to", current)} ${LANGUAGES[l]}`}
         >
           {l.toUpperCase()}
         </button>

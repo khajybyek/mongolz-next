@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, Layers } from "lucide-react";
+import { useT } from "@/lib/i18n/client";
 
 interface Cluster {
   id: number;
@@ -17,6 +18,7 @@ interface ClusterResult {
 }
 
 export function ClusterView() {
+  const { t } = useT();
   const [eps, setEps] = useState(0.5);
   const [minSamples, setMinSamples] = useState(2);
   const [result, setResult] = useState<ClusterResult | null>(null);
@@ -32,10 +34,10 @@ export function ClusterView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ eps, min_samples: minSamples }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? "Error");
+      if (!res.ok) throw new Error((await res.json()).error ?? t("clusters_failed"));
       setResult(await res.json());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
+      setError(e instanceof Error ? e.message : t("clusters_failed"));
     } finally {
       setLoading(false);
     }
@@ -46,7 +48,7 @@ export function ClusterView() {
       <div className="card space-y-3">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="label">Epsilon (distance threshold)</label>
+            <label className="label">{t("clusters_eps")}</label>
             <input
               type="range"
               min={0.2}
@@ -59,7 +61,7 @@ export function ClusterView() {
             <div className="text-sm text-text-soft font-mono mt-1">{eps}</div>
           </div>
           <div>
-            <label className="label">Min Samples</label>
+            <label className="label">{t("clusters_min_samples")}</label>
             <input
               type="range"
               min={2}
@@ -74,7 +76,7 @@ export function ClusterView() {
         </div>
         <button onClick={runCluster} disabled={loading} className="btn-primary">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
-          Run DBSCAN Clustering
+          {t("clusters_run")}
         </button>
         {error && (
           <div className="helper-error">{error}</div>
@@ -86,15 +88,15 @@ export function ClusterView() {
           <div className="grid grid-cols-3 gap-4">
             <div className="card text-center">
               <div className="text-2xl font-bold text-accent">{result.cluster_count}</div>
-              <div className="text-xs text-text-muted">Clusters</div>
+              <div className="text-xs text-text-muted">{t("clusters_count")}</div>
             </div>
             <div className="card text-center">
               <div className="text-2xl font-bold text-text">{result.total}</div>
-              <div className="text-xs text-text-muted">Total Faces</div>
+              <div className="text-xs text-text-muted">{t("clusters_total_faces")}</div>
             </div>
             <div className="card text-center">
               <div className="text-2xl font-bold text-warning">{result.noise}</div>
-              <div className="text-xs text-text-muted">Noise (unclustered)</div>
+              <div className="text-xs text-text-muted">{t("clusters_noise")}</div>
             </div>
           </div>
 
@@ -103,13 +105,15 @@ export function ClusterView() {
               <div key={c.id} className="card">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-semibold text-text">
-                    Cluster #{c.id}
+                    {t("clusters_cluster_label")} #{c.id}
                   </span>
-                  <span className="badge bg-accent/15 text-accent">{c.size} faces</span>
+                  <span className="badge bg-accent/15 text-accent">
+                    {c.size} {t("clusters_faces_unit")}
+                  </span>
                 </div>
                 <div className="text-[10px] text-text-muted font-mono break-all">
                   {c.face_ids.join(", ")}
-                  {c.size > 10 && ` ... (+${c.size - 10} more)`}
+                  {c.size > 10 && ` … (+${c.size - 10} ${t("clusters_more_suffix")})`}
                 </div>
               </div>
             ))}

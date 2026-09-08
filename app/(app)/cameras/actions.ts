@@ -77,7 +77,7 @@ export async function addCameraAction(
   try {
     encryptedUrl = protectCameraUrlForStorage(url);
   } catch {
-    return { error: "CAMERA_URL_KEY env тохируулагдаагүй" };
+    return { error: t("cam_err_key_missing") };
   }
 
   const supabase = await createClient();
@@ -189,7 +189,7 @@ export async function updateCameraAction(
   try {
     encryptedUrl = protectCameraUrlForStorage(url);
   } catch {
-    return { error: "CAMERA_URL_KEY required" };
+    return { error: t("cam_err_key_missing") };
   }
 
   const supabase = await createClient();
@@ -241,10 +241,11 @@ export async function testCameraAction(
   camType: string,
 ): Promise<CameraTestResult> {
   await requireAdmin();
+  const { t } = await getT();
   const u = (url ?? "").trim();
-  if (!u) return { ok: false, error: "URL хоосон" };
-  if (!isCamType(camType)) return { ok: false, error: "invalid cam_type" };
-  if (!validCameraUrl(u, camType)) return { ok: false, error: "URL төрөлдөө тохирохгүй" };
+  if (!u) return { ok: false, error: t("cam_err_url_empty") };
+  if (!isCamType(camType)) return { ok: false, error: t("camd_err_type") };
+  if (!validCameraUrl(u, camType)) return { ok: false, error: t("camd_err_url") };
   return mlTestCamera(u, camType);
 }
 

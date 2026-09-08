@@ -126,14 +126,14 @@ export default async function CameraSchedulePage({
               />
               <input
                 name="weekdays"
-                placeholder="weekdays bitmask"
+                placeholder={t("schedule_weekdays_placeholder")}
                 defaultValue={127}
                 min={1}
                 max={127}
                 type="number"
                 required
                 className="input text-sm"
-                title="1=Sun, 2=Mon, ..., 64=Sat. Sum (127 = every day, 62 = Mon-Fri)."
+                title={t("schedule_weekdays_title")}
               />
             </div>
             <input

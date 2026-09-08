@@ -5,6 +5,7 @@ import { Search, Loader2, Video, Camera, Clock } from "lucide-react";
 import { FaceThumb } from "@/components/face-thumb";
 import { Empty } from "@/components/ui/empty";
 import { formatDate } from "@/lib/utils";
+import { useT } from "@/lib/i18n/client";
 
 interface Match {
   id: string;
@@ -18,6 +19,7 @@ interface Match {
 }
 
 export function SearchForm() {
+  const { t } = useT();
   const [file, setFile] = useState<File | null>(null);
   const [matches, setMatches] = useState<Match[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -36,11 +38,11 @@ export function SearchForm() {
       fd.append("file", file);
 
       const res = await fetch("/api/search", { method: "POST", body: fd });
-      if (!res.ok) throw new Error(`Search failed: ${res.status}`);
+      if (!res.ok) throw new Error(`${t("search_failed")} (HTTP ${res.status})`);
       const data = await res.json();
       setMatches(data.matches ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Алдаа");
+      setError(e instanceof Error ? e.message : t("search_failed"));
     } finally {
       setLoading(false);
     }
@@ -58,7 +60,7 @@ export function SearchForm() {
         />
         <button type="submit" disabled={!file || loading} className="btn-primary shrink-0">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-          Хайх
+          {t("search_btn")}
         </button>
       </form>
 
@@ -67,13 +69,13 @@ export function SearchForm() {
       )}
 
       {matches && matches.length === 0 && (
-        <Empty message="Тааралт олдсонгүй" icon={Search} />
+        <Empty message={t("search_no_results")} icon={Search} />
       )}
 
       {matches && matches.length > 0 && (
         <div>
           <h2 className="section-title mb-3">
-            {`${matches.length} тааралт олдлоо`}
+            {`${matches.length} ${t("search_matches_suffix")}`}
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {matches.map((m) => {

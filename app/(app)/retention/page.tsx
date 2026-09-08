@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/utils";
 import { getT } from "@/lib/i18n/server";
+import type { TranslationKey } from "@/lib/i18n/translations";
 import { updateRetentionAction, runSweepAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -16,13 +17,13 @@ interface Policy {
   last_swept_rows: number | null;
 }
 
-const LABELS: Record<string, { mn: string; warn?: boolean }> = {
-  recordings: { mn: "Бичлэгүүд" },
-  faces: { mn: "Илрүүлсэн царайнууд" },
-  alerts: { mn: "Alerts" },
-  audit_log: { mn: "Audit log", warn: true },
-  reveal_jobs: { mn: "Reveal jobs" },
-  reveal_outputs: { mn: "Reveal output файлууд" },
+const LABELS: Record<string, { key: TranslationKey; warn?: boolean }> = {
+  recordings: { key: "ret_res_recordings" },
+  faces: { key: "ret_res_faces" },
+  alerts: { key: "ret_res_alerts" },
+  audit_log: { key: "ret_res_audit_log", warn: true },
+  reveal_jobs: { key: "ret_res_reveal_jobs" },
+  reveal_outputs: { key: "ret_res_reveal_outputs" },
 };
 
 export default async function RetentionPage() {
@@ -58,12 +59,12 @@ export default async function RetentionPage() {
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <h3 className="section-title">{meta?.mn ?? p.resource}</h3>
+                  <h3 className="section-title">{meta ? t(meta.key) : p.resource}</h3>
                   <code className="text-[10px] text-text-muted">{p.resource}</code>
                 </div>
                 {meta?.warn && (
                   <span className="badge bg-warning/15 text-warning text-[10px]">
-                    legal hold
+                    {t("ret_legal_hold")}
                   </span>
                 )}
               </div>
@@ -112,9 +113,7 @@ export default async function RetentionPage() {
       </div>
 
       <div className="card mt-4 text-xs text-text-soft leading-relaxed">
-        💡 <b className="text-text">Audit log</b> нь default-аар disabled (legal hold).
-        Зөвхөн хууль зүйн зөвлөгөөн дагуу идэвхжүүлнэ. Бусад resource-ыг өөрчилөхөд cron
-        дараагийн өдөр устгана.
+        💡 {t("ret_note")}
       </div>
     </>
   );

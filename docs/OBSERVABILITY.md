@@ -12,6 +12,64 @@ caused it.
 | **Metrics** | Sentry transactions + Vercel Speed Insights + `public.web_vitals_p75` | Latency p75/p95, error rate, real-user CWV |
 | **Traces** | OpenTelemetry → optional OTLP endpoint (Grafana Tempo / SigNoz) | End-to-end span tree across Vercel → Supabase → Railway |
 
+## Where Sentry is initialised
+
+| Runtime | File | Loaded by |
+|---|---|---|
+| Browser | `instrumentation-client.ts` | Next file convention — the client bootstrap requires it before `hydrate()` |
+| Node | `sentry.server.config.ts` | `instrumentation.ts#register()` |
+| Edge | `sentry.edge.config.ts` | `instrumentation.ts#register()` |
+
+**Do not reintroduce `sentry.client.config.ts`.** That file is injected by
+the Sentry *webpack* plugin only. Next 16 builds with Turbopack, so from the
+day this project moved to Next 16 until 2026-09-09 the browser SDK was
+configured but never loaded: not a single browser event reached Sentry,
+while the crash screens told users the error "has been reported
+automatically". `@sentry/nextjs` now prints a deprecation warning saying
+exactly this.
+
+All three runtimes share `lib/error-reporting.ts`:
+
+* `beforeSend` drops cookies, `Authorization`/`Cookie`/`X-ML-Token` headers
+  and query strings (HLS stream tickets ride in those) from **every** event,
+  not just `/api/auth` as the old browser config did.
+* `beforeBreadcrumb` strips query strings from fetch/xhr breadcrumbs.
+* `sendDefaultPii: false` everywhere.
+* Session Replay is deliberately **off**: it records the DOM of a console
+  that displays face crops, camera names and RTSP hostnames.
+
+**When `NEXT_PUBLIC_SENTRY_DSN` is unset, `Sentry.init` is never called** —
+no global handlers, no network, no console noise. `captureException` in the
+error boundaries degrades to a no-op, and each boundary switches to copy
+that does not claim the error was reported (`errorReportingEnabled()`).
+`/health` shows the same flag per runtime, so an admin can see at a glance
+whether anything is listening.
+
+The DSN is inlined into the client bundle at **build** time, so changing it
+requires a redeploy, not just an env edit.
+
+## Failure-rate monitor
+
+`/api/monitoring/error-rate` counts `LOGIN_FAILED` + `TOTP_LOGIN_FAILED` +
+`LOGIN_BLOCKED` audit rows in the last hour against the preceding 23 hours,
+and on a spike posts to `SLACK_ALERT_WEBHOOK` and writes a `MONITOR_ALARM`
+audit row.
+
+It runs **hourly**, and the recent window is exactly that interval, so every
+minute of the day is examined by exactly one run. (It previously inspected a
+5-minute window once a day — 0.35 % of the day, with the remaining 99.65 %
+unmonitored by anything.) Cost: 24 invocations/day instead of 1, two
+`count(*)` queries each, well under a second — roughly half a minute of
+function time per day. The binding constraint is Vercel's cron *frequency*
+limit: sub-daily schedules require Pro/Enterprise. If the schedule ever has
+to go back to daily, `RECENT_WINDOW_MIN` in
+`app/api/monitoring/error-rate/window.ts` must move with it —
+`__tests__/observability.test.ts` reads `vercel.json` and fails when the two
+disagree.
+
+A failed count query now answers 500 (`status: "error"`) instead of
+reporting a green window built on a query that never ran.
+
 ## Trace propagation
 
 `lib/trace.ts` exports `withSpan(name, fn)` and `tracedFetch(url)`.
@@ -65,14 +123,23 @@ automatically — see the `REDACT_KEYS` set in `lib/log.ts`.
 
 `/api/slo-status` returns the live SLI vs SLO comparison documented in
 [`SLO.md`](SLO.md). External uptime monitors poll it; a 503 means
-*something* in the SLO table is red.
+*something* in the SLO table is red — breached, or impossible to measure.
+
+Each SLO reports `met` / `breached` / `no_data` / `error`, never "green by
+default": an empty sample set (or fewer than 5 samples) is `no_data`, which
+answers 200 with a top-level `status: "partial"`. Alert on `status !== "ok"`
+if you want to know about missing evidence, on HTTP 503 if you only want
+real breaches. The response carries aggregate state only — ratios and
+latencies, never the underlying counts.
 
 ## Setup
 
 | Var | Where | What |
 |---|---|---|
-| `NEXT_PUBLIC_SENTRY_DSN` | Vercel + ML Service | Browser + server Sentry destination |
+| `NEXT_PUBLIC_SENTRY_DSN` | Vercel (build time) | Browser + server Sentry destination. Unset ⇒ the SDK never initialises and the UI stops claiming errors are reported |
+| `SENTRY_DSN` | Vercel (optional), ML Service | Server-only override; wins over the public DSN in the Node/edge runtimes |
 | `SENTRY_AUTH_TOKEN` | Vercel build env | Source-map upload |
+| `SENTRY_ERROR_RATE_THRESHOLD` | Vercel | Spike threshold for the failure-rate monitor (default `0.10`; anything unparseable falls back to the default instead of silently becoming `NaN`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Vercel + ML Service | OTLP collector — when set, NodeSDK initialises |
 | `OTEL_SERVICE_NAME` | Vercel + ML Service | Auto-set per service |
 

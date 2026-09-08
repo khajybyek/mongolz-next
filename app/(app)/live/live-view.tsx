@@ -46,7 +46,7 @@ export function LiveCameraView({ cameras }: { cameras: Camera[] }) {
           {t("live_mode_phone")}
         </ModeBtn>
         <ModeBtn current={mode} value="cctv" disabled={recordingBusy} onClick={setMode} icon={Cctv}>
-          IP CCTV
+          {t("live_mode_cctv")}
         </ModeBtn>
         <ModeBtn current={mode} value="file" disabled={recordingBusy} onClick={setMode} icon={Upload}>
           {t("live_mode_file")}
@@ -989,7 +989,7 @@ function FileUploadView() {
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-text-soft">Chunks:</span>
+            <span className="text-text-soft">{t("live_file_chunks")}:</span>
             <span className="font-mono">
               {Math.max(1, Math.ceil(file.size / (3 * 1024 * 1024)))} × 3MB
             </span>

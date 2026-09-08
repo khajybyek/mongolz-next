@@ -43,11 +43,11 @@ export default async function ActiveLearningPage() {
           <div className="text-xl font-bold text-text">{stats.total}</div>
         </div>
         <div>
-          <div className="text-2xs uppercase tracking-wide text-text-muted">True positive</div>
+          <div className="text-2xs uppercase tracking-wide text-text-muted">{t("al_true_positive")}</div>
           <div className="text-xl font-bold text-success">{stats.tp}</div>
         </div>
         <div>
-          <div className="text-2xs uppercase tracking-wide text-text-muted">False positive</div>
+          <div className="text-2xs uppercase tracking-wide text-text-muted">{t("al_false_positive")}</div>
           <div className="text-xl font-bold text-danger">{stats.fp}</div>
         </div>
         <div>
@@ -69,7 +69,7 @@ export default async function ActiveLearningPage() {
                 <th>{t("col_camera")}</th>
                 <th>{t("col_similarity")}</th>
                 <th>{t("col_when")}</th>
-                <th>Label</th>
+                <th>{t("col_label")}</th>
               </tr>
             </thead>
             <tbody>

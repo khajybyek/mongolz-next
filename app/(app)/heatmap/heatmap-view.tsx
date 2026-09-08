@@ -151,7 +151,7 @@ export function HeatmapView({ cameras }: { cameras: Camera[] }) {
 
       {topCells.length > 0 && data && (
         <div className="card p-3">
-          <h3 className="section-title mb-2">Top 5 hottest cells</h3>
+          <h3 className="section-title mb-2">{t("heatmap_top_cells")}</h3>
           <div className="grid grid-cols-5 gap-2">
             {topCells.map((c, i) => (
               <div key={i} className="bg-bg-tertiary rounded p-2 text-center">

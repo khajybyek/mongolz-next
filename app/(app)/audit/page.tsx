@@ -112,7 +112,7 @@ export default async function AuditPage({
           q: t("audit_filter_q"),
           user: t("audit_filter_user") + " (email)",
           allActions: "— " + t("audit_filter_action") + " —",
-          rows: t("col_actions") === "Actions" ? "rows" : (t("col_actions") === "작업" ? "행" : "ширхэг"),
+          rows: t("audit_rows"),
           from: t("audit_filter_from"),
           to: t("audit_filter_to"),
           filter: t("filter"),

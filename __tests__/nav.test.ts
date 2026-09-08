@@ -27,8 +27,13 @@ describe("lib/nav", () => {
   it("viewer sees only non-admin items; auditor sees only the audit log", () => {
     const viewer = visibleNavGroups("viewer").flatMap((g) => g.items.map((i) => i.href));
     expect(viewer).toEqual(
-      expect.arrayContaining(["/dashboard", "/live", "/grid", "/wall", "/playback", "/analytics", "/privacy"]),
+      expect.arrayContaining(["/dashboard", "/live", "/grid", "/wall", "/playback", "/analytics", "/my-data"]),
     );
+    // /privacy is the admin-only differential-privacy demo, not a GDPR page:
+    // the self-service surface every role reaches is /my-data.
+    expect(viewer).not.toContain("/privacy");
+    expect(allItems.find((i) => i.href === "/privacy")?.adminOnly).toBe(true);
+    expect(allItems.find((i) => i.href === "/my-data")?.adminOnly).toBeUndefined();
     expect(viewer).not.toContain("/users");
     expect(viewer).not.toContain("/settings");
     // The WebRTC demo stays admin-only even though the NVR grid / wall opened up.
@@ -49,7 +54,7 @@ describe("lib/nav", () => {
     expect(NAV_GROUPS[0].items.map((item) => item.href)).toEqual([
       "/dashboard", "/live", "/playback", "/alerts", "/search", "/analytics",
     ]);
-    expect(allItems).toHaveLength(42);
+    expect(allItems).toHaveLength(43);
   });
 
   it("keeps the operator surfaces together and viewer-accessible", () => {

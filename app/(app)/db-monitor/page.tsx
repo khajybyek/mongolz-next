@@ -28,18 +28,18 @@ export default async function DbMonitorPage() {
       {rows.length === 0 ? (
         <Empty
           message={t("empty")}
-          description="pg_stat_statements is empty (just enabled) — wait a minute and reload."
+          description={t("db_empty_hint")}
         />
       ) : (
         <div className="tbl-wrap">
           <table className="tbl">
             <thead>
               <tr>
-                <th>Query (240 char preview)</th>
-                <th className="num">Calls</th>
-                <th className="num">Mean (ms)</th>
-                <th className="num">Total (s)</th>
-                <th className="num">Rows avg</th>
+                <th>{t("db_col_query")}</th>
+                <th className="num">{t("db_col_calls")}</th>
+                <th className="num">{t("db_col_mean")}</th>
+                <th className="num">{t("db_col_total")}</th>
+                <th className="num">{t("db_col_rows_avg")}</th>
               </tr>
             </thead>
             <tbody>
@@ -76,13 +76,14 @@ export default async function DbMonitorPage() {
       )}
 
       <div className="card mt-4 text-xs text-text-soft leading-relaxed">
-        💡 <b className="text-text">Optimization tips</b>
+        💡 <b className="text-text">{t("db_tips_title")}</b>
         <ul className="mt-2 space-y-1 list-disc list-inside">
-          <li>Mean &gt; 100ms — index хайх / EXPLAIN ANALYZE дуудах</li>
-          <li>Mean 20-100ms — Calls олон бол кэш / materialised view</li>
-          <li>Эхний 3 хамгийн удаан query-ийг сар бүр шалгах</li>
+          <li>{t("db_tip_slow")}</li>
+          <li>{t("db_tip_mid")}</li>
+          <li>{t("db_tip_monthly")}</li>
           <li>
-            Reset: <code className="px-1 bg-bg-tertiary rounded">SELECT pg_stat_statements_reset();</code>
+            {t("db_tip_reset")}:{" "}
+            <code className="px-1 bg-bg-tertiary rounded">SELECT pg_stat_statements_reset();</code>
           </li>
         </ul>
       </div>

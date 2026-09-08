@@ -64,9 +64,9 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
           <tr>
             <th>{t("col_name")}</th>
             <th>{t("col_scope")}</th>
-            <th>Threshold</th>
-            <th>Dedup</th>
-            <th>Burst</th>
+            <th>{t("col_threshold")}</th>
+            <th>{t("col_dedup")}</th>
+            <th>{t("col_burst")}</th>
             <th>{t("col_quiet")}</th>
             <th className="text-right">{t("col_action")}</th>
           </tr>

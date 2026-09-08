@@ -2177,6 +2177,401 @@ export const T = {
     en: "Could not start the camera.",
     kr: "카메라를 시작하지 못했습니다.",
   },
+  // Error-boundary copy for the case where NO error reporting is configured.
+  // The "…reported automatically" variants above may only be shown when
+  // lib/error-reporting.ts#errorReportingEnabled() is true.
+  ui_error_desc_unreported: {
+    mn: "Энэ хуудсыг ачаалахад алдаа гарлаа. Алдааны мэдээлэл автоматаар илгээгдээгүй.",
+    en: "This page failed to load. The error was not reported automatically.",
+    kr: "페이지를 불러오지 못했습니다. 오류는 자동으로 보고되지 않았습니다.",
+  },
+  login_err_boundary_desc_unreported: {
+    mn: "Нэвтрэх хуудсанд алдаа гарлаа — дахин оролдоно уу. Алдааны мэдээлэл автоматаар илгээгдээгүй.",
+    en: "The sign-in page hit an error — please try again. It was not reported automatically.",
+    kr: "로그인 페이지에서 오류가 발생했습니다 — 다시 시도해 주세요. 오류는 자동으로 보고되지 않았습니다.",
+  },
+  // /health — is anything actually listening for crashes?
+  health_reporting: { mn: "Алдааны тайлагнал (Sentry)", en: "Error reporting (Sentry)", kr: "오류 보고 (Sentry)" },
+  health_reporting_on: {
+    mn: "Хөтөч болон серверийн алдаа Sentry рүү илгээгдэж байна.",
+    en: "Browser and server errors are being sent to Sentry.",
+    kr: "브라우저 및 서버 오류가 Sentry로 전송되고 있습니다.",
+  },
+  health_reporting_off: {
+    mn: "DSN тохируулаагүй тул алдаа хаашаа ч илгээгдэхгүй. Алдааны дэлгэц ч үүнийг амлахгүй.",
+    en: "No DSN configured, so errors go nowhere — and the crash screens no longer promise otherwise.",
+    kr: "DSN이 설정되지 않아 오류가 전송되지 않습니다 — 오류 화면도 더 이상 보고를 약속하지 않습니다.",
+  },
+  health_reporting_browser: { mn: "Хөтөч", en: "Browser", kr: "브라우저" },
+  health_reporting_server: { mn: "Сервер", en: "Server", kr: "서버" },
+
+
+  // ─── analytics: which window a tile is measured over ───
+  analytics_window_7d: { mn: "Сүүлийн 7 хоног", en: "Last 7 days", kr: "최근 7일" },
+  analytics_window_30d: { mn: "Сүүлийн 30 хоног", en: "Last 30 days", kr: "최근 30일" },
+
+  // ─── honest metrics: a dash plus the reason, never a fabricated zero ───
+  // (dashboard + alerts summary tiles; owned copy lives here so all three
+  // locales stay in one table)
+  metric_no_access: {
+    mn: "Танд энэ тоог харах эрх алга",
+    en: "You do not have access to this figure",
+    kr: "이 수치를 볼 권한이 없습니다",
+  },
+  metric_mfa_required: {
+    mn: "Хоёр хүчин зүйлийн баталгаажуулалт идэвхжүүлбэл харагдана",
+    en: "Enable two-factor authentication to see this",
+    kr: "2단계 인증을 활성화하면 표시됩니다",
+  },
+  metric_unavailable: {
+    mn: "Тоо олдсонгүй",
+    en: "Figure unavailable",
+    kr: "수치를 불러올 수 없습니다",
+  },
+  metric_scoped_permissions: {
+    mn: "Зөвхөн танд эрх олгосон камеруудаар тооцов",
+    en: "Counted over the cameras you have been granted",
+    kr: "권한이 부여된 카메라만 집계했습니다",
+  },
+  metric_denied_title: {
+    mn: "Энэ хэсгийг харах эрх байхгүй",
+    en: "You cannot see this section",
+    kr: "이 섹션을 볼 수 없습니다",
+  },
+  metric_denied_desc: {
+    mn: "Хоосон эсвэл тэг гэж харуулахын оронд ингэж мэдэгдэж байна. Эрх нэмэхийг админаас хүснэ үү.",
+    en: "Rather than show an empty or zero value, we say so. Ask an administrator for access.",
+    kr: "빈 값이나 0으로 표시하는 대신 이렇게 안내합니다. 관리자에게 권한을 요청하세요.",
+  },
+  metric_mfa_desc: { mn: "Гарч дахин нэвтэрч, баталгаажуулагч апп-ынхаа кодыг оруулна уу. Энэ нь эрхийн асуудал биш.", en: "Sign out and sign in again with your authenticator app. This is not a permissions problem.", kr: "로그아웃한 뒤 인증 앱으로 다시 로그인하세요. 권한 문제가 아닙니다." },
+  metric_error_title: {
+    mn: "Зарим тоо ачаалагдсангүй",
+    en: "Some figures did not load",
+    kr: "일부 수치를 불러오지 못했습니다",
+  },
+  metric_error_desc: {
+    mn: "Түр зуурын алдаа. Дахин ачаалахад ихэвчлэн засарна.",
+    en: "A temporary failure. Reloading usually fixes it.",
+    kr: "일시적인 오류입니다. 새로고침하면 대부분 해결됩니다.",
+  },
+  metric_retry: { mn: "Дахин оролдох", en: "Try again", kr: "다시 시도" },
+  metric_kst_note: {
+    mn: "«Өнөөдөр» = Солонгосын цаг (KST)",
+    en: "\u201cToday\u201d is measured in Korea Standard Time (KST)",
+    kr: "\u2018오늘\u2019은 한국 표준시(KST) 기준입니다",
+  },
+  metric_capped_rows: {
+    mn: "Зөвхөн хамгийн сүүлийн мөрүүдийг харуулав",
+    en: "Showing the newest rows only",
+    kr: "최신 행만 표시합니다",
+  },
+
+  // ─── audit 17: pages that used to render hardcoded copy ───
+
+  // /cameras — enable/disable tooltip on the power button.
+  cam_toggle_tip: { mn: "Идэвхжүүлэх / унтраах", en: "Enable or disable", kr: "사용 / 사용 안 함 전환" },
+  // /live — file-upload diagnostics panel.
+  live_file_chunks: { mn: "Хэсэг", en: "Chunks", kr: "청크" },
+
+  // Accessible name on the public language switcher (rendered outside the
+  // app shell, so it resolves through t(key, lang) rather than the hook).
+  lang_switch_to: { mn: "Хэл солих:", en: "Switch to", kr: "언어 변경:" },
+
+  // /search — the form body was hardcoded Mongolian while the header translated.
+  search_matches_suffix: { mn: "тааралт олдлоо", en: "matches found", kr: "건 일치" },
+  search_failed: { mn: "Хайлт амжилтгүй боллоо", en: "Search failed", kr: "검색에 실패했습니다" },
+
+  // /jobs — reveal job queue.
+  jobs_title: { mn: "Ажлын дараалал", en: "Job queue", kr: "작업 큐" },
+  jobs_stat_waiting: { mn: "зөвшөөрөл хүлээж буй", en: "awaiting approval", kr: "승인 대기" },
+  jobs_stat_active: { mn: "идэвхтэй", en: "active", kr: "진행 중" },
+  jobs_stat_finished: { mn: "дууссан", en: "finished", kr: "완료" },
+  jobs_empty: { mn: "Одоогоор ил болгох ажил байхгүй", en: "No reveal jobs yet", kr: "아직 공개 작업이 없습니다" },
+  jobs_waiting_title: { mn: "Хоёр дахь админы зөвшөөрөл хүлээж байна", en: "Awaiting four-eyes approval", kr: "4-eyes 승인 대기 중" },
+  jobs_active_title: { mn: "Идэвхтэй ажлууд", en: "Active jobs", kr: "진행 중인 작업" },
+  jobs_col_id: { mn: "Ажлын дугаар", en: "Job ID", kr: "작업 ID" },
+  jobs_col_method: { mn: "Арга", en: "Method", kr: "방식" },
+  jobs_col_requested_by: { mn: "Хүсэлт гаргасан", en: "Requested by", kr: "요청자" },
+  jobs_col_created: { mn: "Үүсгэсэн", en: "Created", kr: "생성 시각" },
+
+  // /health — service probe dashboard.
+  health_subtitle: { mn: "Үйлчилгээний төлөв ба холболт", en: "Service status and connectivity", kr: "서비스 상태 및 연결" },
+  health_all_ok: { mn: "Бүх систем хэвийн", en: "All systems operational", kr: "모든 시스템 정상" },
+  health_checking: { mn: "Шалгаж байна…", en: "Checking…", kr: "확인 중…" },
+  health_issues: { mn: "Асуудал илэрлээ", en: "Issues detected", kr: "문제가 감지되었습니다" },
+  health_refresh: { mn: "Дахин шалгах", en: "Refresh", kr: "다시 확인" },
+  health_svc_ml: { mn: "ML үйлчилгээ", en: "ML service", kr: "ML 서비스" },
+  health_svc_db: { mn: "Supabase өгөгдлийн сан", en: "Supabase database", kr: "Supabase 데이터베이스" },
+  health_svc_auth: { mn: "Supabase нэвтрэлт", en: "Supabase auth", kr: "Supabase 인증" },
+  health_svc_storage: { mn: "Supabase хадгалалт", en: "Supabase storage", kr: "Supabase 스토리지" },
+  health_detail_ok: { mn: "Хэвийн", en: "Healthy", kr: "정상" },
+  health_detail_unreachable: { mn: "Холбогдох боломжгүй", en: "Unreachable", kr: "연결할 수 없음" },
+  health_detail_error: { mn: "Алдаатай", en: "Error", kr: "오류" },
+
+  // /setup — first-run checklist.
+  setup_title: { mn: "Тохируулгын заавар", en: "Setup guide", kr: "설치 가이드" },
+  setup_completed: { mn: "алхам дууссан", en: "steps completed", kr: "단계 완료" },
+  setup_s1_title: { mn: "1. Камер нэмэх", en: "1. Add a camera", kr: "1. 카메라 추가" },
+  setup_s1_desc: { mn: "RTSP / IP / вэбкамерын эх сурвалж бүртгэнэ", en: "Register an RTSP / IP / webcam source", kr: "RTSP / IP / 웹캠 소스를 등록합니다" },
+  setup_s2_title: { mn: "2. Бичлэг хийх", en: "2. Record footage", kr: "2. 영상 녹화" },
+  setup_s2_desc: { mn: "Шууд дамжуулалт эхлүүлэх эсвэл бичлэг байршуулна", en: "Start a live stream or upload a recording", kr: "라이브 스트림을 시작하거나 녹화 파일을 업로드합니다" },
+  setup_s3_title: { mn: "3. Сэжигтэн бүртгэх", en: "3. Add suspects", kr: "3. 용의자 등록" },
+  setup_s3_desc: { mn: "Эрэн сурвалжлах хүмүүсийн зургийг байршуулна", en: "Upload photos of the persons of interest", kr: "관심 대상 인물의 사진을 업로드합니다" },
+  setup_s4_title: { mn: "4. Царай илрүүлэлтийг шалгах", en: "4. Verify face detection", kr: "4. 얼굴 검출 확인" },
+  setup_s4_desc: { mn: "Бичлэгээс илэрсэн царайг шалгана", en: "Check the faces detected in the recordings", kr: "녹화에서 검출된 얼굴을 확인합니다" },
+  setup_s5_title: { mn: "5. 2FA идэвхжүүлэх", en: "5. Enable 2FA", kr: "5. 2단계 인증 활성화" },
+  setup_s5_desc: { mn: "TOTP хоёр хүчин зүйлийн баталгаажуулалт тохируулна", en: "Set up TOTP two-factor authentication", kr: "TOTP 2단계 인증을 설정합니다" },
+  setup_s6_title: { mn: "6. Системийн төлөв шалгах", en: "6. Check system health", kr: "6. 시스템 상태 점검" },
+  setup_s6_desc: { mn: "Бүх үйлчилгээ холбогдсон эсэхийг шалгана", en: "Verify every service is connected", kr: "모든 서비스가 연결되었는지 확인합니다" },
+  setup_footer: {
+    mn: "Бүх алхмыг дуусгаснаар царай илрүүлэлт, сэжигтэн таних, шифрлэсэн бичлэгийн тоглуулалт бүрэн ажиллана.",
+    en: "Complete every step for a fully operational system: face detection, suspect matching and encrypted recording playback.",
+    kr: "모든 단계를 완료하면 얼굴 검출, 용의자 매칭, 암호화 녹화 재생이 모두 동작합니다.",
+  },
+
+  // /db-monitor — pg_stat_statements table + tips.
+  db_empty_hint: {
+    mn: "pg_stat_statements хоосон байна (саяхан идэвхжсэн) — хэсэг хүлээгээд хуудсыг дахин ачаална уу.",
+    en: "pg_stat_statements is empty (only just enabled) — wait a minute and reload.",
+    kr: "pg_stat_statements가 비어 있습니다(방금 활성화됨) — 잠시 후 새로고침하세요.",
+  },
+  db_col_query: { mn: "Query (эхний 240 тэмдэгт)", en: "Query (first 240 chars)", kr: "쿼리 (앞 240자)" },
+  db_col_calls: { mn: "Дуудалт", en: "Calls", kr: "호출 수" },
+  db_col_mean: { mn: "Дундаж (ms)", en: "Mean (ms)", kr: "평균 (ms)" },
+  db_col_total: { mn: "Нийт (сек)", en: "Total (s)", kr: "합계 (초)" },
+  db_col_rows_avg: { mn: "Дундаж мөр", en: "Rows avg", kr: "평균 행 수" },
+  db_tips_title: { mn: "Оновчлолын зөвлөмж", en: "Optimisation tips", kr: "최적화 팁" },
+  db_tip_slow: {
+    mn: "Дундаж > 100ms — индекс нэмэх эсвэл EXPLAIN ANALYZE ажиллуулна",
+    en: "Mean above 100 ms — add an index or run EXPLAIN ANALYZE",
+    kr: "평균 100ms 초과 — 인덱스를 추가하거나 EXPLAIN ANALYZE를 실행하세요",
+  },
+  db_tip_mid: {
+    mn: "Дундаж 20–100ms — дуудалт олон бол кэш эсвэл materialised view ашиглана",
+    en: "Mean 20–100 ms — cache it, or use a materialised view when calls are frequent",
+    kr: "평균 20–100ms — 호출이 잦다면 캐시나 구체화 뷰를 사용하세요",
+  },
+  db_tip_monthly: {
+    mn: "Хамгийн удаан гурван query-г сар бүр шалгана",
+    en: "Review the three slowest queries every month",
+    kr: "가장 느린 상위 3개 쿼리를 매달 점검하세요",
+  },
+  db_tip_reset: { mn: "Тоолуурыг шинэчлэх", en: "Reset the counters", kr: "카운터 초기화" },
+
+  // /retention — policy cards.
+  ret_res_recordings: { mn: "Бичлэгүүд", en: "Recordings", kr: "녹화 영상" },
+  ret_res_faces: { mn: "Илрүүлсэн царайнууд", en: "Detected faces", kr: "검출된 얼굴" },
+  ret_res_alerts: { mn: "Сэрэмжлүүлгүүд", en: "Alerts", kr: "알림" },
+  ret_res_audit_log: { mn: "Аудит лог", en: "Audit log", kr: "감사 로그" },
+  ret_res_reveal_jobs: { mn: "Ил болгох ажлууд", en: "Reveal jobs", kr: "공개 작업" },
+  ret_res_reveal_outputs: { mn: "Ил болгосон файлууд", en: "Reveal outputs", kr: "공개 결과 파일" },
+  ret_legal_hold: { mn: "хуулийн хориг", en: "legal hold", kr: "법적 보존" },
+  ret_note: {
+    mn: "Аудит лог анхдагчаар идэвхгүй (хуулийн хориг) — зөвхөн хуулийн зөвлөгөөний дагуу асаана. Бусад нөөцийн хугацааг өөрчилвөл маргаашийн cron цэвэрлэгээнд хүчин төгөлдөр болно.",
+    en: "The audit log is disabled by default (legal hold) — enable it only on legal advice. Changes to the other resources take effect on the next daily cron sweep.",
+    kr: "감사 로그는 기본적으로 비활성입니다(법적 보존) — 법률 자문이 있을 때만 활성화하세요. 다른 리소스의 변경은 다음 날 크론 정리에서 적용됩니다.",
+  },
+
+  // /users — super-admin row and 2FA cell.
+  users_super_admin: { mn: "Супер админ", en: "Super admin", kr: "슈퍼 관리자" },
+  users_super_admin_delete_hint: { mn: "Зөвхөн Supabase Studio-аас устгана", en: "Removable only from Supabase Studio", kr: "Supabase Studio에서만 삭제할 수 있습니다" },
+  users_super_admin_edit_hint: { mn: "Зөвхөн Supabase Studio-аас засна", en: "Editable only from Supabase Studio", kr: "Supabase Studio에서만 수정할 수 있습니다" },
+  users_protected: { mn: "Хамгаалагдсан", en: "Protected", kr: "보호됨" },
+  users_2fa_on: { mn: "идэвхтэй", en: "enabled", kr: "사용 중" },
+  users_2fa_off: { mn: "идэвхгүй", en: "disabled", kr: "사용 안 함" },
+  users_reveal_level_hint: {
+    mn: "Ил болгох эрх (ADR 0009): 0 = захирал (бүх нүүр), N = зөвхөн chain_index ≥ N",
+    en: "Reveal authority (ADR 0009): 0 = director (every face), N = only chain_index ≥ N",
+    kr: "공개 권한 (ADR 0009): 0 = 디렉터(모든 얼굴), N = chain_index ≥ N만",
+  },
+  users_role_viewer_opt: { mn: "Viewer (зөвхөн харах)", en: "Viewer (read-only)", kr: "뷰어 (읽기 전용)" },
+  users_role_auditor_opt: { mn: "Auditor (зөвхөн аудит лог)", en: "Auditor (audit log only)", kr: "감사자 (감사 로그 전용)" },
+  users_role_admin_opt: { mn: "Admin (бүрэн эрх)", en: "Admin (full access)", kr: "관리자 (전체 권한)" },
+
+  // /reveal-approvals — decisions table.
+  approvals_col_job: { mn: "Ажил", en: "Job", kr: "작업" },
+  approvals_col_requester: { mn: "Хүсэлт гаргасан", en: "Requested by", kr: "요청자" },
+  approvals_col_decision: { mn: "Шийдвэр", en: "Decision", kr: "결정" },
+  approvals_col_time: { mn: "Цаг", en: "Time", kr: "시각" },
+  approvals_pending_badge: { mn: "хүлээгдэж буй", en: "pending", kr: "대기 중" },
+
+  // /clusters — DBSCAN grouping.
+  clusters_subtitle: {
+    mn: "DBSCAN бүлэглэл — ижил төстэй царайг нэг хүн болгон бүлэглэнэ",
+    en: "DBSCAN clustering — group similar faces by identity",
+    kr: "DBSCAN 클러스터링 — 유사한 얼굴을 인물별로 묶습니다",
+  },
+  clusters_eps: { mn: "Epsilon (зайн босго)", en: "Epsilon (distance threshold)", kr: "Epsilon (거리 임계값)" },
+  clusters_min_samples: { mn: "Хамгийн бага дээжийн тоо", en: "Minimum samples", kr: "최소 샘플 수" },
+  clusters_run: { mn: "DBSCAN бүлэглэл ажиллуулах", en: "Run DBSCAN clustering", kr: "DBSCAN 클러스터링 실행" },
+  clusters_count: { mn: "Бүлэг", en: "Clusters", kr: "클러스터" },
+  clusters_total_faces: { mn: "Нийт царай", en: "Total faces", kr: "전체 얼굴" },
+  clusters_noise: { mn: "Бүлэгт ороогүй", en: "Unclustered", kr: "미분류" },
+  clusters_cluster_label: { mn: "Бүлэг", en: "Cluster", kr: "클러스터" },
+  clusters_faces_unit: { mn: "царай", en: "faces", kr: "개 얼굴" },
+  clusters_more_suffix: { mn: "бусад", en: "more", kr: "개 더" },
+  clusters_failed: { mn: "Бүлэглэл амжилтгүй боллоо", en: "Clustering failed", kr: "클러스터링에 실패했습니다" },
+
+  // /thresholds — ML tuning sliders.
+  thr_subtitle: {
+    mn: "Илрүүлэлт, сэрэмжлүүлэг, давхардал арилгах босгыг тохируулна",
+    en: "Adjust the detection, alert and dedup thresholds",
+    kr: "검출·알림·중복 제거 임계값을 조정합니다",
+  },
+  thr_detect_label: { mn: "Илрүүлэлтийн итгэл", en: "Detection confidence", kr: "검출 신뢰도" },
+  thr_detect_desc: { mn: "InsightFace илрүүлэлтэд шаардах хамгийн бага итгэл", en: "Minimum confidence for an InsightFace detection", kr: "InsightFace 검출에 필요한 최소 신뢰도" },
+  thr_haar_label: { mn: "Haar хөршийн доод тоо", en: "Haar minimum neighbours", kr: "Haar 최소 이웃 수" },
+  thr_haar_desc: { mn: "Их байх тусам худал эерэг цөөрөх ба илрүүлэлт багасна", en: "Higher means fewer false positives but lower recall", kr: "값이 클수록 오탐은 줄지만 검출률도 낮아집니다" },
+  thr_persist_label: { mn: "Далдлалт хадгалах кадр", en: "Mask persist frames", kr: "마스크 유지 프레임" },
+  thr_persist_desc: { mn: "Царай алга болсны дараа далдлалтыг хэдэн кадр хадгалах", en: "Frames to keep the mask after a face disappears", kr: "얼굴이 사라진 뒤 마스크를 유지할 프레임 수" },
+  thr_alert_label: { mn: "Сэрэмжлүүлгийн босго", en: "Alert threshold", kr: "알림 임계값" },
+  thr_alert_desc: { mn: "Сэжигтний сэрэмжлүүлэг үүсгэхэд шаардах косинус ойролцоо байдал", en: "Cosine similarity needed to raise a suspect alert", kr: "용의자 알림을 생성하는 데 필요한 코사인 유사도" },
+  thr_dedup_label: { mn: "Давхардал арилгах босго", en: "Dedup threshold", kr: "중복 제거 임계값" },
+  thr_dedup_desc: { mn: "Царайн зургийг давхардуулахгүй байхад ашиглах ойролцоо байдал", en: "Similarity used to deduplicate face crops", kr: "얼굴 이미지를 중복 제거할 때 사용하는 유사도" },
+  thr_default: { mn: "Анхдагч", en: "Default", kr: "기본값" },
+  thr_restart_note: {
+    mn: "Босгын өөрчлөлт ML үйлчилгээг дахин ачаалсны дараа хүчин төгөлдөр болно. Railway-ийн орчны хувьсагчийг шинэчлээд дахин байршуулна уу.",
+    en: "Threshold changes take effect only after the ML service restarts. Update the Railway environment variables and redeploy.",
+    kr: "임계값 변경은 ML 서비스를 재시작해야 적용됩니다. Railway 환경 변수를 수정한 뒤 다시 배포하세요.",
+  },
+
+  // /active-learning + /alert-rules + shared table headers.
+  al_true_positive: { mn: "Зөв таарц", en: "True positive", kr: "정탐" },
+  al_false_positive: { mn: "Худал таарц", en: "False positive", kr: "오탐" },
+  col_label: { mn: "Шошго", en: "Label", kr: "라벨" },
+  col_threshold: { mn: "Босго", en: "Threshold", kr: "임계값" },
+  col_dedup: { mn: "Давхардал", en: "Dedup", kr: "중복 제거" },
+  col_burst: { mn: "Дараалсан", en: "Burst", kr: "연속 감지" },
+
+  // /suspects — privacy tier picker + detail placeholders.
+  suspect_tier_vip: { mn: "VIP — хамгийн хүчтэй далдлалт", en: "VIP — strongest masking", kr: "VIP — 가장 강한 마스킹" },
+  suspect_tier_standard: { mn: "Стандарт", en: "Standard", kr: "표준" },
+  suspect_tier_relaxed: { mn: "Сул — хамгийн бага далдлалт", en: "Relaxed — lightest masking", kr: "완화 — 가장 약한 마스킹" },
+  suspect_pipeline_note: {
+    mn: "ArcFace embedding · ML үйлчилгээ · нууцлалын түвшин → далдлалтын хүч ба ил болгох урсгал",
+    en: "ArcFace embedding · ML service · privacy tier → mask strength and reveal flow",
+    kr: "ArcFace 임베딩 · ML 서비스 · 개인정보 등급 → 마스킹 강도 및 공개 절차",
+  },
+  suspect_no_image: { mn: "зураг байхгүй", en: "no image", kr: "이미지 없음" },
+  alert_no_screenshot: { mn: "агшин зураг байхгүй", en: "no screenshot", kr: "스크린샷 없음" },
+
+  // /heatmap + /audit small strings.
+  heatmap_top_cells: { mn: "Хамгийн идэвхтэй 5 нүд", en: "Top 5 busiest cells", kr: "가장 활동이 많은 셀 5개" },
+  audit_rows: { mn: "мөр", en: "rows", kr: "행" },
+
+  // /cameras — server-action refusals shown in the dialog.
+  cam_err_key_missing: { mn: "CAMERA_URL_KEY орчны хувьсагч тохируулагдаагүй байна", en: "CAMERA_URL_KEY is not configured", kr: "CAMERA_URL_KEY 환경 변수가 설정되지 않았습니다" },
+  cam_err_url_empty: { mn: "Хаяг хоосон байна", en: "The address is empty", kr: "주소가 비어 있습니다" },
+
+  // /live — the third capture mode.
+  live_mode_cctv: { mn: "IP камер", en: "IP CCTV", kr: "IP 카메라" },
+
+  // /cameras/[id]/schedule — weekday bitmask field.
+  schedule_weekdays_placeholder: { mn: "гарагийн битмаск", en: "weekday bitmask", kr: "요일 비트마스크" },
+  schedule_weekdays_title: {
+    mn: "1=Ня, 2=Да, …, 64=Бя. Нийлбэрээр бичнэ (127 = өдөр бүр, 62 = Да–Ба).",
+    en: "1=Sun, 2=Mon, …, 64=Sat. Enter the sum (127 = every day, 62 = Mon–Fri).",
+    kr: "1=일, 2=월, …, 64=토. 합계로 입력합니다(127 = 매일, 62 = 월–금).",
+  },
+
+  // /docs — section headings. The reference rows themselves stay in English.
+  docs_title: { mn: "Баримт бичиг", en: "Documentation", kr: "문서" },
+  docs_subtitle: {
+    mn: "Системийн архитектур ба API лавлах — үзүүлэлтийг 2026-09-08-нд амьд орчинтой тулгаж шалгасан",
+    en: "System architecture and API reference — figures verified 2026-09-08 against the live project",
+    kr: "시스템 아키텍처 및 API 레퍼런스 — 2026-09-08 실제 환경과 대조해 검증한 수치",
+  },
+  docs_sec_architecture: { mn: "Архитектур", en: "Architecture", kr: "아키텍처" },
+  docs_sec_ml: { mn: "ML урсгал", en: "ML pipeline", kr: "ML 파이프라인" },
+  docs_sec_security: { mn: "Аюулгүй байдал", en: "Security", kr: "보안" },
+  docs_sec_api: { mn: "ML API цэгүүд", en: "ML API endpoints", kr: "ML API 엔드포인트" },
+  docs_sec_database: { mn: "Өгөгдлийн сан", en: "Database", kr: "데이터베이스" },
+  docs_sec_encryption: { mn: "Шифрлэлт", en: "Encryption", kr: "암호화" },
+  docs_sec_deployment: { mn: "Байршуулалт", en: "Deployment", kr: "배포" },
+  docs_sec_streaming: { mn: "Шууд дамжуулалт", en: "Live streaming", kr: "라이브 스트리밍" },
+  docs_reference_english: {
+    mn: "Доорх лавлах мөрүүдийг эх баримттай яг тохируулахын тулд англиар үлдээв.",
+    en: "The reference rows below stay in English so they match the source documents exactly.",
+    kr: "아래 레퍼런스 항목은 원문 문서와 정확히 일치하도록 영어로 유지합니다.",
+  },
+
+  // Research / demo panels that stay English on purpose.
+  demo_english_only: {
+    mn: "Судалгааны демо — доорх самбар зөвхөн англи хэл дээр.",
+    en: "Research demo — the panel below is English only.",
+    kr: "연구용 데모 — 아래 패널은 영어로만 제공됩니다.",
+  },
+  bench_subtitle: {
+    mn: "Railway ML үйлчилгээн дэх илрүүлэлт ба embedding-ийн хоцрогдол",
+    en: "Detection and embedding latency on the Railway ML service",
+    kr: "Railway ML 서비스의 검출·임베딩 지연 시간",
+  },
+  eval_subtitle: {
+    mn: "F1 / FPR / SSIM — илрүүлэлт ба далдлалтын чанарын үзүүлэлт",
+    en: "F1 / FPR / SSIM — detection and masking quality metrics",
+    kr: "F1 / FPR / SSIM — 검출 및 마스킹 품질 지표",
+  },
+  edge_subtitle: {
+    mn: "Хөтөч дээрх царай илрүүлэлт — сервер рүү зураг явуулахгүй",
+    en: "Browser-side face detection — no server round-trip",
+    kr: "브라우저에서 실행되는 얼굴 검출 — 서버 왕복 없음",
+  },
+  zk_subtitle: {
+    mn: "Царай ил болгох зөвшөөрлийг нууцлал хамгаалсан ZK протоколоор баталгаажуулах туршилт",
+    en: "A ZK proof protocol for privacy-preserving reveal authorisation",
+    kr: "공개 승인을 프라이버시 보호 방식으로 검증하는 영지식 증명 프로토콜 실험",
+  },
+  dp_title: { mn: "Дифференциал нууцлал", en: "Differential privacy", kr: "차등 프라이버시" },
+  dp_subtitle: {
+    mn: "(ε, δ) баталгаа бүхий нууцлал хамгаалсан царайн embedding",
+    en: "Privacy-preserving face embeddings with (ε, δ) guarantees",
+    kr: "(ε, δ) 보장을 갖는 프라이버시 보호 얼굴 임베딩",
+  },
+
+  // /my-data — the self-service GDPR surface every signed-in role can reach.
+  nav_my_data: { mn: "Миний мэдээлэл (GDPR)", en: "My data (GDPR)", kr: "내 데이터 (GDPR)" },
+  nav_privacy_dp: { mn: "Дифференциал нууцлал", en: "Differential privacy", kr: "차등 프라이버시" },
+  mydata_subtitle: {
+    mn: "GDPR 15, 17 дугаар зүйл — өөрийн мэдээллээ татаж авах, эсвэл бүртгэлээ устгах",
+    en: "GDPR Articles 15 and 17 — download your own data, or erase your account",
+    kr: "GDPR 제15조·제17조 — 본인 데이터를 내려받거나 계정을 삭제합니다",
+  },
+  mydata_export_title: { mn: "Мэдээллээ татах (15 дугаар зүйл)", en: "Download your data (Article 15)", kr: "데이터 내려받기 (제15조)" },
+  mydata_export_text: {
+    mn: "Таны профайл, аудит лог дахь мөрүүд, шошгууд болон камерын эрхийг агуулсан ZIP файл бэлдэнэ. Бусад хэрэглэгчийн мэдээлэл багтахгүй.",
+    en: "Builds a ZIP with your profile, your rows in the audit log, your labels and your camera grants. It never includes another user's data.",
+    kr: "프로필, 감사 로그의 본인 기록, 라벨, 카메라 권한을 담은 ZIP을 생성합니다. 다른 사용자의 데이터는 포함되지 않습니다.",
+  },
+  mydata_erase_title: { mn: "Бүртгэлээ устгах (17 дугаар зүйл)", en: "Erase your account (Article 17)", kr: "계정 삭제 (제17조)" },
+  mydata_erase_text: {
+    mn: "Устгасны дараа таныг системээс гаргана. Аудит логийн мөрүүд хуулийн шаардлагаар үлдэх ба хэрэглэгчийн нэр нь таних боломжгүй болно.",
+    en: "You are signed out as soon as the erase completes. Audit-log rows are kept as the law requires, with your identity removed.",
+    kr: "삭제가 완료되면 즉시 로그아웃됩니다. 감사 로그 기록은 법적 요구에 따라 보존되며, 신원 정보는 제거됩니다.",
+  },
+
+  // ─── audit 16: numbers the operator can trust ───
+  // A session that never proved its second factor reads every gated table as
+  // empty (migration 20260908110000). The user already HAS 2FA enabled, so
+  // "enable two-factor" would be wrong advice — they need a fresh sign-in.
+  // Chart / page-level statement of the bucketing zone (metric_kst_note is
+  // specifically about the word "Today" on the alerts summary).
+  metric_tz_kst: {
+    mn: "Цагийн бүс: Солонгосын цаг (KST)",
+    en: "Time zone: Korea Standard Time (KST)",
+    kr: "시간대: 한국 표준시(KST)",
+  },
+  metric_mfa_session: {
+    mn: "Энэ session хоёр дахь хүчин зүйлээ нотлоогүй тул өгөгдөл хаалттай. Дахин нэвтэрнэ үү.",
+    en: "This session never proved your second factor, so the data stays closed. Sign in again.",
+    kr: "이 세션은 2단계 인증을 증명하지 못해 데이터가 잠겨 있습니다. 다시 로그인하세요.",
+  },
+  bench_iterations_label: { mn: "давталт", en: "iterations", kr: "반복" },
+  bench_config_hint: { mn: "Нэг урсгал · эхний халаалтыг тооцохгүй. Ажиллуулсны дараа бодит оролт энд харагдана.", en: "Single-threaded · first warm-up excluded. The real input appears here after a run.", kr: "단일 스레드 · 첫 워밍업 제외. 실행 후 실제 입력이 여기에 표시됩니다." },
+  cam_health_liveness: { mn: "Дүрс ирж буй эсэх", en: "Frames arriving", kr: "프레임 수신" },
+  cam_health_last_frame: { mn: "Сүүлийн дүрс", en: "Last frame", kr: "마지막 프레임" },
+  cam_health_last_face: { mn: "Сүүлд илэрсэн царай", en: "Last face", kr: "마지막 얼굴" },
+  cam_health_not_capturing: { mn: "Энэ камерыг бичиж авахгүй байна", en: "Not being captured", kr: "캡처 중이 아님" },
+  wall_no_detection: { mn: "Одоогоор царай илрээгүй", en: "No face detected yet", kr: "아직 얼굴이 감지되지 않음" },
 } as const;
 
 export type TranslationKey = keyof typeof T;
