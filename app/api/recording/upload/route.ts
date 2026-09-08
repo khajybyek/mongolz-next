@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
+import { isUploadAcknowledged } from "@/lib/recording-upload";
 
 export const runtime = "nodejs";
 // Vercel Hobby tier caps function duration at 60 s; any larger value
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(sessionId))) {
       return NextResponse.json({ error: "invalid session_id" }, { status: 400 });
     }
-    if (!Number.isInteger(chunkIndex) || (chunkIndex as number) < 0 || (chunkIndex as number) > 400) {
+    if (!Number.isInteger(chunkIndex) || (chunkIndex as number) < 0 || (chunkIndex as number) >= 400) {
       return NextResponse.json({ error: "invalid chunk_index" }, { status: 400 });
     }
   }
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
       method: "POST",
       headers,
       body: mlForm,
+      signal: AbortSignal.timeout(50_000),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -100,9 +102,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!isUploadAcknowledged(data, !isChunk || isFinal)) {
+      return NextResponse.json({ error: "ML upload acknowledgement missing or invalid" }, { status: 502 });
+    }
     return NextResponse.json({
       ok: true,
-      status: data.status ?? "processing",
+      status: data.status,
       recording_id: data.recording_id ?? null,
       camera_id: data.camera_id ?? null,
       size_mb: data.size_mb ?? null,

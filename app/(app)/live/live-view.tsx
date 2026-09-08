@@ -16,6 +16,7 @@ import { HlsPlayer } from "@/components/hls-player";
 import { startCameraAction, stopCameraAction, getStreamTicketAction } from "./actions";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
+import { isUploadAcknowledged, RecordingUploadQueue } from "@/lib/recording-upload";
 
 interface Camera {
   id: string;
@@ -28,26 +29,27 @@ type Mode = "device" | "phone" | "cctv" | "file";
 
 export function LiveCameraView({ cameras }: { cameras: Camera[] }) {
   const { t } = useT();
-  const [mode, setMode] = useState<Mode>("device");
+  const [mode, setMode] = useState<Mode>(() => (cameras.length > 0 ? "cctv" : "device"));
+  const [recordingBusy, setRecordingBusy] = useState(false);
 
   return (
     <div className="space-y-4">
       <div className="card flex items-center gap-2 p-2 w-fit">
-        <ModeBtn current={mode} value="device" onClick={setMode} icon={Laptop}>
+        <ModeBtn current={mode} value="device" disabled={recordingBusy} onClick={setMode} icon={Laptop}>
           {t("live_mode_device")}
         </ModeBtn>
-        <ModeBtn current={mode} value="phone" onClick={setMode} icon={Smartphone}>
+        <ModeBtn current={mode} value="phone" disabled={recordingBusy} onClick={setMode} icon={Smartphone}>
           {t("live_mode_phone")}
         </ModeBtn>
-        <ModeBtn current={mode} value="cctv" onClick={setMode} icon={Cctv}>
+        <ModeBtn current={mode} value="cctv" disabled={recordingBusy} onClick={setMode} icon={Cctv}>
           IP CCTV
         </ModeBtn>
-        <ModeBtn current={mode} value="file" onClick={setMode} icon={Upload}>
+        <ModeBtn current={mode} value="file" disabled={recordingBusy} onClick={setMode} icon={Upload}>
           {t("live_mode_file")}
         </ModeBtn>
       </div>
 
-      {mode === "device" && <DeviceCameraView />}
+      {mode === "device" && <DeviceCameraView onBusyChange={setRecordingBusy} />}
       {mode === "phone" && <PhoneIpWebcamView />}
       {mode === "cctv" && <CctvView cameras={cameras} />}
       {mode === "file" && <FileUploadView />}
@@ -58,12 +60,14 @@ export function LiveCameraView({ cameras }: { cameras: Camera[] }) {
 function ModeBtn({
   current,
   value,
+  disabled,
   onClick,
   icon: Icon,
   children,
 }: {
   current: Mode;
   value: Mode;
+  disabled?: boolean;
   onClick: (v: Mode) => void;
   icon: typeof Laptop;
   children: React.ReactNode;
@@ -72,6 +76,7 @@ function ModeBtn({
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={() => onClick(value)}
       aria-pressed={active}
       className={cn("btn-sm", active ? "btn-secondary text-accent" : "btn-ghost text-text-soft")}
@@ -99,7 +104,7 @@ function pickMimeType(): string {
   return "video/webm";
 }
 
-function DeviceCameraView() {
+function DeviceCameraView({ onBusyChange }: { onBusyChange: (busy: boolean) => void }) {
   const { t } = useT();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -116,7 +121,8 @@ function DeviceCameraView() {
 
   // Recording state
   const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
+  const uploadQueueRef = useRef<RecordingUploadQueue | null>(null);
+  const [failedUpload, setFailedUpload] = useState(false);
   const startTimeRef = useRef<number>(0);
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -125,21 +131,31 @@ function DeviceCameraView() {
   const [elapsed, setElapsed] = useState(0);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
+  const hasUnsavedRecording = recording || uploading || failedUpload;
+  useEffect(() => {
+    onBusyChange(hasUnsavedRecording);
+    if (!hasUnsavedRecording) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [hasUnsavedRecording, onBusyChange]);
+  useEffect(() => () => onBusyChange(false), [onBusyChange]);
+
+
   // Боломжит камерууд
   useEffect(() => {
     (async () => {
       try {
-        // Permission авахын тулд эхлээд getUserMedia дуудаад зогсооно
-        const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
-        tmp.getTracks().forEach((t) => t.stop());
-
         const all = await navigator.mediaDevices.enumerateDevices();
         const cams = all.filter((d) => d.kind === "videoinput");
         setDevices(cams);
         if (cams[0]) setDeviceId(cams[0].deviceId);
-      } catch (e) {
-        const prefix = t("live_perm_error");
-        setError(e instanceof Error ? `${prefix}: ${e.message}` : prefix);
+      } catch {
+        // Device labels remain hidden until the user starts a camera. This
+        // permission-free probe keeps opening Live from prompting the user.
       }
     })();
   }, []);
@@ -290,7 +306,7 @@ function DeviceCameraView() {
   }, [uploading]);
 
   function startRecording() {
-    if (!stream) return;
+    if (!stream || failedUpload || uploading) return;
     setError(null);
     setSavedMsg(null);
 
@@ -309,29 +325,35 @@ function DeviceCameraView() {
     // server stitches them post-processing.
     const sessionId = crypto.randomUUID();
     const MAX_CHUNK_BYTES = 3 * 1024 * 1024; // 3MB target per chunk
-    chunksRef.current = [];
     let chunkBuf: BlobPart[] = [];
     let chunkBytes = 0;
-    let chunkIndex = 0;
-    // Uploads are chained so chunks arrive in order and the final marker is
-    // always last — the ML side assembles by index and only starts
-    // processing once every chunk up to the final one is present.
-    let uploadQueue: Promise<void> = Promise.resolve();
+    const queue = new RecordingUploadQueue(
+      ({ blob, index, final }) => uploadChunk(blob, mime, sessionId, index, final),
+      (cause) => {
+        setError(cause.message);
+        setFailedUpload(true);
+        // Bound memory after a network failure and preserve every unsent byte.
+        if (rec.state !== "inactive") {
+          rec.stop();
+          recorderRef.current = null;
+          setRecording(false);
+        }
+      },
+    );
+    uploadQueueRef.current = queue;
 
-    const flushChunk = (isFinal: boolean): Promise<void> => {
-      const hasData = chunkBuf.length > 0;
-      if (!hasData && !isFinal) return uploadQueue;
-      const blob = new Blob(hasData ? chunkBuf : [], { type: mime });
+    const flushChunk = (isFinal: boolean): void => {
+      if (chunkBuf.length === 0 && !isFinal) return;
+      const blob = new Blob(chunkBuf, { type: mime });
       chunkBuf = [];
       chunkBytes = 0;
-      // An empty final marker carries index = number of data chunks.
-      const idx = chunkIndex++;
-      uploadQueue = uploadQueue
-        .then(() => uploadChunk(blob, mime, sessionId, idx, isFinal))
-        .catch((e) => {
-          setError(e instanceof Error ? e.message : t("live_chunk_upload_failed"));
-        });
-      return uploadQueue;
+      // Background tabs may deliver one very large MediaRecorder event.
+      // Split its bytes; the server concatenates all pieces before decoding.
+      for (let offset = 0; offset < blob.size; offset += MAX_CHUNK_BYTES) {
+        const end = Math.min(offset + MAX_CHUNK_BYTES, blob.size);
+        queue.enqueue(blob.slice(offset, end, mime), isFinal && end === blob.size);
+      }
+      if (isFinal && blob.size === 0) queue.enqueue(blob, true);
     };
 
     rec.ondataavailable = (e) => {
@@ -343,17 +365,18 @@ function DeviceCameraView() {
       }
     };
     rec.onstop = async () => {
-      const duration = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
       // flush any remaining bytes as the final chunk
       uploadStartRef.current = Date.now();
       setUploadElapsed(0);
       setUploading(true);
       try {
-        await flushChunk(true);
-        setSavedMsg(
-          `✓ Session ${sessionId.slice(0, 8)} — ${chunkIndex} chunk · ${duration}s. ` +
-          t("live_processing_started"),
-        );
+        flushChunk(true);
+        await queue.finish();
+        setFailedUpload(false);
+        setSavedMsg(t("live_processing_started"));
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : t("live_chunk_upload_failed"));
+        setFailedUpload(true);
       } finally {
         setUploading(false);
       }
@@ -384,7 +407,7 @@ function DeviceCameraView() {
     fd.append("chunk_index", String(chunkIndex));
     fd.append("is_final", String(isFinal));
     fd.append("camera_name", "Browser camera");
-    const res = await fetch("/api/recording/upload", { method: "POST", body: fd });
+    const res = await fetch("/api/recording/upload", { method: "POST", body: fd, signal: AbortSignal.timeout(55_000) });
     if (!res.ok) {
       const ct = res.headers.get("content-type") ?? "";
       let msg: string;
@@ -406,6 +429,26 @@ function DeviceCameraView() {
         }
       }
       throw new Error(`Chunk ${chunkIndex} ${t("live_chunk_failed")}: ${msg}`);
+    }
+    const receipt: unknown = await res.json().catch(() => null);
+    if (!isUploadAcknowledged(receipt, isFinal)) {
+      throw new Error(t("live_upload_unconfirmed"));
+    }
+  }
+
+  async function retryUpload() {
+    if (!uploadQueueRef.current || uploading) return;
+    setUploading(true);
+    setError(null);
+    uploadStartRef.current = Date.now();
+    try {
+      await uploadQueueRef.current.retry();
+      setFailedUpload(false);
+      setSavedMsg(t("live_processing_started"));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("live_chunk_upload_failed"));
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -483,6 +526,16 @@ function DeviceCameraView() {
           </div>
         )}
 
+        {failedUpload && (
+          <div className="space-y-2" role="status">
+            <p className="text-xs text-text-muted">{t("live_upload_retained")}</p>
+            <button type="button" onClick={retryUpload} disabled={uploading} className="btn-primary w-full">
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {t("live_retry_upload")}
+            </button>
+          </div>
+        )}
+
         {savedMsg && (
           <div className="bg-success/10 border border-success/30 rounded-lg p-2.5 text-xs text-success">
             {savedMsg}{" "}
@@ -494,12 +547,12 @@ function DeviceCameraView() {
 
         {/* Camera on/off */}
         {active ? (
-          <button onClick={stop} className="btn-ghost w-full" disabled={uploading}>
+          <button onClick={stop} className="btn-ghost w-full" disabled={uploading || failedUpload}>
             <Square className="w-4 h-4" />
             {t("live_camera_off_btn")}
           </button>
         ) : (
-          <button onClick={start} className="btn-primary w-full" disabled={uploading}>
+          <button onClick={start} className="btn-primary w-full" disabled={uploading || failedUpload}>
             <Play className="w-4 h-4" />
             {t("live_start_btn")}
           </button>
@@ -511,7 +564,7 @@ function DeviceCameraView() {
             {!recording ? (
               <button
                 onClick={startRecording}
-                disabled={uploading}
+                disabled={uploading || failedUpload}
                 className="btn-danger w-full"
               >
                 <span className="w-2.5 h-2.5 rounded-full bg-white" />
