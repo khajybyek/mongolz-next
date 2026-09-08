@@ -127,7 +127,10 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && path === "/login") {
+  // The auth helpers preserve sessions during verification/config failures.
+  // Let their public error page render instead of bouncing back to the same
+  // protected page and creating an endless redirect loop.
+  if (user && path === "/login" && request.nextUrl.searchParams.get("error") !== "server_config") {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";

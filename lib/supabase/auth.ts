@@ -36,6 +36,7 @@ export function isAuthErr(r: ApiAuthResult): r is ApiAuthErr {
 type SessionState =
   | { kind: "none" }
   | { kind: "no-profile" }
+  | { kind: "unavailable" }
   | { kind: "pin-rejected"; ctx: AuthCtx; reason: string }
   | { kind: "ok"; ctx: AuthCtx };
 
@@ -50,25 +51,24 @@ type SessionState =
  * back-compat for cookie-less legacy sessions. A pin that exists but does
  * not match (other network/UA, tampered, expired) is always rejected.
  *
- * `no-secret` means the deploy is misconfigured; signing already fails closed
- * (lib/auth/hmac-secret.ts) so we do not additionally lock everyone out.
+ * Missing signing configuration or an internal verification error blocks the
+ * request without revoking otherwise valid sessions. Once verification is
+ * available again, those sessions can be checked normally.
  * MONGOLZ_FF_SESSION_PIN=0 is the operator kill switch.
  */
 async function pinVerdict(
   userId: string,
   profile: PublicProfile,
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<PinResult | { ok: false; reason: "internal-error" }> {
   if (!flag("session_pin_enforce")) return { ok: true };
   let pin: PinResult;
   try {
     pin = await checkSessionPin(userId);
   } catch {
-    return { ok: true }; // never lock legitimate users out on an internal error
+    return { ok: false, reason: "internal-error" };
   }
   if (pin.ok) return { ok: true };
   switch (pin.reason) {
-    case "no-secret":
-      return { ok: true };
     case "no-cookie":
       return profile.totp_enabled ? { ok: false, reason: "no-cookie" } : { ok: true };
     default:
@@ -94,6 +94,9 @@ async function loadSession(): Promise<SessionState> {
 
   const pin = await pinVerdict(user.id, profile);
   if (!pin.ok) {
+    if (pin.reason === "no-secret" || pin.reason === "internal-error") {
+      return { kind: "unavailable" };
+    }
     // Revoke the session server-side as well (global): a replayed cookie
     // must stop working everywhere, and the middleware's getUser() then
     // sees no session, so /login does not bounce back to /dashboard.
@@ -126,6 +129,7 @@ export async function requireUser(): Promise<AuthCtx> {
   const s = await loadSession();
   if (s.kind === "none") redirect("/login");
   if (s.kind === "no-profile") redirect("/login?error=no_profile");
+  if (s.kind === "unavailable") redirect("/login?error=server_config");
   if (s.kind === "pin-rejected") redirect("/login?error=session_pin");
   return s.ctx;
 }
@@ -157,6 +161,9 @@ function unauthorized(): ApiAuthErr {
 async function apiSession(opts: ApiAuthOptions): Promise<ApiAuthResult> {
   const s = await loadSession();
   if (s.kind === "none" || s.kind === "no-profile") return unauthorized();
+  if (s.kind === "unavailable") {
+    return { error: NextResponse.json({ error: "server_config" }, { status: 503 }) };
+  }
   if (s.kind === "pin-rejected") {
     return { error: NextResponse.json({ error: "session_invalid" }, { status: 401 }) };
   }
