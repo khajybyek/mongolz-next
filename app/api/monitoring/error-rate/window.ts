@@ -9,17 +9,25 @@
  * The bug this encodes against: the monitor compared a 5-minute window against
  * the previous 55 minutes while `vercel.json` ran it once a day, so it looked
  * at 5 of 1440 minutes — 0.35 % of the day — and the other 99.65 % was never
- * examined by anything. Schedule and window now describe the same hour.
+ * examined by anything. Schedule and window now describe the same day.
  */
 
 /** Must match the `/api/monitoring/error-rate` entry in vercel.json. */
-export const MONITOR_CRON = "0 * * * *";
+export const MONITOR_CRON = "10 2 * * *";
 
-/** The window the cron actually covers: everything since the previous run. */
-export const RECENT_WINDOW_MIN = 60;
+/**
+ * The window the cron actually covers: everything since the previous run.
+ *
+ * Daily, not hourly, because this project runs on a Vercel Hobby plan, which
+ * refuses any cron that fires more than once a day — an hourly schedule fails
+ * the deployment outright, so the window follows the schedule rather than the
+ * other way round. On a paid plan, set both to 60 / 23 * 60 and the test that
+ * compares them keeps the two honest.
+ */
+export const RECENT_WINDOW_MIN = 24 * 60;
 
-/** Baseline = the rest of the rolling day, so the two windows never overlap. */
-export const BASELINE_WINDOW_MIN = 23 * 60;
+/** Baseline = the preceding week, so the two windows never overlap. */
+export const BASELINE_WINDOW_MIN = 7 * 24 * 60;
 
 /**
  * Absolute floor before a ratio may alarm. A handful of mistyped passwords per
@@ -27,6 +35,13 @@ export const BASELINE_WINDOW_MIN = 23 * 60;
  * failures would page someone.
  */
 export const MIN_RECENT_EVENTS = 5;
+
+/**
+ * With no baseline to compare against, this many failures inside the window is
+ * a spike on its own. An absolute count, not a rate, so it means the same thing
+ * whatever the schedule is.
+ */
+export const NO_BASELINE_ALARM_COUNT = 10;
 
 /** Relative uplift over baseline that counts as a spike (10 %). */
 export const DEFAULT_THRESHOLD = 0.1;
@@ -70,8 +85,10 @@ export interface FailureRateVerdict {
  * rate by more than `threshold`, and at least `MIN_RECENT_EVENTS` happened.
  *
  * Without a baseline (a quiet system, the common case here): there is no ratio
- * to compute, so fall back to the absolute rate — more than `threshold`
- * failures per minute in the recent window is a spike on its own.
+ * to compute, so fall back to an absolute COUNT. A per-minute rate was used
+ * before and does not survive a change of window — the same 12 failures read
+ * as 0.2/min in an hourly window and 0.008/min in a daily one, so widening the
+ * window silently disarmed the only check a quiet system has.
  */
 export function evaluateFailureRate({
   recentCount,
@@ -85,7 +102,9 @@ export function evaluateFailureRate({
   const baselineEmpty = baselineRate <= 0;
 
   const spikeRatio = baselineEmpty ? null : recentRate / baselineRate;
-  const exceeded = baselineEmpty ? recentRate > threshold : (spikeRatio as number) >= 1 + threshold;
+  const exceeded = baselineEmpty
+    ? recentCount >= NO_BASELINE_ALARM_COUNT
+    : (spikeRatio as number) >= 1 + threshold;
 
   return {
     recentRate,
