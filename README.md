@@ -241,6 +241,8 @@ npm run deploy:staging               # preview build
 
 # ML service (Railway)
 cd ml-service && railway up --detach
+# Attach a persistent Railway volume and set RECORDING_SPOOL_DIR=/data/recording-spool.
+# The spool retains encrypted recordings until both Storage and the DB commit are acknowledged.
 
 # Edge functions
 npx supabase functions deploy claude-analysis --project-ref ulybenitqmqjfxtaregp
