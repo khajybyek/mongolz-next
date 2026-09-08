@@ -2,31 +2,41 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { RefreshCw, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { useT } from "@/lib/i18n/client";
+import type { TranslationKey } from "@/lib/i18n/translations";
+
+/** Probe targets. Names are translated at render, never inside the fetch loop. */
+const CHECKS: { nameKey: TranslationKey; url: string }[] = [
+  { nameKey: "health_svc_ml", url: "/api/health/ml" },
+  { nameKey: "health_svc_db", url: "/api/health/db" },
+  { nameKey: "health_svc_auth", url: "/api/health/auth" },
+  { nameKey: "health_svc_storage", url: "/api/health/storage" },
+];
 
 interface ServiceStatus {
-  name: string;
+  nameKey: TranslationKey;
   url: string;
   status: "ok" | "error" | "loading";
   latency_ms: number | null;
-  detail: string;
+  /** Server-supplied text, shown verbatim when present. */
+  detail: string | null;
+  /** Locale-resolved fallback used when the probe said nothing useful. */
+  detailKey: TranslationKey;
 }
 
 export function HealthDashboard() {
+  const { t } = useT();
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [checking, setChecking] = useState(false);
 
+  // No translation lookups inside this callback: useT() hands back a fresh
+  // `t` on every render, so depending on it here would re-run the effect
+  // (and re-probe every service) on each state update.
   const check = useCallback(async () => {
     setChecking(true);
     const results: ServiceStatus[] = [];
 
-    const checks = [
-      { name: "ML Service", url: "/api/health/ml" },
-      { name: "Supabase DB", url: "/api/health/db" },
-      { name: "Supabase Auth", url: "/api/health/auth" },
-      { name: "Supabase Storage", url: "/api/health/storage" },
-    ];
-
-    for (const c of checks) {
+    for (const c of CHECKS) {
       const t0 = Date.now();
       try {
         const res = await fetch(c.url);
@@ -35,19 +45,21 @@ export function HealthDashboard() {
         // signing secret is missing — that must not read as a green service.
         const configBroken = data?.config?.ok === false;
         results.push({
-          name: c.name,
+          nameKey: c.nameKey,
           url: c.url,
           status: res.ok && !configBroken ? "ok" : "error",
           latency_ms: Date.now() - t0,
-          detail: data.detail ?? (res.ok ? "Healthy" : data.error ?? "Error"),
+          detail: data.detail ?? data.error ?? null,
+          detailKey: res.ok && !configBroken ? "health_detail_ok" : "health_detail_error",
         });
       } catch {
         results.push({
-          name: c.name,
+          nameKey: c.nameKey,
           url: c.url,
           status: "error",
           latency_ms: Date.now() - t0,
-          detail: "Unreachable",
+          detail: null,
+          detailKey: "health_detail_unreachable",
         });
       }
     }
@@ -65,17 +77,17 @@ export function HealthDashboard() {
       <div className="flex items-center gap-3">
         <div className={`w-3 h-3 rounded-full ${allOk ? "bg-success" : services.length === 0 ? "bg-text-muted" : "bg-danger"} animate-pulse`} />
         <span className="text-sm font-semibold">
-          {allOk ? "All systems operational" : services.length === 0 ? "Checking..." : "Issues detected"}
+          {allOk ? t("health_all_ok") : services.length === 0 ? t("health_checking") : t("health_issues")}
         </span>
         <button onClick={check} disabled={checking} className="btn-ghost btn-sm ml-auto">
           {checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-          Refresh
+          {t("health_refresh")}
         </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {services.map((s) => (
-          <div key={s.name} className="card flex items-center gap-3">
+          <div key={s.url} className="card flex items-center gap-3">
             {s.status === "ok" ? (
               <CheckCircle className="w-5 h-5 text-success shrink-0" />
             ) : s.status === "loading" ? (
@@ -84,8 +96,8 @@ export function HealthDashboard() {
               <XCircle className="w-5 h-5 text-danger shrink-0" />
             )}
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium">{s.name}</div>
-              <div className="text-xs text-text-muted">{s.detail}</div>
+              <div className="text-sm font-medium">{t(s.nameKey)}</div>
+              <div className="text-xs text-text-muted">{s.detail ?? t(s.detailKey)}</div>
             </div>
             {s.latency_ms !== null && (
               <span className="text-xs font-mono text-text-soft">{s.latency_ms}ms</span>

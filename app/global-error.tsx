@@ -2,6 +2,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
+import { errorReportingEnabled } from "@/lib/error-reporting";
 
 export default function GlobalError({
   error,
@@ -20,7 +21,11 @@ export default function GlobalError({
         <div style={{ textAlign: "center", maxWidth: 420 }}>
           <h2 style={{ fontSize: 20, fontWeight: 600 }}>Something went wrong</h2>
           <p style={{ color: "#737373", fontSize: 14, marginTop: 8 }}>
-            An unexpected error occurred. The error has been reported automatically.
+            {/* Only promise a report when a DSN is actually configured —
+                without one `captureException` above is a no-op. */}
+            {errorReportingEnabled()
+              ? "An unexpected error occurred. The error has been reported automatically."
+              : "An unexpected error occurred."}
           </p>
           <button
             onClick={reset}

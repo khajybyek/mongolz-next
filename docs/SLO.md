@@ -5,7 +5,8 @@ Security. Each SLO has an explicit target, the SLI used to measure it,
 and the error budget consumed when it's missed.
 
 Status is computed by `/api/slo-status` — a public read endpoint that
-external monitors can poll.
+external monitors can poll. Read "Status semantics" below before trusting
+a green answer: an SLO with no samples reports `no_data`, never `met`.
 
 ## SLO table
 
@@ -19,6 +20,44 @@ external monitors can poll.
 | 6 | **Alert pipeline freshness** | 95 % of face detections produce a row in `alerts` (when a suspect match exists) within 60 s | gap between `faces.detected_at` and `alerts.created_at` | n/a — freshness SLO |
 | 7 | **Audit chain integrity** | 100 % | `verify_audit_chain()` returns zero rows | **zero tolerance** — chain break is a P0 |
 | 8 | **Encryption integrity** | 100 % of `recordings` decryptable end-to-end | `npm run backup:verify` random-sample success rate | **zero tolerance** — P0 |
+
+## Status semantics
+
+`/api/slo-status` answers with one state per SLO (`app/api/slo-status/slo.ts`):
+
+| `state` | Meaning | `ok` |
+|---|---|---|
+| `met` | Measured, and the measurement clears the target | `true` |
+| `breached` | Measured, and it does not | `false` |
+| `no_data` | Nothing to measure, or fewer than 5 samples in the window | `false` |
+| `error` | The measurement itself failed — not knowing is a signal | `false` |
+
+Each entry also carries `evidence` (`sufficient` / `insufficient` / `none`)
+so a consumer can tell "we are green" from "we have not seen enough to
+say". The 5-sample floor exists because a ratio over one or two samples is
+noise: one slow reveal out of two would read as a 50 % breach.
+
+Top-level `status` and the HTTP code:
+
+| `status` | When | HTTP |
+|---|---|---|
+| `ok` | Every SLO measured and met | 200 |
+| `partial` | Nothing breached, but at least one SLO has no usable evidence | 200 |
+| `degraded` | At least one SLO breached, or unmeasurable | 503 |
+
+"Not enough data yet" is honest, but it is not an outage — it must not page
+an on-call, hence 200. Only `degraded` returns 503.
+
+**What the endpoint publishes.** It is unauthenticated, so it emits SLO
+state and nothing else: a ratio (`"96.4%"`) or a latency (`"1800 ms"`),
+never the sample counts behind them. How many reveals ran in 28 days or how
+many alerts fired in a week is operational volume, not SLO state; the audit
+chain likewise answers `0` / `≥1`, not a break count. Exact numbers live
+behind auth on `/health` and `/audit`.
+
+Before 2026-09-09 the probe computed `ratio = samples === 0 ? 1 : …` and
+published `"100.0% (0 samples)" · ok: true` — four green SLOs on a system
+that had done nothing at all. Regression tests: `__tests__/slo-status.test.ts`.
 
 ## Error budget policy
 
@@ -34,7 +73,7 @@ When an SLO with a budget runs out:
 
 | Signal | Source | Refresh |
 |---|---|---|
-| App availability | Sentry transactions API | daily at 02:00 UTC (vercel.json cron) via `/api/monitoring/error-rate` cron |
+| App availability | Sentry transactions API + `audit_log` failure counts | hourly on the hour (vercel.json cron) via `/api/monitoring/error-rate` |
 | Web Vitals p75 | `public.web_vitals_p75` view | real-time on `/perf-budget` page |
 | ML latency | Railway logs → manual benchmark page | hourly via `/api/ml/bench` |
 | Reveal turnaround | DB query against `reveal_jobs` | on read at `/api/slo-status` |

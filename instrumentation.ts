@@ -1,8 +1,19 @@
 import * as Sentry from "@sentry/nextjs";
 
+/**
+ * Server + edge instrumentation. The BROWSER SDK is not initialised here —
+ * it lives in `instrumentation-client.ts` (Next file convention), because
+ * Turbopack does not inject `sentry.client.config.ts`.
+ */
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     await import("./sentry.server.config");
+
+    // Say it out loud when nothing is listening. Cannot be a
+    // Sentry.captureMessage — with no DSN there is nowhere to send it.
+    if (!process.env.SENTRY_DSN && !process.env.NEXT_PUBLIC_SENTRY_DSN) {
+      console.warn("[observability] no Sentry DSN configured — error reporting is disabled");
+    }
 
     // Boot-time configuration check. lib/auth/hmac-secret.ts is fail-closed
     // in production: an unset signing secret means TOTP logins and step-up

@@ -5,6 +5,7 @@ import * as Sentry from "@sentry/nextjs";
 import { ShieldAlert, RotateCcw } from "lucide-react";
 import { MongolzLogo } from "@/components/logo";
 import { t, type Lang } from "@/lib/i18n/translations";
+import { errorReportingEnabled } from "@/lib/error-reporting";
 
 const LANG_COOKIE = "mongolz-lang";
 const VALID: readonly Lang[] = ["mn", "en", "kr"];
@@ -77,7 +78,10 @@ export default function LoginError({
             </div>
             <div>
               <h2 className="text-lg font-semibold tracking-tight text-text">{t("ui_error_title", lang)}</h2>
-              <p className="text-sm text-text-soft mt-1.5 text-pretty">{t("login_err_boundary_desc", lang)}</p>
+              {/* Only claim "reported automatically" when a DSN is configured. */}
+              <p className="text-sm text-text-soft mt-1.5 text-pretty">
+                {t(errorReportingEnabled() ? "login_err_boundary_desc" : "login_err_boundary_desc_unreported", lang)}
+              </p>
               {error.digest && (
                 <p className="text-2xs font-mono text-text-muted mt-2">ref {error.digest}</p>
               )}

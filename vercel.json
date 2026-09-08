@@ -6,7 +6,7 @@
   "crons": [
     {
       "path": "/api/monitoring/error-rate",
-      "schedule": "0 2 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/cron/backup-verify",

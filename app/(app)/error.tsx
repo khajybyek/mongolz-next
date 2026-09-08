@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import * as Sentry from "@sentry/nextjs";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { useT } from "@/lib/i18n/client";
+import { errorReportingEnabled } from "@/lib/error-reporting";
 
 /**
  * Route-level error boundary for the authenticated app shell. Without it a
@@ -29,7 +30,10 @@ export default function AppError({
       </div>
       <div>
         <h2 className="text-lg font-semibold text-text">{t("ui_error_title")}</h2>
-        <p className="text-sm text-text-soft mt-1">{t("ui_error_desc")}</p>
+        {/* Only claim "reported automatically" when a DSN is configured. */}
+        <p className="text-sm text-text-soft mt-1">
+          {t(errorReportingEnabled() ? "ui_error_desc" : "ui_error_desc_unreported")}
+        </p>
         {error.digest && (
           <p className="text-2xs font-mono text-text-muted mt-2">ref {error.digest}</p>
         )}

@@ -1,22 +1,38 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { authorizeCron } from "@/lib/auth/cron";
+import {
+  BASELINE_WINDOW_MIN,
+  FAILURE_ACTIONS,
+  MIN_RECENT_EVENTS,
+  MONITOR_CRON,
+  RECENT_WINDOW_MIN,
+  evaluateFailureRate,
+  resolveThreshold,
+} from "./window";
 
 /**
- * Error-rate monitor.
+ * Failure-rate monitor.
  *
- * Compares LOGIN_FAILED + TOTP_LOGIN_FAILED + REVEAL_REJECT counts in the
- * last 5 minutes against the prior hour's baseline. If the ratio exceeds
- * SENTRY_ERROR_RATE_THRESHOLD (default 0.10 = 10%), fires a Slack webhook.
+ * Counts LOGIN_FAILED + TOTP_LOGIN_FAILED + LOGIN_BLOCKED audit rows in the
+ * last hour and compares them against the preceding 23 hours. On a spike it
+ * fires the Slack webhook (when configured) and writes a MONITOR_ALARM audit
+ * row so the signal survives even without Slack.
  *
- * Designed to run hourly via Vercel Cron (or external scheduler).
- * Auth: Bearer token must equal MONITORING_CRON_SECRET (set in env).
+ * Runs HOURLY — `vercel.json` schedules `MONITOR_CRON` and the recent window
+ * is exactly that interval, so every minute of the day is examined by exactly
+ * one run. (It used to inspect a 5-minute window once a day: 0.35 % of the
+ * day, with the rest unmonitored. See ./window.ts.)
  *
- * Sentry: a corresponding Sentry alert rule should also exist on the
- * project — this endpoint is the in-system signal pathway.
+ * Cost of hourly: 24 invocations/day instead of 1 — two `count(*)` queries
+ * that finish in well under a second, so roughly half a minute of function
+ * time per day. The real constraint is Vercel's cron *frequency* limit:
+ * sub-daily schedules require a Pro/Enterprise plan. Reverting is a one-line
+ * change in vercel.json — but then RECENT_WINDOW_MIN must move with it, and
+ * the unit test that compares the two will say so.
+ *
+ * Auth: `Authorization: Bearer <CRON_SECRET | MONITORING_CRON_SECRET>`.
  */
-const FAILURE_ACTIONS = ["LOGIN_FAILED", "TOTP_LOGIN_FAILED", "LOGIN_BLOCKED"];
-
 export async function GET(req: NextRequest) {
   if (!authorizeCron(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -24,45 +40,56 @@ export async function GET(req: NextRequest) {
 
   const svc = createServiceClient();
   const now = Date.now();
-  const window5m = new Date(now - 5 * 60 * 1000).toISOString();
-  const window1h = new Date(now - 60 * 60 * 1000).toISOString();
+  const recentSince = new Date(now - RECENT_WINDOW_MIN * 60_000).toISOString();
+  const baselineSince = new Date(now - (RECENT_WINDOW_MIN + BASELINE_WINDOW_MIN) * 60_000).toISOString();
 
   const [recent, base] = await Promise.all([
     svc
       .from("audit_log")
       .select("id", { count: "exact", head: true })
-      .in("action", FAILURE_ACTIONS)
-      .gte("created_at", window5m),
+      .in("action", [...FAILURE_ACTIONS])
+      .gte("created_at", recentSince),
     svc
       .from("audit_log")
       .select("id", { count: "exact", head: true })
-      .in("action", FAILURE_ACTIONS)
-      .gte("created_at", window1h)
-      .lt("created_at", window5m),
+      .in("action", [...FAILURE_ACTIONS])
+      .gte("created_at", baselineSince)
+      .lt("created_at", recentSince),
   ]);
 
-  const recentCount = recent.count ?? 0;
-  const baseCount = base.count ?? 0;
-  // Normalise per minute
-  const recentRate = recentCount / 5;
-  const baseRate = baseCount / 55;
+  // A failed count is not "zero failures" — say so instead of reporting a
+  // green window built on a query that never ran. A 500 also surfaces the run
+  // as failed in the Vercel cron dashboard.
+  if (recent.error || base.error || recent.count == null || base.count == null) {
+    console.error("[monitoring/error-rate] audit_log count failed", {
+      recent: recent.error?.code ?? null,
+      baseline: base.error?.code ?? null,
+    });
+    return NextResponse.json(
+      { status: "error", ts: new Date(now).toISOString(), detail: "audit_log query failed" },
+      { status: 500 },
+    );
+  }
 
-  const threshold = Number(process.env.SENTRY_ERROR_RATE_THRESHOLD ?? "0.10");
-  const spike = baseRate > 0 ? recentRate / baseRate : recentRate > threshold ? Infinity : 0;
-  const alarm = spike >= 1 + threshold && recentCount >= 3;
+  const recentCount = recent.count;
+  const baseCount = base.count;
+  const threshold = resolveThreshold();
+  const verdict = evaluateFailureRate({ recentCount, baselineCount: baseCount, threshold });
 
-  const status: "ok" | "warn" = alarm ? "warn" : "ok";
   const result = {
-    status,
+    status: verdict.alarm ? ("warn" as const) : ("ok" as const),
     ts: new Date(now).toISOString(),
-    window: { recent_min: 5, baseline_min: 55 },
+    cron: MONITOR_CRON,
+    window: { recent_min: RECENT_WINDOW_MIN, baseline_min: BASELINE_WINDOW_MIN },
     counts: { recent: recentCount, baseline: baseCount },
-    rates_per_min: { recent: recentRate, baseline: baseRate },
-    spike_ratio: Number(spike.toFixed(2)),
+    rates_per_min: { recent: verdict.recentRate, baseline: verdict.baselineRate },
+    spike_ratio: verdict.spikeRatio === null ? null : Number(verdict.spikeRatio.toFixed(2)),
+    baseline_empty: verdict.baselineEmpty,
     threshold,
+    min_recent_events: MIN_RECENT_EVENTS,
   };
 
-  if (alarm) {
+  if (verdict.alarm) {
     const slack = process.env.SLACK_ALERT_WEBHOOK;
     if (slack) {
       try {
@@ -72,7 +99,8 @@ export async function GET(req: NextRequest) {
           body: JSON.stringify({
             text: [
               `:rotating_light: *MONGOLZ failure-rate spike*`,
-              `*spike ratio:* ${result.spike_ratio}x  *recent:* ${recentCount}/5m  *baseline:* ${baseCount}/55m`,
+              `*recent:* ${recentCount} in ${RECENT_WINDOW_MIN}m  *baseline:* ${baseCount} in ${BASELINE_WINDOW_MIN}m` +
+                (result.spike_ratio === null ? `  *baseline:* empty` : `  *spike:* ${result.spike_ratio}x`),
               `<https://aicctv.dev/audit?action=LOGIN_FAILED|Audit log>`,
             ].join("\n"),
           }),

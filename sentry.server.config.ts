@@ -1,16 +1,20 @@
+/**
+ * Node-runtime Sentry init. Loaded from `instrumentation.ts#register()` —
+ * the browser side is `instrumentation-client.ts`, not a `sentry.*.config`
+ * file (Turbopack does not inject those).
+ */
 import * as Sentry from "@sentry/nextjs";
+import { SERVER_TRACES_SAMPLE_RATE, scrubSentryEvent, serverErrorReportingDsn } from "./lib/error-reporting";
 
-Sentry.init({
-  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
-  enabled: !!process.env.NEXT_PUBLIC_SENTRY_DSN,
+const dsn = serverErrorReportingDsn();
 
-  tracesSampleRate: 0.2,
-
-  beforeSend(event) {
-    if (event.request?.headers) {
-      delete event.request.headers["authorization"];
-      delete event.request.headers["cookie"];
-    }
-    return event;
-  },
-});
+if (dsn) {
+  Sentry.init({
+    dsn,
+    tracesSampleRate: SERVER_TRACES_SAMPLE_RATE,
+    sendDefaultPii: false,
+    // Shared with the browser + edge SDKs: no cookies, no Authorization
+    // header, no query strings (stream tickets ride in those).
+    beforeSend: (event) => scrubSentryEvent(event),
+  });
+}
