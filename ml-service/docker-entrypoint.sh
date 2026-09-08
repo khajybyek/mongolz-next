@@ -31,10 +31,30 @@ if [ "$(id -u)" -eq 0 ]; then
   exec runuser --preserve-environment --user mongolz -- "$0" "$@"
 fi
 
+# ── 0. Boot status note (read back by GET / → "tunnel") ────────────────
+# Why: "tailscale up failed — continuing without tailnet" used to exist only
+# in the deploy log, so an operator looking at the API saw a healthy service
+# with an unreachable camera. Written key=value, one line each; values must
+# stay short and MUST NOT contain the auth key or any URL — the health
+# endpoint is public.
+# Exported so uvicorn reads back exactly the file this script writes, even if
+# one of the two defaults is changed later (tcp_forward.BOOT_STATUS_FILE).
+export TS_STATUS_FILE="${TS_STATUS_FILE:-/tmp/mongolz-tailnet.status}"
+
+ts_status() {
+  # $1 = state (disabled|starting|up|up-failed), $2 = short reason
+  {
+    echo "state=$1"
+    echo "reason=$2"
+    echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "$TS_STATUS_FILE" 2>/dev/null || true
+}
+
 # ── 1. Tailscale (only if auth key present — backwards-compatible) ──────
 if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
   STATE_DIR="${TS_STATE_DIR:-/tmp/tailscale-state}"
   mkdir -p "$STATE_DIR"
+  ts_status starting "tailscaled launching"
 
   echo "[entrypoint] Starting tailscaled (userspace networking)…"
   tailscaled \
@@ -53,15 +73,21 @@ if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
   done
 
   echo "[entrypoint] tailscale up…"
-  tailscale --socket="$STATE_DIR/tailscaled.sock" up \
+  if tailscale --socket="$STATE_DIR/tailscaled.sock" up \
     --authkey="$TAILSCALE_AUTHKEY" \
     --hostname="${TS_HOSTNAME:-mongolz-ml}" \
     --accept-routes \
     --accept-dns=false \
-    --advertise-tags=tag:mongolz-ml || {
-      echo "[entrypoint] tailscale up failed — continuing without tailnet"
+    --advertise-tags=tag:mongolz-ml; then
+      ts_status up "tailnet joined"
+  else
+      TS_UP_RC=$?
+      # Only the exit code is recorded: `tailscale up` output can echo the
+      # login URL. The full text stays in the deploy log / /tmp/tailscaled.log.
+      echo "[entrypoint] tailscale up failed (exit $TS_UP_RC) — continuing without tailnet"
+      ts_status up-failed "tailscale up exited $TS_UP_RC"
       kill "$TAILSCALED_PID" 2>/dev/null || true
-  }
+  fi
 
   if tailscale --socket="$STATE_DIR/tailscaled.sock" status > /dev/null 2>&1; then
     echo "[entrypoint] ✓ Tailscale tailnet joined:"
@@ -90,6 +116,7 @@ if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
       # never exits, so a fg invocation here would block exec uvicorn
       # forever and trigger Railway's healthcheck rollback.
       echo "[entrypoint] ✗ tcp_forward.py died at startup — continuing without forwarder"
+      ts_status forwarder-failed "tcp_forward died at startup"
     fi
 
     # Verify the forwarder port is actually accepting TCP. Best-effort —
@@ -105,6 +132,7 @@ if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
   fi
 else
   echo "[entrypoint] TAILSCALE_AUTHKEY not set — tailnet disabled (cloud-only mode)"
+  ts_status disabled "TAILSCALE_AUTHKEY not set"
 fi
 
 # ── 3. Force RTSP over TCP ──────────────────────────────────────────────

@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 
 # Korea Standard Time (UTC+9) — filename болон video overlay-д хэрэглэнэ
@@ -64,7 +65,7 @@ def redact_url(url: str | int) -> str:
 _HAAR_PATH = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 
 if TYPE_CHECKING:
-    from face_engine import FaceEngine
+    from face_engine import DetectedFace, FaceEngine
     from storage import SupabaseStorage
 
 log = logging.getLogger("mongolz-ml.recording")
@@ -78,8 +79,8 @@ LIVE_READ_FAIL_LIMIT = 100
 # (guards against a corrupt cached clip turning into a hot loop).
 DEMO_REOPEN_LIMIT = 3
 ALERT_THRESHOLD = 0.45
-# Dedup: цаг хугацааны цонхгүй — БҮТЭН session дотор cosine sim > THRESHOLD
-# нэг л хүн гэж тоомсорлож faces row-г 1 удаа л бичнэ.
+# Dedup: нэг хүнийг дахин дахин бичихээс сэргийлнэ — cosine sim > THRESHOLD
+# бол «өмнө харсан хүн» гэж үзнэ.
 #
 # ArcFace cosine similarity-н бодит scale:
 #   • Ижил хүн, ижил өнцөг   → 0.70-0.90
@@ -92,6 +93,52 @@ ALERT_THRESHOLD = 0.45
 DEDUP_THRESHOLD = 0.35  # Хатуу — нэг хүний бүх өнцгийг 1-2 frame-д нэгтгэнэ
 TIER_MATCH_THRESHOLD = 0.40  # Per-face suspect match для tier resolution
 ALERT_COOLDOWN_SEC = 15
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    """Env int reader — буруу утга бол default, ЧИМЭЭГҮЙ биш (log.warning)."""
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        log.warning("%s=%r нь бүхэл тоо биш — default %d ашиглав", name, raw, default)
+        return default
+    if value < minimum:
+        log.warning("%s=%d хэт бага — доод хязгаар %d ашиглав", name, value, minimum)
+        return minimum
+    return value
+
+
+# ── Session face memory (audit 4.7) ───────────────────────────
+# ӨМНӨ: `session_embeddings` нь цаг хугацааны хязгааргүй байсан — session
+# эхэлснээс хойш нэг удаа харагдсан хүн ТУХАЙН SESSION дуустал (auto-resume
+# дээр хэд хоног) дахин хэзээ ч бүртгэгддэггүй, alert path-руу ч хүрдэггүй
+# байв. «Энэ хүн харагдвал надад мэдэгд» гэсэн амлалт зөрчигдөж байсан.
+#
+# ОДОО: memory-д цонх нэмэв.
+#   • SESSION_FACE_WINDOW_SEC (default 300 сек = 5 мин) — нэг хүний НОТЛОХ
+#     БАРИМТ (faces мөр + битүүмжилсэн crop) хэр олон удаа бичигдэхийг
+#     тодорхойлно. 5 минут гэдэг нь: (а) камерын өмнө зогсож байгаа хүн
+#     цагт ≤12 мөр үүсгэнэ (42 нүүртэй энэ deployment-д боломжийн),
+#     (б) alert_rules.dedup_window_sec-ийн DB default-той ижил тул
+#     нотлох баримтын давтамж alert-ын давтамжаас илүү нягт болохгүй.
+#   • SESSION_ALERT_RECHECK_SEC (default 60 сек) — dedup-д баригдсан
+#     (өөрөөр хэлбэл шинэ мөр бичихгүй) хүнийг ХЭР ОЛОН удаа suspect-тэй
+#     тааруулж alert давхаргад үзүүлэхийг тодорхойлно. Энэ нь хямд (нэг RPC),
+#     мөр бичихгүй. Ингэснээр «хэр олон alert харагдах вэ» гэдгийг ML биш,
+#     alert_rules (dedup цонх, burst, чимээгүй цаг) шийднэ — яг ёсоор нь.
+#   Хоёулаа ML-ийн ALERT_COOLDOWN_SEC (15 сек, suspect тус бүрээр) дээр
+#   нэмэгдэж ажиллана; DB-рүү спам явуулах давхарга байхгүй.
+SESSION_FACE_WINDOW_SEC = _env_int("SESSION_FACE_WINDOW_SEC", 300, minimum=5)
+SESSION_ALERT_RECHECK_SEC = _env_int("SESSION_ALERT_RECHECK_SEC", 60, minimum=5)
+# Memory-ийн дээд хэмжээ — хөл ихтэй талбайд хугацаа дуусаагүй бичлэгүүд
+# хуримтлагдахаас сэргийлнэ (мөн cosine харьцуулалт O(n)-ыг барина).
+SESSION_MEMORY_MAX_ENTRIES = _env_int("SESSION_MEMORY_MAX_ENTRIES", 512, minimum=16)
+# Detection дараалан унаж байвал хэдэн удаад нэг warning бичих вэ (эхнийх нь
+# үргэлж бичигдэнэ). ~1 detect/сек тул 60 = ойролцоогоор минутанд нэг.
+_DETECT_FAILURE_LOG_EVERY = 60
 BLUR_KERNEL = (51, 51)
 BLUR_SIGMA = 30
 
@@ -118,6 +165,120 @@ HAAR_MIN_SIZE = (60, 60)
 # Жижиг тоо = илүү агрессив anonymize (information theory-р irreversible).
 # 8×8 = 64 пиксел үлдэх (100×100 царайнаас 99.4% information алга).
 MOSAIC_BLOCK_SIZE = 8
+
+
+@dataclass
+class SeenFace:
+    """Session-ийн турш «энэ хүнийг харсан» гэсэн нэг бичлэг."""
+
+    embedding: np.ndarray
+    recorded_at: float          # энэ бичлэг үүссэн үе
+    expires_at: float           # үүнээс хойш тухайн хүн ДАХИН бүртгэгдэнэ
+    checked_at: float           # suspect match хамгийн сүүлд ажилласан үе
+    face_id: str | None = None  # тэр мөрийн id (alert-д нотлох баримт болно)
+    screenshot_path: str | None = None
+
+
+class SessionFaceMemory:
+    """Хугацааны цонхтой «өмнө харсан хүн» санах ой.
+
+    Хоёр шийдвэрийг тусад нь гаргана:
+      * ``lookup() is None``  → шинэ (эсвэл хугацаа нь дууссан) хүн: faces мөр
+        + битүүмжилсэн crop бичих ёстой.
+      * ``needs_recheck()``   → мөр бичихгүй ч suspect тааралтыг дахин
+        ажиллуулж alert давхаргад үзүүлэх цаг болсон.
+
+    Цонх нь БИЧСЭН үеэс хойш тоологдоно; дунд нь орсон давхардсан илрэлт
+    цонхыг сунгахгүй. Энэ нь ЗОРИУДЫН сонголт: камерын өмнө байнга байгаа хүн
+    цонх тутамд нэг мөр үлдээж, camera_health / heatmap / analytics зэрэг
+    faces мөрөөр идэвхийг хэмждэг хэсгүүд «хүн байсаар байна» гэдгийг үнэн
+    зөвөөр харуулна. (Alert нь энэ цонхноос ХАМААРАХГҮЙ — ``needs_recheck``
+    нь ``SESSION_ALERT_RECHECK_SEC`` тутамд suspect тааралтыг дахин
+    ажиллуулдаг тул сунгадаг цонх ч 4.7-гийн алдааг давтахгүй байсан.)
+
+    Үнэ нь: байнга харагдаж буй хүн тутамд цонх бүрд нэг faces мөр + нэг
+    битүүмжилсэн crop. Хэт их бол ``SESSION_FACE_WINDOW_SEC``-ийг өсгөнө;
+    retention sweep нь хуучин мөрүүдийг цэвэрлэнэ.
+    """
+
+    def __init__(
+        self,
+        cosine,
+        threshold: float = DEDUP_THRESHOLD,
+        face_window_sec: int = SESSION_FACE_WINDOW_SEC,
+        recheck_sec: int = SESSION_ALERT_RECHECK_SEC,
+        max_entries: int = SESSION_MEMORY_MAX_ENTRIES,
+    ):
+        self._cosine = cosine
+        self._threshold = threshold
+        self.face_window_sec = max(1, int(face_window_sec))
+        # Recheck нь face цонхноос урт байх нь утгагүй: цонх дуусмагц бүх зүйл
+        # (мөр + alert) дахин ажилладаг тул түүнээс хэтэрсэн утгыг таслана.
+        self.recheck_sec = min(max(1, int(recheck_sec)), self.face_window_sec)
+        self.max_entries = max(1, int(max_entries))
+        self._entries: list[SeenFace] = []
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+    def prune(self, now: float) -> None:
+        """Хугацаа нь дууссан бичлэгүүдийг хаяна (мөн дээд хэмжээг барина)."""
+        self._entries = [e for e in self._entries if now <= e.expires_at]
+        if len(self._entries) > self.max_entries:
+            # Хамгийн эртнийхийг хаяна — идэвхтэй хүмүүс санах ойд үлдэнэ.
+            self._entries.sort(key=lambda e: e.recorded_at)
+            dropped = len(self._entries) - self.max_entries
+            self._entries = self._entries[dropped:]
+            log.warning(
+                "Session face memory дүүрсэн — %d хамгийн эртний бичлэгийг хаяв (cap=%d)",
+                dropped, self.max_entries,
+            )
+
+    def lookup(self, embedding: np.ndarray, now: float) -> SeenFace | None:
+        """Цонхны дотор байгаа тохирох бичлэг, эсвэл None (= шинээр бичих).
+
+"""
+        self.prune(now)
+        best: SeenFace | None = None
+        best_sim = self._threshold
+        for entry in self._entries:
+            sim = self._cosine(embedding, entry.embedding)
+            if sim > best_sim:
+                best, best_sim = entry, sim
+        return best
+
+    def remember(
+        self,
+        embedding: np.ndarray,
+        now: float,
+        face_id: str | None,
+        screenshot_path: str | None,
+        ttl_sec: float | None = None,
+    ) -> SeenFace:
+        """Шинэ бичлэг нэмнэ.
+
+        ``ttl_sec`` нь хадгалалт амжилтгүй болсон үед богино хугацаа өгөхөд
+        хэрэглэгдэнэ (Storage унасан бол секунд тутам дахин оролдож лог
+        дүүргэхгүй, гэхдээ 5 минут хүлээхгүй).
+        """
+        entry = SeenFace(
+            embedding=embedding,
+            recorded_at=now,
+            expires_at=now + (self.face_window_sec if ttl_sec is None else max(1.0, ttl_sec)),
+            checked_at=now,
+            face_id=face_id,
+            screenshot_path=screenshot_path,
+        )
+        self._entries.append(entry)
+        self.prune(now)
+        return entry
+
+    def needs_recheck(self, entry: SeenFace, now: float) -> bool:
+        return (now - entry.checked_at) >= self.recheck_sec
+
+    @staticmethod
+    def mark_checked(entry: SeenFace, now: float) -> None:
+        entry.checked_at = now
 
 
 def _mosaic_anonymize(roi: np.ndarray, block_size: int = MOSAIC_BLOCK_SIZE) -> np.ndarray:
@@ -388,11 +549,12 @@ class RecordingSession:
         self._row_inserted = False
         self._delivery_enqueued = False
 
-        # ArcFace session-wide dedup + alert state.
-        # session_embeddings — бүтэн session-ийн уникал хүний embedding жагсаалт.
-        # Шинэ нүүр илэрвэл бүх элементтэй харьцуулах: cosine > DEDUP_THRESHOLD
-        # (0.45) бол ижил хүн гэж тоомсорлож алгасна.
-        self.session_embeddings: list[np.ndarray] = []
+        # ArcFace dedup + alert state.
+        # face_memory — цонхтой «өмнө харсан хүн» бүртгэл (audit 4.7). Хугацаа
+        # нь дуусмагц тухайн хүн faces хүснэгт БОЛОН alert зам руу дахин орно.
+        self.face_memory = SessionFaceMemory(self.engine.cosine)
+        # Дараалсан detection алдааны тоолуур (лог харагдуулахад).
+        self._detect_failures = 0
         # Serialises the dedup-check-and-append + DB writes across overlapping
         # _process_arcface tasks (the capture loop spawns one every N frames
         # without awaiting the prior one). Without this, two tasks both see
@@ -887,122 +1049,196 @@ class RecordingSession:
     async def _process_arcface(self, frame: np.ndarray):
         ok, encoded = cv2.imencode(".jpg", frame)
         if not ok:
+            self._note_detect_failure(ValueError("frame JPEG encode амжилтгүй"))
             return
         try:
             faces = await asyncio.to_thread(self.engine.detect_all, encoded.tobytes())
-        except Exception as e:
-            log.debug("ArcFace skipped: %s", e)
+        except Exception as e:  # noqa: BLE001
+            # ӨМНӨ: log.debug — production-ын INFO түвшинд ХАРАГДДАГГҮЙ байсан.
+            # Engine унасан бол alert зам бүхэлдээ хараагүй болно; үүнийг
+            # чимээгүй өнгөрөөх нь болохгүй.
+            self._note_detect_failure(e)
             return
+        self._note_detect_success()
         if not faces:
             return
 
         now = time.time()
-        # Serialise the read-modify-write on session_embeddings (+ DB inserts)
-        # so concurrent arcface tasks can't both miss-then-append the same
-        # person. Detection (the CPU-heavy to_thread above) already ran
-        # outside the lock, so parallelism where it matters is preserved.
+        # Serialise the memory read-modify-write (+ DB writes) across
+        # overlapping arcface tasks so two of them can't both miss-then-record
+        # the same person. Detection (the CPU-heavy to_thread above) already
+        # ran outside the lock, so parallelism where it matters is preserved.
         async with self._arcface_lock:
-          for f in faces:
-            # Session-wide dedup: cosine sim > DEDUP_THRESHOLD (0.45) бол
-            # ижил хүн гэж тоомсорлож алгасна (faces row үүсгэхгүй).
-            # ArcFace empirical scale-ийн дагуу 0.45 нь "same person across
-            # angles" хүртэл нэгтгэдэг.
-            if any(
-                self.engine.cosine(f.embedding, prev) > DEDUP_THRESHOLD
-                for prev in self.session_embeddings
-            ):
-                continue
-            self.session_embeddings.append(f.embedding)
+            for f in faces:
+                entry = self.face_memory.lookup(f.embedding, now)
 
-            # Save crop + insert face row + bbox (frame_h/w-д харьцангуй)
-            x1, y1, x2, y2 = map(int, f.bbox)
-            crop = frame[max(0, y1):y2, max(0, x1):x2]
-            ok2, crop_bytes = cv2.imencode(".jpg", crop)
-            if not (ok2 and self.storage.client):
-                continue
-
-            h, w = frame.shape[:2]
-            bbox = {
-                "x": max(0.0, x1 / w),
-                "y": max(0.0, y1 / h),
-                "w": (x2 - x1) / w,
-                "h": (y2 - y1) / h,
-            }
-
-            filename = f"{self.camera_id}_{int(now * 1000)}_{uuid.uuid4().hex[:8]}.jpg"
-            path = f"{self.camera_id}/{filename}"
-
-            # ── Hierarchical key seal (ADR 0009 / Tier 2: encrypt-only) ──
-            # Seal this face's embedding AND crop pixels with the per-face
-            # chain key K_index, then upload ONLY the sealed crop at
-            # `<path>.enc`. The plain crop is intentionally NOT written —
-            # no plaintext face image is persisted at rest. Display sites
-            # fetch it through /api/faces/[id]/secure-crop, which proxies
-            # the ML decryption gated by the requester's reveal_level.
-            #
-            # Fail-closed: if any step of the seal / upload fails, skip
-            # this face entirely (advancing the chain index so other
-            # concurrent faces still derive distinct keys). We refuse
-            # to fall back to a plaintext upload — that would defeat the
-            # whole point of Tier 2.
-            chain_index = self._face_chain_index
-            self._face_chain_index += 1
-            try:
-                k = key_at_index(self.recording_id, chain_index, master_key())
-                emb_bytes = np.asarray(f.embedding, dtype=np.float32).tobytes()
-                embedding_sealed = base64.b64encode(_seal_embedding(emb_bytes, k)).decode()
-                sealed_crop = _seal_embedding(crop_bytes.tobytes(), k)
-                self.storage.upload_bytes(
-                    "faces", f"{path}.enc", sealed_crop, "application/octet-stream"
-                )
-            except Exception as e:  # noqa: BLE001 — fail-closed: drop the face, never persist plaintext
-                log.warning(
-                    "Face %d seal/upload алдаа — face алгасав (encrypt-only): %s",
-                    chain_index,
-                    e,
-                )
-                continue
-
-            face_id = await self.storage.insert_face(
-                filename=filename,
-                image_path=path,
-                embedding=f.embedding.tolist(),
-                camera_id=self.db_camera_id,
-                recording_id=self.recording_id if self._row_inserted else None,
-                bbox=bbox,
-                chain_index=chain_index,
-                embedding_sealed=embedding_sealed,
-                crop_sealed=True,
-            )
-
-            # Suspect match → alert?
-            matches = await self.storage.match_suspects(
-                f.embedding.tolist(), threshold=ALERT_THRESHOLD, limit=1
-            )
-            if matches:
-                m = matches[0]
-                # Coerce similarity once: the PostgREST RPC can return it as a
-                # string or None, which would crash the "%.2f" logger
-                # ("must be real number, not str") and corrupt the alert row.
-                try:
-                    sim = float(m["similarity"])
-                except (TypeError, ValueError):
-                    sim = 0.0
-                # A suspect with a zero / corrupt embedding yields NaN cosine
-                # similarity from the RPC and would "match" every face.
-                if not math.isfinite(sim) or sim < ALERT_THRESHOLD:
-                    log.warning("Suspect %s: non-finite or sub-threshold similarity (%r) — ignored", m.get("id"), m.get("similarity"))
-                    continue
-                last = self.last_alert_at.get(m["id"], 0)
-                if now - last >= ALERT_COOLDOWN_SEC:
-                    self.last_alert_at[m["id"]] = now
-                    await self.storage.insert_alert(
-                        suspect_id=m["id"],
-                        suspect_name=m["name"],
-                        face_id=face_id,
-                        similarity=sim,
-                        screenshot_path=path,
-                        camera_id=self.db_camera_id,
-                        camera_name=self.camera_name,
+                if entry is None:
+                    # Шинэ хүн, эсвэл цонх нь дууссан хүн → нотлох баримт бичнэ.
+                    # Алдаа гарсан ч alert зам ҮРГЭЛЖИЛНЭ: crop upload унасан
+                    # гэдэг нь хяналтын жагсаалтын хүнийг чимээгүй алгасах
+                    # шалтгаан биш (өмнө нь яг тэгдэг байсан).
+                    face_id: str | None = None
+                    screenshot_path: str | None = None
+                    ttl: float | None = None
+                    try:
+                        face_id, screenshot_path = await self._persist_face(frame, f, now)
+                    except Exception as e:  # noqa: BLE001 — тодорхой бүртгэнэ
+                        log.exception("Нүүр хадгалахад алдаа (alert зам үргэлжилнэ): %s", e)
+                        # Богино TTL: Storage сэргэмэгц нотлох баримт эргэж
+                        # бичигдэнэ, гэхдээ секунд тутмын давталт үүсгэхгүй.
+                        ttl = self.face_memory.recheck_sec
+                    entry = self.face_memory.remember(
+                        f.embedding, now, face_id, screenshot_path, ttl_sec=ttl
                     )
-                    log.warning("🚨 ALERT: %s (%.2f)", m["name"], sim)
+                    should_check = True
+                else:
+                    # Цонхны дотор — шинэ мөр бичихгүй. Гэхдээ suspect тааралтыг
+                    # тогтмол давтаж alert давхаргад (dedup цонх, burst,
+                    # чимээгүй цаг) шийдэх боломж өгнө.
+                    should_check = self.face_memory.needs_recheck(entry, now)
+
+                if not should_check:
+                    continue
+                self.face_memory.mark_checked(entry, now)
+                try:
+                    await self._match_and_alert(
+                        f.embedding, entry.face_id, entry.screenshot_path, now
+                    )
+                except Exception as e:  # noqa: BLE001 — нэг alert-ын алдаа
+                    # үлдсэн нүүрнүүдийг таслах ёсгүй (өмнө нь task бүхэлдээ
+                    # унаж, хаана ч бүртгэгддэггүй байсан).
+                    log.exception("Alert бичихэд алдаа: %s", e)
+
+    def _note_detect_failure(self, error: Exception) -> None:
+        """Detection алдааг харагдуулна: эхнийх нь болон дараа нь тогтмол
+        давтамжтайгаар warning бичнэ (лог дүүргэхгүйгээр)."""
+        self._detect_failures = getattr(self, "_detect_failures", 0) + 1
+        if self._detect_failures == 1 or self._detect_failures % _DETECT_FAILURE_LOG_EVERY == 0:
+            log.warning(
+                "Камер %s: нүүр илрүүлэлт %d удаа дараалан амжилтгүй — alert зам "
+                "хараагүй байна: %s",
+                self.camera_id, self._detect_failures, error,
+            )
+
+    def _note_detect_success(self) -> None:
+        if getattr(self, "_detect_failures", 0):
+            log.info(
+                "Камер %s: нүүр илрүүлэлт сэргэлээ (%d алдааны дараа)",
+                self.camera_id, self._detect_failures,
+            )
+            self._detect_failures = 0
+
+    async def _persist_face(
+        self, frame: np.ndarray, f: DetectedFace, now: float
+    ) -> tuple[str | None, str | None]:
+        """Нэг нүүрийг битүүмжилж хадгалаад (face_id, storage path) буцаана.
+
+        Амжилтгүй бол exception шидэж, ЯМАРЧ тохиолдолд plaintext crop
+        бичихгүй (ADR 0009 / Tier 2 encrypt-only).
+        """
+        x1, y1, x2, y2 = map(int, f.bbox)
+        crop = frame[max(0, y1):y2, max(0, x1):x2]
+        ok, crop_bytes = cv2.imencode(".jpg", crop)
+        if not ok:
+            raise ValueError("crop JPEG encode амжилтгүй")
+        if not self.storage.client:
+            raise RuntimeError("Supabase client тохируулагдаагүй — нүүр хадгалагдахгүй")
+
+        h, w = frame.shape[:2]
+        bbox = {
+            "x": max(0.0, x1 / w),
+            "y": max(0.0, y1 / h),
+            "w": (x2 - x1) / w,
+            "h": (y2 - y1) / h,
+        }
+
+        filename = f"{self.camera_id}_{int(now * 1000)}_{uuid.uuid4().hex[:8]}.jpg"
+        path = f"{self.camera_id}/{filename}"
+
+        # ── Hierarchical key seal (ADR 0009 / Tier 2: encrypt-only) ──
+        # Seal this face's embedding AND crop pixels with the per-face
+        # chain key K_index, then upload ONLY the sealed crop at
+        # `<path>.enc`. The plain crop is intentionally NOT written —
+        # no plaintext face image is persisted at rest. Display sites
+        # fetch it through /api/faces/[id]/secure-crop, which proxies
+        # the ML decryption gated by the requester's reveal_level.
+        #
+        # The chain index is consumed even if the seal fails, so a
+        # concurrent face never derives the same key.
+        chain_index = self._face_chain_index
+        self._face_chain_index += 1
+        k = key_at_index(self.recording_id, chain_index, master_key())
+        emb_bytes = np.asarray(f.embedding, dtype=np.float32).tobytes()
+        embedding_sealed = base64.b64encode(_seal_embedding(emb_bytes, k)).decode()
+        sealed_crop = _seal_embedding(crop_bytes.tobytes(), k)
+        self.storage.upload_bytes(
+            "faces", f"{path}.enc", sealed_crop, "application/octet-stream"
+        )
+
+        face_id = await self.storage.insert_face(
+            filename=filename,
+            image_path=path,
+            embedding=f.embedding.tolist(),
+            camera_id=self.db_camera_id,
+            recording_id=self.recording_id if self._row_inserted else None,
+            bbox=bbox,
+            chain_index=chain_index,
+            embedding_sealed=embedding_sealed,
+            crop_sealed=True,
+        )
+        return face_id, path
+
+    async def _match_and_alert(
+        self,
+        embedding: np.ndarray,
+        face_id: str | None,
+        screenshot_path: str | None,
+        now: float,
+    ) -> None:
+        """Suspect тааралт → alert. Дуудагч нь exception-ыг барина."""
+        matches = await self.storage.match_suspects(
+            embedding.tolist(), threshold=ALERT_THRESHOLD, limit=1
+        )
+        if not matches:
+            return
+        m = matches[0]
+        # Coerce similarity once: the PostgREST RPC can return it as a
+        # string or None, which would crash the "%.2f" logger
+        # ("must be real number, not str") and corrupt the alert row.
+        try:
+            sim = float(m["similarity"])
+        except (TypeError, ValueError):
+            sim = 0.0
+        # A suspect with a zero / corrupt embedding yields NaN cosine
+        # similarity from the RPC and would "match" every face.
+        if not math.isfinite(sim) or sim < ALERT_THRESHOLD:
+            log.warning(
+                "Suspect %s: non-finite or sub-threshold similarity (%r) — ignored",
+                m.get("id"), m.get("similarity"),
+            )
+            return
+
+        last = self.last_alert_at.get(m["id"], 0)
+        if now - last < ALERT_COOLDOWN_SEC:
+            return
+        # Cooldown-ыг оролдлогын өмнө тавина: DB унасан ч секунд тутам
+        # дахин цохихгүй. Үр дүнг доор яг байгаагаар нь бүртгэнэ.
+        self.last_alert_at[m["id"]] = now
+
+        outcome = await self.storage.insert_alert(
+            suspect_id=m["id"],
+            suspect_name=m["name"],
+            face_id=face_id,
+            similarity=sim,
+            screenshot_path=screenshot_path,
+            camera_id=self.db_camera_id,
+            camera_name=self.camera_name,
+        )
+        if outcome == "inserted":
+            log.warning("🚨 ALERT: %s (%.2f)", m["name"], sim)
+        elif outcome == "merged":
+            log.info("🔁 ALERT нэгтгэв (dedup цонх): %s (%.2f)", m["name"], sim)
+        else:
+            # quiet_hours / burst_pending / no_client — storage давхарга
+            # шалтгааныг бичсэн; энд «alert гарсан» гэж ХЭЛЭХГҮЙ.
+            log.info("ALERT гараагүй (%s): %s (%.2f)", outcome, m["name"], sim)

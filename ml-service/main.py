@@ -59,6 +59,7 @@ from dp_embeddings import DPConfig, add_dp_noise, estimate_matching_accuracy, sw
 from zk_reveal import full_protocol_demo as zk_demo
 from anti_spoof import detect_spoof
 from embedding_fusion import FrameEmbedding, fuse_weighted_mean, fuse_median, cosine_similarity
+from tcp_forward import tunnel_status
 from telemetry import init_telemetry
 from view_renderer import render_blurred_view
 
@@ -219,11 +220,20 @@ async def require_token(authorization: str | None = Header(default=None)):
 # ── Health ──────────────────────────────────────────────────────
 @app.get("/")
 def health():
+    """Liveness + tunnel readiness.
+
+    ``ok`` keeps its old meaning — "this API is up" — so /api/uptime does not
+    start flapping when the tailnet drops. The tunnel state sits ALONGSIDE
+    it: the registered camera is only reachable over Tailscale, and a dead
+    tunnel used to be invisible (health said ok while no frame could ever
+    arrive). Booleans + a short reason only: no host, URL or key.
+    """
     return {
         "ok": True,
         "service": "mongolz-ml",
         "engine": face_engine.info() if face_engine else None,
         "active_cameras": camera_manager.active_count() if camera_manager else 0,
+        "tunnel": tunnel_status(),
     }
 
 
@@ -351,6 +361,15 @@ class CameraStartReq(BaseModel):
 async def camera_start(req: CameraStartReq):
     if not camera_manager:
         raise HTTPException(503, "manager not ready")
+
+    # The web action checks cameras.enabled too, but this service must not
+    # depend on its caller being correct: a disabled (or deleted) camera is
+    # refused here as well. Ad-hoc ids and cameras we cannot read (registry
+    # down) fall through — see CameraDesiredState.
+    refusal = await camera_manager.start_refusal(req.camera_id)
+    if refusal:
+        log.info("Камер %s: start refused — %s", req.camera_id, refusal)
+        raise HTTPException(409, refusal)
 
     if is_demo_url(req.url):
         # Generate (or reuse) the clip now so an unknown name fails the

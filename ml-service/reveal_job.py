@@ -36,6 +36,7 @@ import numpy as np
 from crypto_utils import decrypt_bytes, master_key_candidates
 from face_masker import FaceMasker
 from hierarchical_keys import unseal_at_index
+from view_renderer import abort_encoder, finish_encoder, verify_rendered_video
 
 # One reveal at a time: the frame loop is CPU-bound (InsightFace + cubist +
 # x264) and shares the box with live recording. Everything blocking runs in
@@ -47,6 +48,24 @@ if TYPE_CHECKING:
     from storage import SupabaseStorage
 
 log = logging.getLogger("mongolz-ml.reveal")
+
+
+class RevealRenderError(RuntimeError):
+    """Render failure whose message is safe to show the requesting admin.
+
+    The reveal output is the forensic artifact the 4-eyes approval exists to
+    control — a render that lost frames must NEVER be published as a
+    completed job (audit 4.6). Carriers of this error set the job to
+    `failed` with this exact text in `reveal_jobs.error_message`.
+    """
+
+
+class RevealDataError(RuntimeError):
+    """A dependency (DB row, sealed embedding) could not be read.
+
+    Distinct from "the data says no": an outage must not be reported to the
+    admin as "no original recording" / "no target in your authority".
+    """
 
 
 def _parse_reveal_level(value: object) -> int | None:
@@ -85,7 +104,16 @@ class RevealProcessor:
                 .execute()
             )
         except Exception as e:
+            # Reading the row failed — the job would otherwise sit in `queued`
+            # forever with no signal to the requester. Try to record the
+            # failure; if the DB is genuinely unreachable `_update` logs that
+            # too and the startup sweep is the last line of defence.
             log.error("Job %s olj авах үед алдаа: %s", job_id, e)
+            await self._fail(
+                job_id,
+                "Job-ийн мэдээллийг уншиж чадсангүй — дахин оролдоно уу",
+                only_statuses=("queued", "processing"),
+            )
             return
 
         job = job_res.data if job_res else None
@@ -130,8 +158,15 @@ class RevealProcessor:
             await self._fail(job_id, "recording_id олдсонгүй (job-д ч, recordings JOIN-д ч)")
             return
 
-        # Original (un-blurred) бичлэг шаардана
-        original_path = await self._lookup_original(rec_uuid)
+        # Original (un-blurred) бичлэг шаардана. Lookup алдаа ≠ "бичлэг алга":
+        # DB outage-ыг "original байхгүй" гэж мэдэгдэх нь буруу оношилгоо.
+        try:
+            original_path = await self._lookup_original(rec_uuid)
+        except RevealDataError:
+            await self._fail(
+                job_id, "Recording мэдээллийг уншиж чадсангүй — дахин оролдоно уу"
+            )
+            return
         if not original_path:
             await self._fail(job_id, "Original бичлэг алга — reveal боломжгүй")
             return
@@ -147,17 +182,25 @@ class RevealProcessor:
             await self._fail(job_id, "Reveal authority буруу эсвэл дутуу байна")
             return
 
-        if reveal_level > 0:
-            target_embeddings = self._collect_targets_sealed(job, rec_uuid, reveal_level)
-            if not target_embeddings:
-                await self._fail(
-                    job_id,
-                    f"Reveal level {reveal_level}: эрхийн хүрээнд target нүүр алга "
-                    f"(сонгосон нүүрс таны түвшнээс дээгүүр эсвэл sealed биш)",
-                )
-                return
-        else:
-            target_embeddings = self._collect_targets(job)
+        try:
+            if reveal_level > 0:
+                target_embeddings = self._collect_targets_sealed(job, rec_uuid, reveal_level)
+                if not target_embeddings:
+                    await self._fail(
+                        job_id,
+                        f"Reveal level {reveal_level}: эрхийн хүрээнд target нүүр алга "
+                        f"(сонгосон нүүрс таны түвшнээс дээгүүр эсвэл sealed биш)",
+                    )
+                    return
+            else:
+                target_embeddings = self._collect_targets(job)
+        except RevealDataError:
+            # DB алдааг "эрхгүй" / "target алга" гэж харуулбал админ буруу
+            # дүгнэлт хийнэ — шалтгааныг нь шууд хэлнэ.
+            await self._fail(
+                job_id, "Target embedding-ийг уншиж чадсангүй — дахин оролдоно уу"
+            )
+            return
         if not target_embeddings:
             await self._fail(job_id, "Target embedding байхгүй")
             return
@@ -238,17 +281,34 @@ class RevealProcessor:
                     target_end_sec=target_end_sec,
                     privacy_zones=privacy_zones,
                 )
+            except RevealRenderError as e:
+                # Encoder died / output truncated. NOTHING is uploaded and the
+                # job is failed with a reason the reveal modal can render.
+                log.warning("Reveal %s: render failed: %s", job_id, e)
+                await self._fail(job_id, str(e))
+                return
             except Exception as e:
-                log.warning("Reveal %s: processing failed: %s", job_id, e)
-                await self._fail(job_id, "Боловсруулах алдаа")
+                log.exception("Reveal %s: unexpected processing error", job_id)
+                await self._fail(job_id, f"Боловсруулах алдаа: {type(e).__name__}")
                 return
 
-            # 4. Result-г Storage-руу upload
+            # 4. Result-г Storage-руу upload. `_process_video` аль хэдийн
+            # файлыг нээж, frame тоог шалгасан — өөрөөр хэлбэл энд зөвхөн
+            # бүрэн бүтэн artifact ирнэ.
             output_path = f"{job_id}.mp4"
             try:
                 def _upload() -> None:
                     with open(output_mp4, "rb") as f:
-                        self.storage.upload_bytes("revealed", output_path, f.read(), "video/mp4")
+                        payload = f.read()
+                    if not payload:
+                        raise RuntimeError("rendered output is empty")
+                    stored = self.storage.upload_bytes(
+                        "revealed", output_path, payload, "video/mp4"
+                    )
+                    # upload_bytes returns "" when there is no storage client:
+                    # a silent no-op must not read as a successful upload.
+                    if not stored:
+                        raise RuntimeError("storage rejected the reveal artifact")
 
                 await asyncio.to_thread(_upload)
             except Exception as e:
@@ -257,7 +317,7 @@ class RevealProcessor:
                 return
 
             # 5. Done
-            await self._update(
+            completed = await self._update(
                 job_id,
                 status="completed",
                 progress=100,
@@ -265,6 +325,16 @@ class RevealProcessor:
                 output_duration_sec=duration,
                 completed_at=self._now(),
             )
+            if not completed:
+                # The artifact exists but the row still says `processing`; the
+                # startup sweep will fail it and the requester resubmits. Loud
+                # log so the mismatch is diagnosable rather than mysterious.
+                log.error(
+                    "Reveal job %s: artifact uploaded (revealed/%s) but the status "
+                    "update failed — job row left in-flight",
+                    job_id, output_path,
+                )
+                return
             log.info("✓ Reveal job %s completed → revealed/%s (%ds)", job_id, output_path, duration)
 
     # ─────────────────────────────────────────────
@@ -310,7 +380,10 @@ class RevealProcessor:
                     if arr is not None:
                         targets.append(arr)
             except Exception as e:
+                # An unreachable DB is not "no targets selected" — surface it
+                # so the job fails with the honest reason.
                 log.warning("face_ids-аас embedding авч чадсангүй: %s", e)
+                raise RevealDataError("face embedding lookup failed") from e
 
         return targets
 
@@ -343,8 +416,10 @@ class RevealProcessor:
                 .execute()
             )
         except Exception as e:
+            # Same rule as `_collect_targets`: a DB failure must not be
+            # rendered to the admin as "your reveal level has no targets".
             log.warning("Sealed faces татахад алдаа: %s", e)
-            return []
+            raise RevealDataError("sealed face lookup failed") from e
 
         rows = res.data or []
         masters = master_key_candidates()
@@ -425,15 +500,64 @@ class RevealProcessor:
         (no reveal) regardless of similarity. Inside the range the existing
         selective-blur logic runs. Default (both None) keeps the legacy
         whole-recording behaviour.
+
+        Failure contract (audit 4.6): every path that loses frames raises
+        `RevealRenderError` and deletes the partial file. A reveal output is
+        evidence — a truncated one that reads as `completed` would let an
+        investigation act on footage with frames silently missing.
         """
+        try:
+            return self._render(
+                input_mp4=input_mp4,
+                output_mp4=output_mp4,
+                target_embeddings=target_embeddings,
+                threshold=threshold,
+                job_id=job_id,
+                watermark_email=watermark_email,
+                watermark_at=watermark_at,
+                target_start_sec=target_start_sec,
+                target_end_sec=target_end_sec,
+                privacy_zones=privacy_zones,
+            )
+        except BaseException:
+            # No half-written MP4 survives a failed render: a retry that reuses
+            # this path must never find (and upload) the previous truncation.
+            self._discard_partial(output_mp4)
+            raise
+
+    @staticmethod
+    def _discard_partial(path: str) -> None:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        except OSError as e:  # noqa: BLE001 — cleanup must not mask the render error
+            log.warning("Дутуу reveal файлыг устгаж чадсангүй (%s): %s", path, e)
+
+    def _render(
+        self,
+        input_mp4: str,
+        output_mp4: str,
+        target_embeddings: list[np.ndarray],
+        threshold: float,
+        job_id: str,
+        watermark_email: str | None = None,
+        watermark_at: str | None = None,
+        target_start_sec: float | None = None,
+        target_end_sec: float | None = None,
+        privacy_zones: list[dict] | None = None,
+    ) -> int:
         cap = cv2.VideoCapture(input_mp4)
         if not cap.isOpened():
-            raise RuntimeError("Input MP4 нээгдсэнгүй")
+            raise RevealRenderError("Эх бичлэг нээгдсэнгүй (MP4 гэмтсэн байж болзошгүй)")
 
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv2.CAP_PROP_FPS) or 15
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        if w <= 0 or h <= 0:
+            cap.release()
+            raise RevealRenderError(f"Эх бичлэгийн хэмжээ буруу ({w}x{h})")
         time_bounded = target_start_sec is not None and target_end_sec is not None
         if time_bounded:
             log.info(
@@ -522,28 +646,52 @@ class RevealProcessor:
                 if watermark_email:
                     output = self._draw_watermark(output, watermark_email, watermark_at)
 
+                # A dead encoder (OOM kill on the shared box, disk full, x264
+                # error) shows up here as a broken pipe. Breaking out would
+                # publish the frames written so far as a finished reveal —
+                # exactly the failure this contract exists to prevent.
                 try:
+                    if encoder.stdin is None:
+                        raise RevealRenderError("Encoder pipe нээгдсэнгүй")
                     encoder.stdin.write(output.tobytes())
-                except (BrokenPipeError, OSError):
-                    break
+                except (BrokenPipeError, OSError) as exc:
+                    raise RevealRenderError(
+                        f"Encoder {frame_idx}-р frame дээр тасарсан — "
+                        f"reveal дутуу тул хадгалаагүй"
+                    ) from exc
 
                 frame_idx += 1
-                # Progress update (DB)
+                # Progress update (DB). Cosmetic — a failed write must not
+                # abort the render, but stays visible in the log.
                 if total_frames and frame_idx - last_progress_update >= progress_step:
                     pct = min(95, int(5 + 90 * frame_idx / total_frames))
                     try:
                         self.storage.client.table("reveal_jobs").update(
                             {"progress": pct}
                         ).eq("id", job_id).execute()
-                    except Exception:
-                        pass
+                    except Exception as e:  # noqa: BLE001
+                        log.debug("Reveal %s: progress update skipped: %s", job_id, e)
                     last_progress_update = frame_idx
+
+            if frame_idx == 0:
+                raise RevealRenderError("Эх бичлэгээс нэг ч frame уншигдсангүй")
+        except BaseException:
+            # Reap ffmpeg WITHOUT masking the failure that got us here.
+            abort_encoder(encoder)
+            raise
         finally:
             cap.release()
-            if encoder.stdin:
-                encoder.stdin.close()
-            encoder.wait(timeout=10)
 
+        # The frame loop finishing is not proof the encoder wrote a whole
+        # file: reap it, demand exit 0, then re-open the artifact and check
+        # its frame count before anybody uploads it.
+        try:
+            finish_encoder(encoder, label="reveal", wait_timeout=30.0)
+            verify_rendered_video(output_mp4, frame_idx, label="reveal")
+        except RuntimeError as exc:
+            raise RevealRenderError(f"Reveal бичлэг бүрэн үүсээгүй: {exc}") from exc
+
+        log.info("Reveal job %s — %d frame бүрэн encode хийгдлээ", job_id, frame_idx)
         return int(frame_idx / fps) if fps else 0
 
     def _load_privacy_zones(self, camera_id: str | None) -> list[dict]:
@@ -756,7 +904,13 @@ class RevealProcessor:
     # Storage helpers
     # ─────────────────────────────────────────────
     async def _lookup_original(self, recording_id: str) -> str | None:
-        """recordings.original_path → Storage path (None when missing)."""
+        """recordings.original_path → Storage path.
+
+        None means "this recording genuinely has no original". A lookup that
+        FAILS raises `RevealDataError` instead — the two must not collapse
+        into the same answer, or an outage is reported to the admin as
+        "original бичлэг алга" and they stop retrying.
+        """
         try:
             res = await asyncio.to_thread(
                 lambda: self.storage.client.table("recordings")
@@ -767,7 +921,7 @@ class RevealProcessor:
             )
         except Exception as e:  # noqa: BLE001
             log.warning("recording lookup failed for %s: %s", recording_id[:8], e)
-            return None
+            raise RevealDataError("recording lookup failed") from e
         data = res.data if res else None
         if data and data.get("has_original"):
             return data.get("original_path")
@@ -784,22 +938,50 @@ class RevealProcessor:
         )
         return bool(res.data)
 
-    async def _update(self, job_id: str, **fields):
+    async def _update(self, job_id: str, **fields) -> bool:
+        """Write job fields. Returns False when the write did not land, so a
+        caller can tell "job marked completed" from "we think it is"."""
         try:
-            self.storage.client.table("reveal_jobs").update(fields).eq(
-                "id", job_id
-            ).execute()
+            await asyncio.to_thread(
+                lambda: self.storage.client.table("reveal_jobs")
+                .update(fields)
+                .eq("id", job_id)
+                .execute()
+            )
+            return True
         except Exception as e:
-            log.error("Job update failed: %s", e)
+            log.error("Job %s update failed (%s): %s", job_id, ",".join(fields), e)
+            return False
 
-    async def _fail(self, job_id: str, msg: str):
+    async def _fail(
+        self, job_id: str, msg: str, only_statuses: tuple[str, ...] | None = None
+    ) -> bool:
+        """Mark the job failed with a message the reveal modal shows verbatim.
+
+        `only_statuses` guards the one path that fails a job whose status we
+        could not read: a transient read error must not stomp a job that is
+        still `pending_approval` (4-eyes) into `failed`.
+        """
         log.error("Job %s failed: %s", job_id, msg)
-        await self._update(
-            job_id,
-            status="failed",
-            error_message=msg,
-            completed_at=self._now(),
-        )
+        fields = {
+            "status": "failed",
+            "error_message": msg,
+            "completed_at": self._now(),
+        }
+        if only_statuses is None:
+            return await self._update(job_id, **fields)
+        try:
+            await asyncio.to_thread(
+                lambda: self.storage.client.table("reveal_jobs")
+                .update(fields)
+                .eq("id", job_id)
+                .in_("status", list(only_statuses))
+                .execute()
+            )
+            return True
+        except Exception as e:
+            log.error("Job %s fail-marking failed: %s", job_id, e)
+            return False
 
     @staticmethod
     def _now() -> str:

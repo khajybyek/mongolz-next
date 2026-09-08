@@ -32,7 +32,12 @@ import demo_source  # noqa: E402
 import main  # noqa: E402
 import storage as storage_mod  # noqa: E402
 from camera_worker import CameraManager, CameraSupervision, backoff_delay  # noqa: E402
-from storage import SupabaseStorage, seal_camera_url, unseal_camera_url  # noqa: E402
+from storage import (  # noqa: E402
+    CameraDesiredState,
+    SupabaseStorage,
+    seal_camera_url,
+    unseal_camera_url,
+)
 
 HEADERS = {"Authorization": "Bearer test-token"}
 CAM_UUID = "6f1a2b3c-4d5e-4f60-8a71-92b3c4d5e6f7"
@@ -140,6 +145,9 @@ def test_camera_test_demo_names_do_not_probe(monkeypatch):
 
 def test_camera_start_rejects_unknown_demo_name(monkeypatch):
     class _Mgr:
+        async def start_refusal(self, _camera_id):
+            return None  # ad-hoc id — nothing to look up
+
         async def start(self, *a, **k):
             raise AssertionError("must not start")
 
@@ -321,18 +329,34 @@ def test_camera_active_reports_restart_count_and_last_error(monkeypatch):
 
 # ── supervisor + registry behaviour (no real sessions) ───────────────────
 class _RecordingStorage:
-    """Records registry calls; never talks to a DB."""
+    """Records registry calls; never talks to a DB.
 
-    def __init__(self, rows=None):
+    ``desired`` defaults to the unknown state (``known=False``) — the same
+    thing the real storage returns when Supabase is unreachable, i.e. the
+    supervisor may keep the camera running.
+    """
+
+    def __init__(self, rows=None, desired: CameraDesiredState | None = None):
         self.client = None
         self.rows = rows or []
         self.upserts: list = []
+        self.touches: list = []
         self.flags: list = []
         self.errors: list = []
+        self.desired_reads: list = []
+        self.desired = desired if desired is not None else CameraDesiredState()
 
     def upsert_camera_session(self, camera_id, sealed_url, camera_name, fps):
         self.upserts.append((camera_id, sealed_url, camera_name, fps))
         return True
+
+    def touch_camera_session(self, camera_id, sealed_url, camera_name, fps):
+        self.touches.append((camera_id, sealed_url, camera_name, fps))
+        return True
+
+    def camera_desired_state(self, camera_id):
+        self.desired_reads.append(camera_id)
+        return self.desired
 
     def set_camera_session_resume(self, camera_id, auto_resume):
         self.flags.append((camera_id, auto_resume))

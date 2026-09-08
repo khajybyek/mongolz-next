@@ -5,13 +5,15 @@ Service-role key ашиглана (RLS bypass) — зөвхөн backend service-
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
 import time as _time
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from supabase import Client, create_client
@@ -22,6 +24,58 @@ log = logging.getLogger("mongolz-ml.storage")
 
 # camera_sessions.last_error column limit (DB CHECK) — truncate, never fail.
 _CAMERA_SESSION_ERROR_MAX = 500
+
+
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    """Env-ээс int уншина. Буруу утга бол default-руу буцаж, ЧИМЭЭГҮЙ биш —
+    log.warning бичнэ (алдаатай тохиргоо нь alert-ын зан төлөвийг өөрчилдөг)."""
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        log.warning("%s=%r нь бүхэл тоо биш — default %d ашиглав", name, raw, default)
+        return default
+    if value < minimum:
+        log.warning("%s=%d нь доод хязгаар %d-аас бага — %d ашиглав", name, value, minimum, minimum)
+        return minimum
+    return value
+
+
+def _coerce_int(value: Any, default: int) -> int:
+    """PostgREST numeric багана str/None-ээр ирж болно (numeric(4,3) → '0.650')."""
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        result = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return result if result == result else default  # NaN → default
+
+
+# Alert dedup: alert_rules-д тохирох дүрэм ОЛДООГҮЙ үед хэрэглэх цонх.
+# Өмнө нь дүрэмгүй үед dedup огт хийгддэггүй байсан (window = 0) — session-ийн
+# турш үргэлжлэх face dedup нь давталтыг бүгдийг нь дардаг байсан тул энэ нь
+# анзаарагддаггүй байв. Session dedup-д цаг хугацааны цонх орсны дараа (audit
+# 4.7) давтан ирэлт alert path-руу хүрдэг болсон тул энэ default цонх нь
+# «нэг хүн = нэг явдал» гэдгийг барих давхарга болно.
+# 300 сек = alert_rules.dedup_window_sec-ийн DB default-той ижил.
+DEFAULT_DEDUP_WINDOW_SEC = _env_int("ALERT_DEDUP_WINDOW_SEC", 300, minimum=0)
+
+# Нэг dedup_key дээр цонхны дотор шалгах хамгийн олон мөр. Хамгийн сүүлийн
+# нээлттэй alert-ыг олоход хангалттай (хаагдсан alert-уудыг алгасах зай).
+_DEDUP_CANDIDATE_LIMIT = 5
+
+# insert_alert-ийн үр дүн — дуудагч нь ЮУ болсныг логт үнэн зөв бичих
+# боломжтой болно ("🚨 ALERT" гэж бичээд бодитоор юу ч болоогүй байх нь
+# энэ codebase-ийн давтагдах алдааны төрөл).
+AlertOutcome = Literal["inserted", "merged", "quiet_hours", "burst_pending", "no_client"]
 
 
 def _camera_seal_context(camera_id: str) -> str:
@@ -40,6 +94,54 @@ def unseal_camera_url(camera_id: str, sealed: str) -> str:
     from decrypt_bytes so a key rotation does not orphan persisted sessions."""
     return decrypt_bytes(base64.b64decode(sealed), _camera_seal_context(camera_id)).decode("utf-8")
 
+
+@dataclass(frozen=True)
+class CameraDesiredState:
+    """What the DATABASE says should be running for one camera.
+
+    The operator's toggle lives in ``cameras.enabled`` and the ML-owned
+    resume flag in ``camera_sessions.auto_resume``. Both are re-read before
+    a (re)start so a camera the operator disabled while this container was
+    unreachable does not come back (audit 4.5).
+
+    ``known`` is False when the registry could not be read at all (no
+    Supabase client, or the query failed). Callers MUST fail open in that
+    case: a DB blip must never tear down a healthy capture loop.
+    """
+
+    known: bool = False
+    camera_exists: bool = False
+    enabled: bool | None = None
+    session_exists: bool = False
+    auto_resume: bool | None = None
+
+    def start_refusal(self) -> str | None:
+        """Why this camera must not be started at all, or None when it may."""
+        if not self.known:
+            return None
+        if not self.camera_exists:
+            return "camera row missing (deleted)"
+        if self.enabled is False:
+            return "camera disabled by operator"
+        return None
+
+    def resume_refusal(self) -> str | None:
+        """As start_refusal, plus the operator's auto_resume flag.
+
+        A MISSING camera_sessions row is deliberately not a refusal: the row
+        is written best-effort on start, so a registry write that failed once
+        must not silently end a running capture. Only an explicit
+        ``auto_resume = false`` (an operator stop, or the disable trigger)
+        stops a supervised restart.
+        """
+        refusal = self.start_refusal()
+        if refusal:
+            return refusal
+        if self.session_exists and self.auto_resume is False:
+            return "auto_resume cleared (stopped by operator)"
+        return None
+
+
 # In-memory burst trackers (per ML worker). For a single Railway dyno this is
 # sufficient; with horizontal scaling we'd need Redis. Capstone deployment is
 # single-replica so this is fine.
@@ -57,6 +159,18 @@ def _iso_now() -> str:
 
 def _iso_minutes_ago(seconds: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
+
+
+async def _run_query(query):
+    """Run a blocking PostgREST call off the event loop.
+
+    supabase-py is synchronous: every `.execute()` inside an `async def` here
+    parked the whole ML event loop — the capture tasks, the HLS writers and
+    every HTTP handler — for the round trip. With the alert path now running
+    per person per minute rather than once per session, that stall is on the
+    hot path.
+    """
+    return await asyncio.to_thread(query.execute)
 
 
 def _check_burst(rule_id: str, suspect_id: str, camera_id: str | None,
@@ -78,6 +192,9 @@ def _within_quiet_hours(quiet_from: str, quiet_to: str) -> bool:
         fh, fm = map(int, quiet_from.split(":"))
         th, tm = map(int, quiet_to.split(":"))
     except Exception:
+        # Fail-open (alert гарна), гэхдээ чимээгүй биш: буруу бичсэн quiet
+        # hours нь «чимээгүй цаг ажиллахгүй байна» гэдгийг оператор мэдэх ёстой.
+        log.warning("quiet hours буруу форматтай (%r–%r) — үл тоов", quiet_from, quiet_to)
         return False
     now = datetime.now(_KST)
     now_minutes = now.hour * 60 + now.minute
@@ -108,10 +225,10 @@ class SupabaseStorage:
     ) -> list[dict[str, Any]]:
         if not self.client:
             return []
-        res = self.client.rpc(
+        res = await _run_query(self.client.rpc(
             "match_suspects",
             {"query_embedding": embedding, "match_threshold": threshold, "match_limit": limit},
-        ).execute()
+        ))
         return res.data or []
 
     async def match_faces(
@@ -119,10 +236,10 @@ class SupabaseStorage:
     ) -> list[dict[str, Any]]:
         if not self.client:
             return []
-        res = self.client.rpc(
+        res = await _run_query(self.client.rpc(
             "match_faces",
             {"query_embedding": embedding, "match_threshold": threshold, "match_limit": limit},
-        ).execute()
+        ))
         return res.data or []
 
     # ── Faces (детект болсон нүүр бүрийг бичих) ───────────────
@@ -162,8 +279,13 @@ class SupabaseStorage:
         # endpoint.
         if crop_sealed:
             row["crop_sealed"] = True
-        res = self.client.table("faces").insert(row).execute()
-        return res.data[0]["id"] if res.data else None
+        res = await _run_query(self.client.table("faces").insert(row))
+        if not res.data:
+            # Хариу хоосон ирэх нь мөр бичигдээгүй байж болно — дараагийн
+            # alert нотлох баримтгүй үлдэнэ. Чимээгүй None биш, warning.
+            log.warning("faces insert хариу хоосон (%s) — face_id алга", image_path)
+            return None
+        return res.data[0]["id"]
 
     # ── Alert (rule-aware) ────────────────────────────────────
     async def insert_alert(
@@ -175,78 +297,179 @@ class SupabaseStorage:
         screenshot_path: str | None,
         camera_id: str | None,
         camera_name: str | None,
-    ):
+    ) -> AlertOutcome:
         """Insert alert with rule-based filtering + dedup.
 
         Behaviour:
-        1. If no enabled rules match this (suspect_id, camera_id, similarity)
-           pair → fall back to legacy behaviour (always insert).
-        2. If a rule matches, honour its dedup_window_sec: increment
-           match_count on an existing alert in-window instead of inserting.
-        3. Burst smoothing: if `burst_count > 1`, only insert when N matches
+        1. The most specific enabled rule for this (suspect, camera,
+           similarity) is applied. With no matching rule the DEFAULT dedup
+           window (``ALERT_DEDUP_WINDOW_SEC``, 300 s) still applies — «no
+           rule» must not mean «no dedup», otherwise a person standing in
+           front of a camera writes one alert row per sighting.
+        2. Dedup is time-INDEPENDENT: the key is ``suspect:camera`` and the
+           window is measured from the open alert's ``last_seen_at``. The old
+           key embedded ``floor(now / window)``, so two sightings seconds
+           apart raised TWO alerts whenever they straddled a bucket boundary,
+           and two sightings a whole window apart could still merge.
+        3. An alert the operator has CLOSED is never merged into — the closed
+           incident stays closed and a NEW alert is raised, so the re-appearance
+           is actually visible in the queue (a closed row silently growing
+           match_count is invisible to the operator).
+        4. Burst smoothing: if `burst_count > 1`, only insert when N matches
            have been recorded in `burst_window_sec` (uses a lightweight
            in-memory pending bucket).
-        4. Quiet hours: skip alerting entirely while within window.
+        5. Quiet hours: skip alerting entirely while within window.
+
+        Returns what actually happened so the caller can log the truth. Raises
+        if the terminal INSERT fails — a lost alert must never look like a
+        delivered one.
         """
         if not self.client:
-            return
+            log.warning("Alert (%s) бичигдсэнгүй — Supabase client тохируулагдаагүй", suspect_name)
+            return "no_client"
 
         rule = await self._select_alert_rule(suspect_id, camera_id, similarity)
 
         if rule and rule.get("quiet_from") and rule.get("quiet_to"):
             if _within_quiet_hours(rule["quiet_from"], rule["quiet_to"]):
-                return
+                log.info(
+                    "Alert suppressed (quiet hours %s–%s, rule %s): %s",
+                    rule["quiet_from"], rule["quiet_to"], rule.get("name"), suspect_name,
+                )
+                return "quiet_hours"
 
-        if rule and rule.get("burst_count", 1) > 1:
+        if rule and _coerce_int(rule.get("burst_count"), 1) > 1:
             if not _check_burst(
                 rule["id"],
                 suspect_id,
                 camera_id,
-                int(rule["burst_count"]),
-                int(rule["burst_window_sec"]),
+                _coerce_int(rule.get("burst_count"), 1),
+                _coerce_int(rule.get("burst_window_sec"), 60),
             ):
-                return
+                log.info(
+                    "Alert held by burst smoothing (rule %s, %s матч/%s сек шаардлагатай): %s",
+                    rule.get("name"), rule.get("burst_count"), rule.get("burst_window_sec"),
+                    suspect_name,
+                )
+                return "burst_pending"
 
         dedup_key = None
-        dedup_window = int(rule["dedup_window_sec"]) if rule else 0
+        dedup_window = self._dedup_window_for(rule)
         if dedup_window > 0:
-            bucket = int(_unix_now() // dedup_window)
-            dedup_key = f"{suspect_id}:{camera_id or 'none'}:{bucket}"
-            cutoff = _iso_minutes_ago(seconds=dedup_window)
-            existing = (
+            # Цаг хугацаанаас ХАМААРАЛГҮЙ түлхүүр: цонхыг last_seen_at-аас
+            # хэмжинэ (bucket биш). Ингэснээр цонхны дотор орсон 2 харагдалт
+            # ҮРГЭЛЖ нэгдэж, гадна орсон 2 харагдалт ҮРГЭЛЖ тусдаа alert болно.
+            dedup_key = f"{suspect_id}:{camera_id or 'none'}"
+            # Both helpers are synchronous PostgREST calls; run them off the
+            # event loop so a merge check cannot stall capture.
+            open_alert = await asyncio.to_thread(
+                self._find_mergeable_alert, dedup_key, dedup_window
+            )
+            if open_alert and await asyncio.to_thread(
+                self._merge_into_alert, open_alert, similarity
+            ):
+                return "merged"
+            # merge оролдлого амжилтгүй (мөр яг тэр хооронд хаагдсан / DB
+            # алдаа) → доорх INSERT-руу унана: харагдалтыг чимээгүй хаяхгүй.
+
+        await _run_query(
+                self.client.table("alerts").insert(
+                {
+                    "suspect_id": suspect_id,
+                    "suspect_name": suspect_name,
+                    "face_id": face_id,
+                    "similarity": similarity,
+                    "screenshot_path": screenshot_path,
+                    "camera_id": camera_id,
+                    "camera_name": camera_name or "Unknown",
+                    "rule_id": rule["id"] if rule else None,
+                    "dedup_key": dedup_key,
+                    "match_count": 1,
+                    "last_seen_at": _iso_now(),
+                }
+            )
+        )
+        return "inserted"
+
+    @staticmethod
+    def _dedup_window_for(rule: dict | None) -> int:
+        """Effective dedup window in seconds.
+
+        A rule's own value wins — including an explicit 0, which means «энэ
+        дүрэмд dedup хэрэггүй» and must be honoured. Only the no-rule case
+        falls back to DEFAULT_DEDUP_WINDOW_SEC.
+        """
+        if not rule:
+            return DEFAULT_DEDUP_WINDOW_SEC
+        raw = rule.get("dedup_window_sec")
+        if raw is None:
+            return DEFAULT_DEDUP_WINDOW_SEC
+        return max(0, _coerce_int(raw, DEFAULT_DEDUP_WINDOW_SEC))
+
+    def _find_mergeable_alert(self, dedup_key: str, window_sec: int) -> dict | None:
+        """Newest OPEN (new/acknowledged) alert for this key inside the window.
+
+        Closed rows are skipped, not merged into: the operator closed that
+        incident, so a fresh sighting deserves a fresh alert. A read failure
+        returns None → the caller raises a new alert (over-alert rather than
+        silently drop).
+        """
+        if not self.client:
+            return None
+        cutoff = _iso_minutes_ago(seconds=window_sec)
+        try:
+            res = (
                 self.client.table("alerts")
-                .select("id, match_count, similarity")
+                .select("id, match_count, similarity, state, last_seen_at")
                 .eq("dedup_key", dedup_key)
-                .gte("created_at", cutoff)
-                .limit(1)
+                .gte("last_seen_at", cutoff)
+                .order("last_seen_at", desc=True)
+                .limit(_DEDUP_CANDIDATE_LIMIT)
                 .execute()
             )
-            if existing.data:
-                row = existing.data[0]
-                self.client.table("alerts").update(
-                    {
-                        "match_count": int(row.get("match_count") or 1) + 1,
-                        "last_seen_at": _iso_now(),
-                        "similarity": max(similarity, float(row.get("similarity") or 0)),
-                    }
-                ).eq("id", row["id"]).execute()
-                return
+        except Exception as e:  # noqa: BLE001 — dedup нь alert-аас чухал биш
+            log.warning("Alert dedup lookup failed (%s) — шинэ alert үүсгэнэ", type(e).__name__)
+            return None
 
-        self.client.table("alerts").insert(
-            {
-                "suspect_id": suspect_id,
-                "suspect_name": suspect_name,
-                "face_id": face_id,
-                "similarity": similarity,
-                "screenshot_path": screenshot_path,
-                "camera_id": camera_id,
-                "camera_name": camera_name or "Unknown",
-                "rule_id": rule["id"] if rule else None,
-                "dedup_key": dedup_key,
-                "match_count": 1,
-                "last_seen_at": _iso_now(),
-            }
-        ).execute()
+        for row in res.data or []:
+            if (row.get("state") or "new") == "closed":
+                log.info(
+                    "Alert %s хаагдсан — merge хийхгүй, дахин харагдсаныг шинэ alert болгоно",
+                    row.get("id"),
+                )
+                continue
+            return row
+        return None
+
+    def _merge_into_alert(self, row: dict, similarity: float) -> bool:
+        """Fold a repeat sighting into an open alert. False = merge did not
+        happen (row closed in the meantime, or the UPDATE failed) → caller
+        inserts a new alert instead."""
+        if not self.client:
+            return False
+        try:
+            res = (
+                self.client.table("alerts")
+                .update(
+                    {
+                        "match_count": _coerce_int(row.get("match_count"), 1) + 1,
+                        "last_seen_at": _iso_now(),
+                        "similarity": max(similarity, _coerce_float(row.get("similarity"), 0.0)),
+                    }
+                )
+                .eq("id", row["id"])
+                # CAS: хэрэв уншсанаас хойш оператор хаасан бол шинэчлэхгүй —
+                # хаагдсан alert-ыг чимээгүй өсгөх боломжгүй.
+                .neq("state", "closed")
+                .execute()
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("Alert %s merge failed (%s) — шинэ alert үүсгэнэ", row.get("id"), type(e).__name__)
+            return False
+        if not res.data:
+            log.info("Alert %s merge-д хамрагдсангүй (хаагдсан/устсан) — шинэ alert үүснэ", row.get("id"))
+            return False
+        return True
 
     async def _select_alert_rule(
         self,
@@ -254,7 +477,14 @@ class SupabaseStorage:
         camera_id: str | None,
         similarity: float,
     ) -> dict | None:
-        """Pick the most specific enabled rule matching this event."""
+        """Pick the most specific enabled rule matching this event.
+
+        ``min_similarity`` selects WHICH rule applies; it does not gate the
+        alert itself (see the audit 4.8 discussion in
+        ``app/api/alerts/apply-threshold/route.ts``). A match under every
+        rule's floor is still alerted, now with the DEFAULT dedup window
+        instead of no dedup at all.
+        """
         if not self.client:
             return None
         # Order: suspect+camera specific > suspect-only > camera-only > global
@@ -270,7 +500,14 @@ class SupabaseStorage:
                 .lte("min_similarity", similarity)
                 .execute()
             )
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            # Дүрэм уншиж чадаагүй бол quiet hours / burst / дүрмийн dedup цонх
+            # бүгд ХЭРЭГЛЭГДЭХГҮЙ. Энэ нь оператор юу харахыг өөрчилдөг тул
+            # чимээгүй өнгөрөх ёсгүй.
+            log.warning(
+                "alert_rules уншиж чадсангүй (%s) — дүрэмгүй горимд (default dedup %d сек) шилжив",
+                type(e).__name__, DEFAULT_DEDUP_WINDOW_SEC,
+            )
             return None
 
         candidates = []
@@ -285,7 +522,18 @@ class SupabaseStorage:
             candidates.append((specificity, r))
         if not candidates:
             return None
-        candidates.sort(key=lambda x: -x[0])
+        # Тэнцүү тодорхойлолттой хоёр дүрэм байвал ялагчийг DB-ийн эрэмбэ
+        # шийддэг байсан — өөр dedup цонх, өөр чимээгүй цаг санамсаргүй
+        # хэрэглэгдэнэ гэсэн үг. Тогтмол дараалал: тодорхой байдал ↓, дараа нь
+        # min_similarity ↓ (энэ тааралтад хамгийн ойр зорьсон дүрэм), эцэст нь
+        # id ↑ (тогтвортой байхын тулд).
+        candidates.sort(
+            key=lambda x: (
+                -x[0],
+                -_coerce_float(x[1].get("min_similarity"), 0.0),
+                str(x[1].get("id") or ""),
+            )
+        )
         return candidates[0][1]
 
     # ── Recording: ID-тай буцаах (faces-руу back-link хийхэд) ──
@@ -419,6 +667,80 @@ class SupabaseStorage:
             log.warning("camera_sessions upsert failed for %s: %s", camera_id, type(e).__name__)
             return False
 
+    def touch_camera_session(
+        self, camera_id: str, sealed_url: str, camera_name: str | None, fps: int
+    ) -> bool:
+        """Refresh the columns that DESCRIBE the running session, and nothing
+        else — used by supervised (crash) restarts.
+
+        Deliberately does not touch ``auto_resume``: a restart is this
+        service's own decision, not the operator's, so it must never re-arm a
+        camera the operator disabled (that was audit 4.5 — the disable trigger
+        cleared the flag and the next supervised restart set it back).
+        ``last_error`` is left in place too, so the reason the previous loop
+        died stays visible in the UI after the restart.
+
+        No row → nothing is updated (and no row is created): the operator's
+        ``/camera/start`` upsert owns row creation.
+        """
+        if not self.client:
+            return False
+        try:
+            self.client.table("camera_sessions").update(
+                {
+                    "sealed_url": sealed_url,
+                    "camera_name": camera_name,
+                    "fps": int(fps),
+                    "started_at": _iso_now(),
+                    "updated_at": _iso_now(),
+                }
+            ).eq("camera_id", camera_id).execute()
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.warning("camera_sessions touch failed for %s: %s", camera_id, type(e).__name__)
+            return False
+
+    def camera_desired_state(self, camera_id: str) -> CameraDesiredState:
+        """Read ``cameras.enabled`` + ``camera_sessions.auto_resume`` fresh.
+
+        Returns an "unknown" state (``known=False``) when the answer cannot be
+        established — no client, or either query raised. Callers treat unknown
+        as "may run": the ML service must not stop capturing because Supabase
+        blipped.
+        """
+        if not self.client:
+            return CameraDesiredState()
+        try:
+            cam = (
+                self.client.table("cameras")
+                .select("id, enabled")
+                .eq("id", camera_id)
+                .limit(1)
+                .execute()
+            )
+            ses = (
+                self.client.table("camera_sessions")
+                .select("camera_id, auto_resume")
+                .eq("camera_id", camera_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("camera %s: desired-state read failed: %s", camera_id, type(e).__name__)
+            return CameraDesiredState()
+
+        cam_rows = list(cam.data or [])
+        ses_rows = list(ses.data or [])
+        enabled_raw = cam_rows[0].get("enabled") if cam_rows else None
+        resume_raw = ses_rows[0].get("auto_resume") if ses_rows else None
+        return CameraDesiredState(
+            known=True,
+            camera_exists=bool(cam_rows),
+            enabled=None if enabled_raw is None else bool(enabled_raw),
+            session_exists=bool(ses_rows),
+            auto_resume=None if resume_raw is None else bool(resume_raw),
+        )
+
     def set_camera_session_resume(self, camera_id: str, auto_resume: bool) -> bool:
         if not self.client:
             return False
@@ -446,14 +768,36 @@ class SupabaseStorage:
             log.warning("camera_sessions error record failed for %s: %s", camera_id, type(e).__name__)
             return False
 
+    _RESUMABLE_COLUMNS = "camera_id, sealed_url, camera_name, fps, auto_resume, last_error"
+
     def list_resumable_sessions(self) -> list[dict]:
-        """Rows with auto_resume=true; disabled rows are reconciled in SQL."""
+        """Rows with auto_resume=true, each carrying the operator's toggle as
+        an embedded ``cameras(enabled)`` object so boot can skip a camera that
+        was disabled while this service was down.
+
+        If PostgREST cannot resolve the embed (schema cache lag right after a
+        migration), fall back to the plain select and say so — the caller then
+        re-reads ``enabled`` per camera instead of resuming blind.
+        """
         if not self.client:
             return []
         try:
             res = (
                 self.client.table("camera_sessions")
-                .select("camera_id, sealed_url, camera_name, fps, auto_resume, last_error")
+                .select(f"{self._RESUMABLE_COLUMNS}, cameras(enabled)")
+                .eq("auto_resume", True)
+                .execute()
+            )
+            return list(res.data or [])
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "camera_sessions list with cameras(enabled) failed (%s) — retrying without the embed",
+                type(e).__name__,
+            )
+        try:
+            res = (
+                self.client.table("camera_sessions")
+                .select(self._RESUMABLE_COLUMNS)
                 .eq("auto_resume", True)
                 .execute()
             )

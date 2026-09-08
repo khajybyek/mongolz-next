@@ -10,6 +10,19 @@ brings the same cameras back (``resume_persisted``). A supervisor task
 re-opens sessions whose capture loop ended without the user asking
 (RTSP dropped, source unreachable, crash) with exponential backoff per
 camera; ``/camera/stop`` is the only thing that clears ``auto_resume``.
+
+Desired state wins over anything held in memory
+-----------------------------------------------
+The DB is authoritative about which cameras may run: ``cameras.enabled``
+(the operator's toggle, mirrored onto ``camera_sessions.auto_resume`` by a
+trigger) is re-read before every resume and every supervised restart, and
+the supervisor also reconciles the sessions that are still alive. A
+supervised restart persists only the fields describing the running session
+— it never re-arms ``auto_resume``, which is how a disabled camera used to
+come back after each redeploy (audit 4.5).
+
+An unreadable registry means "unknown", never "stop": a Supabase blip must
+not end a healthy capture loop.
 """
 
 from __future__ import annotations
@@ -23,7 +36,7 @@ from typing import TYPE_CHECKING
 
 from recording_pipeline import RecordingSession, redact_url
 from reveal_job import RevealProcessor
-from storage import seal_camera_url, unseal_camera_url
+from storage import CameraDesiredState, seal_camera_url, unseal_camera_url
 
 if TYPE_CHECKING:
     from face_engine import FaceEngine
@@ -101,19 +114,53 @@ class CameraManager:
         return out
 
     # ── registry helpers (never raise) ────────────────────────
-    async def _persist_started(self, session: RecordingSession, url: str) -> None:
+    async def _persist_started(
+        self, session: RecordingSession, url: str, *, supervised: bool = False
+    ) -> None:
         # camera_sessions.camera_id is a uuid FK → cameras; ad-hoc ids
         # (tests, virtual sources) simply are not persisted.
         if not session.db_camera_id:
             return
         try:
             sealed = seal_camera_url(session.db_camera_id, url)
-            await asyncio.to_thread(
-                self.storage.upsert_camera_session,
-                session.db_camera_id, sealed, session.camera_name, session.fps,
-            )
+            if supervised:
+                # Crash recovery is OUR decision, not the operator's: refresh
+                # the session description and leave auto_resume exactly as the
+                # operator (or the disable trigger) set it.
+                await asyncio.to_thread(
+                    self.storage.touch_camera_session,
+                    session.db_camera_id, sealed, session.camera_name, session.fps,
+                )
+            else:
+                await asyncio.to_thread(
+                    self.storage.upsert_camera_session,
+                    session.db_camera_id, sealed, session.camera_name, session.fps,
+                )
         except Exception as e:  # noqa: BLE001
-            log.warning("camera %s: registry upsert failed: %s", session.camera_id, type(e).__name__)
+            log.warning(
+                "camera %s: registry %s failed: %s",
+                session.camera_id, "touch" if supervised else "upsert", type(e).__name__,
+            )
+
+    async def _desired_state(self, camera_id: str) -> CameraDesiredState:
+        """Fresh ``cameras.enabled`` / ``camera_sessions.auto_resume``.
+
+        Ad-hoc (non-UUID) camera ids have no rows to read — they are always
+        "unknown", i.e. allowed, so demo / test sources keep working.
+        """
+        if RecordingSession._validate_uuid(camera_id) is None:
+            return CameraDesiredState()
+        try:
+            return await asyncio.to_thread(self.storage.camera_desired_state, camera_id)
+        except Exception as e:  # noqa: BLE001 — unknown, never "stop"
+            log.warning("camera %s: desired-state read failed: %s", camera_id, type(e).__name__)
+            return CameraDesiredState()
+
+    async def start_refusal(self, camera_id: str) -> str | None:
+        """Why an explicit start must be refused, or None. Used by
+        ``/camera/start`` so the service does not depend on its caller having
+        checked the operator's toggle."""
+        return (await self._desired_state(camera_id)).start_refusal()
 
     async def _persist_resume_flag(self, camera_id: str, auto_resume: bool) -> None:
         if RecordingSession._validate_uuid(camera_id) is None:
@@ -190,7 +237,7 @@ class CameraManager:
             # fixed — begin the backoff schedule afresh.
             sup.failures = 0
         log.info("Камер %s эхэллээ: %s", camera_id, redact_url(url))
-        await self._persist_started(session, url)
+        await self._persist_started(session, url, supervised=supervised)
 
     async def stop(self, camera_id: str, *, by_user: bool = True):
         # Keep the session registered until finalize (including durable spool
@@ -220,22 +267,51 @@ class CameraManager:
         )
 
     # ── auto-resume ───────────────────────────────────────────
+    @staticmethod
+    def _embedded_enabled(row: dict) -> bool | None:
+        """cameras.enabled from the PostgREST embed, or None when the row was
+        fetched without it (schema-cache fallback in list_resumable_sessions).
+        The embed is an object for a to-one FK, but tolerate a list too."""
+        camera = row.get("cameras")
+        if isinstance(camera, list):
+            camera = camera[0] if camera else None
+        if not isinstance(camera, dict):
+            return None
+        enabled = camera.get("enabled")
+        return None if enabled is None else bool(enabled)
+
     async def resume_persisted(self) -> int:
-        """Start every camera_sessions row with auto_resume=true. Called once
-        at boot after the engine is ready; a failure on one camera is
-        recorded on its row and never aborts startup."""
+        """Start every camera_sessions row with auto_resume=true whose camera
+        is still enabled. Called once at boot after the engine is ready; a
+        failure on one camera is recorded on its row and never aborts
+        startup.
+
+        A row the operator disabled while this service was down is skipped
+        (and the reason recorded), not started: that is the whole point of
+        the disable trigger, which a supervised restart used to undo."""
         try:
             rows = await asyncio.to_thread(self.storage.list_resumable_sessions)
         except Exception as e:  # noqa: BLE001
             log.warning("resume: registry unavailable: %s", type(e).__name__)
             return 0
         resumed = 0
+        skipped = 0
         for row in rows:
-            camera = row.get("cameras")
-            if isinstance(camera, dict) and camera.get("enabled") is False:
-                continue
             camera_id = str(row.get("camera_id") or "")
             if not camera_id:
+                continue
+            # The embed answers for free; without it (fallback select) ask the
+            # DB per camera rather than resuming a camera that may be off.
+            enabled = self._embedded_enabled(row)
+            refusal = None
+            if enabled is False:
+                refusal = "camera disabled by operator"
+            elif enabled is None:
+                refusal = (await self._desired_state(camera_id)).resume_refusal()
+            if refusal:
+                skipped += 1
+                log.info("Камер %s: auto-resume skipped — %s", camera_id, refusal)
+                await self._persist_error(camera_id, f"auto-resume skipped: {refusal}")
                 continue
             try:
                 url = unseal_camera_url(camera_id, row["sealed_url"])
@@ -247,7 +323,10 @@ class CameraManager:
                 log.warning("camera %s: %s", camera_id, msg)
                 await self._persist_error(camera_id, msg)
         if rows:
-            log.info("Auto-resume: %d/%d camera(s) restarted", resumed, len(rows))
+            log.info(
+                "Auto-resume: %d/%d camera(s) restarted, %d skipped (disabled / stopped)",
+                resumed, len(rows), skipped,
+            )
         return resumed
 
     # ── supervisor ────────────────────────────────────────────
@@ -289,6 +368,24 @@ class CameraManager:
             return f"capture task failed: {type(exc).__name__}"
         return getattr(session, "exit_reason", None) or "capture loop ended unexpectedly"
 
+    async def _drop(self, camera_id: str, reason: str) -> None:
+        """Stop supervising a camera the DB says must not run.
+
+        The capture loop is closed through ``stop(by_user=False)`` so the
+        recording is finalised (and spooled) rather than leaked, and
+        auto_resume is left exactly as it is — it is already false, or the
+        camera/row is gone. If the close itself fails, the session stays
+        registered for a later ``/camera/stop`` retry, but supervision ends
+        either way: this camera must not be restarted."""
+        log.info("Камер %s: supervision dropped — %s", camera_id, reason)
+        await self._persist_error(camera_id, f"stopped: {reason}")
+        try:
+            await self.stop(camera_id, by_user=False)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Камер %s: drop cleanup failed: %s", camera_id, type(e).__name__)
+        finally:
+            self.supervision.pop(camera_id, None)
+
     async def supervise_once(self, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
         for camera_id, session in list(self.sessions.items()):
@@ -296,6 +393,17 @@ class CameraManager:
             if sup is None or getattr(session, "stopped_by_user", False):
                 continue
             if session.task and not session.task.done():
+                # Reconcile: the operator may have disabled (or deleted) this
+                # camera while the web action's stop call could not reach us,
+                # in which case a healthy loop is still recording something it
+                # must not. Only the toggle counts here — auto_resume governs
+                # RESTARTS, and a stale false (a failed registry write on the
+                # start that is running right now) must not kill a live
+                # session. Unknown (registry unreadable) keeps it running.
+                refusal = (await self._desired_state(camera_id)).start_refusal()
+                if refusal:
+                    await self._drop(camera_id, refusal)
+                    continue
                 if sup.failures and now - sup.running_since >= HEALTHY_RESET_SEC:
                     sup.failures = 0
                 continue
@@ -315,6 +423,12 @@ class CameraManager:
                 continue
 
             if now < sup.next_retry_at:
+                continue
+            # The desired state may have changed while we backed off — never
+            # restart a camera the operator disabled or stopped meanwhile.
+            refusal = (await self._desired_state(camera_id)).resume_refusal()
+            if refusal:
+                await self._drop(camera_id, refusal)
                 continue
             sup.restart_count += 1
             log.info("Камер %s: supervisor restart #%d", camera_id, sup.restart_count)

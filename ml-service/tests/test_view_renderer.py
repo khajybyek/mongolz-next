@@ -13,6 +13,7 @@ import base64
 import os
 import secrets
 import subprocess
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -273,3 +274,149 @@ class TestRealFaceBlur:
         out = str(tmp_path / "view.mp4")
         n = view_renderer.render_blurred_view(dec_path, out)
         assert n > 0 and os.path.getsize(out) > 1000
+
+
+# ── derived-view cache bound (audit 4.6) ───────────────────────────────
+def _cache_entry(directory, name: str, *, size: int = 2048, age_sec: float = 0.0) -> str:
+    """Write a fake cache entry with a controlled size and mtime."""
+    path = os.path.join(str(directory), name)
+    with open(path, "wb") as f:
+        f.write(b"\0" * size)
+    stamp = time.time() - age_sec
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def _uuid_name(n: int) -> str:
+    return f"{n:08d}-0000-0000-0000-000000000000.mp4"
+
+
+class TestViewCacheSweep:
+    """`/tmp/mongolz-views` used to grow until the container was redeployed."""
+
+    def test_size_bound_evicts_oldest_first(self, tmp_path):
+        oldest = _cache_entry(tmp_path, _uuid_name(1), size=2000, age_sec=300)
+        middle = _cache_entry(tmp_path, _uuid_name(2), size=2000, age_sec=200)
+        newest = _cache_entry(tmp_path, _uuid_name(3), size=2000, age_sec=100)
+
+        removed, freed = view_renderer.sweep_view_cache(
+            str(tmp_path), max_bytes=4500, max_age_sec=0
+        )
+
+        assert (removed, freed) == (1, 2000)
+        assert not os.path.exists(oldest), "oldest render must be evicted first"
+        assert os.path.exists(middle) and os.path.exists(newest)
+
+    def test_size_bound_keeps_evicting_until_under_the_bound(self, tmp_path):
+        entries = [
+            _cache_entry(tmp_path, _uuid_name(i), size=2000, age_sec=1000 - i * 10)
+            for i in range(5)
+        ]
+        removed, freed = view_renderer.sweep_view_cache(
+            str(tmp_path), max_bytes=2000, max_age_sec=0
+        )
+        assert (removed, freed) == (4, 8000)
+        survivors = [p for p in entries if os.path.exists(p)]
+        assert survivors == [entries[-1]], "only the newest entry survives"
+
+    def test_age_bound_drops_stale_entries(self, tmp_path):
+        stale = _cache_entry(tmp_path, _uuid_name(1), size=500, age_sec=48 * 3600)
+        fresh = _cache_entry(tmp_path, _uuid_name(2), size=500, age_sec=60)
+
+        removed, _freed = view_renderer.sweep_view_cache(
+            str(tmp_path), max_bytes=10 ** 9, max_age_sec=24 * 3600
+        )
+
+        assert removed == 1
+        assert not os.path.exists(stale)
+        assert os.path.exists(fresh)
+
+    def test_in_flight_and_foreign_files_are_never_deleted(self, tmp_path):
+        part = _cache_entry(tmp_path, _uuid_name(1) + ".part", size=9000, age_sec=9999)
+        foreign = _cache_entry(tmp_path, "notes.mp4", size=9000, age_sec=9999)
+        entry = _cache_entry(tmp_path, _uuid_name(2), size=9000, age_sec=9999)
+
+        removed, _freed = view_renderer.sweep_view_cache(
+            str(tmp_path), max_bytes=0, max_age_sec=1
+        )
+
+        assert removed == 1
+        assert not os.path.exists(entry)
+        # A `.part` belongs to a render in flight — deleting it would corrupt
+        # a concurrent request; anything not named after a recording is not ours.
+        assert os.path.exists(part) and os.path.exists(foreign)
+
+    def test_missing_cache_dir_is_not_an_error(self, tmp_path):
+        assert view_renderer.sweep_view_cache(str(tmp_path / "nope")) == (0, 0)
+
+    def test_render_into_the_cache_dir_enforces_the_bound(self, tmp_path, monkeypatch):
+        cache_dir = tmp_path / "views"
+        cache_dir.mkdir()
+        source_dir = tmp_path / "src"
+        source_dir.mkdir()
+        monkeypatch.setattr(view_renderer, "VIEW_CACHE_DIR", str(cache_dir))
+        monkeypatch.setattr(view_renderer, "VIEW_CACHE_MAX_BYTES", 1024)
+        monkeypatch.setattr(view_renderer, "VIEW_CACHE_MAX_AGE_SEC", 24 * 3600)
+        stale = _cache_entry(cache_dir, _uuid_name(1), size=4096, age_sec=600)
+
+        src = str(source_dir / "in.mp4")
+        _make_synthetic_mp4(src, frames=8)
+        # The endpoint renders to a `.part` sibling inside the cache dir.
+        out = str(cache_dir / (_uuid_name(2) + ".part"))
+        assert view_renderer.render_blurred_view(src, out) == 8
+
+        assert not os.path.exists(stale), "a completed render must enforce the bound"
+        assert os.path.exists(out), "the render that just succeeded is never evicted"
+
+    def test_render_outside_the_cache_dir_sweeps_nothing(self, tmp_path, monkeypatch):
+        cache_dir = tmp_path / "views"
+        cache_dir.mkdir()
+        monkeypatch.setattr(view_renderer, "VIEW_CACHE_DIR", str(cache_dir))
+        monkeypatch.setattr(view_renderer, "VIEW_CACHE_MAX_BYTES", 0)
+        entry = _cache_entry(cache_dir, _uuid_name(1), size=4096, age_sec=600)
+
+        src = str(tmp_path / "in.mp4")
+        _make_synthetic_mp4(src, frames=8)
+        view_renderer.render_blurred_view(src, str(tmp_path / "scratch.mp4"))
+
+        assert os.path.exists(entry), "a scratch render must not touch the cache"
+
+
+class _DroppingWriter:
+    """Forwards the first `keep` frames to ffmpeg and silently drops the rest —
+    a write path that reports success while footage goes missing."""
+
+    def __init__(self, pipe, keep: int):
+        self._pipe = pipe
+        self._keep = keep
+        self.writes = 0
+
+    def write(self, data: bytes) -> int:
+        self.writes += 1
+        if self.writes <= self._keep:
+            return self._pipe.write(data)
+        return len(data)
+
+    def flush(self) -> None:
+        self._pipe.flush()
+
+    def close(self) -> None:
+        self._pipe.close()
+
+
+def test_short_render_is_rejected_and_leaves_no_file(tmp_path, monkeypatch):
+    """ffmpeg exits 0 but the file holds half the frames → still a failure."""
+    src = str(tmp_path / "in.mp4")
+    out = str(tmp_path / "out.mp4.part")
+    _make_synthetic_mp4(src, frames=8)
+    real_popen = subprocess.Popen
+
+    def factory(cmd, **kwargs):
+        proc = real_popen(cmd, **kwargs)
+        proc.stdin = _DroppingWriter(proc.stdin, 4)
+        return proc
+
+    monkeypatch.setattr(view_renderer.subprocess, "Popen", factory)
+    with pytest.raises(RuntimeError, match=r"incomplete recording \(4/8 frames\)"):
+        view_renderer.render_blurred_view(src, out)
+    assert not os.path.exists(out), "a truncated view must not survive on disk"
