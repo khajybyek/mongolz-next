@@ -69,5 +69,13 @@ ENV PORT=8000
 # healthcheck failures count toward the rollback threshold.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://localhost:{os.getenv(\"PORT\",\"8000\")}/').read()"
 
+# The image deliberately has no USER directive: Railway mounts the recording
+# spool volume root-owned, so the entrypoint needs root for exactly one chown
+# and then re-execs itself as `mongolz` (docker-entrypoint.sh:24-31) before any
+# application code, tailscaled or uvicorn starts. Declaring USER here would
+# make the volume unwritable on boot.
+# nosemgrep: dockerfile.security.missing-user.missing-user
+# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
+# nosemgrep: dockerfile.security.missing-user.missing-user
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

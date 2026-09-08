@@ -19,9 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -30,7 +30,7 @@ jobs:
       # the whole point; `|| true` made this job decorative.
       - run: npm audit --omit=dev --audit-level=high
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
 
@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 10
     container: semgrep/semgrep:1.99.0
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # Run Semgrep with audited security rulesets covering TS, JS, Python.
       # Exit non-zero on ERROR-severity findings so PRs surface them.
@@ -65,13 +65,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
       # Runs on direct pushes too (this repo commits straight to main): scan
       # the pushed range rather than the whole history each time.
-      - uses: trufflesecurity/trufflehog@v3.88.0
+      - uses: trufflesecurity/trufflehog@ddc015e5ed99942b2253d8ea16a0586a01ef2ab1 # v3.88.0
         with:
           path: .
           base: ${{ github.event_name == 'push' && github.event.before || '' }}
@@ -90,10 +90,10 @@ jobs:
     timeout-minutes: 15
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run Nuclei
-        uses: projectdiscovery/nuclei-action@v3.0.0
+        uses: projectdiscovery/nuclei-action@a4ae23f2522c29f17a696be94fea5f394ac6843f # v3.0.0
         with:
           target: https://aicctv.dev
           flags: >-
@@ -106,7 +106,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nuclei-report
           path: nuclei-report.md
@@ -121,10 +121,10 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: ZAP baseline scan
-        uses: zaproxy/action-baseline@v0.13.0
+        uses: zaproxy/action-baseline@0619037bb784a56e2e06b104f0ebe157e076f075 # v0.13.0
         with:
           target: https://aicctv.dev
           cmd_options: "-a -j"
