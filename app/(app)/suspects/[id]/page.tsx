@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
+import { FaceThumb } from "@/components/face-thumb";
 import {
   ArrowLeft,
   UserSearch,
@@ -77,23 +78,42 @@ export default async function SuspectDetailPage({
   };
   const alerts = (alertsData ?? []) as AlertRow[];
 
-  // Lookup recording_id for face_ids that we want to deep-link from.
+  // Lookup recording_id (deep link) + crop_sealed (badge) for the alerts'
+  // face rows. The face row IS the alert's evidence — see below.
   const faceIds = alerts.map((a) => a.face_id).filter((x): x is string => !!x);
   const recordingByFace = new Map<string, string>();
+  const sealedByFace = new Map<string, boolean>();
   if (faceIds.length > 0) {
     const { data: faceRows } = await supabase
       .from("faces")
-      .select("id, recording_id")
+      .select("id, recording_id, crop_sealed")
       .in("id", faceIds);
-    for (const f of (faceRows ?? []) as Array<{ id: string; recording_id: string | null }>) {
+    for (const f of (faceRows ?? []) as Array<{
+      id: string;
+      recording_id: string | null;
+      crop_sealed: boolean | null;
+    }>) {
       if (f.recording_id) recordingByFace.set(f.id, f.recording_id);
+      sealedByFace.set(f.id, !!f.crop_sealed);
     }
   }
 
-  // Latest alert + screenshot signed URL
+  // ── Latest match preview ────────────────────────────────────────────────
+  // This used to sign `alerts.screenshot_path` against the `alert-screenshots`
+  // bucket and always got nothing back: the recording pipeline writes only the
+  // sealed crop `<faces.image_path>.enc` in the `faces` bucket, so the path on
+  // the alert row referenced an object that does not exist (measured: 13
+  // alerts, 1 path, 0 objects in that bucket — it has never received a write).
+  // The evidence is the face row, so the crop is rendered through
+  // /api/faces/[id]/secure-crop, which decrypts the sealed crop under this
+  // admin's reveal_level and streams legacy plaintext crops.
+  //
+  // An alert that genuinely carries an `alert-screenshots` object (uploaded by
+  // something other than the pipeline) still renders from it; that path is
+  // only taken when the alert has no face row to point at.
   const latest = alerts[0] ?? null;
   let latestScreenshotUrl: string | null = null;
-  if (latest) {
+  if (latest && !latest.face_id) {
     const { data: latestAlertRow } = await supabase
       .from("alerts")
       .select("screenshot_path")
@@ -155,7 +175,7 @@ export default async function SuspectDetailPage({
                 <img src={photoUrl} alt={suspect.name} className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-xs text-text-muted">
-                  no image
+                  {t("suspect_no_image")}
                 </div>
               )}
             </div>
@@ -202,12 +222,20 @@ export default async function SuspectDetailPage({
           {latest && (
             <div className="card flex gap-3">
               <div className="w-32 h-24 shrink-0 bg-bg-tertiary rounded overflow-hidden">
-                {latestScreenshotUrl ? (
+                {latest.face_id ? (
+                  // The alert's own evidence, decrypted on demand by
+                  // /api/faces/[id]/secure-crop (sealed or legacy plaintext).
+                  <FaceThumb
+                    faceId={latest.face_id}
+                    sealed={sealedByFace.get(latest.face_id) ?? false}
+                    className="w-full h-full"
+                  />
+                ) : latestScreenshotUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={latestScreenshotUrl} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-[10px] text-text-faint">
-                    no screenshot
+                    {t("alert_no_screenshot")}
                   </div>
                 )}
               </div>

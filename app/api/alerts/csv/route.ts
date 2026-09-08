@@ -10,13 +10,16 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const { data: alerts } = await supabase
     .from("alerts")
-    .select("suspect_name, similarity, camera_name, created_at, state, screenshot_path, match_count, last_seen_at")
+    .select("suspect_name, similarity, camera_name, created_at, state, face_id, match_count, last_seen_at")
     .order("created_at", { ascending: false })
     .limit(10000);
 
-  // match_count / last_seen_at: repeat sightings merge into the open alert,
-  // so an export without them understates every recurring incident.
-  const header = ["suspect_name", "similarity", "camera_name", "created_at", "state", "screenshot_path", "match_count", "last_seen_at"];
+  // match_count / last_seen_at: repeat sightings merge into the open alert, so
+  // an export without them understates every recurring incident. face_id
+  // replaces screenshot_path, which is NULL on every new alert since the
+  // evidence became the sealed face crop (migration 20260909110000) — it is
+  // the id to open at /api/faces/<id>/secure-crop, not a storage path.
+  const header = ["suspect_name", "similarity", "camera_name", "created_at", "state", "face_id", "match_count", "last_seen_at"];
   const lines = [header.join(",")];
 
   for (const a of alerts ?? []) {
@@ -27,7 +30,9 @@ export async function GET(request: NextRequest) {
         csvCell(a.camera_name ?? ""),
         csvCell(a.created_at),
         csvCell(a.state),
-        csvCell(a.screenshot_path ?? ""),
+        csvCell(a.face_id ?? ""),
+        csvCell(a.match_count ?? 1),
+        csvCell(a.last_seen_at ?? a.created_at),
       ].join(",")
     );
   }

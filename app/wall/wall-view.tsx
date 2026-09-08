@@ -395,7 +395,13 @@ function CameraTile({
             {t("grid_live")}
           </span>
         ) : (
-          <span className="bg-bg/70 backdrop-blur rounded px-2 py-1 text-[10px] uppercase tracking-wider">
+          <span
+            className="bg-bg/70 backdrop-blur rounded px-2 py-1 text-[10px] uppercase tracking-wider"
+            // The status now means liveness (frames arriving), while the strip
+            // below reports detections — two different facts that both used to
+            // read "Unknown".
+            title={`${t("cam_health_liveness")}: ${t(STATUS_LABEL[cam.status])}`}
+          >
             <span className={statusTone}>{t(STATUS_LABEL[cam.status])}</span>
           </span>
         )}
@@ -405,7 +411,7 @@ function CameraTile({
           stop only when canControl (admin + ML reachable). */}
       <div className="absolute bottom-0 inset-x-0 z-[2] flex items-center justify-between gap-2 bg-gradient-to-t from-black/80 to-transparent text-[10px] text-white/90 px-2 py-1.5">
         <span className="truncate pointer-events-none">
-          {cam.last_seen ? `${t("wall_last")}: ${formatDate(cam.last_seen)}` : t("cam_status_unknown")}
+          {cam.last_seen ? `${t("wall_last")}: ${formatDate(cam.last_seen)}` : t("wall_no_detection")}
         </span>
         <span className="flex items-center gap-2 shrink-0">
           <span className="font-mono pointer-events-none">

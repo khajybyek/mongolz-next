@@ -78,6 +78,30 @@ LIVE_READ_FAIL_LIMIT = 100
 # Demo loop: consecutive re-opens that yield no frame before giving up
 # (guards against a corrupt cached clip turning into a hot loop).
 DEMO_REOPEN_LIMIT = 3
+
+
+def _env_seconds(name: str, default: float, floor: float) -> float:
+    """Positive-seconds env override that never takes the service down."""
+    try:
+        return max(floor, float(os.getenv(name, "") or default))
+    except (TypeError, ValueError):
+        return default
+
+
+# Capture heartbeat — «frames are still arriving on this camera».
+#
+# The status dots on /grid, /wall and /cameras used to be derived purely from
+# the newest FACE detection, so a working camera watching an empty corridor
+# read as «offline» after 30 minutes (audit: camera_health lies). The capture
+# loop is the only component that knows whether frames are arriving, so it
+# says so itself: every CAMERA_HEARTBEAT_SEC of successful reads it stamps
+# public.camera_sessions.last_heartbeat_at, and camera_health() derives
+# liveness from that stamp instead of from detections.
+#
+# camera_health() calls a camera healthy while the last beat is under 90 s
+# old, so this interval must stay comfortably below that.
+CAMERA_HEARTBEAT_SEC = _env_seconds("CAMERA_HEARTBEAT_SEC", 30.0, 5.0)
+
 ALERT_THRESHOLD = 0.45
 # Dedup: нэг хүнийг дахин дахин бичихээс сэргийлнэ — cosine sim > THRESHOLD
 # бол «өмнө харсан хүн» гэж үзнэ.
@@ -176,7 +200,12 @@ class SeenFace:
     expires_at: float           # үүнээс хойш тухайн хүн ДАХИН бүртгэгдэнэ
     checked_at: float           # suspect match хамгийн сүүлд ажилласан үе
     face_id: str | None = None  # тэр мөрийн id (alert-д нотлох баримт болно)
-    screenshot_path: str | None = None
+    # The object that was ACTUALLY written for this face: the sealed crop
+    # `<image_path>.enc` in the `faces` bucket (Tier 2 is encrypt-only — no
+    # plaintext crop is persisted). Kept for logging/diagnostics only; the
+    # alert row points at the face ROW (`face_id`), never at a storage path,
+    # so every reader resolves the crop through /api/faces/[id]/secure-crop.
+    crop_path: str | None = None
 
 
 class SessionFaceMemory:
@@ -252,7 +281,7 @@ class SessionFaceMemory:
         embedding: np.ndarray,
         now: float,
         face_id: str | None,
-        screenshot_path: str | None,
+        crop_path: str | None,
         ttl_sec: float | None = None,
     ) -> SeenFace:
         """Шинэ бичлэг нэмнэ.
@@ -267,7 +296,7 @@ class SessionFaceMemory:
             expires_at=now + (self.face_window_sec if ttl_sec is None else max(1.0, ttl_sec)),
             checked_at=now,
             face_id=face_id,
-            screenshot_path=screenshot_path,
+            crop_path=crop_path,
         )
         self._entries.append(entry)
         self.prune(now)
@@ -511,6 +540,14 @@ class RecordingSession:
         )
         self.started_at = datetime.now(timezone.utc)
 
+        # ── Capture heartbeat state (see CAMERA_HEARTBEAT_SEC) ──
+        # Enabled inside the loop, and only for a LIVE camera with a real
+        # camera_sessions row: a browser upload being processed in file mode
+        # must never make its camera look like it is streaming.
+        self._heartbeat_enabled = False
+        self._last_beat_at = 0.0            # time.monotonic() of the last beat
+        self._beat_task: asyncio.Task | None = None
+
         # Shared masker (Haar every frame + InsightFace every Nth + TTL
         # persistence + tier-aware cubist) — identical to the view renderer
         # and the reveal path, so no code path is weaker than another.
@@ -691,6 +728,62 @@ class RecordingSession:
         )
 
     # ────────────────────────────────────────────
+    # Capture heartbeat
+    # ────────────────────────────────────────────
+    def beat_if_due(self, now: float | None = None) -> bool:
+        """Stamp ``camera_sessions.last_heartbeat_at`` if a beat is due.
+
+        Called from the capture loop after every SUCCESSFUL frame read, so the
+        stamp means exactly one thing: frames were arriving from this source a
+        moment ago. It does not mean a face was seen (that is
+        ``faces.detected_at``), and it does not mean the ffmpeg pipes are
+        healthy — only that the source is delivering.
+
+        Non-blocking by construction: the write is a PostgREST round trip, so
+        it runs as a background task and at most ONE is ever in flight. A beat
+        that cannot be written is skipped, never retried into a queue — the
+        next frame is 1/fps away and will try again.
+
+        Returns True when this call scheduled a beat (used by the tests).
+        """
+        if not self._heartbeat_enabled or not self.db_camera_id:
+            return False
+        now = time.monotonic() if now is None else now
+        if (now - self._last_beat_at) < CAMERA_HEARTBEAT_SEC:
+            return False
+        if self._beat_task is not None and not self._beat_task.done():
+            # Previous beat still in flight (slow DB) — do not pile up.
+            return False
+        self._last_beat_at = now
+        self._beat_task = asyncio.create_task(self._write_heartbeat())
+        return True
+
+    async def _write_heartbeat(self) -> None:
+        camera_id = self.db_camera_id
+        if not camera_id:
+            return
+        try:
+            await asyncio.to_thread(
+                self.storage.heartbeat_camera_session, camera_id, self.recorded_frames
+            )
+        except Exception as e:  # noqa: BLE001 — a missed beat is not an outage
+            log.debug("camera %s: heartbeat skipped (%s)", self.camera_id, type(e).__name__)
+
+    async def _stop_heartbeat(self) -> None:
+        """Let an in-flight beat finish (briefly) so shutdown leaves no
+        orphaned task, and stop scheduling new ones."""
+        self._heartbeat_enabled = False
+        task, self._beat_task = self._beat_task, None
+        if task is None or task.done():
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=2)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            task.cancel()
+        except Exception:  # noqa: BLE001 — already logged inside the task
+            pass
+
+    # ────────────────────────────────────────────
     # Lifecycle
     # ────────────────────────────────────────────
     async def start(self):
@@ -698,6 +791,7 @@ class RecordingSession:
 
     async def stop(self):
         self.stop_flag.set()
+        await self._stop_heartbeat()
         if self.task:
             try:
                 await asyncio.wait_for(self.task, timeout=5)
@@ -896,6 +990,11 @@ class RecordingSession:
             self.blurred_writer = _ffmpeg_mp4_writer(self.blurred_path, w, h, self.fps)
         self.original_writer = _ffmpeg_mp4_writer(self.original_path, w, h, self.fps)
 
+        # A live (or demo) camera reports liveness for as long as frames keep
+        # arriving. File mode is a browser upload being processed — it has no
+        # camera in front of it, so it must not stamp one as streaming.
+        self._heartbeat_enabled = not is_file_mode and bool(self.db_camera_id)
+
         frame_idx = 0
         read_idx = 0
         process_every_n = max(self.fps, 10)  # ArcFace embed/match ~1s/once
@@ -943,6 +1042,10 @@ class RecordingSession:
                     continue
                 read_failures = 0
                 demo_reopens = 0
+                # Frames ARE arriving → say so (at most once per
+                # CAMERA_HEARTBEAT_SEC, off the loop). This is what the
+                # status dots read; detections only say what was seen.
+                self.beat_if_due()
 
                 read_idx += 1
                 # Frame skip: 30 fps file → process every 2nd → 15 fps output
@@ -994,6 +1097,10 @@ class RecordingSession:
             log.exception("Capture loop crashed for camera %s", self.camera_id)
             self.stop_flag.set()
         finally:
+            # The loop is over: no more frames, so no more heartbeats. The
+            # last stamp stays on the row on purpose — camera_health() ages it
+            # into `stale` and then `offline`, which is exactly what happened.
+            self._heartbeat_enabled = False
             self.cap.release()
             # Close the encoder pipes here as well: if the loop crashed, stop()
             # may not be called by the manager and ffmpeg would linger.
@@ -1078,17 +1185,17 @@ class RecordingSession:
                     # гэдэг нь хяналтын жагсаалтын хүнийг чимээгүй алгасах
                     # шалтгаан биш (өмнө нь яг тэгдэг байсан).
                     face_id: str | None = None
-                    screenshot_path: str | None = None
+                    crop_path: str | None = None
                     ttl: float | None = None
                     try:
-                        face_id, screenshot_path = await self._persist_face(frame, f, now)
+                        face_id, crop_path = await self._persist_face(frame, f, now)
                     except Exception as e:  # noqa: BLE001 — тодорхой бүртгэнэ
                         log.exception("Нүүр хадгалахад алдаа (alert зам үргэлжилнэ): %s", e)
                         # Богино TTL: Storage сэргэмэгц нотлох баримт эргэж
                         # бичигдэнэ, гэхдээ секунд тутмын давталт үүсгэхгүй.
                         ttl = self.face_memory.recheck_sec
                     entry = self.face_memory.remember(
-                        f.embedding, now, face_id, screenshot_path, ttl_sec=ttl
+                        f.embedding, now, face_id, crop_path, ttl_sec=ttl
                     )
                     should_check = True
                 else:
@@ -1101,9 +1208,7 @@ class RecordingSession:
                     continue
                 self.face_memory.mark_checked(entry, now)
                 try:
-                    await self._match_and_alert(
-                        f.embedding, entry.face_id, entry.screenshot_path, now
-                    )
+                    await self._match_and_alert(f.embedding, entry.face_id, now)
                 except Exception as e:  # noqa: BLE001 — нэг alert-ын алдаа
                     # үлдсэн нүүрнүүдийг таслах ёсгүй (өмнө нь task бүхэлдээ
                     # унаж, хаана ч бүртгэгддэггүй байсан).
@@ -1186,16 +1291,30 @@ class RecordingSession:
             embedding_sealed=embedding_sealed,
             crop_sealed=True,
         )
-        return face_id, path
+        # Return the object that was actually uploaded. `path` itself is only
+        # the DB pointer (faces.image_path); the bytes live at `<path>.enc`
+        # and nothing plaintext exists at `path`. Handing the plain path on
+        # was how alerts ended up referencing objects that do not exist.
+        return face_id, f"{path}.enc"
 
     async def _match_and_alert(
         self,
         embedding: np.ndarray,
         face_id: str | None,
-        screenshot_path: str | None,
         now: float,
     ) -> None:
-        """Suspect тааралт → alert. Дуудагч нь exception-ыг барина."""
+        """Suspect тааралт → alert. Дуудагч нь exception-ыг барина.
+
+        The alert's evidence is the FACE ROW (``face_id``), never a storage
+        path: since Tier 2 the only crop object is the sealed
+        ``<image_path>.enc`` in the `faces` bucket, while
+        ``alerts.screenshot_path`` is an `alert-screenshots` bucket path (see
+        the backup manifest). Writing the plain crop path there produced a
+        reference that resolved to nothing in any bucket — every alert
+        screenshot in the UI was a dead link. Readers now go through
+        /api/faces/[id]/secure-crop, which decrypts the sealed crop under the
+        caller's reveal_level.
+        """
         matches = await self.storage.match_suspects(
             embedding.tolist(), threshold=ALERT_THRESHOLD, limit=1
         )
@@ -1230,7 +1349,9 @@ class RecordingSession:
             suspect_name=m["name"],
             face_id=face_id,
             similarity=sim,
-            screenshot_path=screenshot_path,
+            # No alert screenshot object is produced by this pipeline (see the
+            # docstring). NULL is the honest value; face_id carries the crop.
+            screenshot_path=None,
             camera_id=self.db_camera_id,
             camera_name=self.camera_name,
         )

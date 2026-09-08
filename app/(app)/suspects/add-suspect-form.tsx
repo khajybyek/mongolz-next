@@ -78,9 +78,9 @@ export function AddSuspectForm() {
           className="input file:bg-accent/15 file:text-accent file:border-0 file:rounded file:px-2 file:py-1 file:mr-2"
         />
         <select name="privacy_tier" defaultValue="standard" className="input" disabled={pending}>
-          <option value="vip">VIP</option>
-          <option value="standard">Standard</option>
-          <option value="relaxed">Relaxed</option>
+          <option value="vip">{t("suspect_tier_vip")}</option>
+          <option value="standard">{t("suspect_tier_standard")}</option>
+          <option value="relaxed">{t("suspect_tier_relaxed")}</option>
         </select>
         <button type="submit" className="btn-primary" disabled={pending}>
           {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
@@ -100,7 +100,7 @@ export function AddSuspectForm() {
         </div>
       )}
       <p className="text-xs text-text-muted mt-2">
-        ArcFace embedding · ML service · privacy tier → mask strength + reveal flow
+        {t("suspect_pipeline_note")}
       </p>
     </div>
   );

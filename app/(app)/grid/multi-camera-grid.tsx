@@ -667,7 +667,11 @@ function GridTile({
 
       {/* Top-left: status + name */}
       <div className="absolute top-2 left-2 z-[3] flex items-center gap-2 bg-bg/70 backdrop-blur rounded-md px-2 py-1 text-xs pointer-events-none max-w-[70%]">
-        <span className={cn("w-2 h-2 rounded-full shrink-0", STATUS_DOT[cam.status], cam.status === "healthy" && "animate-pulse")} />
+        <span
+          className={cn("w-2 h-2 rounded-full shrink-0", STATUS_DOT[cam.status], cam.status === "healthy" && "animate-pulse")}
+          title={`${t("cam_health_liveness")}: ${cam.status}`}
+          aria-label={`${t("cam_health_liveness")}: ${cam.status}`}
+        />
         <span className="font-semibold truncate text-text">{cam.name}</span>
       </div>
 
@@ -688,7 +692,7 @@ function GridTile({
       {/* Bottom bar: meta + controls */}
       <div className="absolute bottom-0 inset-x-0 z-[3] flex items-center justify-between gap-2 px-2 py-1.5 bg-gradient-to-t from-black/80 to-transparent text-[10px] text-white/85">
         <span className="truncate pointer-events-none">
-          {cam.last_seen ? `${t("wall_last")}: ${formatDate(cam.last_seen)}` : t("cam_status_unknown")}
+          {cam.last_seen ? `${t("wall_last")}: ${formatDate(cam.last_seen)}` : t("wall_no_detection")}
           {" · "}
           <span className="font-mono">{cam.faces_1h}/1h</span>
         </span>

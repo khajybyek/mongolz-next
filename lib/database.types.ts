@@ -104,3 +104,25 @@ export type FaceInRecording = Omit<Fn<"faces_in_recording">[number], "chain_inde
   chain_index: number | null;
   bbox: FaceBbox | null;
 };
+
+/**
+ * camera_health().status — LIVENESS: is this camera sending frames?
+ *
+ * Computed from `camera_sessions.last_heartbeat_at`, which the ML capture loop
+ * stamps every ~30 s while frames are arriving: `healthy` < 90 s, `stale` <
+ * 10 min, `offline` when a camera we are supposed to be capturing stopped
+ * delivering, `unknown` when nothing is capturing it (or it has not reported
+ * yet). It used to be derived from the newest face detection, which meant a
+ * working camera in front of an empty corridor reported an outage after 30
+ * quiet minutes — and a camera whose feed died still read healthy for five.
+ *
+ * The generator types these computed columns as plain `string`.
+ */
+export type CameraLivenessStatus = "healthy" | "stale" | "offline" | "unknown";
+
+/**
+ * camera_health().detection_status — ACTIVITY: has it seen anyone lately?
+ * `none` (never), `active` (< 5 min), `recent` (< 30 min), `idle` (older).
+ * This is the question `status` used to answer by mistake.
+ */
+export type CameraDetectionStatus = "none" | "active" | "recent" | "idle";

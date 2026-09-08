@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Play, Loader2, Activity, Cpu, Clock } from "lucide-react";
+import { Play, Loader2, Activity, Cpu, Clock, AlertTriangle } from "lucide-react";
+import { useT } from "@/lib/i18n/client";
 
 interface Stats {
   n: number;
@@ -16,16 +17,24 @@ interface Stats {
 interface BenchResult {
   iterations: number;
   input_resolution: string;
+  /** Where the frame came from — a bundled sample face, or synthetic noise. */
+  input_source?: string;
+  faces_detected?: number;
+  /** false = nothing was detected, so the embedding row timed a failed detect. */
+  embedding_measured?: boolean;
+  warning?: string;
   detection: Stats;
   embedding: Stats;
   end_to_end: Stats;
   effective_fps: number;
+  effective_fps_end_to_end?: number;
   engine: Record<string, unknown>;
 }
 
 const PRESETS = [10, 25, 50];
 
 export function BenchmarksView() {
+  const { t } = useT();
   const [result, setResult] = useState<BenchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,7 +92,9 @@ export function BenchmarksView() {
               Microbenchmark configuration
             </h3>
             <p className="text-xs text-text-soft mt-1">
-              640×480 synthetic image · single-threaded · cold start excluded (1 warmup)
+              {result
+                ? `${result.input_resolution}${result.input_source ? ` · ${result.input_source}` : ""} · ${result.iterations} ${t("bench_iterations_label")}`
+                : t("bench_config_hint")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -109,6 +120,13 @@ export function BenchmarksView() {
           <div className="text-xs text-danger bg-danger/10 rounded px-3 py-2">{error}</div>
         )}
       </div>
+
+      {result?.warning && (
+        <div className="card border border-warning/30 bg-warning-soft flex items-start gap-2.5 mb-4">
+          <AlertTriangle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
+          <p className="text-xs text-warning/90 leading-relaxed">{result.warning}</p>
+        </div>
+      )}
 
       {result && (
         <>

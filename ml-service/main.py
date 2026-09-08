@@ -1323,76 +1323,169 @@ async def eval_system_endpoint():
     }
 
 
+# ── /eval/bench ───────────────────────────────────────────────
+BENCH_SAMPLES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "samples")
+# The recording pipeline processes camera frames (640x480 / 640x360), so the
+# benchmark input is scaled to that envelope: the numbers are meant to answer
+# "how many camera frames per second can this box do", not "how fast is a
+# 1024px portrait".
+BENCH_MAX_SIDE = 640
+
+# What each measured row actually runs. Shipped in the response so the page
+# cannot label a number something it is not.
+BENCH_MEASURES = {
+    "detection": (
+        "face_engine.detect_all() — RetinaFace detection; InsightFace "
+        "computes each found face's 512-dim ArcFace embedding in the same "
+        "pass, which is the per-frame cost the recording pipeline pays."
+    ),
+    "embedding": (
+        "face_engine.embed_single() — the POST /embed path: detect, then "
+        "take the largest face's embedding. Detection cost is INCLUDED "
+        "(the model produces the embedding during detection); with no face "
+        "in the frame this measures a failed detection plus a padded retry, "
+        "which is why the input must contain a real face."
+    ),
+    "end_to_end": "detection + embedding on the same frame (detection therefore runs twice).",
+    "effective_fps": "1000 / mean(detection) — sustained frames per second on the capture path.",
+}
+
+
+def bench_frame() -> tuple[bytes, str, bool]:
+    """JPEG bytes for the benchmark, a label naming them, and whether the
+    input is expected to contain a face.
+
+    A benchmark must run the code path it claims to measure. The old input was
+    uniform random NOISE: the detector finds nothing in it, so `embed_single`
+    ran a detection plus a padded retry and returned None — the "embedding
+    generation" row never timed an embedding and the FPS figure was the cost
+    of three failed detections on a face-free image.
+
+    The bundled AI-generated faces (samples/00..02.jpg, committed) are used
+    instead, downscaled to a camera-sized frame. If they are unreadable the
+    synthetic fallback is returned and LABELLED as face-free, so a run on a
+    stripped image is visibly not a face benchmark rather than silently one.
+    """
+    for name in ("00.jpg", "01.jpg", "02.jpg"):
+        try:
+            with open(os.path.join(BENCH_SAMPLES_DIR, name), "rb") as fh:
+                raw = fh.read()
+        except OSError:
+            continue
+        img = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            continue
+        h, w = img.shape[:2]
+        scale = min(1.0, BENCH_MAX_SIDE / float(max(h, w) or 1))
+        if scale < 1.0:
+            img = cv2.resize(
+                img,
+                (max(1, int(round(w * scale))), max(1, int(round(h * scale)))),
+                interpolation=cv2.INTER_AREA,
+            )
+        ok, encoded = cv2.imencode(".jpg", img)
+        if ok:
+            return encoded.tobytes(), f"sample face ({name})", True
+
+    rng = np.random.default_rng(42)
+    noise = rng.integers(0, 256, size=(480, 640, 3), dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", noise)
+    if not ok:
+        raise HTTPException(500, "failed to encode benchmark image")
+    return encoded.tobytes(), "synthetic noise — NO FACE (samples missing)", False
+
+
+def bench_stats(arr: list[float]) -> dict:
+    if not arr:
+        return {"n": 0}
+    s = sorted(arr)
+    n = len(s)
+    return {
+        "n": n,
+        "mean_ms": round(sum(s) / n, 2),
+        "p50_ms": round(s[n // 2], 2),
+        "p95_ms": round(s[min(n - 1, int(n * 0.95))], 2),
+        "p99_ms": round(s[min(n - 1, int(n * 0.99))], 2),
+        "min_ms": round(s[0], 2),
+        "max_ms": round(s[-1], 2),
+    }
+
+
 @app.post("/eval/bench", dependencies=[Depends(require_token)])
 async def eval_bench_endpoint(iterations: int = 10):
+    """Microbenchmark of the detect + embed path on a real face frame.
+
+    Returns per-step latency stats (mean/p50/p95/p99), the sustained capture
+    FPS, and — this is the part that was missing — what was actually measured:
+    the input, how many faces the detector found in it, and whether the
+    embedding row timed a real embedding (`embedding_measured`). A run that
+    finds no face is reported as such instead of quietly publishing the cost
+    of a failed detection as "embedding generation".
     """
-    Run a microbenchmark on detect + embed using a synthetic image.
-    Returns per-step latency stats (mean/p50/p95/p99) and effective FPS.
-    """
-    import time
     iterations = max(1, min(iterations, 100))
     if not face_engine:
         raise HTTPException(503, "engine not ready")
 
-    # Encode synthetic image to JPEG so engine API (image_bytes) is satisfied.
-    rng = np.random.default_rng(42)
-    img = rng.integers(0, 256, size=(480, 640, 3), dtype=np.uint8)
-    ok, encoded = cv2.imencode(".jpg", img)
-    if not ok:
-        raise HTTPException(500, "failed to encode synthetic image")
-    img_bytes = encoded.tobytes()
+    img_bytes, input_label, expects_face = bench_frame()
+    decoded = cv2.imdecode(np.frombuffer(img_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+    height, width = (decoded.shape[:2] if decoded is not None else (0, 0))
 
     detect_times: list[float] = []
     embed_times: list[float] = []
     total_times: list[float] = []
+    faces_detected = 0
 
-    # Warmup
+    # Warmup — the first call pays model/JIT costs that belong to no row.
     try:
-        face_engine.detect_all(img_bytes)
-    except Exception:
-        pass
+        warm = face_engine.detect_all(img_bytes)
+        faces_detected = len(warm or [])
+    except Exception as e:  # noqa: BLE001 — measured below; log, don't hide
+        log.warning("bench warmup detection failed: %s", type(e).__name__)
 
     for _ in range(iterations):
         t0 = time.perf_counter()
         faces = face_engine.detect_all(img_bytes)
         t1 = time.perf_counter()
         detect_times.append((t1 - t0) * 1000)
+        faces_detected = max(faces_detected, len(faces or []))
 
-        # Embed the synthetic image as a whole to measure embedding latency.
         t2 = time.perf_counter()
-        face_engine.embed_single(img_bytes)
+        embedding = face_engine.embed_single(img_bytes)
         t3 = time.perf_counter()
         embed_times.append((t3 - t2) * 1000)
 
-        # detect_count is informational; suppress lint about unused variable.
-        del faces
-
         total_times.append((time.perf_counter() - t0) * 1000)
 
-    def stats(arr: list[float]) -> dict:
-        if not arr:
-            return {"n": 0}
-        s = sorted(arr)
-        n = len(s)
-        return {
-            "n": n,
-            "mean_ms": round(sum(s) / n, 2),
-            "p50_ms": round(s[n // 2], 2),
-            "p95_ms": round(s[min(n - 1, int(n * 0.95))], 2),
-            "p99_ms": round(s[min(n - 1, int(n * 0.99))], 2),
-            "min_ms": round(s[0], 2),
-            "max_ms": round(s[-1], 2),
-        }
+    detection = bench_stats(detect_times)
+    embedding_measured = faces_detected > 0 and embedding is not None
+    mean_detect_ms = detection.get("mean_ms") or 0.0
 
-    return {
+    payload = {
         "iterations": iterations,
-        "input_resolution": "640x480",
-        "detection": stats(detect_times),
-        "embedding": stats(embed_times),
-        "end_to_end": stats(total_times),
-        "effective_fps": round(1000.0 / max(sum(total_times) / len(total_times), 1e-6), 2),
+        # Rendered verbatim by /benchmarks — say what the frame was.
+        "input_resolution": f"{width}x{height} · {input_label}",
+        "input_source": input_label,
+        "faces_detected": faces_detected,
+        # False ⇒ the "embedding" row is the cost of a FAILED detection path,
+        # not of an embedding. Never true on a face-free image.
+        "embedding_measured": embedding_measured,
+        "detection": detection,
+        "embedding": bench_stats(embed_times),
+        "end_to_end": bench_stats(total_times),
+        "effective_fps": round(1000.0 / max(mean_detect_ms, 1e-6), 2),
+        "effective_fps_end_to_end": round(
+            1000.0 / max(sum(total_times) / len(total_times), 1e-6), 2
+        ),
+        "measures": BENCH_MEASURES,
         "engine": face_engine.info(),
     }
+    if not embedding_measured:
+        payload["warning"] = (
+            "No face was detected in the benchmark input"
+            + ("" if expects_face else " (sample images unavailable — synthetic noise used)")
+            + " — the embedding row and end-to-end row time a failed detection, not an embedding."
+        )
+    return payload
 
 
 

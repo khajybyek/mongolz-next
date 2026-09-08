@@ -28,11 +28,30 @@ function displayCameraUrl(stored: string): string {
 type HealthStatus = "healthy" | "stale" | "offline" | "unknown";
 type HealthRow = {
   camera_id: string;
+  /** Liveness since 20260909111000: are frames arriving, not "was a face seen". */
   status: HealthStatus;
   last_seen: string | null;
   faces_24h: number;
   faces_1h: number;
+  /** Newest heartbeat from the capture loop; null when nothing is capturing. */
+  last_heartbeat?: string | null;
+  capturing?: boolean | null;
+  detection_status?: string | null;
 };
+
+/** Liveness status → translation key (the pill and its tooltip share one map). */
+function cameraStatusKey(status: string | null | undefined) {
+  switch (status) {
+    case "healthy":
+      return "cam_status_healthy" as const;
+    case "stale":
+      return "cam_status_stale" as const;
+    case "offline":
+      return "cam_status_offline" as const;
+    default:
+      return "cam_status_unknown" as const;
+  }
+}
 
 export default async function CamerasPage() {
   await requireAdmin();
@@ -106,7 +125,10 @@ export default async function CamerasPage() {
                         </Badge>
                       </Link>
                     )}
-                    {/* Health status pill — shows freshness of last face detection */}
+                    {/* Liveness pill: since migration 20260909111000 `status`
+                        means "frames are arriving" (heartbeat), not "a face was
+                        detected recently". Detection age is a separate fact and
+                        is shown as its own line in the tooltip. */}
                     {c.health && (
                       <span
                         className={cn(
@@ -119,11 +141,15 @@ export default async function CamerasPage() {
                                 ? "bg-danger/15 text-danger"
                                 : "bg-text-muted/10 text-text-muted",
                         )}
-                        title={
+                        title={[
+                          `${t("cam_health_liveness")}: ${t(cameraStatusKey(c.health.status))}`,
+                          c.health.last_heartbeat
+                            ? `${t("cam_health_last_frame")}: ${formatDate(c.health.last_heartbeat)}`
+                            : t("cam_health_not_capturing"),
                           c.health.last_seen
-                            ? `Last face: ${formatDate(c.health.last_seen)}`
-                            : t("cam_status_unknown")
-                        }
+                            ? `${t("cam_health_last_face")}: ${formatDate(c.health.last_seen)}`
+                            : `${t("cam_health_last_face")}: —`,
+                        ].join(" · ")}
                       >
                         <span
                           className={cn(
@@ -212,7 +238,7 @@ export default async function CamerasPage() {
                   <form action={toggleCameraAction}>
                     <input type="hidden" name="id" value={c.id} />
                     <input type="hidden" name="enabled" value={String(!c.enabled)} />
-                    <button type="submit" className="btn-icon" title="Toggle">
+                    <button type="submit" className="btn-icon" title={t("cam_toggle_tip")}>
                       <Power className="w-3.5 h-3.5" />
                     </button>
                   </form>

@@ -18,6 +18,13 @@
  * Admin-only: face crops are admin-scoped (viewers never see face metadata;
  * the /wall kiosk only fetches crops for admins). reveal_level is read
  * server-side and is not client-forgeable.
+ *
+ * This is also where an ALERT's picture comes from. `alerts.screenshot_path`
+ * is an `alert-screenshots` path and the pipeline has nothing to put there
+ * (it uploads only `<faces.image_path>.enc`), so the alert's evidence pointer
+ * is `alerts.face_id` and every alert preview — /suspects/[id], and anything
+ * added later — renders `<FaceThumb faceId={alert.face_id} />`, i.e. this
+ * endpoint. Nothing should sign an alert screenshot URL directly.
  */
 
 import { NextResponse, type NextRequest } from "next/server";

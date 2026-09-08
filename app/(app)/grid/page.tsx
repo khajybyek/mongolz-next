@@ -11,11 +11,26 @@ import { MultiCameraGrid, type GridCamera } from "./multi-camera-grid";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * camera_health() row. `status` answers "is this camera sending frames"
+ * (derived from camera_sessions.last_heartbeat_at, stamped by the ML capture
+ * loop); `last_seen` / `faces_1h` / `detection_status` answer "has it seen
+ * anyone". The tile shows both, so a live camera watching an empty corridor
+ * reads as healthy with 0 faces instead of "offline" — which is what the dot
+ * used to claim after 30 quiet minutes.
+ *
+ * The extra columns are typed here rather than taken from the generated
+ * Database types so this page keeps compiling until `npm run gen:types` is
+ * re-run after the migration.
+ */
 type HealthRow = {
   camera_id: string;
   status: string;
   last_seen: string | null;
   faces_1h: number | string;
+  capturing?: boolean | null;
+  last_heartbeat?: string | null;
+  detection_status?: string | null;
 };
 
 const STATUSES = new Set(["healthy", "stale", "offline", "unknown"]);
@@ -66,6 +81,12 @@ export default async function GridPage({
 
   const cameras: GridCamera[] = (rows ?? []).map((c) => {
     const h = healthById.get(c.id);
+    // Dot = liveness (frames arriving), from the capture loop's heartbeat.
+    // The "last seen · N/1h" line under it is the detection side, so the two
+    // states the dot used to blur together are now both visible on the tile:
+    //   healthy + 0/1h → the camera is up, it has just seen nobody
+    //   stale/offline  → it is not sending frames (a real fault)
+    //   unknown        → nobody is capturing it, so nothing is known
     const status = h && STATUSES.has(h.status) ? (h.status as GridCamera["status"]) : "unknown";
     return {
       id: c.id,

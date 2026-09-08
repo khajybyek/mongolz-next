@@ -1,16 +1,25 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { mlActiveCameras } from "@/lib/ml-client";
+import type { CameraLivenessStatus } from "@/lib/database.types";
 import { WallView } from "./wall-view";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+/**
+ * `status` is liveness — "is this camera sending frames" — derived by
+ * camera_health() from camera_sessions.last_heartbeat_at, which the ML
+ * capture loop stamps every 30 s. It used to be derived from the newest face
+ * detection, so a camera watching an empty corridor went stale after five
+ * minutes and offline after thirty while it was happily streaming.
+ * `last_seen` / `faces_*` remain the detection side, shown on the same tile.
+ */
 type WallCamera = {
   camera_id: string;
   name: string;
   enabled: boolean;
-  status: "healthy" | "stale" | "offline" | "unknown";
+  status: CameraLivenessStatus;
   last_seen: string | null;
   faces_24h: number;
   faces_1h: number;

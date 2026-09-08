@@ -300,6 +300,16 @@ class SupabaseStorage:
     ) -> AlertOutcome:
         """Insert alert with rule-based filtering + dedup.
 
+        ``screenshot_path`` is a path in the `alert-screenshots` bucket (that
+        is how the backup manifest reads it) and the recording pipeline has
+        nothing to put there: since Tier 2 the only image written for a
+        detection is the SEALED crop `<faces.image_path>.enc` in the `faces`
+        bucket. The pipeline therefore passes None and the evidence pointer is
+        ``face_id``; readers resolve the picture through
+        /api/faces/[id]/secure-crop. The parameter survives for anything that
+        genuinely uploads an alert screenshot — pass a path only if the object
+        exists in `alert-screenshots`.
+
         Behaviour:
         1. The most specific enabled rule for this (suspect, camera,
            similarity) is applied. With no matching rule the DEFAULT dedup
@@ -698,6 +708,48 @@ class SupabaseStorage:
             return True
         except Exception as e:  # noqa: BLE001
             log.warning("camera_sessions touch failed for %s: %s", camera_id, type(e).__name__)
+            return False
+
+    def heartbeat_camera_session(
+        self, camera_id: str, frames_total: int | None = None
+    ) -> bool:
+        """Stamp «frames are arriving» on the session row.
+
+        Written by the capture loop every ``CAMERA_HEARTBEAT_SEC`` of
+        successful reads. ``camera_health()`` derives the operator-facing
+        status dots from this column, so it is the ONLY statement in this file
+        that may claim a camera is live — a face detection says what was seen,
+        not whether the camera is up (a working camera watching an empty
+        corridor used to read as «offline»).
+
+        Only ``last_heartbeat_at`` is touched: ``updated_at`` keeps meaning
+        «the session description changed» and ``last_error`` keeps the reason
+        the previous loop died visible until the operator acts on it.
+
+        No row → nothing is written (an ad-hoc / test camera has no session).
+        Never raises: a missed beat ages into `stale`, it does not stop
+        capture. ``frames_total`` is accepted for log context only.
+        """
+        if not self.client:
+            return False
+        try:
+            res = (
+                self.client.table("camera_sessions")
+                .update({"last_heartbeat_at": _iso_now()})
+                .eq("camera_id", camera_id)
+                .execute()
+            )
+            if not (res.data or []):
+                log.debug(
+                    "camera %s: heartbeat found no session row (frames=%s)",
+                    camera_id, frames_total,
+                )
+                return False
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "camera_sessions heartbeat failed for %s: %s", camera_id, type(e).__name__
+            )
             return False
 
     def camera_desired_state(self, camera_id: str) -> CameraDesiredState:
