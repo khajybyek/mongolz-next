@@ -48,7 +48,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                 email={user.email}
                 isSuperAdmin={profile.is_super_admin}
               />
-              <main id="main" tabIndex={-1} className="flex-1 min-w-0 overflow-x-hidden pb-24 md:pb-0">
+              <main id="main" tabIndex={-1} className="flex-1 min-w-0 overflow-x-hidden pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
                 <div className="px-4 md:px-6 xl:px-9 py-6 lg:py-8 max-w-[1440px] mx-auto animate-fade-in">
                   {children}
                 </div>

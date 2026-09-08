@@ -172,8 +172,10 @@ export function WallView({
     if (!isAdmin) return; // defence in depth — the server action rejects non-admins too
     setBusy((prev) => new Set(prev).add(id));
     try {
-      await startCameraAction(id);
-      await attach(id);
+      // A refusal (disabled camera, unreadable URL, ML down) comes back in the
+      // result, not as a throw — attaching anyway would fake a live tile.
+      const res = await startCameraAction(id);
+      if (res.ok) await attach(id);
     } catch {
       /* the tile keeps its "not streaming" state */
     } finally {

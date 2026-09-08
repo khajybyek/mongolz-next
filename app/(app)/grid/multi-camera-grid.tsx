@@ -238,7 +238,19 @@ export function MultiCameraGrid({
       if (streamsRef.current.has(cam.id) || busyRef.current.has(cam.id)) return;
       setBusy((prev) => new Map(prev).set(cam.id, "start"));
       try {
-        await startCameraAction(cam.id);
+        // The action reports a refusal (disabled camera, unreadable URL, ML
+        // down) in its return value — throwing cannot carry a message across
+        // the server-action boundary in production.
+        const res = await startCameraAction(cam.id);
+        if (!res.ok) {
+          setFailed((prev) => new Set(prev).add(cam.id));
+          toast({
+            title: res.code === "CAMERA_DISABLED" ? t("grid_stream_disabled") : t("grid_start_failed"),
+            description: cam.name,
+            tone: "danger",
+          });
+          return;
+        }
         await attach(cam.id);
         setReachable(true);
         toast({ title: t("grid_started"), description: cam.name, tone: "success", duration: 2000 });

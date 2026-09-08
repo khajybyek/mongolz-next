@@ -42,11 +42,23 @@ describe("lib/nav", () => {
     expect(admin.length).toBe(allItems.length);
   });
 
-  it("the live group lists the operator surfaces in NVR order", () => {
-    const live = NAV_GROUPS.find((g) => g.id === "live");
-    expect(live?.items.map((i) => i.href)).toEqual(["/live", "/grid", "/wall", "/live-rtc", "/playback"]);
+  it("keeps daily destinations first and all tools in six distinct groups", () => {
+    expect(NAV_GROUPS.map((group) => group.id)).toEqual([
+      "workspace", "monitoring", "investigation", "admin", "ml", "resources",
+    ]);
+    expect(NAV_GROUPS[0].items.map((item) => item.href)).toEqual([
+      "/dashboard", "/live", "/playback", "/alerts", "/search", "/analytics",
+    ]);
+    expect(allItems).toHaveLength(42);
+  });
+
+  it("keeps the operator surfaces together and viewer-accessible", () => {
+    const monitoring = NAV_GROUPS.find((group) => group.id === "monitoring");
+    expect(monitoring?.items.map((item) => item.href)).toEqual([
+      "/grid", "/wall", "/cameras", "/alerts-live", "/review", "/jobs",
+    ]);
     for (const href of ["/grid", "/wall"]) {
-      const item = live?.items.find((i) => i.href === href);
+      const item = monitoring?.items.find((i) => i.href === href);
       expect(item?.adminOnly).toBeUndefined();
       expect(item?.auditorAllowed).toBeUndefined();
     }

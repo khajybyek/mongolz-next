@@ -20,12 +20,11 @@ export function MobileTabbar({ role, lang }: { role: Role; lang: Lang }) {
 
   return (
     <nav
-      aria-label={t("nav_more", lang)}
-      className="md:hidden fixed bottom-0 inset-x-0 z-30 border-t border-border bg-surface/95 backdrop-blur-xl"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      aria-label={t("nav_mobile_navigation", lang)}
+      className="md:hidden fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] inset-x-3 z-30 rounded-2xl border border-border-strong bg-surface/95 shadow-[0_8px_32px_rgb(0_0_0/0.16)] backdrop-blur-xl"
     >
       <ul
-        className="grid h-16 px-1"
+        className="grid h-[68px] gap-1 p-1.5"
         style={{ gridTemplateColumns: `repeat(${tabs.length + 1}, minmax(0, 1fr))` }}
       >
         {tabs.map((tab) => {
@@ -37,17 +36,17 @@ export function MobileTabbar({ role, lang }: { role: Role; lang: Lang }) {
                 href={tab.href as never}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "h-full flex flex-col items-center justify-center gap-1 rounded-lg text-2xs font-medium transition-colors",
-                  active ? "text-accent" : "text-text-muted hover:text-text",
+                  "h-full flex flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-medium transition-colors",
+                  active ? "bg-accent/10 text-accent" : "text-text-muted hover:bg-text-muted/[0.05] hover:text-text",
                 )}
+                title={t(tab.labelKey, lang)}
               >
                 <span
                   className={cn(
-                    "inline-flex items-center justify-center w-11 h-7 rounded-lg transition-colors",
-                    active && "bg-accent/10",
+                    "inline-flex items-center justify-center w-11 h-6 rounded-lg transition-colors",
                   )}
                 >
-                  <Icon className="w-[18px] h-[18px]" aria-hidden />
+                  <Icon className="w-[19px] h-[19px]" strokeWidth={active ? 2.2 : 1.7} aria-hidden />
                 </span>
                 <span className="truncate max-w-full px-1">{t(tab.shortLabelKey ?? tab.labelKey, lang)}</span>
               </Link>
@@ -60,9 +59,9 @@ export function MobileTabbar({ role, lang }: { role: Role; lang: Lang }) {
             onClick={() => setMobileNavOpen(true)}
             aria-expanded={mobileNavOpen}
             aria-controls={mobileNavOpen ? "mobile-navigation" : undefined}
-            className={cn("w-full h-full flex flex-col items-center justify-center gap-1 rounded-lg text-2xs font-medium transition-colors", moreActive || mobileNavOpen ? "text-accent" : "text-text-muted hover:text-text")}
+            className={cn("w-full h-full flex flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-medium transition-colors", moreActive || mobileNavOpen ? "bg-accent/10 text-accent" : "text-text-muted hover:bg-text-muted/[0.05] hover:text-text")}
           >
-            <span className={cn("inline-flex items-center justify-center w-11 h-7 rounded-lg", (moreActive || mobileNavOpen) && "bg-accent/10")}>
+            <span className="inline-flex items-center justify-center w-11 h-6 rounded-lg">
               <MoreHorizontal className="w-[18px] h-[18px]" aria-hidden />
             </span>
             <span className="truncate max-w-full px-1">{t("nav_more", lang)}</span>

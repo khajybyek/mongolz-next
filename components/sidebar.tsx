@@ -3,18 +3,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, Crown, LogOut, X } from "lucide-react";
+import { ChevronDown, Crown, LogOut, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
 import { MongolzLogo } from "./logo";
 import { useShell } from "./shell-context";
 import { cn } from "@/lib/utils";
 import { useModalFocus } from "@/lib/use-modal-focus";
-import { isActivePath, visibleNavGroups, type Role } from "@/lib/nav";
+import { isActivePath, visibleNavGroups, type NavItem, type Role } from "@/lib/nav";
 import type { Lang } from "@/lib/i18n/translations";
 import { t } from "@/lib/i18n/translations";
 
-const COLLAPSE_STORAGE_KEY = "mongolz-sidebar-collapsed";
+const GROUP_STORAGE_KEY = "mongolz-sidebar-groups-v2";
+const COMPACT_STORAGE_KEY = "mongolz-sidebar-compact";
 const DEFAULT_COLLAPSED: Record<string, boolean> = {
-  search: true, analytics: true, admin: true, ml: true, other: true,
+  monitoring: true, investigation: true, admin: true, ml: true, resources: true,
 };
 
 interface SidebarProps {
@@ -26,237 +27,162 @@ interface SidebarProps {
 
 export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProps) {
   const pathname = usePathname();
-  const { mobileNavOpen, setMobileNavOpen } = useShell();
+  const { mobileNavOpen, setMobileNavOpen, setPaletteOpen } = useShell();
   const groups = useMemo(() => visibleNavGroups(role), [role]);
+  const [collapsed, setCollapsed] = useState(DEFAULT_COLLAPSED);
+  const [compact, setCompact] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const compactToggleRef = useRef<HTMLButtonElement>(null);
   useModalFocus({ open: mobileNavOpen, onClose: () => setMobileNavOpen(false), ref: drawerRef, initialFocusRef: closeRef });
 
-  const activeGroupId = useMemo(() => {
-    for (const group of groups) {
-      if (group.items.some((it) => isActivePath(pathname, it.href))) return group.id;
-    }
-    return null;
-  }, [pathname, groups]);
-
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(DEFAULT_COLLAPSED);
+  const activeGroupId = useMemo(() => groups.find((group) =>
+    group.items.some((item) => isActivePath(pathname, item.href)))?.id, [pathname, groups]);
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Record<string, boolean>;
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          setCollapsed({ ...DEFAULT_COLLAPSED, ...Object.fromEntries(Object.entries(parsed).filter(([, value]) => typeof value === "boolean")) });
-        }
+      const raw = localStorage.getItem(GROUP_STORAGE_KEY);
+      const parsed: unknown = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        setCollapsed({ ...DEFAULT_COLLAPSED, ...Object.fromEntries(Object.entries(parsed).filter(([, value]) => typeof value === "boolean")) });
       }
-    } catch {
-      /* ignore corrupt state */
-    }
+      setCompact(localStorage.getItem(COMPACT_STORAGE_KEY) === "true");
+    } catch { /* Storage is optional; navigation still works without it. */ }
   }, []);
 
   useEffect(() => {
     if (activeGroupId) setCollapsed((previous) => ({ ...previous, [activeGroupId]: false }));
-  }, [activeGroupId]);
+  }, [activeGroupId, pathname]);
 
-  function toggleGroup(id: string) {
-    setCollapsed((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      try {
-        localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        /* quota exceeded — ignore */
-      }
-      return next;
-    });
-  }
-
-  // Close the drawer after navigating on a phone.
-  useEffect(() => {
-    setMobileNavOpen(false);
-  }, [pathname, setMobileNavOpen]);
-
+  useEffect(() => { setMobileNavOpen(false); }, [pathname, setMobileNavOpen]);
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 768px)");
-    function onResize() {
-      if (desktop.matches) setMobileNavOpen(false);
-    }
+    function onResize() { if (desktop.matches) setMobileNavOpen(false); }
     desktop.addEventListener("change", onResize);
     return () => desktop.removeEventListener("change", onResize);
   }, [setMobileNavOpen]);
 
-  const roleLabel = isSuperAdmin
-    ? "Super admin"
-    : role === "admin"
-    ? t("role_admin", lang)
-    : role === "auditor"
-    ? t("role_auditor", lang)
-    : t("role_viewer", lang);
+  function setCompactMode(next: boolean, focusToggle = true) {
+    setCompact(next);
+    try { localStorage.setItem(COMPACT_STORAGE_KEY, String(next)); } catch { /* optional preference */ }
+    if (focusToggle) requestAnimationFrame(() => compactToggleRef.current?.focus());
+  }
 
-  const navContent = (surface: "mobile" | "desktop") => (
-    <>
-      <div className="px-5 h-16 flex items-center border-b border-border shrink-0">
-        <Link href={(role === "auditor" ? "/audit" : "/dashboard") as never} onClick={() => setMobileNavOpen(false)} className="flex min-h-11 items-center gap-3 rounded-lg">
-          <MongolzLogo size={34} />
-          <div className="leading-none">
-            <div className="text-sm font-bold tracking-[0.08em] text-text">MONGOLZ</div>
-            <div className="text-[10px] text-text-muted uppercase tracking-[0.2em] font-medium mt-1.5">
-              Security
-            </div>
-          </div>
+  function toggleGroup(id: string, rail: boolean) {
+    if (rail) setCompactMode(false, false);
+    setCollapsed((previous) => {
+      const next = { ...previous, [id]: rail ? false : !previous[id] };
+      try { localStorage.setItem(GROUP_STORAGE_KEY, JSON.stringify(next)); } catch { /* optional preference */ }
+      return next;
+    });
+  }
+
+  const roleLabel = isSuperAdmin ? "Super admin" : t(role === "admin" ? "role_admin" : role === "auditor" ? "role_auditor" : "role_viewer", lang);
+
+  function navLink(item: NavItem, rail: boolean, nested = false) {
+    const active = isActivePath(pathname, item.href);
+    const Icon = item.icon;
+    const label = t(item.labelKey, lang);
+    return (
+      <li key={item.href}>
+        <Link
+          href={item.href as never}
+          onClick={() => setMobileNavOpen(false)}
+          aria-current={active ? "page" : undefined}
+          aria-label={rail ? label : undefined}
+          title={label}
+          className={cn(
+            "group relative flex min-h-11 items-center rounded-xl transition-colors duration-150 motion-reduce:transition-none",
+            rail ? "justify-center px-2" : "gap-2.5 px-3",
+            nested ? "text-[13px]" : "text-sm",
+            active ? "bg-accent/10 font-semibold text-accent ring-1 ring-inset ring-accent/15" : "font-medium text-text-soft hover:bg-text-muted/[0.06] hover:text-text",
+          )}
+        >
+          <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", active && "bg-accent/10")}>
+            <Icon className={cn("shrink-0", nested ? "h-4 w-4" : "h-[18px] w-[18px]", !active && "text-text-muted group-hover:text-text-soft")} strokeWidth={active ? 2 : 1.7} aria-hidden />
+          </span>
+          {!rail && <span className="min-w-0 flex-1 truncate">{label}</span>}
+          {active && !rail && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />}
         </Link>
-      </div>
+      </li>
+    );
+  }
 
-      <nav className="flex-1 overflow-y-auto overscroll-contain px-3 py-3 space-y-1" aria-label={t("open_menu", lang)}>
-        {groups.map((group) => {
-          const userCollapsed = collapsed[group.id] === true;
-          const containsActive = group.id === activeGroupId;
-          const open = !userCollapsed;
-          const GroupIcon = group.icon;
-          return (
-            <div key={group.id}>
-              <button
-                type="button"
-                onClick={() => toggleGroup(group.id)}
-                aria-expanded={open}
-                aria-controls={`sidebar-${surface}-group-${group.id}`}
-                className={cn(
-                  "w-full min-h-11 flex items-center gap-2.5 px-3 py-2 text-2xs uppercase tracking-[0.1em] font-semibold transition-colors rounded-lg hover:bg-text-muted/[0.05]",
-                  containsActive ? "text-text-soft" : "text-text-muted hover:text-text",
-                )}
-              >
-                <GroupIcon className="w-3.5 h-3.5 shrink-0 opacity-70" aria-hidden />
-                <span className="flex-1 text-left truncate">{t(group.labelKey, lang)}</span>
-                {!open && containsActive && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" aria-hidden />
-                )}
-                <ChevronDown
-                  className={cn(
-                    "w-3.5 h-3.5 shrink-0 transition-transform opacity-60 motion-reduce:transition-none",
-                    open ? "" : "-rotate-90",
-                  )}
-                  aria-hidden
-                />
-              </button>
-              <div id={`sidebar-${surface}-group-${group.id}`} hidden={!open && !containsActive} className="space-y-0.5 pb-1">
-                {group.items.filter((item) => open || isActivePath(pathname, item.href)).map((item) => {
-                  const active = isActivePath(pathname, item.href);
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href as never}
-                      onClick={() => setMobileNavOpen(false)}
-                      aria-current={active ? "page" : undefined}
-                      className={cn(
-                        "relative flex min-h-11 items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors duration-150 group",
-                        active
-                          ? "bg-accent/[0.11] text-accent font-semibold shadow-[inset_0_0_0_1px_rgb(var(--accent)/0.14)]"
-                          : "text-text-soft hover:bg-text-muted/[0.05] hover:text-text",
-                      )}
-                    >
-                      {active && (
-                        <span
-                          className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full bg-accent"
-                          aria-hidden
-                        />
-                      )}
-                      <Icon
-                        className={cn(
-                          "w-[18px] h-[18px] shrink-0",
-                          active ? "text-accent" : "text-text-muted group-hover:text-text-soft",
-                        )}
-                      />
-                      <span className="truncate" title={t(item.labelKey, lang)}>{t(item.labelKey, lang)}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </nav>
-
-      <div className="px-3 py-3 border-t border-border shrink-0">
-        <div className="flex items-center gap-2.5 rounded-xl bg-text-muted/[0.03] p-2">
-          <div className="relative shrink-0">
-            <div className="w-8 h-8 rounded-full bg-accent/15 text-accent border border-accent/20 inline-flex items-center justify-center text-xs font-semibold uppercase">
-              {(email ?? "?").charAt(0)}
-            </div>
-            {isSuperAdmin && (
-              <Crown
-                className="absolute -top-1 -right-1 w-3 h-3 text-accent"
-                aria-label="Super admin"
-              />
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-xs font-medium text-text truncate">{email}</div>
-            <div
-              className={cn(
-                "text-2xs mt-0.5 truncate",
-                isSuperAdmin || role === "admin"
-                  ? "text-accent"
-                  : role === "auditor"
-                  ? "text-warning"
-                  : "text-text-muted",
-              )}
-            >
-              {roleLabel}
-            </div>
-          </div>
-          <form action="/auth/logout" method="post" className="shrink-0">
-            <button
-              type="submit"
-              className="w-11 h-11 inline-flex items-center justify-center rounded-lg text-text-muted hover:text-danger hover:bg-danger-soft transition-colors"
-              title={t("logout", lang)}
-              aria-label={t("logout", lang)}
-            >
-              <LogOut className="w-4 h-4" />
+  const navContent = (surface: "mobile" | "desktop") => {
+    const rail = surface === "desktop" && compact;
+    return (
+      <>
+        <div className={cn("flex h-[76px] shrink-0 items-center", rail ? "justify-center px-3" : "justify-between pl-5 pr-3")}>
+          <Link href={(role === "auditor" ? "/audit" : "/dashboard") as never} onClick={() => setMobileNavOpen(false)} className="flex min-h-11 items-center gap-3 rounded-xl" aria-label="MONGOLZ">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-bg shadow-sm"><MongolzLogo size={27} /></span>
+            {!rail && <span className="min-w-0"><span className="block text-[13px] font-bold tracking-[0.12em] text-text">MONGOLZ</span><span className="mt-0.5 block text-[11px] text-text-muted">aicctv.dev</span></span>}
+          </Link>
+          {surface === "desktop" && !rail && (
+            <button ref={compactToggleRef} type="button" onClick={() => setCompactMode(true)} title={t("nav_collapse_sidebar", lang)} aria-label={t("nav_collapse_sidebar", lang)} className="flex h-11 w-11 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-text-muted/[0.06] hover:text-text">
+              <PanelLeftClose className="h-[18px] w-[18px]" aria-hidden />
             </button>
-          </form>
+          )}
         </div>
-      </div>
-    </>
-  );
+
+        <div className="shrink-0 px-3 pb-4">
+          <button type="button" onClick={() => setPaletteOpen(true)} aria-label={t("header_search_hint", lang)} title={t("header_search_hint", lang)} className={cn("flex min-h-11 w-full items-center rounded-xl border border-border bg-bg-secondary/70 text-sm text-text-muted transition-colors hover:border-border-strong hover:bg-bg-secondary hover:text-text", rail ? "justify-center" : "gap-2.5 px-3")}>
+            <Search className="h-4 w-4 shrink-0" aria-hidden />
+            {!rail && <><span className="min-w-0 flex-1 truncate text-left">{t("header_search", lang)}</span><kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-text-faint">⌘K</kbd></>}
+          </button>
+        </div>
+
+        <nav className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 pb-4 [scrollbar-width:thin]" aria-label={t("nav_navigation", lang)}>
+          {groups.map((group) => {
+            const primary = group.id === "workspace";
+            const containsActive = group.id === activeGroupId;
+            const open = primary || (!rail && !collapsed[group.id]);
+            const GroupIcon = group.icon;
+            return (
+              <div key={group.id} className={cn(primary ? "pb-3" : "", !primary && group === groups.find((g) => g.id !== "workspace") && "border-t border-border pt-3")}>
+                {primary ? (
+                  !rail && <div className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-faint">{t(group.labelKey, lang)}</div>
+                ) : (
+                  <button type="button" onClick={() => toggleGroup(group.id, rail)} aria-expanded={open} aria-controls={`sidebar-${surface}-group-${group.id}`} title={t(group.labelKey, lang)} aria-label={rail ? t(group.labelKey, lang) : undefined}
+                    className={cn("flex min-h-11 w-full items-center rounded-xl text-[13px] font-medium transition-colors hover:bg-text-muted/[0.06] hover:text-text", rail ? "justify-center px-2" : "gap-2.5 px-3", containsActive ? "text-accent" : "text-text-muted")}>
+                    <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", rail && containsActive && "bg-accent/10")}><GroupIcon className="h-[18px] w-[18px]" strokeWidth={1.7} aria-hidden /></span>
+                    {!rail && <><span className="min-w-0 flex-1 truncate text-left">{t(group.labelKey, lang)}</span><ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-text-faint transition-transform motion-reduce:transition-none", !open && "-rotate-90")} aria-hidden /></>}
+                  </button>
+                )}
+                <div id={`sidebar-${surface}-group-${group.id}`} hidden={!open}>
+                  <ul className={cn("space-y-1", !primary && "ml-[25px] mt-1 border-l border-border pl-2")}>{group.items.map((item) => navLink(item, rail, !primary))}</ul>
+                </div>
+              </div>
+            );
+          })}
+        </nav>
+
+        <div className="shrink-0 border-t border-border p-3">
+          {rail && <button ref={compactToggleRef} type="button" onClick={() => setCompactMode(false)} title={t("nav_expand_sidebar", lang)} aria-label={t("nav_expand_sidebar", lang)} className="mb-2 flex h-11 w-full items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-text-muted/[0.06] hover:text-text"><PanelLeftOpen className="h-[18px] w-[18px]" aria-hidden /></button>}
+          <div className={cn("flex rounded-xl border border-border bg-bg-secondary/60", rail ? "flex-col items-center gap-1 py-2" : "items-center gap-2.5 py-2 pl-2.5 pr-1")}>
+            <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-xs font-semibold uppercase text-accent" title={`${email} · ${roleLabel}`}>
+              {(email || "?").charAt(0)}
+              {isSuperAdmin && <Crown className="absolute -right-1 -top-1 h-3 w-3 text-accent" aria-hidden />}
+            </div>
+            <div className={rail ? "sr-only" : "min-w-0 flex-1"}><div className="truncate text-xs font-semibold text-text" title={email}>{email}</div><div className="mt-0.5 truncate text-[11px] text-text-muted">{roleLabel}</div></div>
+            <form action="/auth/logout" method="post" className="shrink-0"><button type="submit" className="flex h-11 w-11 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-danger-soft hover:text-danger" title={t("logout", lang)} aria-label={t("logout", lang)}><LogOut className="h-4 w-4" aria-hidden /></button></form>
+          </div>
+        </div>
+      </>
+    );
+  };
 
   return (
     <>
-      {/* Mobile drawer (overlay + slide-in panel) */}
       {mobileNavOpen && (
         <>
-          <div
-            data-modal-backdrop
-            className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm animate-fade-in"
-            onClick={() => setMobileNavOpen(false)}
-            aria-hidden
-          />
-          <aside
-            ref={drawerRef}
-            id="mobile-navigation"
-            role="dialog"
-            aria-modal="true"
-            tabIndex={-1}
-            className="md:hidden fixed inset-y-0 left-0 z-50 w-80 max-w-[calc(100vw-2rem)] flex flex-col bg-surface border-r border-border-strong shadow-overlay animate-slide-in-left outline-none"
-            aria-label={t("open_menu", lang)}
-          >
-            <button
-              ref={closeRef}
-              type="button"
-              onClick={() => setMobileNavOpen(false)}
-              aria-label={t("close_menu", lang)}
-              className="absolute top-2.5 right-3 w-11 h-11 inline-flex items-center justify-center rounded-lg text-text-muted hover:text-text hover:bg-text-muted/[0.08] transition-colors z-10"
-            >
-              <X className="w-5 h-5" />
-            </button>
+          <div data-modal-backdrop className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden animate-fade-in" onClick={() => setMobileNavOpen(false)} aria-hidden />
+          <aside ref={drawerRef} id="mobile-navigation" role="dialog" aria-modal="true" tabIndex={-1} className="fixed inset-y-0 left-0 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col border-r border-border bg-surface shadow-overlay outline-none md:hidden animate-slide-in-left" aria-label={t("nav_navigation", lang)}>
+            <button ref={closeRef} type="button" onClick={() => setMobileNavOpen(false)} aria-label={t("close_menu", lang)} className="absolute right-3 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-text-muted/[0.06] hover:text-text"><X className="h-5 w-5" aria-hidden /></button>
             {navContent("mobile")}
           </aside>
         </>
       )}
-
-      {/* Desktop sidebar (≥768px) — sticky full-height; the inner <nav>
-          scrolls on its own when the menu is taller than the viewport. */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-border bg-surface sticky top-0 self-start h-dvh max-h-dvh">
+      <aside data-sidebar={compact ? "compact" : "expanded"} className={cn("sticky top-0 hidden h-dvh max-h-dvh shrink-0 self-start flex-col border-r border-border bg-surface md:flex", compact ? "w-[76px]" : "w-[272px]")}>
         {navContent("desktop")}
       </aside>
     </>

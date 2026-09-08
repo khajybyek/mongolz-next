@@ -181,7 +181,7 @@ function HeaderStatus({ lang, role }: { lang: Lang; role: Role }) {
 }
 
 const iconBtn =
-  "inline-flex shrink-0 items-center justify-center w-11 h-11 rounded-lg text-text-muted hover:text-text hover:bg-text-muted/[0.06] transition-colors";
+  "inline-flex shrink-0 items-center justify-center w-11 h-11 rounded-xl text-text-muted hover:text-text hover:bg-text-muted/[0.06] transition-colors";
 
 export function AppHeader({ lang, role, email, isSuperAdmin = false }: Props) {
   const pathname = usePathname();
@@ -191,6 +191,7 @@ export function AppHeader({ lang, role, email, isSuperAdmin = false }: Props) {
 
   const crumbs = buildCrumbs(pathname, lang);
   const current = crumbs[crumbs.length - 1]?.label ?? "";
+  const CurrentIcon = findNavItem(pathname)?.item.icon;
 
   async function switchLang(next: Lang) {
     if (next === lang || langPending) return;
@@ -208,8 +209,8 @@ export function AppHeader({ lang, role, email, isSuperAdmin = false }: Props) {
     : t("role_viewer", lang);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-bg/95 backdrop-blur-xl">
-      <div className="h-16 px-3 md:px-6 lg:px-8 max-w-[1440px] mx-auto flex min-w-0 items-center gap-2 md:gap-3">
+    <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur-xl">
+      <div className="h-16 md:h-[76px] px-3 md:px-6 lg:px-8 max-w-[1440px] mx-auto flex min-w-0 items-center gap-2 md:gap-3">
         <button
           type="button"
           onClick={() => setMobileNavOpen(true)}
@@ -224,7 +225,8 @@ export function AppHeader({ lang, role, email, isSuperAdmin = false }: Props) {
           <MongolzLogo size={26} />
         </Link>
 
-        <nav aria-label="Breadcrumb" className="hidden md:flex flex-1 items-center gap-1 text-sm min-w-0 overflow-hidden">
+        {CurrentIcon && <span className="hidden md:flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-bg-secondary/60 text-text-muted"><CurrentIcon className="h-[18px] w-[18px]" strokeWidth={1.7} aria-hidden /></span>}
+        <nav aria-label={t("nav_breadcrumb", lang)} className="hidden md:flex flex-1 items-center gap-1 text-[13px] min-w-0 overflow-hidden">
           {crumbs.map((c, i) => {
             const last = i === crumbs.length - 1;
             return (
@@ -257,7 +259,7 @@ export function AppHeader({ lang, role, email, isSuperAdmin = false }: Props) {
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}
-            className="hidden xl:inline-flex items-center gap-2 h-11 pl-3 pr-2 w-48 2xl:w-60 rounded-lg border border-border bg-surface text-text-muted hover:text-text hover:border-border-strong transition-colors text-sm"
+            className="hidden 2xl:inline-flex items-center gap-2 h-11 pl-3 pr-2 w-52 rounded-xl border border-border bg-bg-secondary/60 text-text-muted hover:text-text hover:border-border-strong transition-colors text-[13px]"
             aria-label={t("header_search_hint", lang)}
           >
             <Search className="w-4 h-4 shrink-0" />
@@ -267,7 +269,7 @@ export function AppHeader({ lang, role, email, isSuperAdmin = false }: Props) {
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}
-            className={cn(iconBtn, "xl:hidden")}
+            className={cn(iconBtn, "2xl:hidden")}
             aria-label={t("header_search", lang)}
           >
             <Search className="w-4 h-4" />

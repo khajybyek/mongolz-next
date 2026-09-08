@@ -15,7 +15,7 @@ export function MongolzLogo({
       width={size * 2}
       height={size * 2}
       style={{ width: size, height: size }}
-      className={cn("shrink-0 dark:brightness-0 dark:invert", className)}
+      className={cn("shrink-0 brightness-0 invert [html[data-theme=light]_&]:invert-0", className)}
       priority
       unoptimized
     />

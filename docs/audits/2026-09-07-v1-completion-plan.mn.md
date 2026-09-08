@@ -14,6 +14,8 @@
 
 2026-09-08 шинэчлэлт: эхний багцад 1.1-ийн cold playback болон 1.2-ийн privacy lookup/session-pin алдааг зөвшөөрдөг замуудыг зассан. Python 210, Jest 222 тест, lint/typecheck, Linux FFmpeg endpoint smoke тэнцсэн. Authentication proof-ийг network pinning-ээс салгах, DB түвшний MFA, камерын холболт болон дараагийн багцууд үлдсэн. Release-ийн дэлгэрэнгүйг [эхний багцын бүртгэл](2026-09-08-first-batch-release.mn.md)-ээс үзнэ.
 
+2026-09-08 14:14 UTC: ажил түр зогссон хооронд нэмэгдсэн commit-ууд data-tier MFA, atomic credential throttle, backup artifact, хувийн өгөгдөл унших audit хамгаалалт оруулсан. Доорх 2026-09-07 оношилгоог түүхэн суурь гэж уншина; эдгээр бүх зүйлийг одоо ч огт хэрэгжээгүй гэж үзэхгүй. Хамгийн сүүлийн production төлөв болон дахин ажиллуулсан шалгалтыг дээрх release бүртгэлд шинэчилсэн. Бодит камерын урсгал болон restore drill-ийн acceptance нотолгоо шаардлагатай хэвээр.
+
 ## Баталгаажсан суурь ба хязгаар
 
 - Vercel frontend aicctv.dev дээр deploy болсон; Railway deployment `6bbde792-1287-4477-aa89-991a70da74e3` SUCCESS/Online; Supabase-ийн 3 шинэ migration apply болсон.
