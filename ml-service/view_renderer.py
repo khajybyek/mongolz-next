@@ -47,8 +47,8 @@ _PAD_RATIO = 0.35
 def render_blurred_view(input_mp4: str, output_mp4: str, engine=None) -> int:
     """Read ``input_mp4`` → mask every face → write ``output_mp4``.
 
-    Returns the number of frames processed. Raises ``RuntimeError`` if the
-    input can't be opened.
+    Returns the number of frames processed. Raises ``RuntimeError`` on input
+    or encoder failure; callers must not publish a failed render as a cache hit.
 
     The function is synchronous and CPU-bound — callers should invoke it via
     ``asyncio.to_thread`` so it does not stall the event loop.
@@ -76,6 +76,9 @@ def render_blurred_view(input_mp4: str, output_mp4: str, engine=None) -> int:
             "-c:v", "libx264", "-preset", "veryfast",
             "-pix_fmt", "yuv420p",
             "-movflags", "frag_keyframe+empty_moov+faststart",
+            # The endpoint writes an atomic cache sibling ending in .mp4.part.
+            # FFmpeg cannot infer the output container from that suffix.
+            "-f", "mp4",
             output_mp4,
         ],
         stdin=subprocess.PIPE,
@@ -105,23 +108,42 @@ def render_blurred_view(input_mp4: str, output_mp4: str, engine=None) -> int:
 
             try:
                 if encoder.stdin is None:
-                    break
+                    raise RuntimeError("view encoder input unavailable")
                 encoder.stdin.write(out_frame.tobytes())
-            except (BrokenPipeError, OSError):
-                break
+            except (BrokenPipeError, OSError) as exc:
+                raise RuntimeError("view encoder input failed") from exc
 
             frame_count += 1
     finally:
         cap.release()
+        close_failed = False
         if encoder.stdin:
             try:
                 encoder.stdin.close()
-            except Exception:
-                pass
+            except (BrokenPipeError, OSError):
+                close_failed = True
         try:
-            encoder.wait(timeout=30)
-        except subprocess.TimeoutExpired:
+            exit_code = encoder.wait(timeout=30)
+        except subprocess.TimeoutExpired as exc:
             encoder.terminate()
+            try:
+                encoder.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                encoder.kill()
+                encoder.wait()
+            raise RuntimeError("view encoder timed out") from exc
+        if close_failed or exit_code != 0:
+            raise RuntimeError("view encoder failed")
+
+    if frame_count == 0:
+        raise RuntimeError("view input contains no readable frames")
+    rendered = cv2.VideoCapture(output_mp4)
+    try:
+        readable, _ = rendered.read()
+        if not readable or int(rendered.get(cv2.CAP_PROP_FRAME_COUNT)) != frame_count:
+            raise RuntimeError("view encoder produced an incomplete recording")
+    finally:
+        rendered.release()
 
     log.info(
         "view rendered: %d frame(s), %d with face mask (%.1f%%)",

@@ -51,6 +51,7 @@ from pydantic import BaseModel, Field
 from face_engine import FaceEngine
 from camera_worker import CameraManager
 from storage import SupabaseStorage
+from recording_spool import get_recording_spool
 from crypto_utils import init_master_key, self_test as crypto_self_test, decrypt_bytes, master_key_candidates
 from demo_source import DEMO_FPS, DEMO_HEIGHT, DEMO_WIDTH, demo_name, is_demo_url, resolve_demo_source
 from hierarchical_keys import unseal_at_index
@@ -155,6 +156,8 @@ async def lifespan(app: FastAPI):
     crypto_self_test()
     face_engine = FaceEngine()
     storage = SupabaseStorage()
+    recording_spool = get_recording_spool()
+    recording_spool.start(storage)
     camera_manager = CameraManager(face_engine=face_engine, storage=storage, hls_dir=HLS_DIR)
     # A restart mid-reveal leaves jobs stuck in 'processing' forever.
     storage.fail_stale_reveal_jobs()
@@ -168,9 +171,12 @@ async def lifespan(app: FastAPI):
         log.exception("camera auto-resume failed")
     camera_manager.start_supervisor()
     log.info("MONGOLZ ML service ready")
-    yield
-    log.info("Shutting down...")
-    await camera_manager.stop_all()
+    try:
+        yield
+    finally:
+        log.info("Shutting down...")
+        await camera_manager.stop_all()
+        await recording_spool.stop()
 
 
 # Production-д OpenAPI schema + Swagger UI disable хийнэ — attacker-д endpoint enumeration хийх боломж олгохгүй.
@@ -833,6 +839,8 @@ _UPLOAD_MAX_CHUNK_BYTES = 8 * 1024 * 1024
 _UPLOAD_SESSION_TTL_SEC = 3600
 _UPLOAD_ASSEMBLY_WAIT_SEC = 30
 _upload_locks: dict[str, asyncio.Lock] = {}
+_completed_uploads: dict[str, tuple[float, dict]] = {}
+_MAX_UPLOAD_RECEIPTS = 2048
 _MAX_UPLOAD_LOCKS = 256
 os.makedirs(_UPLOAD_DIR, exist_ok=True)
 
@@ -984,8 +992,21 @@ async def process_upload_endpoint(
     os.makedirs(session_dir, exist_ok=True)
 
     async with _get_upload_lock(session_id):
+        now = time.time()
+        for completed_id, (accepted_at, _) in list(_completed_uploads.items()):
+            if now - accepted_at > _UPLOAD_SESSION_TTL_SEC:
+                del _completed_uploads[completed_id]
+        if session_id in _completed_uploads:
+            # A lost final HTTP response must not start a second pipeline.
+            return _completed_uploads[session_id][1]
+        if is_final and len(_completed_uploads) >= _MAX_UPLOAD_RECEIPTS:
+            raise HTTPException(503, "upload receipt capacity reached; retry later")
         if data:
             part = _part_path(session_dir, chunk_index)
+            if os.path.exists(part):
+                with open(part, "rb") as previous:
+                    if previous.read() != data:
+                        raise HTTPException(409, "chunk content changed; use a new upload session")
             tmp_part = part + ".tmp"
             with open(tmp_part, "wb") as f:
                 f.write(data)
@@ -1007,15 +1028,11 @@ async def process_upload_endpoint(
             shutil.rmtree(session_dir, ignore_errors=True)
             raise HTTPException(400, "empty session")
 
-        # Chunks are uploaded sequentially by the client, but tolerate a
-        # straggler for a few seconds before giving up.
-        deadline = time.time() + _UPLOAD_ASSEMBLY_WAIT_SEC
+        # Do not wait while holding the session lock: missing parts cannot
+        # arrive through another request until this handler releases it.
         missing = _missing_parts(session_dir, expected)
-        while missing and time.time() < deadline:
-            await asyncio.sleep(1)
-            missing = _missing_parts(session_dir, expected)
         if missing:
-            shutil.rmtree(session_dir, ignore_errors=True)
+            # Keep received parts so the caller can retry missing chunks.
             raise HTTPException(400, f"missing chunks: {missing[:5]}")
 
         try:
@@ -1023,10 +1040,17 @@ async def process_upload_endpoint(
         except Exception as e:
             log.warning("upload assembly failed for %s: %s", session_id[:8], e)
             raise HTTPException(500, "could not assemble upload")
+        try:
+            receipt = _start_upload_processing(tmp_path, camera_name)
+        except Exception:
+            os.unlink(tmp_path)
+            raise
+        # Publish the receipt under the same lock as assembly/start.
+        _completed_uploads[session_id] = (time.time(), receipt)
         shutil.rmtree(session_dir, ignore_errors=True)
 
     _sweep_abandoned_uploads()
-    return _start_upload_processing(tmp_path, camera_name)
+    return receipt
 
 
 # ── Eval endpoint ──────────────────────────────────────────────

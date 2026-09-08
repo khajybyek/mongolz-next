@@ -13,6 +13,8 @@ import base64
 import os
 import secrets
 import subprocess
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 os.environ.setdefault(
     "ML_ENCRYPTION_KEY",
@@ -62,7 +64,8 @@ def _make_synthetic_mp4(path: str, w: int = 320, h: int = 240, frames: int = 8, 
 
 
 class TestRenderBlurredView:
-    def test_smoke_synthetic_clip(self, tmp_path):
+    @pytest.mark.parametrize("filename", ["out.mp4", "out.mp4.part"])
+    def test_smoke_synthetic_clip(self, tmp_path, filename):
         """Random-noise clip with no real faces → renders to a valid MP4.
 
         We don't assert blur was applied (no real face = no detection); we
@@ -70,7 +73,7 @@ class TestRenderBlurredView:
         OpenCV can read back.
         """
         input_mp4 = str(tmp_path / "in.mp4")
-        output_mp4 = str(tmp_path / "out.mp4")
+        output_mp4 = str(tmp_path / filename)
         n_in = _make_synthetic_mp4(input_mp4, frames=8)
 
         n_processed = view_renderer.render_blurred_view(input_mp4, output_mp4)
@@ -85,8 +88,10 @@ class TestRenderBlurredView:
         cap = cv2.VideoCapture(output_mp4)
         try:
             assert cap.isOpened(), "rendered MP4 is not openable"
-            n_read = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            assert n_read >= 1, f"expected ≥1 frame in output, got {n_read}"
+            n_read = 0
+            while cap.read()[0]:
+                n_read += 1
+            assert n_read == n_in, "every input frame must remain playable"
         finally:
             cap.release()
 
@@ -107,6 +112,93 @@ class TestRenderBlurredView:
         bad.write_bytes(b"")
         with pytest.raises(RuntimeError):
             view_renderer.render_blurred_view(str(bad), str(tmp_path / "out.mp4"))
+
+    def test_encoder_nonzero_exit_is_not_success(self, tmp_path, monkeypatch):
+        src = str(tmp_path / "in.mp4")
+        _make_synthetic_mp4(src)
+        encoder = Mock()
+        encoder.wait.return_value = 1
+        monkeypatch.setattr(view_renderer.subprocess, "Popen", Mock(return_value=encoder))
+        with pytest.raises(RuntimeError, match="encoder failed"):
+            view_renderer.render_blurred_view(src, str(tmp_path / "out.mp4.part"))
+
+    def test_encoder_broken_pipe_is_not_partial_success(self, tmp_path, monkeypatch):
+        src = str(tmp_path / "in.mp4")
+        _make_synthetic_mp4(src)
+        encoder = Mock()
+        encoder.stdin.write.side_effect = BrokenPipeError()
+        encoder.wait.return_value = 0
+        monkeypatch.setattr(view_renderer.subprocess, "Popen", Mock(return_value=encoder))
+        with pytest.raises(RuntimeError, match="encoder input failed"):
+            view_renderer.render_blurred_view(src, str(tmp_path / "out.mp4.part"))
+        encoder.wait.assert_called_once()
+
+    def test_encoder_timeout_terminates_and_reaps(self, tmp_path, monkeypatch):
+        src = str(tmp_path / "in.mp4")
+        _make_synthetic_mp4(src)
+        encoder = Mock()
+        encoder.wait.side_effect = [subprocess.TimeoutExpired("ffmpeg", 30), 0]
+        monkeypatch.setattr(view_renderer.subprocess, "Popen", Mock(return_value=encoder))
+        with pytest.raises(RuntimeError, match="encoder timed out"):
+            view_renderer.render_blurred_view(src, str(tmp_path / "out.mp4.part"))
+        encoder.terminate.assert_called_once()
+        assert encoder.wait.call_count == 2
+
+
+@pytest.fixture
+def view_endpoint(tmp_path, monkeypatch):
+    """Exercise the real route and encoder with an isolated encrypted recording."""
+    os.environ.setdefault("ML_SERVICE_TOKEN", "test-token")
+    import crypto_utils
+    import main
+    from fastapi.testclient import TestClient
+
+    rec_id = "22222222-2222-2222-2222-222222222222"
+    source = tmp_path / "source.mp4"
+    _make_synthetic_mp4(str(source))
+    monkeypatch.setattr(crypto_utils, "_MASTER_KEY", b"t" * 32)
+    monkeypatch.setattr(crypto_utils, "_MASTER_KEY_PREV", None)
+    encrypted = crypto_utils.encrypt_bytes(source.read_bytes(), recording_id=rec_id)
+    query = Mock()
+    query.select.return_value = query
+    query.eq.return_value = query
+    query.maybe_single.return_value = query
+    query.execute.return_value = SimpleNamespace(data={"original_path": "test.enc", "has_original": True})
+    db = Mock()
+    db.table.return_value = query
+    db.storage.from_.return_value.download.return_value = encrypted
+    monkeypatch.setattr(main, "storage", SimpleNamespace(client=db))
+    monkeypatch.setattr(main, "face_engine", None)
+    monkeypatch.setattr(main, "ML_TOKEN", "test-token")
+    monkeypatch.setattr(main, "_VIEW_CACHE_DIR", str(tmp_path))
+    return TestClient(main.app), rec_id, db
+
+
+def test_view_endpoint_cold_then_warm_cache(view_endpoint, tmp_path):
+    client, rec_id, db = view_endpoint
+    cold = client.get(f"/recording/{rec_id}/view", headers={"Authorization": "Bearer test-token"})
+    assert cold.status_code == 200, cold.text
+    assert cold.headers["content-type"] == "video/mp4"
+    assert len(cold.content) > 1000
+    warm = client.get(f"/recording/{rec_id}/view", headers={"Authorization": "Bearer test-token"})
+    assert warm.status_code == 200 and warm.content == cold.content
+    db.storage.from_.return_value.download.assert_called_once()
+    assert not (tmp_path / f"{rec_id}.mp4.part").exists()
+
+
+def test_failed_view_render_never_publishes_cache(view_endpoint, tmp_path, monkeypatch):
+    import main
+
+    client, rec_id, _ = view_endpoint
+    def fail_render(_input, output, _engine):
+        with open(output, "wb") as partial:
+            partial.write(b"partial" * 500)
+        raise RuntimeError("encoder failed")
+    monkeypatch.setattr(main, "render_blurred_view", fail_render)
+    response = client.get(f"/recording/{rec_id}/view", headers={"Authorization": "Bearer test-token"})
+    assert response.status_code == 500
+    assert not (tmp_path / f"{rec_id}.mp4").exists()
+    assert not (tmp_path / f"{rec_id}.mp4.part").exists()
 
 
 _SAMPLES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "samples")

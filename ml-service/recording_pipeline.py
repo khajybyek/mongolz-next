@@ -37,7 +37,8 @@ import numpy as np
 
 from urllib.parse import urlsplit, urlunsplit
 
-from crypto_utils import encrypt_bytes, master_key
+from crypto_utils import master_key
+from recording_spool import get_recording_spool
 from demo_source import is_demo_url, resolve_demo_source
 from face_masker import FaceMasker
 from hierarchical_keys import key_at_index, encrypt_face as _seal_embedding
@@ -334,11 +335,14 @@ class RecordingSession:
         _bs = os.getenv("BLUR_STRATEGY", "on_demand").strip().lower()
         self.blur_strategy: str = _bs if _bs in ("baked", "on_demand") else "on_demand"
 
-        self.blurred_path = os.path.join(self.rec_dir, f"{ts}_blurred.mp4")
-        self.original_path = os.path.join(self.rec_dir, f"{ts}_original.mp4")
+        # Different sessions can start within one second. Stable UUID paths
+        # prevent a replayed delivery from overwriting a newer recording.
+        artifact_stem = f"{ts}_{self.recording_id}"
+        self.blurred_path = os.path.join(self.rec_dir, f"{artifact_stem}_blurred.mp4")
+        self.original_path = os.path.join(self.rec_dir, f"{artifact_stem}_original.mp4")
         # `.enc` extension — Storage дээр encrypted blob гэдгийг тэмдэглэх
-        self.filename_blurred = f"{camera_id}/{ts}_blurred.mp4"
-        self.filename_original = f"{camera_id}/{ts}_original.mp4.enc"
+        self.filename_blurred = f"{camera_id}/{artifact_stem}_blurred.mp4"
+        self.filename_original = f"{camera_id}/{artifact_stem}_original.mp4.enc"
         # Display filename in DB row — neutral for on_demand (no _blurred / _original
         # suffix since neither separate plaintext exists from the viewer's perspective).
         self.display_filename = (
@@ -382,6 +386,7 @@ class RecordingSession:
         # Whether the placeholder recordings row exists (inserted at start so
         # faces can reference it immediately — see _open_recording_row).
         self._row_inserted = False
+        self._delivery_enqueued = False
 
         # ArcFace session-wide dedup + alert state.
         # session_embeddings — бүтэн session-ийн уникал хүний embedding жагсаалт.
@@ -578,129 +583,70 @@ class RecordingSession:
         else:
             duration = int((ended_at - self.started_at).total_seconds())
 
-        async def upload_plain(local_path: str, storage_path: str) -> int | None:
-            """Файлыг plaintext-ээр Storage-руу хуулах (blurred MP4-д)."""
-            if not os.path.exists(local_path):
+        def artifact_size(path: str) -> int | None:
+            try:
+                size = os.path.getsize(path)
+                return size if size >= 1000 else None
+            except FileNotFoundError:
                 return None
-            size = os.path.getsize(local_path)
-            if size < 1000:
-                return None
-            with open(local_path, "rb") as f:
-                self.storage.upload_bytes(
-                    "recordings", storage_path, f.read(), "video/mp4"
-                )
-            return size
 
-        async def upload_encrypted(
-            local_path: str, storage_path: str, recording_id: str
-        ) -> tuple[int | None, int | None]:
-            """Файлыг AES-256-GCM-аар encrypt хийгээд Storage-руу хуулах.
-            Буцаах: (plaintext_size, encrypted_size).
-            """
-            if not os.path.exists(local_path):
-                return None, None
-            plaintext_size = os.path.getsize(local_path)
-            if plaintext_size < 1000:
-                return None, None
-            with open(local_path, "rb") as f:
-                plaintext = f.read()
-            ciphertext = encrypt_bytes(plaintext, recording_id=recording_id)
-            self.storage.upload_bytes(
-                "recordings", storage_path, ciphertext, "application/octet-stream"
-            )
-            return plaintext_size, len(ciphertext)
+        blurred_size = artifact_size(self.blurred_path)
+        original_size = artifact_size(self.original_path)
+        have_artifact = (
+            (self.blur_strategy == "baked" and blurred_size is not None)
+            or (self.blur_strategy == "on_demand" and original_size is not None)
+        )
+        spool = get_recording_spool()
+        if not have_artifact:
+            # A previous finalize may already have sealed the source files;
+            # retry its manifest instead of deleting the capture placeholder.
+            if spool.has_pending(self.recording_id):
+                await asyncio.to_thread(spool.deliver, self.storage, self.recording_id)
+                return
+            if self._delivery_enqueued:
+                # The background worker already acknowledged this delivery.
+                return
+            if self._row_inserted:
+                await self.storage.delete_recording(self.recording_id)
+            for path in (self.blurred_path, self.original_path):
+                Path(path).unlink(missing_ok=True)
+            return
 
-        try:
-            # In on_demand mode the blurred MP4 is never written to disk,
-            # so upload_plain returns None (no-op). In baked mode it uploads
-            # the plaintext blurred MP4 as before.
-            blurred_size = await upload_plain(self.blurred_path, self.filename_blurred)
-            original_plain, original_enc = await upload_encrypted(
-                self.original_path, self.filename_original, self.recording_id
-            )
+        baked = self.blur_strategy == "baked"
+        fields = {
+            "filename": os.path.basename(self.blurred_path) if baked else self.display_filename,
+            "storage_path": self.filename_blurred if baked else self.filename_original,
+            "duration_sec": duration,
+            "size_bytes": blurred_size if baked else original_size,
+            "encrypted": True,
+            "has_original": original_size is not None,
+            "original_path": self.filename_original if original_size is not None else None,
+            "ended_at": ended_at.isoformat(),
+            "blur_strategy": self.blur_strategy,
+            "camera_id": self.db_camera_id,
+            "camera_name": self.camera_name,
+            "started_at": self.started_at.isoformat(),
+        }
+        artifacts = []
+        if original_size is not None:
+            artifacts.append({"source": self.original_path, "path": self.filename_original, "original": True})
+        if baked and blurred_size is not None:
+            artifacts.append({"source": self.blurred_path, "path": self.filename_blurred, "original": False})
 
-            # Decide whether the session produced enough to persist:
-            #   • baked    — needs the blurred MP4 upload to succeed (legacy)
-            #   • on_demand — needs the encrypted original (the view is
-            #     derived from it at request time; no blurred MP4 exists)
-            have_artifact = (
-                (self.blur_strategy == "baked" and blurred_size is not None)
-                or (self.blur_strategy == "on_demand" and original_plain is not None)
-            )
-
-            if have_artifact:
-                if self.blur_strategy == "baked":
-                    row_filename = os.path.basename(self.blurred_path)
-                    row_storage_path = self.filename_blurred
-                    row_size_bytes = blurred_size
-                else:
-                    # On-demand: no separate playback artifact. Point
-                    # storage_path at the encrypted original so the row is
-                    # internally consistent; the playback page routes via
-                    # /api/recordings/{id}/view based on blur_strategy.
-                    row_filename = self.display_filename
-                    row_storage_path = self.filename_original
-                    row_size_bytes = original_plain
-
-                # The row was opened at session start (faces already carry
-                # recording_id, so the seal key context is durable — no
-                # time-window back-link that could cross-link concurrent
-                # sessions). Fill in the artifact facts now.
-                fields = {
-                    "filename": row_filename,
-                    "storage_path": row_storage_path,
-                    "duration_sec": duration,
-                    "size_bytes": row_size_bytes,
-                    "encrypted": True,
-                    "has_original": bool(original_plain),
-                    "original_path": self.filename_original if original_plain else None,
-                    "ended_at": ended_at.isoformat(),
-                    "blur_strategy": self.blur_strategy,
-                }
-                if self._row_inserted:
-                    await self.storage.update_recording(self.recording_id, fields)
-                else:
-                    await self.storage.insert_recording_returning_id(
-                        recording_id=self.recording_id,
-                        camera_id=self.db_camera_id,
-                        camera_name=self.camera_name,
-                        started_at=self.started_at.isoformat(),
-                        **fields,
-                    )
-                    self._row_inserted = True
-            elif self._row_inserted:
-                # Nothing recorded (camera never delivered frames) — do not
-                # leave an empty placeholder in the playback list.
-                try:
-                    await self.storage.delete_recording(self.recording_id)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("placeholder recording cleanup failed: %s", e)
-
-                if self.blur_strategy == "baked":
-                    log.info(
-                        "✓ Recording finalized [baked]: %s (%dMB blurred · %s original [%s encrypted via AES-256-GCM])",
-                        self.filename_blurred,
-                        (blurred_size or 0) // 1024 // 1024,
-                        f"{original_plain // 1024 // 1024}MB" if original_plain else "—",
-                        f"{original_enc // 1024 // 1024}MB" if original_enc else "—",
-                    )
-                else:
-                    log.info(
-                        "✓ Recording finalized [on_demand]: %s (%sMB original → %sMB encrypted via AES-256-GCM; view derived at request time)",
-                        self.filename_original,
-                        f"{original_plain // 1024 // 1024}" if original_plain else "—",
-                        f"{original_enc // 1024 // 1024}" if original_enc else "—",
-                    )
-        except Exception as e:
-            log.error("Finalize failed: %s", e)
-        finally:
-            # Local-аас plaintext файлуудыг цэвэрлэх (Storage-д шифрлэгдсэн
-            # хувилбар л үлдэнэ — local дээр original байх боломжгүй).
-            for p in (self.blurred_path, self.original_path):
-                try:
-                    os.remove(p)
-                except OSError:
-                    pass
+        # No network call precedes the encrypted, fsynced delivery manifest.
+        # Disk/encryption failures propagate; already-sealed artifacts and
+        # sources awaiting encryption remain recoverable by the spool worker.
+        await asyncio.to_thread(spool.enqueue, self.recording_id, fields, artifacts)
+        self._delivery_enqueued = True
+        for path in (self.blurred_path, self.original_path):
+            if artifact_size(path) is None:
+                Path(path).unlink(missing_ok=True)
+        delivered = await asyncio.to_thread(spool.deliver, self.storage, self.recording_id)
+        if delivered:
+            self._row_inserted = True
+            log.info("Recording %s delivery complete", self.recording_id)
+        else:
+            log.warning("Recording %s encrypted and queued for delivery", self.recording_id)
 
     # ────────────────────────────────────────────
     # Main loop

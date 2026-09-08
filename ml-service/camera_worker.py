@@ -193,7 +193,10 @@ class CameraManager:
         await self._persist_started(session, url)
 
     async def stop(self, camera_id: str, *, by_user: bool = True):
-        session = self.sessions.pop(camera_id, None)
+        # Keep the session registered until finalize (including durable spool
+        # enqueue) succeeds. If Storage/disk fails, the next stop request can
+        # retry the same recording instead of losing the only local path.
+        session = self.sessions.get(camera_id)
         if by_user:
             self.supervision.pop(camera_id, None)
             # Flag first so a supervisor tick racing with this stop never
@@ -204,6 +207,7 @@ class CameraManager:
         if not session:
             return
         await session.stop()
+        self.sessions.pop(camera_id, None)
         log.info("Камер %s зогсолоо", camera_id)
 
     async def stop_all(self):
@@ -227,6 +231,9 @@ class CameraManager:
             return 0
         resumed = 0
         for row in rows:
+            camera = row.get("cameras")
+            if isinstance(camera, dict) and camera.get("enabled") is False:
+                continue
             camera_id = str(row.get("camera_id") or "")
             if not camera_id:
                 continue

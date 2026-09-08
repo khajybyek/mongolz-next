@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 import hierarchical_keys as hk
 import main
+from reveal_job import _parse_reveal_level
 from recording_pipeline import redact_url
 
 
@@ -36,6 +37,16 @@ def test_unseal_at_index_refuses_below_level():
     blob = hk.encrypt_face(b"x", hk.key_at_index("r", 1, master))
     with pytest.raises(PermissionError):
         hk.unseal_at_index(blob, "r", 1, 3, [master])
+
+
+@pytest.mark.parametrize("value", [None, True, False, "0", 1.0, -1, 100, object()])
+def test_reveal_level_parser_fails_closed(value):
+    assert _parse_reveal_level(value) is None
+
+
+@pytest.mark.parametrize("value", [0, 1, 42, 99])
+def test_reveal_level_parser_accepts_only_persisted_scope(value):
+    assert _parse_reveal_level(value) == value
 
 
 @pytest.mark.parametrize(

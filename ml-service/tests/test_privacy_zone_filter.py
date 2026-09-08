@@ -7,6 +7,8 @@ the static-method signatures, so we exercise them by name.
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 from reveal_job import RevealProcessor
 
@@ -70,6 +72,66 @@ def test_filter_by_privacy_zones_empty_zones_passes_through():
     proc = RevealProcessor.__new__(RevealProcessor)
     boxes = [(10, 10, 30, 30), (60, 60, 90, 90)]
     assert proc._filter_by_privacy_zones(boxes, [], 100, 100) == boxes
+
+
+def _processor_with_zone_query(data=None, error=None):
+    query = Mock()
+    query.select.return_value = query
+    query.eq.return_value = query
+    query.execute.return_value = SimpleNamespace(data=data)
+    query.execute.side_effect = error
+    db = Mock()
+    db.table.return_value = query
+    return RevealProcessor(Mock(), SimpleNamespace(client=db)), query
+
+
+def test_zone_lookup_distinguishes_successful_empty_result():
+    processor, _ = _processor_with_zone_query(data=[])
+    assert processor._load_privacy_zones("camera-1") == []
+
+
+def test_uploaded_recording_without_camera_has_no_camera_rules():
+    processor = RevealProcessor(Mock(), SimpleNamespace(client=None))
+    assert processor._load_privacy_zones(None) == []
+    with pytest.raises(RuntimeError, match="privacy rules unavailable"):
+        processor._load_privacy_zones("camera-1")
+
+
+@pytest.mark.parametrize("data", [None, {}, "invalid"])
+def test_zone_lookup_rejects_malformed_response(data):
+    processor, _ = _processor_with_zone_query(data=data)
+    with pytest.raises(RuntimeError, match="privacy rules unavailable"):
+        processor._load_privacy_zones("camera-1")
+
+
+@pytest.mark.asyncio
+async def test_zone_outage_fails_job_before_original_or_render():
+    processor, zones = _processor_with_zone_query(error=ConnectionError("database down"))
+    job_query = Mock()
+    job_query.select.return_value = job_query
+    job_query.eq.return_value = job_query
+    job_query.maybe_single.return_value = job_query
+    job_query.execute.return_value = SimpleNamespace(data={
+        "status": "queued", "recording_id": "recording-1",
+        "recordings": {"camera_id": "camera-1"},
+    })
+    processor.storage.client.table.side_effect = lambda name: job_query if name == "reveal_jobs" else zones
+    processor._fail = AsyncMock()
+    processor._lookup_original = AsyncMock()
+    processor._process_video = Mock()
+
+    await processor.run("job-1")
+
+    processor._fail.assert_awaited_once()
+    assert "Privacy rules unavailable" in processor._fail.await_args.args[1]
+    processor._lookup_original.assert_not_awaited()
+    processor._process_video.assert_not_called()
+    processor.storage.client.storage.from_.assert_not_called()
+
+    # A later retry must query the rules again instead of caching the failure.
+    zones.execute.side_effect = None
+    zones.execute.return_value = SimpleNamespace(data=[{"x": 0, "y": 0, "w": 1, "h": 1}])
+    assert len(processor._load_privacy_zones("camera-1")) == 1
 
 
 if __name__ == "__main__":

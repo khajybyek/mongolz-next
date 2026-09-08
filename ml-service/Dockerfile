@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     iproute2 \
     iptables \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Drop root: create a dedicated unprivileged user. Required so a remote
@@ -59,8 +60,6 @@ COPY --chown=mongolz:mongolz . .
 
 # Entrypoint must be readable by mongolz user and executable
 RUN chmod +x /app/docker-entrypoint.sh
-
-USER mongolz
 
 EXPOSE 8000
 ENV PORT=8000

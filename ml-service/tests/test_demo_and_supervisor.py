@@ -434,6 +434,25 @@ def test_stop_by_user_flags_session_and_clears_auto_resume(tmp_path):
     assert st.flags == [(CAM_UUID, False), (CAM_UUID, False)]
 
 
+def test_stop_failure_keeps_session_for_finalize_retry(tmp_path):
+    mgr, st = _manager(tmp_path)
+
+    class _FailingSession(_FakeSession):
+        async def stop(self):
+            self.stops += 1
+            raise OSError("spool unavailable")
+
+    failed = _FailingSession(_LiveTask())
+    mgr.sessions[CAM_UUID] = failed
+    mgr.supervision[CAM_UUID] = CameraSupervision(url="rtsp://h/s", fps=15, camera_name=None)
+
+    with pytest.raises(OSError, match="spool unavailable"):
+        asyncio.run(mgr.stop(CAM_UUID))
+    assert mgr.sessions[CAM_UUID] is failed
+    assert CAM_UUID not in mgr.supervision
+    assert st.flags == [(CAM_UUID, False)]
+
+
 def test_stop_all_keeps_auto_resume_for_next_boot(tmp_path):
     mgr, st = _manager(tmp_path)
     live = _FakeSession(_LiveTask())

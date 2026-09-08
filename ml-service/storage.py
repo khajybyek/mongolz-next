@@ -342,6 +342,20 @@ class SupabaseStorage:
             return
         self.client.table("recordings").update(fields).eq("id", recording_id).execute()
 
+    def commit_recording_delivery(self, recording_id: str, fields: dict) -> None:
+        """Idempotent durable-delivery acknowledgement (called off the loop).
+
+        An existing capture placeholder and a retry after a lost DB response
+        both use the same primary key. Never acknowledge an unconfigured
+        client or an empty response: the encrypted spool must survive those.
+        """
+        if not self.client:
+            raise RuntimeError("Recording storage is not configured")
+        row = {**fields, "id": recording_id}
+        result = self.client.table("recordings").upsert(row, on_conflict="id").execute()
+        if not result.data or not any(item.get("id") == recording_id for item in result.data):
+            raise RuntimeError("Database did not acknowledge recording delivery")
+
     async def delete_recording(self, recording_id: str) -> None:
         """Remove a placeholder row for a session that produced no artifact."""
         if not self.client:
@@ -433,13 +447,13 @@ class SupabaseStorage:
             return False
 
     def list_resumable_sessions(self) -> list[dict]:
-        """Rows with auto_resume=true: camera_id, sealed_url, camera_name, fps."""
+        """Rows with auto_resume=true; disabled rows are reconciled in SQL."""
         if not self.client:
             return []
         try:
             res = (
                 self.client.table("camera_sessions")
-                .select("camera_id, sealed_url, camera_name, fps")
+                .select("camera_id, sealed_url, camera_name, fps, auto_resume, last_error")
                 .eq("auto_resume", True)
                 .execute()
             )

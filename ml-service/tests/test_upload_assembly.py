@@ -61,6 +61,7 @@ def ready(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "face_engine", object())
     monkeypatch.setattr(main, "storage", object())
     monkeypatch.setattr(main, "_UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(main, "_completed_uploads", {})
     monkeypatch.setattr(main, "_UPLOAD_ASSEMBLY_WAIT_SEC", 0)
     processed: list[tuple[bytes, str]] = []
 
@@ -143,3 +144,46 @@ async def test_legacy_single_shot_still_works(client, ready):
     )
     assert r.status_code == 200 and r.json()["status"] == "processing"
     assert ready == [(b"whole-file", "Legacy")]
+
+
+@pytest.mark.asyncio
+async def test_lost_final_ack_reuses_receipt_without_processing_twice(client, ready):
+    async def send_final():
+        return await client.post(
+            "/process-upload", headers=HEADERS,
+            files={"file": ("clip.webm", b"complete", "video/webm")},
+            data={"session_id": SESSION, "chunk_index": "0", "is_final": "true"},
+        )
+    import asyncio
+    first, retry = await asyncio.gather(send_final(), send_final())
+    assert first.status_code == retry.status_code == 200
+    assert first.json() == retry.json()
+    assert len(ready) == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_parts_survive_and_can_be_retried(client, ready):
+    async def send(idx, data, final):
+        return await client.post(
+            "/process-upload", headers=HEADERS,
+            files={"file": ("clip.webm", data, "video/webm")},
+            data={"session_id": SESSION, "chunk_index": str(idx), "is_final": str(final).lower()},
+        )
+    assert (await send(0, b"first-", False)).status_code == 200
+    assert (await send(2, b"last", True)).status_code == 400
+    assert (await send(1, b"middle-", False)).status_code == 200
+    assert (await send(2, b"last", True)).status_code == 200
+    assert ready == [(b"first-middle-last", "Browser camera")]
+
+
+@pytest.mark.asyncio
+async def test_retry_cannot_replace_an_acknowledged_chunk(client, ready):
+    async def send(data):
+        return await client.post(
+            "/process-upload", headers=HEADERS,
+            files={"file": ("clip.webm", data, "video/webm")},
+            data={"session_id": SESSION, "chunk_index": "0", "is_final": "false"},
+        )
+    assert (await send(b"original")).status_code == 200
+    assert (await send(b"replacement")).status_code == 409
+    assert ready == []

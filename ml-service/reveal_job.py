@@ -49,6 +49,13 @@ if TYPE_CHECKING:
 log = logging.getLogger("mongolz-ml.reveal")
 
 
+def _parse_reveal_level(value: object) -> int | None:
+    """Parse persisted reveal authority without defaulting to level 0."""
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 99:
+        return None
+    return value
+
+
 class RevealProcessor:
     def __init__(self, engine: "FaceEngine", storage: "SupabaseStorage"):
         self.engine = engine
@@ -108,7 +115,11 @@ class RevealProcessor:
         # хасна (UI-ийн /privacy-zones хуудсаар админ тогтоосон). Pipeline-ийн
         # privacy-promise-ийг бодит болгох loop closure.
         camera_id_for_zones = recording.get("camera_id") if recording else None
-        privacy_zones = self._load_privacy_zones(camera_id_for_zones)
+        try:
+            privacy_zones = self._load_privacy_zones(camera_id_for_zones)
+        except RuntimeError:
+            await self._fail(job_id, "Privacy rules unavailable; retry after restoring the database connection")
+            return
 
         # Recording UUID-ыг JOB-аас шууд авна (FK column).
         # Хуучин код `recording["id"]` ашигладаг байсан боловч PostgREST
@@ -131,11 +142,10 @@ class RevealProcessor:
         # хийж target болгоно — доод түвшний (өндөр эрхтэй) нүүрсийг
         # cryptographically нээж чадахгүй. level 0 (director) → хуучин зам,
         # бүгдийг хардаг.
-        reveal_level = 0
-        try:
-            reveal_level = int(job.get("reveal_level") or 0)
-        except (TypeError, ValueError):
-            reveal_level = 0
+        reveal_level = _parse_reveal_level(job.get("reveal_level"))
+        if reveal_level is None:
+            await self._fail(job_id, "Reveal authority буруу эсвэл дутуу байна")
+            return
 
         if reveal_level > 0:
             target_embeddings = self._collect_targets_sealed(job, rec_uuid, reveal_level)
@@ -539,8 +549,11 @@ class RevealProcessor:
     def _load_privacy_zones(self, camera_id: str | None) -> list[dict]:
         """Активт `never_reveal=true` зонуудыг камер бүрд татна. Reveal
         pipeline-д face filter-дэх үндэс."""
-        if not camera_id or not self.storage.client:
+        # Uploaded footage without a camera has no camera-specific rules.
+        if not camera_id:
             return []
+        if not self.storage.client:
+            raise RuntimeError("privacy rules unavailable")
         try:
             res = (
                 self.storage.client.table("privacy_zones")
@@ -550,7 +563,9 @@ class RevealProcessor:
                 .eq("never_reveal", True)
                 .execute()
             )
-            zones = res.data or []
+            if res is None or not isinstance(res.data, list):
+                raise RuntimeError("invalid privacy rules response")
+            zones = res.data
             if zones:
                 log.info(
                     "Camera %s: %d privacy zone(s) active for reveal",
@@ -559,7 +574,7 @@ class RevealProcessor:
             return zones
         except Exception as e:
             log.warning("Privacy zone load failed for %s: %s", camera_id, e)
-            return []
+            raise RuntimeError("privacy rules unavailable") from e
 
     @staticmethod
     def _box_center_in_zone(

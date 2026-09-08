@@ -18,6 +18,19 @@
 #   TS_ACCEPT_ROUTES         — default true
 set -euo pipefail
 
+# Railway volumes are mounted by the platform as root-owned filesystems. The
+# application itself still runs unprivileged; this short bootstrap only makes
+# the configured spool directory writable, then re-execs this script as the
+# dedicated user before any application code starts.
+if [ "$(id -u)" -eq 0 ]; then
+  if [ -n "${RECORDING_SPOOL_DIR:-}" ]; then
+    mkdir -p "$RECORDING_SPOOL_DIR"
+    chown mongolz:mongolz "$RECORDING_SPOOL_DIR"
+  fi
+  export HOME=/home/mongolz
+  exec runuser --preserve-environment --user mongolz -- "$0" "$@"
+fi
+
 # ── 1. Tailscale (only if auth key present — backwards-compatible) ──────
 if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
   STATE_DIR="${TS_STATE_DIR:-/tmp/tailscale-state}"
