@@ -6,6 +6,7 @@ import { mlEmbed, MLError } from "@/lib/ml-client";
 import { checkRateLimit, REVEAL_LIMIT } from "@/lib/rate-limit";
 import { notifyRevealRequested } from "@/lib/notify";
 import type { RevealMethod } from "@/lib/database.types";
+import { readRevealAuthority } from "@/lib/reveal-authority";
 
 export async function POST(request: NextRequest) {
   const auth = await requireAdminApi();
@@ -21,6 +22,9 @@ export async function POST(request: NextRequest) {
   }
 
   // Rate limit: 1 цагт 20 reveal max — нэг админ ч misuse хийхгүй
+  const authority = await readRevealAuthority(ctx.user.id);
+  if ("error" in authority) return authority.error;
+
   const rl = await checkRateLimit(ctx.user.id, REVEAL_LIMIT);
   if (!rl.ok) {
     return NextResponse.json(
@@ -171,19 +175,6 @@ export async function POST(request: NextRequest) {
     detail += ` · faces=${rows.length} (${rows.map((r) => r.filename).join(", ").slice(0, 120)})`;
   }
 
-  // Requester-ийн reveal authority level (ADR 0009). profiles.reveal_level
-  // нь шинэ багана тул PublicProfile type-д багтаагүй байж болзошгүй —
-  // service client-ээр шууд татна. Default 0 = director (бүгдийг хардаг).
-  let reveal_level = 0;
-  {
-    const { data: prof } = await svc
-      .from("profiles")
-      .select("reveal_level")
-      .eq("id", ctx.user.id)
-      .single();
-    reveal_level = (prof as { reveal_level?: number } | null)?.reveal_level ?? 0;
-  }
-
   // 1. reveal_jobs row үүсгэх — 4-eyes: ALWAYS pending_approval.
   // The job does NOT run until a SECOND admin approves it via
   // /reveal-approvals (approveRevealAction sets queued + triggers ML). The ML
@@ -205,7 +196,7 @@ export async function POST(request: NextRequest) {
       requested_by: ctx.user.id,
       requested_email: ctx.user.email,
       reauth_at: new Date().toISOString(),
-      reveal_level,
+      reveal_level: authority.level,
       status: "pending_approval",
     })
     .select("id")

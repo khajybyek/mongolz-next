@@ -10,7 +10,10 @@ type FaceRow = { image_path: string; crop_sealed: boolean } | null;
 const state: {
   auth: "ok" | "unauthorized" | "forbidden";
   face: FaceRow;
-  level: number;
+  level: unknown;
+  profileError?: boolean;
+  profileThrows?: boolean;
+  profileRole?: string;
   storageBytes: Uint8Array | null;
 } = { auth: "ok", face: null, level: 0, storageBytes: null };
 
@@ -29,7 +32,13 @@ jest.mock("@/lib/supabase/server", () => ({
       select: () => ({
         eq: () => ({
           maybeSingle: async () => ({ data: table === "faces" ? state.face : null }),
-          single: async () => ({ data: table === "profiles" ? { reveal_level: state.level } : null }),
+          single: async () => {
+            if (state.profileThrows) throw new Error("database offline");
+            return {
+              data: table === "profiles" ? { role: state.profileRole ?? "admin", reveal_level: state.level } : null,
+              error: state.profileError ? { message: "database offline" } : null,
+            };
+          },
         }),
       }),
     }),
@@ -63,6 +72,9 @@ describe("GET /api/faces/[id]/secure-crop", () => {
     state.auth = "ok";
     state.face = null;
     state.level = 0;
+    state.profileError = false;
+    state.profileThrows = false;
+    state.profileRole = "admin";
     state.storageBytes = null;
     global.fetch = jest.fn() as unknown as typeof fetch;
   });
@@ -108,6 +120,36 @@ describe("GET /api/faces/[id]/secure-crop", () => {
     const [url, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`https://ml.test/face/${FACE}/secure-crop?level=2`);
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+  });
+
+  it.each([undefined, null, "0", -1, 100, 0.5, NaN])("denies malformed authority %p without decrypting", async (level) => {
+    state.face = { image_path: "cam/sealed.jpg", crop_sealed: true };
+    state.level = level;
+    expect((await call(FACE)).status).toBe(403);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on returned and thrown profile lookup errors", async () => {
+    state.face = { image_path: "cam/sealed.jpg", crop_sealed: true };
+    state.profileError = true;
+    expect((await call(FACE)).status).toBe(503);
+    state.profileError = false;
+    state.profileThrows = true;
+    expect((await call(FACE)).status).toBe(503);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("denies a role revoked since session lookup", async () => {
+    state.profileRole = "viewer";
+    expect((await call(FACE)).status).toBe(403);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("denies legacy plaintext without proof of a restricted caller's scope", async () => {
+    state.level = 3;
+    state.face = { image_path: "cam/legacy.jpg", crop_sealed: false };
+    state.storageBytes = new Uint8Array([1, 2]);
+    expect((await call(FACE)).status).toBe(403);
   });
 
   it("maps an ML 403 (below authority) to 403 and other failures to 502", async () => {

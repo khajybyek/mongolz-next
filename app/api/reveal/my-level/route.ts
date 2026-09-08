@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
+import { readRevealAuthority } from "@/lib/reveal-authority";
 
 /**
  * Returns the calling user's hierarchical reveal authority level (ADR 0009).
@@ -16,13 +16,7 @@ export async function GET() {
   const auth = await requireAdminApi();
   if (isAuthErr(auth)) return auth.error;
 
-  const svc = createServiceClient();
-  const { data } = await svc
-    .from("profiles")
-    .select("reveal_level")
-    .eq("id", auth.user.id)
-    .single();
-
-  const reveal_level = (data as { reveal_level?: number } | null)?.reveal_level ?? 0;
-  return NextResponse.json({ reveal_level });
+  const authority = await readRevealAuthority(auth.user.id);
+  if ("error" in authority) return authority.error;
+  return NextResponse.json({ reveal_level: authority.level }, { headers: { "Cache-Control": "private, no-store" } });
 }

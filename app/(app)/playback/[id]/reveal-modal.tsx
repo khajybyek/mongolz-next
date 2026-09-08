@@ -149,7 +149,17 @@ export function RevealModal({
         );
       }
       setPassword("");
-      await startRevealJob();
+      if (job) {
+        // Approval may take longer than the 15-minute reauth window. Resume
+        // the existing job after verification; never create a duplicate.
+        const result = await fetch(`/api/reveal/${job.id}`, { cache: "no-store" });
+        const data = await result.json();
+        if (!result.ok) throw new Error(data.error ?? t("pb_play_failed_desc"));
+        setJob((prev) => ({ ...prev!, ...data }));
+        setStep(["completed", "failed", "rejected"].includes(data.status) ? "done" : "processing");
+      } else {
+        await startRevealJob();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : t("ai_error_generic"));
     } finally {
@@ -196,15 +206,28 @@ export function RevealModal({
   const pollRef = useRef<number | null>(null);
   useEffect(() => {
     const TERMINAL = new Set(["completed", "failed", "rejected"]);
-    if (!job?.id || TERMINAL.has(job.status)) return;
+    if (step !== "processing" || !job?.id || TERMINAL.has(job.status)) return;
     // Awaiting the second admin can take minutes/hours — poll slowly then;
     // once ML is actually rendering, tighten to 1.5 s for the progress bar.
     const intervalMs = job.status === "pending_approval" ? 6000 : 1500;
     pollRef.current = window.setInterval(async () => {
       try {
-        const res = await fetch(`/api/reveal/${job.id}`);
-        if (!res.ok) return;
+        const res = await fetch(`/api/reveal/${job.id}`, { cache: "no-store" });
         const data = await res.json();
+        if (res.status === 401 && data.error === "REAUTH_REQUIRED") {
+          setError(null);
+          setStep("reauth");
+          return;
+        }
+        if (!res.ok) {
+          setError(data.error ?? t("pb_play_failed_desc"));
+          if (res.status === 403 || res.status === 404) {
+            setJob((prev) => ({ ...prev!, signed_url: null, error_message: data.error }));
+            setStep("done");
+          }
+          return;
+        }
+        setError(null);
         if (data.status === "rejected" && !data.error_message) {
           data.error_message = `${data.rejected_email ? `${t("pb_rejected_by")} ${data.rejected_email}` : t("pb_rejected")}${data.rejected_reason ? `: ${data.rejected_reason}` : ""}`;
         }
@@ -213,12 +236,14 @@ export function RevealModal({
           if (pollRef.current) window.clearInterval(pollRef.current);
           setStep("done");
         }
-      } catch {}
+      } catch {
+        setError(t("pb_play_failed_desc"));
+      }
     }, intervalMs);
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
-  }, [job?.id, job?.status]);
+  }, [job?.id, job?.status, step, t]);
 
   return (
     <div
@@ -541,7 +566,7 @@ export function RevealModal({
               )}
 
               <div className="flex gap-2 pt-2">
-                {!hasInitial && (
+                {!hasInitial && !job && (
                   <button
                     type="button"
                     onClick={() => setStep("method")}
@@ -551,7 +576,7 @@ export function RevealModal({
                     {t("back")}
                   </button>
                 )}
-                {hasInitial && (
+                {(hasInitial || job) && (
                   <button
                     type="button"
                     onClick={onClose}
@@ -570,6 +595,9 @@ export function RevealModal({
           )}
 
           {/* ─── STEP 3: Processing / Awaiting approval ─── */}
+          {step === "processing" && error && (
+            <p role="alert" className="text-sm text-danger">{error}</p>
+          )}
           {step === "processing" && job?.status === "pending_approval" && (
             <div className="space-y-3 py-6 text-center">
               <ShieldCheck className="w-10 h-10 text-warning mx-auto" />
@@ -625,14 +653,24 @@ export function RevealModal({
                   </div>
 
                   {maskedUrl ? (
-                    <SideBySidePlayer maskedUrl={maskedUrl} revealedUrl={job.signed_url} />
+                    <SideBySidePlayer maskedUrl={maskedUrl} revealedUrl={job.signed_url} onError={() => setError(t("pb_play_failed_desc"))} />
                   ) : (
                     <video
                       src={job.signed_url}
                       controls
                       autoPlay
+                      onError={() => setError(t("pb_play_failed_desc"))}
                       className="w-full rounded-lg bg-black"
                     />
+                  )}
+
+                  {error && (
+                    <div role="alert" className="space-y-2 text-sm text-danger">
+                      <p>{error}</p>
+                      <button type="button" className="btn-ghost" onClick={() => { setError(null); setStep("reauth"); }}>
+                        <Lock className="w-4 h-4" /> {t("reauth_gate_title")}
+                      </button>
+                    </div>
                   )}
 
                   <div className="flex gap-2">
@@ -705,9 +743,11 @@ function Stepper({ current }: { current: Step }) {
 function SideBySidePlayer({
   maskedUrl,
   revealedUrl,
+  onError,
 }: {
   maskedUrl: string;
   revealedUrl: string;
+  onError: () => void;
 }) {
   const { t } = useT();
   const maskedRef = useRef<HTMLVideoElement | null>(null);
@@ -784,6 +824,7 @@ function SideBySidePlayer({
         <video
           ref={revealedRef}
           src={revealedUrl}
+          onError={onError}
           controls
           autoPlay
           playsInline

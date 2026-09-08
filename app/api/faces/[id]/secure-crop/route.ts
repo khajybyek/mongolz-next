@@ -23,6 +23,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { readRevealAuthority } from "@/lib/reveal-authority";
 
 const ML_URL = process.env.NEXT_PUBLIC_ML_SERVICE_URL ?? "";
 const ML_TOKEN = process.env.ML_SERVICE_TOKEN ?? "";
@@ -41,6 +42,8 @@ export async function GET(
 
   const auth = await requireAdminApi();
   if (isAuthErr(auth)) return auth.error;
+  const authority = await readRevealAuthority(auth.user.id);
+  if ("error" in authority) return authority.error;
 
   const svc = createServiceClient();
   const { data: face } = await svc
@@ -55,6 +58,10 @@ export async function GET(
 
   // ── Legacy plaintext crop: stream directly from storage (admin-gated). ──
   if (!(face as { crop_sealed?: boolean }).crop_sealed) {
+    // Legacy crops have no chain index proving a restricted caller's scope.
+    if (authority.level !== 0) {
+      return NextResponse.json({ error: "REVEAL_FORBIDDEN" }, { status: 403 });
+    }
     const { data: blob, error } = await svc.storage
       .from("faces")
       .download(face.image_path as string);
@@ -64,7 +71,7 @@ export async function GET(
     const buf = Buffer.from(await blob.arrayBuffer());
     return new NextResponse(buf, {
       status: 200,
-      headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=300" },
+      headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, no-store" },
     });
   }
 
@@ -73,27 +80,14 @@ export async function GET(
     return NextResponse.json({ error: "ML service unavailable" }, { status: 502 });
   }
 
-  // Requester's authority level (ADR 0009); default 0 = director (sees all).
-  let level = 0;
-  try {
-    const { data: prof } = await svc
-      .from("profiles")
-      .select("reveal_level")
-      .eq("id", auth.user.id)
-      .single();
-    level = (prof as { reveal_level?: number } | null)?.reveal_level ?? 0;
-  } catch {
-    level = 0;
-  }
-
   const headers: Record<string, string> = {};
   if (ML_TOKEN) headers.Authorization = `Bearer ${ML_TOKEN}`;
 
   let upstream: Response;
   try {
     upstream = await fetch(
-      `${ML_URL}/face/${encodeURIComponent(id)}/secure-crop?level=${encodeURIComponent(String(level))}`,
-      { headers, cache: "no-store" },
+      `${ML_URL}/face/${encodeURIComponent(id)}/secure-crop?level=${encodeURIComponent(String(authority.level))}`,
+      { headers, cache: "no-store", signal: AbortSignal.timeout(10_000) },
     );
   } catch {
     return NextResponse.json({ error: "ML service unreachable" }, { status: 502 });
@@ -110,6 +104,6 @@ export async function GET(
 
   return new NextResponse(upstream.body, {
     status: 200,
-    headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=300" },
+    headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, no-store" },
   });
 }
