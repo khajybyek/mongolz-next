@@ -2,7 +2,7 @@ import { Clock, AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { requireAdmin } from "@/lib/supabase/auth";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/utils";
 import { getT } from "@/lib/i18n/server";
 import { DecisionForms } from "./decision-forms";
@@ -37,7 +37,12 @@ function fmtSec(sec: number): string {
 export default async function RevealApprovalsPage() {
   const ctx = await requireAdmin();
   const { t } = await getT();
-  const svc = createServiceClient();
+  // Read with the caller's own token, NOT the service role: migration
+  // 20260907100000 fenced reveal_jobs behind private.can_read_reveal_level, and
+  // a service-role read walks straight past it — a restricted admin could see,
+  // and decide on, an investigation whose contents they have no authority to
+  // open. RLS does the filtering here.
+  const svc = await createClient();
 
   const { data: pending } = await svc
     .from("reveal_jobs")

@@ -107,6 +107,15 @@ describe("session verification availability", () => {
     expect(response.headers.get("location")).toBeNull();
   });
 
+  it("renders the no-profile error instead of bouncing a retained session into a loop", async () => {
+    // requireUser() redirects here without the session necessarily being gone,
+    // so a bounce back to /dashboard hits the same failure forever.
+    const response = await updateSession(new NextRequest("https://app.test/login?error=no_profile"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("location")).toBeNull();
+  });
+
   it.each(["/login", "/login?error=session_pin"])("preserves the authenticated login redirect for %s", async (path) => {
     const response = await updateSession(new NextRequest(`https://app.test${path}`));
     expect(response.status).toBe(307);

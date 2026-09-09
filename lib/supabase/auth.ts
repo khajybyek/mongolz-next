@@ -88,7 +88,19 @@ async function loadSession(): Promise<SessionState> {
     .select(PUBLIC_PROFILE_COLUMNS)
     .eq("id", user.id)
     .single<PublicProfile>();
-  if (error || !profile) return { kind: "no-profile" };
+  if (error || !profile) {
+    // Self-heal rather than loop: without a profile every gate refuses, so a
+    // session that cannot read one is useless. Drop it locally (the account
+    // itself may be fine — a transient read error should not revoke the user's
+    // other devices) so the next request is simply unauthenticated.
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {
+      // Cookie writes are impossible from a Server Component; the middleware
+      // exemption for ?error=no_profile keeps the page reachable either way.
+    }
+    return { kind: "no-profile" };
+  }
 
   const ctx: AuthCtx = { user: { id: user.id, email: user.email ?? profile.email }, profile };
 

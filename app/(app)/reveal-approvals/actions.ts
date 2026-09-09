@@ -6,6 +6,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { canReadRevealOutput, readRevealAuthority } from "@/lib/reveal-authority";
 import { mlTriggerReveal, MLError } from "@/lib/ml-client";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
 import { notifyRevealDecision } from "@/lib/notify";
@@ -44,12 +45,18 @@ export async function approveRevealAction(jobIdRaw: string): Promise<DecisionRes
   const svc = createServiceClient();
   const { data: job } = await svc
     .from("reveal_jobs")
-    .select("id, status, requested_by, requested_email, recording_id")
+    .select("id, status, requested_by, requested_email, recording_id, reveal_level")
     .eq("id", jobId)
     .maybeSingle();
 
   if (!job) return { error: "NOT_FOUND" };
   if (job.status !== "pending_approval") return { error: "ALREADY_DECIDED" };
+  // Authority: approving is what actually triggers decryption, so the approver
+  // must be allowed to see the output they are releasing. The page now reads
+  // under RLS, but a hand-made request must not get past that.
+  const authority = await readRevealAuthority(ctx.user.id);
+  if ("error" in authority) return { error: "INVALID" };
+  if (!canReadRevealOutput(authority.level, job.reveal_level)) return { error: "NOT_FOUND" };
   // 4-eyes: the approver MUST differ from the requester (also a DB CHECK).
   if (job.requested_by === ctx.user.id) return { error: "SELF" };
 
@@ -124,12 +131,17 @@ export async function rejectRevealAction(jobIdRaw: string, reasonRaw: string): P
   const svc = createServiceClient();
   const { data: job } = await svc
     .from("reveal_jobs")
-    .select("id, status, requested_by, requested_email, recording_id")
+    .select("id, status, requested_by, requested_email, recording_id, reveal_level")
     .eq("id", parsedId.data)
     .maybeSingle();
   if (!job) return { error: "NOT_FOUND" };
   if (job.status !== "pending_approval") return { error: "ALREADY_DECIDED" };
   if (job.requested_by === ctx.user.id) return { error: "SELF" };
+  // Rejecting decides an investigation, so it needs the same authority as
+  // approving — otherwise a restricted admin can veto work they cannot see.
+  const rejectAuthority = await readRevealAuthority(ctx.user.id);
+  if ("error" in rejectAuthority) return { error: "INVALID" };
+  if (!canReadRevealOutput(rejectAuthority.level, job.reveal_level)) return { error: "NOT_FOUND" };
 
   const { data: transitioned, error } = await svc
     .from("reveal_jobs")

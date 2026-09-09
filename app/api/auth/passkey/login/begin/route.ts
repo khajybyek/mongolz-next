@@ -26,17 +26,9 @@ export async function POST(request: NextRequest) {
   const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? null;
 
-  // Rate limit — passkey login still counts as a login attempt.
-  const rl = await checkLoginRateLimit({ ip, email: rawIdentifier });
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: rl.message ?? "Too many attempts" },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 900) } },
-    );
-  }
-
   const svc = createServiceClient();
-  // Resolve username → email if needed.
+  // Resolve username → email first, so the throttle counts the canonical
+  // address the password flow uses rather than whatever was typed.
   let email = rawIdentifier;
   if (!email.includes("@")) {
     const { data: resolved } = await svc.rpc("email_for_username", {
@@ -46,6 +38,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "passkey login unavailable" }, { status: 400 });
     }
     email = resolved.toLowerCase();
+  }
+
+  // Rate limit — passkey login still counts as a login attempt, but only
+  // against the per-IP lock. lib/rate-limit.ts documents that a phishing
+  // resistant factor must not be lockable by failed passwords; the scope was
+  // never passed, so five wrong passwords locked an admin out of the escape
+  // hatch built for exactly that situation.
+  const rl = await checkLoginRateLimit({ ip, email, scope: "passkey" });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: rl.message ?? "Too many attempts" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec ?? 900) } },
+    );
   }
 
   // Look up the user id (profiles.email is the same as auth.users.email).

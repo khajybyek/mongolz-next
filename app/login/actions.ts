@@ -169,7 +169,7 @@ export async function signInAction(formData: FormData) {
   const svc = createServiceClient();
   const user = signInData.user;
   if (!user) {
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     return redirect(loginUrl("invalid_credentials"));
   }
 
@@ -180,14 +180,19 @@ export async function signInAction(formData: FormData) {
     .single();
 
   if (!profile) {
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     return redirect(loginUrl("invalid_credentials"));
   }
 
   // ─── If TOTP is enabled, force step 2 ───
   if (profile.totp_enabled) {
-    // Sign user out so they cannot navigate the app until TOTP is verified.
-    await supabase.auth.signOut();
+    // Sign THIS half-finished session out so it cannot navigate the app until
+    // TOTP is verified. Scope matters: the default is global, which revoked
+    // every session of the account — an operator watching a camera wall was
+    // signed out whenever anyone submitted their password anywhere, and an
+    // attacker holding only the password had an unlimited, unlogged way to
+    // keep them out.
+    await supabase.auth.signOut({ scope: "local" });
 
     // The pre-TOTP cookie is HMAC-signed with REAUTH_COOKIE_SECRET, which is
     // fail-closed in production (lib/auth/hmac-secret.ts). If it is unset the

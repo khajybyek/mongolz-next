@@ -130,7 +130,18 @@ export async function updateSession(request: NextRequest) {
   // The auth helpers preserve sessions during verification/config failures.
   // Let their public error page render instead of bouncing back to the same
   // protected page and creating an endless redirect loop.
-  if (user && path === "/login" && request.nextUrl.searchParams.get("error") !== "server_config") {
+  // Login errors that leave the session intact must render, or the bounce to
+  // /dashboard sends the user straight back into the same failure — for
+  // `no_profile` that is an endless /login <-> /dashboard loop, and a
+  // transient profile read or a half-finished erasure is enough to cause it.
+  // `session_pin` is deliberately NOT here: that path revokes the session
+  // globally first, so a surviving session means the pin check passed.
+  const TERMINAL_LOGIN_ERRORS = new Set(["server_config", "no_profile"]);
+  if (
+    user &&
+    path === "/login" &&
+    !TERMINAL_LOGIN_ERRORS.has(request.nextUrl.searchParams.get("error") ?? "")
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";
