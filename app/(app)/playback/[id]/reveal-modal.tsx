@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FaceThumb } from "@/components/face-thumb";
-import { revealScopeCopy, REVEAL_REASON_MIN, REVEAL_REASON_MAX } from "@/lib/reveal-scope";
 import { useT } from "@/lib/i18n/client";
 
 interface Suspect {
@@ -63,11 +62,10 @@ export function RevealModal({
   initialTimeWindow?: { start: number; end: number } | null;
   onClose: () => void;
 }) {
-  const { t, lang } = useT();
-  const copy = revealScopeCopy[lang];
+  const { t } = useT();
   const hasInitial = (initialFaceIds?.length ?? 0) > 0;
 
-  const [step, setStep] = useState<Step>("method");
+  const [step, setStep] = useState<Step>(hasInitial ? "reauth" : "method");
   const [method, setMethod] = useState<Method>(hasInitial ? "detected_face" : "upload");
   const [photo, setPhoto] = useState<File | null>(null);
   const [suspectId, setSuspectId] = useState<string | null>(null);
@@ -95,7 +93,6 @@ export function RevealModal({
     return recordingDurationSec ? Math.max(1, Math.round(recordingDurationSec)) : 0;
   });
 
-  const [reason, setReason] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -179,7 +176,6 @@ export function RevealModal({
     const fd = new FormData();
     fd.append("recording_id", recordingId);
     fd.append("method", method);
-    fd.append("reason", reason.trim());
     fd.append("threshold", String(threshold));
 
     if (method === "upload" && photo) fd.append("photo", photo);
@@ -499,20 +495,13 @@ export function RevealModal({
                 </div>
               )}
 
-              <div>
-                <label htmlFor="reveal-reason" className="label">{copy.reason}</label>
-                <textarea id="reveal-reason" required minLength={REVEAL_REASON_MIN} maxLength={REVEAL_REASON_MAX}
-                  value={reason} onChange={(event) => setReason(event.target.value)} className="input min-h-24" />
-                <p className="helper">{copy.hint}</p>
-                <p className="helper">{windowEnabled ? `${fmtSec(windowStart)} → ${fmtSec(windowEnd)}` : copy.whole}</p>
-              </div>
               <div className="flex gap-2 pt-2">
                 <button onClick={onClose} className="btn-ghost flex-1">
                   {t("pb_cancel_btn")}
                 </button>
                 <button
                   onClick={continueToReauth}
-                  disabled={!canContinue || reason.trim().length < REVEAL_REASON_MIN}
+                  disabled={!canContinue}
                   className="btn-primary flex-1"
                 >
                   {t("pb_continue")}
