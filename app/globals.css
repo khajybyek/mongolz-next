@@ -13,6 +13,10 @@
   color-scheme: dark;
 
   --bg: 8 9 13;
+  /* Painted under the iOS status bar in standalone (Add to Home Screen)
+     mode. The status-bar text is always white there, so the light theme
+     keeps a dark strip instead of hiding the clock on a white header. */
+  --status-bar: 16 22 32;
   --bg-secondary: 12 17 25;
   --bg-tertiary: 23 32 45;
   --surface: 16 22 32;
@@ -49,6 +53,7 @@ html[data-theme="light"] {
   color-scheme: light;
 
   --bg: 255 255 255;
+  --status-bar: 11 23 41;
   --bg-secondary: 245 247 251;
   --bg-tertiary: 232 237 244;
   --surface: 255 255 255;
@@ -461,7 +466,15 @@ html {
 }
 /* Anchored sections land below the sticky app header. */
 [id] {
-  scroll-margin-top: 4.5rem;
+  scroll-margin-top: calc(4.5rem + env(safe-area-inset-top, 0px));
+}
+
+/* iOS standalone mode draws the page under the translucent status bar
+   (`viewport-fit=cover` + `black-translucent`), so every top-anchored piece
+   of chrome starts below `env(safe-area-inset-top)`. Zero everywhere else. */
+.status-bar-strip {
+  height: env(safe-area-inset-top, 0px);
+  background: rgb(var(--status-bar));
 }
 
 @layer utilities {

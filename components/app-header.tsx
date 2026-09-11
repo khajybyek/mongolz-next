@@ -210,6 +210,7 @@ export function AppHeader({ lang, role, email, isSuperAdmin = false }: Props) {
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur-xl">
+      <div className="status-bar-strip" aria-hidden />
       <div className="h-16 md:h-[76px] px-3 md:px-6 lg:px-8 max-w-[1440px] mx-auto flex min-w-0 items-center gap-2 md:gap-3">
         <button
           type="button"

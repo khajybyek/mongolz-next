@@ -176,8 +176,8 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
       {mobileNavOpen && (
         <>
           <div data-modal-backdrop className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden animate-fade-in" onClick={() => setMobileNavOpen(false)} aria-hidden />
-          <aside ref={drawerRef} id="mobile-navigation" role="dialog" aria-modal="true" tabIndex={-1} className="fixed inset-y-0 left-0 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col border-r border-border bg-surface shadow-overlay outline-none md:hidden animate-slide-in-left" aria-label={t("nav_navigation", lang)}>
-            <button ref={closeRef} type="button" onClick={() => setMobileNavOpen(false)} aria-label={t("close_menu", lang)} className="absolute right-3 top-4 z-10 flex h-11 w-11 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-text-muted/[0.06] hover:text-text"><X className="h-5 w-5" aria-hidden /></button>
+          <aside ref={drawerRef} id="mobile-navigation" role="dialog" aria-modal="true" tabIndex={-1} className="fixed inset-y-0 left-0 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col border-r border-border bg-surface shadow-overlay outline-none md:hidden animate-slide-in-left pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]" aria-label={t("nav_navigation", lang)}>
+            <button ref={closeRef} type="button" onClick={() => setMobileNavOpen(false)} aria-label={t("close_menu", lang)} className="absolute right-3 top-[calc(1rem+env(safe-area-inset-top,0px))] z-10 flex h-11 w-11 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-text-muted/[0.06] hover:text-text"><X className="h-5 w-5" aria-hidden /></button>
             {navContent("mobile")}
           </aside>
         </>

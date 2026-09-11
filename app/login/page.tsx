@@ -43,7 +43,7 @@ export default async function LoginPage({
 
   return (
     <div className="relative flex min-h-svh flex-col bg-bg">
-      <header className="relative z-10 mx-auto flex w-full max-w-[1440px] items-center justify-between gap-3 px-5 py-5 sm:px-8 lg:px-12 lg:py-7">
+      <header className="relative z-10 mx-auto flex w-full max-w-[1440px] items-center justify-between gap-3 px-5 py-5 pt-[calc(1.25rem+env(safe-area-inset-top,0px))] sm:px-8 lg:px-12 lg:py-7">
         <Link href="/" className="flex min-h-11 items-center gap-3 rounded-lg" aria-label="MONGOLZ Security">
           <MongolzLogo size={36} />
           <span className="hidden flex-col gap-0.5 min-[400px]:flex">

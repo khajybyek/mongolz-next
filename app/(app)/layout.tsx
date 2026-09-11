@@ -23,13 +23,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <ToastProvider>
           <div className="md:flex min-h-dvh relative bg-bg-secondary">
             {staging && (
-              <div className="fixed top-0 left-0 right-0 z-40 bg-warning-soft border-b border-warning/30 text-warning text-2xs font-medium text-center py-1 pointer-events-none backdrop-blur">
+              <div className="fixed top-0 left-0 right-0 z-40 bg-warning-soft border-b border-warning/30 text-warning text-2xs font-medium text-center pt-[calc(0.25rem+env(safe-area-inset-top,0px))] pb-1 pointer-events-none backdrop-blur">
                 ⚠ {envLabel().toUpperCase()} {t("staging_not_production", lang)}
               </div>
             )}
             <a
               href="#main"
-              className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-2 focus:rounded focus:bg-accent focus:text-bg focus:text-sm focus:font-medium"
+              className="sr-only focus:not-sr-only focus:fixed focus:top-[calc(0.5rem+env(safe-area-inset-top,0px))] focus:left-2 focus:z-50 focus:px-3 focus:py-2 focus:rounded focus:bg-accent focus:text-bg focus:text-sm focus:font-medium"
             >
               {t("skip_to_content", lang)}
             </a>

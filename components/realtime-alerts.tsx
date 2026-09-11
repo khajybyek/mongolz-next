@@ -133,7 +133,7 @@ export function RealtimeAlerts({
       />
 
       {/* Toast stack — top-right */}
-      <div className="fixed top-[4.5rem] right-4 z-50 flex flex-col gap-2 pointer-events-none w-[min(360px,calc(100vw-2rem))]">
+      <div className="fixed top-[calc(4.5rem+env(safe-area-inset-top,0px))] right-4 z-50 flex flex-col gap-2 pointer-events-none w-[min(360px,calc(100vw-2rem))]">
         {toasts.map((a) => (
           <div
             key={a.id}

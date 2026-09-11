@@ -46,7 +46,7 @@ export function Dialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 pt-[env(safe-area-inset-top,0px)] sm:p-4 sm:pt-[max(1rem,env(safe-area-inset-top,0px))] animate-fade-in"
     >
       <div
         className="backdrop"
