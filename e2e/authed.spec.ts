@@ -41,6 +41,8 @@ test.describe("Authenticated viewer smoke", () => {
     await page.click('button[type="submit"]');
     await page.waitForURL(/\/dashboard/, { timeout: 20_000 });
     const res = await page.request.get("/api/recordings/00000000-0000-4000-8000-000000000000/view");
-    expect([404, 502]).toContain(res.status()); // unknown id → 404; ML down → 502; never 401/500
+    // Unknown IDs must be rejected before ML dispatch. An upstream outage is
+    // a regression here, never a permitted outcome of this smoke check.
+    expect(res.status()).toBe(404);
   });
 });

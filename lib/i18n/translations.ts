@@ -714,9 +714,9 @@ export const T = {
     kr: "MP4 / WebM 업로드",
   },
   file_upload_desc: {
-    mn: "Өмнө бичсэн видеог сонгож upload хийнэ. Жишээ нь RTSP / IP камераас ffmpeg-ээр авсан файл. Chunked upload (3MB) ашиглаж Vercel 4.5MB лимитийг тойрно. Server ML processing автоматаар эхэлнэ — Cubist mosaic blur + ArcFace embedding + AES-256-GCM encryption.",
-    en: "Select a previously recorded video to upload. For example, an MP4 captured from an RTSP / IP camera via ffmpeg. Uses chunked upload (3MB) to bypass Vercel's 4.5MB limit. Server ML processing starts automatically — Cubist mosaic blur + ArcFace embedding + AES-256-GCM encryption.",
-    kr: "이전에 녹화된 비디오를 선택하여 업로드합니다. 예를 들어 ffmpeg를 통해 RTSP / IP 카메라에서 캡처한 MP4 파일. Vercel의 4.5MB 제한을 우회하기 위해 청크 업로드(3MB)를 사용합니다. 서버 ML 처리가 자동으로 시작됩니다 — 큐비스트 모자이크 블러 + ArcFace 임베딩 + AES-256-GCM 암호화.",
+    mn: "100 MB хүртэлх өмнө бичсэн видеог сонгож upload хийнэ. 3 MB хэсгүүд хүсэлтийн хэмжээний лимитийг тойрох боловч файлын нийт лимитийг нэмэхгүй. Server ML processing автоматаар эхэлнэ — Cubist mosaic blur + ArcFace embedding + AES-256-GCM encryption.",
+    en: "Select a previously recorded video up to 100 MB. The 3 MB chunks avoid per-request size limits but do not increase the total file limit. Server ML processing starts automatically — Cubist mosaic blur + ArcFace embedding + AES-256-GCM encryption.",
+    kr: "100 MB 이하의 녹화 영상을 선택하세요. 3 MB 청크는 요청별 크기 제한을 피하지만 전체 파일 제한을 늘리지는 않습니다. 서버 ML 처리가 자동으로 시작됩니다 — 큐비스트 모자이크 블러 + ArcFace 임베딩 + AES-256-GCM 암호화.",
   },
   file_upload_pick: {
     mn: "Файл сонгох (MP4 / WebM / MOV)",
@@ -778,9 +778,9 @@ export const T = {
     kr: "얼굴 감지 (InsightFace), 모자이크 익명화, AES-256 암호화 — 길이에 따라 ~30-90초 대기.",
   },
   live_recording_hint: {
-    mn: "Бичлэг < 100MB. Face detection, mosaic, encrypted original бүгд автомат — multi-ID reveal боломжтой.",
-    en: "Recordings < 100MB. Face detection, mosaic, encrypted original all automatic — multi-ID reveal supported.",
-    kr: "녹화 < 100MB. 얼굴 감지, 모자이크, 암호화된 원본 모두 자동 — 다중 ID 공개 지원.",
+    mn: "Бичлэг 100 MB хүртэл. Face detection, mosaic, encrypted original бүгд автомат — multi-ID reveal боломжтой.",
+    en: "Recordings up to 100 MB. Face detection, mosaic, encrypted original all automatic — multi-ID reveal supported.",
+    kr: "녹화는 100 MB 이하입니다. 얼굴 감지, 모자이크, 암호화된 원본 모두 자동 — 다중 ID 공개 지원.",
   },
   live_cctv_press_start: {
     mn: 'Камер сонгож "Эхлүүлэх" дар',
@@ -1921,8 +1921,9 @@ export const T = {
   live_upload_done: { mn: "Upload амжилттай.", en: "Upload complete.", kr: "업로드 완료." },
   live_upload_done_hint: { mn: "Server ML боловсруулалт эхэлсэн — /playback дотор ~30–60 секундын дараа харагдана.", en: "Server ML processing has started — it appears under /playback in ~30–60 s.", kr: "서버 ML 처리가 시작되었습니다 — 약 30–60초 후 /playback 에 표시됩니다." },
   live_upload_failed: { mn: "Upload алдаа", en: "Upload failed", kr: "업로드 실패" },
+  live_file_too_big: { mn: "Файл 100 MB upload лимитээс хэтэрсэн байна. Урт бичлэгт бүртгэлтэй IP камер ашиглана уу.", en: "This file exceeds the 100 MB upload limit. Use a registered IP camera for longer recordings.", kr: "파일이 100 MB 업로드 제한을 초과합니다. 더 긴 녹화는 등록된 IP 카메라를 사용하세요." },
   live_tips_label: { mn: "Зөвлөмж:", en: "Tips:", kr: "팁:" },
-  live_tips_text: { mn: "Vercel Hobby tier-ийн function timeout 60 секунд. 100MB-аас том файлд chunked процесс илүү найдвартай. RTSP / IP камераас ffmpeg-ээр бичих нь тестлэхэд хамгийн хялбар:", en: "Vercel Hobby tier function timeout is 60 s. For files over 100MB the chunked process is more reliable. Recording from an RTSP / IP camera with ffmpeg is the easiest way to test:", kr: "Vercel Hobby 요금제의 함수 시간 제한은 60초입니다. 100MB 이상의 파일은 청크 방식이 더 안정적입니다. RTSP / IP 카메라에서 ffmpeg로 녹화하면 테스트하기 가장 쉽습니다:" },
+  live_tips_text: { mn: "Файл upload 100 MB-аар хязгаарлагдана. Илүү урт бичлэгийг бүртгэлтэй RTSP / IP камераар шууд аваарай. Богино test файл бэлтгэх жишээ:", en: "File uploads are limited to 100 MB. Capture longer recordings directly from a registered RTSP / IP camera. To prepare a short test file:", kr: "파일 업로드는 100 MB로 제한됩니다. 더 긴 녹화는 등록된 RTSP / IP 카메라에서 직접 캡처하세요. 짧은 테스트 파일을 만들려면:" },
   // webhooks
   wh_empty: { mn: "Webhook бүртгэгдээгүй", en: "No webhooks yet", kr: "등록된 웹훅이 없습니다" },
   wh_empty_desc: { mn: "Slack, Discord эсвэл HMAC гарын үсэгтэй generic destination нэмээрэй.", en: "Add a Slack, Discord or HMAC-signed generic destination.", kr: "Slack, Discord 또는 HMAC 서명 일반 대상을 추가하세요." },

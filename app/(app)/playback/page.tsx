@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PlayCircle, FileVideo, Lock } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
@@ -5,41 +6,50 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { formatDate } from "@/lib/utils";
+import { readMfaOk, readScope, shapeCount, shapeRows, rpcRows, type RpcCapableClient } from "@/lib/metrics";
+import { archiveFilters, ARCHIVE_PAGE_SIZE, type QueryParams } from "@/lib/workflow-query";
+import { workflowCopy, workflowStatus } from "@/lib/workflow-copy";
+import { WorkflowPagination } from "@/components/workflow-pagination";
 
 // Шинэ recording, шинэ faces автоматаар харагдах ёстой
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function PlaybackPage() {
-  await requireUser();
-  const { t } = await getT();
+export default async function PlaybackPage({ searchParams }: { searchParams?: Promise<QueryParams> }) {
+  const { profile } = await requireUser();
+  const { t, lang } = await getT();
+  const c = workflowCopy(lang);
+  const filters = archiveFilters((await searchParams) ?? {});
   const supabase = await createClient();
+  const rpc = supabase as unknown as RpcCapableClient;
+  if (!filters) return <><PageHeader title={t("nav_playback")} /><Empty message={c.invalidFilters} action={<Link className="btn-secondary" href="/playback">{c.clear}</Link>} /></>;
 
-  const { data: recordings } = await supabase
-    .from("recordings")
-    .select("id, filename, storage_path, duration_sec, size_bytes, encrypted, camera_name, started_at, has_original")
-    .order("started_at", { ascending: false })
-    .limit(100);
-
-  // Бичлэг бүрд хэдэн нүүр илрүүлсэнг тоолно
-  const recIds = (recordings ?? []).map((r) => r.id);
-  const { data: faceCountsRaw } = recIds.length
-    ? await supabase
-        .from("faces")
-        .select("recording_id")
-        .in("recording_id", recIds)
-    : { data: [] };
-  const faceCounts = new Map<string, number>();
-  for (const row of faceCountsRaw ?? []) {
-    if (row.recording_id) {
-      faceCounts.set(row.recording_id, (faceCounts.get(row.recording_id) ?? 0) + 1);
-    }
-  }
+  let query = supabase.from("recordings")
+    .select("id, filename, duration_sec, size_bytes, encrypted, camera_name, started_at, has_original, capture_status, capture_error", { count: "exact" })
+    .order("started_at", { ascending: false }).order("id", { ascending: false });
+  if (filters.camera) query = query.eq("camera_id", filters.camera);
+  if (filters.since) query = query.gte("started_at", filters.since);
+  if (filters.until) query = query.lt("started_at", filters.until);
+  const [recordingRes, cameraRes, mfaOk] = await Promise.all([
+    query.range((filters.page - 1) * ARCHIVE_PAGE_SIZE, filters.page * ARCHIVE_PAGE_SIZE - 1),
+    supabase.from("cameras").select("id, name").order("name"),
+    readMfaOk(rpc),
+  ]);
+  const scope = readScope(profile.role, mfaOk);
+  const result = shapeRows(recordingRes, scope.recordings);
+  const total = shapeCount(recordingRes, scope.recordings);
+  const recordings = result.state === "ok" ? result.rows : [];
+  const recIds = recordings.map((r) => r.id);
+  const counts = scope.faces && recIds.length
+    ? await rpcRows<{ recording_id: string; face_count: number | string }>(rpc, "recording_face_counts", { p_recording_ids: recIds })
+    : { data: [], error: null };
+  const faceCounts = new Map((counts.data ?? []).map((r) => [r.recording_id, Number(r.face_count)]));
+  const queryParams = { from: filters.from, to: filters.to, camera: filters.camera };
 
   // Огноогоор бүлэглэх
   const grouped = new Map<string, typeof recordings>();
   for (const r of recordings ?? []) {
-    const day = r.started_at.slice(0, 10);
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(r.started_at));
     if (!grouped.has(day)) grouped.set(day, []);
     grouped.get(day)!.push(r);
   }
@@ -48,8 +58,22 @@ export default async function PlaybackPage() {
     <>
       <PageHeader title={t("nav_playback")} />
 
-      {!recordings?.length ? (
-        <Empty message={t("empty")} />
+      <form method="get" className="card grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <label className="space-y-1 text-xs text-text-soft">{c.from}<input className="input" type="date" name="from" defaultValue={filters.from} /></label>
+        <label className="space-y-1 text-xs text-text-soft">{c.to}<input className="input" type="date" name="to" defaultValue={filters.to} /></label>
+        <label className="space-y-1 text-xs text-text-soft">{c.camera}<select className="input" name="camera" defaultValue={filters.camera}>
+          <option value="">{c.allCameras}</option>
+          {(cameraRes.data ?? []).map((camera) => <option key={camera.id} value={camera.id}>{camera.name}</option>)}
+          {filters.camera && !cameraRes.data?.some((camera) => camera.id === filters.camera) && <option value={filters.camera}>{filters.camera}</option>}
+        </select></label>
+        <div className="flex items-end gap-2"><button className="btn-primary" type="submit">{c.apply}</button><Link className="btn-secondary" href="/playback">{c.clear}</Link></div>
+        <p className="text-xs text-text-muted lg:col-span-4">{c.kst}</p>
+      </form>
+      {cameraRes.error && <p role="alert" className="text-warning text-xs mb-3">{c.camera}: {c.unavailable}</p>}
+      {result.state !== "ok" || total.state !== "ok" ? (
+        <Empty message={result.state === "denied" || total.state === "denied" ? c.noAccess : c.unavailable} action={<a className="btn-secondary" href="">{c.retry}</a>} />
+      ) : !recordings.length ? (
+        <Empty message={c.noResults} action={<Link className="btn-secondary" href="/playback">{c.clear}</Link>} />
       ) : (
         <div className="space-y-6">
           {[...grouped.entries()].map(([day, items]) => (
@@ -59,7 +83,7 @@ export default async function PlaybackPage() {
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {items?.map((r) => {
-                  const fc = faceCounts.get(r.id) ?? 0;
+                  const fc = faceCounts.get(r.id);
                   return (
                     <a
                       key={r.id}
@@ -81,9 +105,10 @@ export default async function PlaybackPage() {
                           <span>·</span>
                           <span>{r.size_bytes ? `${Math.round(r.size_bytes / 1024 / 1024)}MB` : "—"}</span>
                           <span>·</span>
-                          <span className={fc > 0 ? "text-accent" : "text-text-faint"}>
-                            {fc} · {t("faces_label")}
-                          </span>
+                          {scope.faces && <span className={(fc ?? 0) > 0 ? "text-accent" : "text-text-faint"}>
+                            {counts.error || fc === undefined ? c.countUnavailable : `${fc} · ${t("faces_label")}`}
+                          </span>}
+                          {r.capture_status !== "ready" && <span className="text-warning">{workflowStatus(r.capture_status, lang)}</span>}
                           {!r.has_original && (
                             <>
                               <span>·</span>
@@ -92,7 +117,7 @@ export default async function PlaybackPage() {
                           )}
                         </div>
                       </div>
-                      <PlayCircle className="w-4 h-4 text-text-soft" />
+                      <PlayCircle className={`w-4 h-4 ${r.capture_status === "ready" ? "text-text-soft" : "text-warning"}`} />
                     </a>
                   );
                 })}
@@ -101,6 +126,7 @@ export default async function PlaybackPage() {
           ))}
         </div>
       )}
+      {total.state === "ok" && <WorkflowPagination path="/playback" params={queryParams} page={filters.page} total={total.value} pageSize={ARCHIVE_PAGE_SIZE} lang={lang} />}
     </>
   );
 }

@@ -19,6 +19,9 @@ import { getT } from "@/lib/i18n/server";
 import { ACCESS_THROTTLE_MS, READ_ACTIONS, recordAccess } from "@/lib/audit";
 import { PlaybackPlayer } from "./playback-player";
 import { FaceThumb } from "@/components/face-thumb";
+import { Empty } from "@/components/ui/empty";
+import { PageHeader } from "@/components/ui/page-header";
+import { workflowCopy, workflowStatus } from "@/lib/workflow-copy";
 import type { FaceInRecording } from "@/lib/database.types";
 
 // Cache хийхгүй — faces background processing-аар нэмэгддэг тул хэзээ нээгдсэн
@@ -37,19 +40,25 @@ export default async function PlaybackDetailPage({
   const sp = await searchParams;
   const initialFaceId = typeof sp.face === "string" ? sp.face : null;
   const { user, profile } = await requireUser();
-  const { t } = await getT();
+  const { t, lang } = await getT();
+  const copy = workflowCopy(lang);
   const supabase = await createClient();
   const isAdmin = profile.role === "admin";
 
-  const { data: rec } = await supabase
+  const { data: rec, error: recError } = await supabase
     .from("recordings")
     .select(
-      "id, filename, storage_path, original_path, duration_sec, size_bytes, encrypted, has_original, blur_strategy, camera_id, camera_name, started_at, ended_at"
+      "id, filename, storage_path, original_path, duration_sec, size_bytes, encrypted, has_original, blur_strategy, camera_id, camera_name, started_at, ended_at, capture_status, capture_error"
     )
     .eq("id", id)
-    .single();
+    .maybeSingle();
 
+  if (recError) return <><PageHeader title={copy.recording} /><Empty message={copy.unavailable} action={<a href="" className="btn-secondary">{copy.retry}</a>} /></>;
   if (!rec) notFound();
+  if (rec.capture_status !== "ready") return <>
+    <PageHeader title={rec.filename} subtitle={workflowStatus(rec.capture_status, lang)} />
+    <Empty message={copy.captureNotReady} description={rec.capture_error ?? undefined} action={<div className="flex gap-2"><Link className="btn-secondary" href="/playback">{copy.recording}</Link><a className="btn-primary" href="/jobs">{copy.detail}</a><a href="" className="btn-secondary">{copy.refresh}</a></div>} />
+  </>;
 
   // Choose the playback URL based on blur_strategy:
   //   • baked     — signed link to the plaintext blurred MP4 in the `recordings`

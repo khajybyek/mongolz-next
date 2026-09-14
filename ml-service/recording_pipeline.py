@@ -40,6 +40,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 from crypto_utils import master_key
 from recording_spool import get_recording_spool
+from capture_integrity import close_encoder, validate_capture, SourceSampler
+from capture_journal import write_journal, check_capture_capacity
 from demo_source import is_demo_url, resolve_demo_source
 from face_masker import FaceMasker
 from hierarchical_keys import key_at_index, encrypt_face as _seal_embedding
@@ -59,6 +61,22 @@ def redact_url(url: str | int) -> str:
         return urlunsplit((parts.scheme, f"***@{host}", parts.path, parts.query, parts.fragment))
     except ValueError:
         return "<unparsable url>"
+
+
+def open_video_capture(source: str | int):
+    """Use FFmpeg explicitly for network sources with bounded open/read calls.
+
+    OpenCV's automatic backend fallback may hand an HTTPS MJPEG URL to the
+    image-sequence backend, which both fails incorrectly and can echo embedded
+    credentials. Local files, demo clips and numeric devices keep auto mode.
+    """
+    if isinstance(source, str) and "://" in source:
+        return cv2.VideoCapture(
+            source,
+            cv2.CAP_FFMPEG,
+            [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000, cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000],
+        )
+    return cv2.VideoCapture(source)
 
 # OpenCV built-in Haar cascade — MediaPipe-аас илүү найдвартай (Python 3.14
 # дээр mediapipe.solutions API-г арилгасан тул).
@@ -464,7 +482,7 @@ def _ffmpeg_hls_writer(out_dir: str, width: int, height: int, fps: int) -> subpr
             # HLS can only cut segments at keyframes; x264's default GOP (250
             # frames ≈ 16 s at 15 fps) made the first playlist appear after
             # ~20 s with 8 s segments. A 2 s GOP matches hls_time.
-            "-g", str(max(1, fps * 2)), "-keyint_min", str(max(1, fps * 2)), "-sc_threshold", "0",
+            "-g", str(max(1, int(round(fps * 2)))), "-keyint_min", str(max(1, int(round(fps * 2)))), "-sc_threshold", "0",
             "-f", "hls",
             "-hls_time", "2",
             "-hls_list_size", "6",
@@ -493,6 +511,8 @@ class RecordingSession:
         recordings_dir: str,
         fps: int = 15,
         db_camera_id: str | None = None,
+        recording_id: str | None = None,
+        finalize_on_stop: bool = True,
     ):
         self.camera_id = camera_id
         self.camera_name = camera_name
@@ -507,14 +527,15 @@ class RecordingSession:
         self.hls_dir = os.path.join(hls_dir, camera_id)
         self.rec_dir = os.path.join(recordings_dir, camera_id)
         Path(self.hls_dir).mkdir(parents=True, exist_ok=True)
-        Path(self.rec_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.rec_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.rec_dir, 0o700)
 
         # Filename timestamp KST-аар үүсгэнэ (UTC биш) — хэрэглэгч KST-аар хардаг
         ts = datetime.now(KST).strftime("%Y%m%d_%H%M%S")
         # Recording UUID-ыг session-ийн эхэнд үүсгэнэ — encryption key
         # derivation-д ашиглана. Storage path-д бас оруулж encrypted блоб-уудыг
         # тэмдэглэх боломжтой болгоё.
-        self.recording_id: str = str(uuid.uuid4())
+        self.recording_id: str = str(uuid.UUID(recording_id)) if recording_id else str(uuid.uuid4())
 
         # Blur strategy (#3 — one encrypted source).
         # Default 'on_demand': no plaintext blurred MP4 is persisted; the
@@ -539,6 +560,20 @@ class RecordingSession:
             f"{ts}_blurred.mp4" if self.blur_strategy == "baked" else f"{ts}.mp4"
         )
         self.started_at = datetime.now(timezone.utc)
+        self.capture_started_at = self.started_at
+        self.finalize_on_stop = finalize_on_stop
+        self._stop_lock = asyncio.Lock()
+        self.input_complete = False
+        self.processing_complete = False
+        self.capture_time_sec = 0.0
+        self.source_duration_sec = 0.0
+        self.total_frames = 0
+        self.segment_duration_sec = min(300, _env_seconds("RECORDING_SEGMENT_SECONDS", 120, 1))
+        self._segment_start_sec = 0.0
+        self._is_file_mode = False
+        self._encoder_error = None
+        self._validated = False
+        self._last_capacity_check = 0.0
 
         # ── Capture heartbeat state (see CAMERA_HEARTBEAT_SEC) ──
         # Enabled inside the loop, and only for a LIVE camera with a real
@@ -733,11 +768,9 @@ class RecordingSession:
     def beat_if_due(self, now: float | None = None) -> bool:
         """Stamp ``camera_sessions.last_heartbeat_at`` if a beat is due.
 
-        Called from the capture loop after every SUCCESSFUL frame read, so the
-        stamp means exactly one thing: frames were arriving from this source a
-        moment ago. It does not mean a face was seen (that is
-        ``faces.detected_at``), and it does not mean the ffmpeg pipes are
-        healthy — only that the source is delivering.
+        Called only after a sampled frame was accepted by both required
+        encoder pipes. A broken/exited encoder stops this heartbeat; readable
+        output is separately verified before a segment becomes ready.
 
         Non-blocking by construction: the write is a PostgREST round trip, so
         it runs as a background task and at most ONE is ever in flight. A beat
@@ -764,7 +797,7 @@ class RecordingSession:
             return
         try:
             await asyncio.to_thread(
-                self.storage.heartbeat_camera_session, camera_id, self.recorded_frames
+                self.storage.heartbeat_camera_session, camera_id, getattr(self, "total_frames", self.recorded_frames)
             )
         except Exception as e:  # noqa: BLE001 — a missed beat is not an outage
             log.debug("camera %s: heartbeat skipped (%s)", self.camera_id, type(e).__name__)
@@ -789,45 +822,111 @@ class RecordingSession:
     async def start(self):
         self.task = asyncio.create_task(self._run())
 
-    async def stop(self):
+    async def _close_writers(self, *, include_hls=True):
+        failure = None
+        names = ["blurred_writer", "original_writer"] + (["hls"] if include_hls else [])
+        for name in names:
+            proc = getattr(self, name, None)
+            try:
+                await asyncio.to_thread(close_encoder, proc)
+            except RuntimeError as exc:
+                failure = failure or exc
+            finally:
+                setattr(self, name, None)
+        if failure:
+            self._encoder_error = str(failure)
+            raise failure
+
+    @property
+    def journal_path(self):
+        return Path(self.rec_dir) / f"{self.recording_id}.capture.json"
+
+    def _journal_active(self):
+        if not self._is_file_mode:
+            write_journal(self.journal_path, {
+                "state": "active", "recording_id": self.recording_id,
+                "sources": [self.original_path, self.blurred_path],
+                # Recovery can describe an interrupted segment even when its
+                # initial DB insert failed during an outage.
+                "row": self._capture_row(),
+            })
+
+    def _capture_row(self):
+        return {
+            "filename": self.display_filename, "storage_path": self.filename_original,
+            "duration_sec": None, "size_bytes": None, "encrypted": True,
+            "has_original": False, "camera_id": self.db_camera_id,
+            "camera_name": self.camera_name, "started_at": self.started_at.isoformat(),
+            "ended_at": None, "original_path": None, "blur_strategy": self.blur_strategy,
+            "capture_status": "capturing",
+        }
+
+    async def _mark_failed(self, reason, *, partial=False):
+        self.exit_reason = reason
+        self.processing_complete = False
+        if self._row_inserted:
+            await self.storage.update_recording(self.recording_id, {
+                "capture_status": "partial" if partial else "failed",
+                "capture_error": reason, "has_original": False,
+                "ended_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+    async def stop(self, *, finalize: bool | None = None):
+        # The supervisor, user stop and shutdown may converge on one session.
+        # Only one caller may close/commit its encoders at a time.
+        async with self._stop_lock:
+            await self._finish_stop(finalize=finalize)
+
+    async def _finish_stop(self, *, finalize: bool | None = None):
+        should_finalize = self.finalize_on_stop if finalize is None else finalize
         self.stop_flag.set()
         await self._stop_heartbeat()
         if self.task:
             try:
-                await asyncio.wait_for(self.task, timeout=5)
+                await asyncio.wait_for(self.task, timeout=10)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self.task.cancel()
-            except Exception as e:  # noqa: BLE001 — _run already logged; still finalize below
-                log.error("Capture loop for %s ended with error: %s", self.camera_id, e)
-
-        for proc in (self.hls, self.blurred_writer, self.original_writer):
-            if proc and proc.stdin:
-                try:
-                    proc.stdin.close()
-                except Exception:
-                    pass
-            if proc:
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    proc.terminate()
-
-        # Upload + DB-д бичих
-        await self._finalize()
-
-        # The HLS window is the one place un-masked faces touch the disk: the
-        # live view is deliberately unblurred, and until now those segments
-        # were only cleared when the SAME camera started again, so a stopped,
-        # disabled or deleted camera left identifiable frames on the volume
-        # indefinitely. Clear them here so "deleted when the session ends" is
-        # true. Best-effort: a failure must never break stop().
+                await asyncio.gather(self.task, return_exceptions=True)
+                self._encoder_error = "capture cancelled before completion"
+            except Exception as exc:
+                self._encoder_error = f"capture failed: {type(exc).__name__}"
         try:
+            await self._close_writers()
+            if not should_finalize:
+                # Once handed off, the spool owns these inputs (a preparing
+                # manifest may still need one). Cancellation must not unlink
+                # them or undo a concurrent successful delivery.
+                if self._delivery_enqueued or get_recording_spool().has_pending(self.recording_id):
+                    return
+                await self._mark_failed("capture interrupted before completion", partial=True)
+                for path in (self.original_path, self.blurred_path):
+                    Path(path).unlink(missing_ok=True)
+                self.journal_path.unlink(missing_ok=True)
+                return
+            if self._encoder_error:
+                raise RuntimeError(self._encoder_error)
+            if self._is_file_mode and not self.input_complete:
+                raise RuntimeError("source processing did not reach EOF")
+            await self._finalize()
+            self.processing_complete = self.input_complete and self._validated
+        except Exception as exc:
+            # Preserve a validated segment and its journal on encryption/disk
+            # failure. It can still be committed by recovery. Invalid media
+            # has no replay value and must not retain plaintext indefinitely.
+            if not self._validated and not get_recording_spool().has_pending(self.recording_id):
+                for path in (self.original_path, self.blurred_path):
+                    Path(path).unlink(missing_ok=True)
+            try:
+                await self._mark_failed(f"capture finalization failed: {type(exc).__name__}")
+                if not self._validated:
+                    self.journal_path.unlink(missing_ok=True)
+            except Exception:
+                log.warning("Capture failure state pending for %s", self.recording_id)
+            raise
+        finally:
             shutil.rmtree(self.hls_dir, ignore_errors=True)
-            log.info("Камер %s: HLS цонх цэвэрлэгдлээ", self.camera_id)
-        except Exception as e:  # noqa: BLE001
-            log.warning("camera %s: HLS cleanup failed: %s", self.camera_id, type(e).__name__)
 
-    async def _finalize(self):
+    async def _finalize(self, *, deliver=True):
         # Race-condition засвар: бүх in-flight arcface task-уудыг дуусгана
         # эс тэгвээс late-finishing face insert-ууд recording_id NULL хэвээр
         # үлдэх, faces_in_recording RPC-д харагдахгүй болно.
@@ -847,14 +946,14 @@ class RecordingSession:
         # Жинхэнэ видео урт = recorded frames / output fps
         # Бичлэгийн processing хугацаагаар бус, видео файлын жинхэнэ уртаар хадгална
         if self.recorded_frames > 0 and self.fps > 0:
-            duration = int(self.recorded_frames / self.fps)
+            duration = self.recorded_frames / self.fps
         else:
             duration = int((ended_at - self.started_at).total_seconds())
 
         def artifact_size(path: str) -> int | None:
             try:
                 size = os.path.getsize(path)
-                return size if size >= 1000 else None
+                return size if size > 0 else None
             except FileNotFoundError:
                 return None
 
@@ -870,18 +969,23 @@ class RecordingSession:
             # retry its manifest instead of deleting the capture placeholder.
             if spool.has_pending(self.recording_id):
                 await asyncio.to_thread(spool.deliver, self.storage, self.recording_id)
+                self._delivery_enqueued = self._validated = True
                 return
             if self._delivery_enqueued:
                 # The background worker already acknowledged this delivery.
                 return
-            if self._row_inserted:
-                await self.storage.delete_recording(self.recording_id)
-            for path in (self.blurred_path, self.original_path):
-                Path(path).unlink(missing_ok=True)
-            return
+            raise RuntimeError("capture contains no media artifact")
 
+        if getattr(self, "_encoder_error", None):
+            raise RuntimeError(self._encoder_error)
+        for artifact in ([self.original_path] + ([self.blurred_path] if self.blur_strategy == "baked" else [])):
+            await asyncio.to_thread(validate_capture, artifact, self.recorded_frames, self.fps)
+        self._validated = True
+        ended_at = self.started_at + timedelta(seconds=duration)
         baked = self.blur_strategy == "baked"
         fields = {
+            "capture_status": "ready",
+            "capture_error": None,
             "filename": os.path.basename(self.blurred_path) if baked else self.display_filename,
             "storage_path": self.filename_blurred if baked else self.filename_original,
             "duration_sec": duration,
@@ -904,12 +1008,24 @@ class RecordingSession:
         # No network call precedes the encrypted, fsynced delivery manifest.
         # Disk/encryption failures propagate; already-sealed artifacts and
         # sources awaiting encryption remain recoverable by the spool worker.
+        if hasattr(self, "rec_dir") and not self._is_file_mode:
+            # Close+decode validation precedes the durable handoff marker.
+            # fsync input files before committing their recoverable metadata.
+            for artifact in artifacts:
+                with open(artifact["source"], "rb") as source:
+                    os.fsync(source.fileno())
+            write_journal(self.journal_path, {
+                "state": "validated", "recording_id": self.recording_id,
+                "row": fields, "artifacts": artifacts,
+            })
         await asyncio.to_thread(spool.enqueue, self.recording_id, fields, artifacts)
+        if hasattr(self, "rec_dir"):
+            self.journal_path.unlink(missing_ok=True)
         self._delivery_enqueued = True
         for path in (self.blurred_path, self.original_path):
             if artifact_size(path) is None:
                 Path(path).unlink(missing_ok=True)
-        delivered = await asyncio.to_thread(spool.deliver, self.storage, self.recording_id)
+        delivered = await asyncio.to_thread(spool.deliver, self.storage, self.recording_id) if deliver else False
         if delivered:
             self._row_inserted = True
             log.info("Recording %s delivery complete", self.recording_id)
@@ -919,197 +1035,161 @@ class RecordingSession:
     # ────────────────────────────────────────────
     # Main loop
     # ────────────────────────────────────────────
+    async def _rotate_segment(self, source_sec: float, width: int, height: int):
+        await self._close_writers(include_hls=False)
+        await self._finalize(deliver=False)
+        self.recording_id = str(uuid.uuid4())
+        self.started_at = self.capture_started_at + timedelta(seconds=source_sec)
+        ts = self.started_at.astimezone(KST).strftime("%Y%m%d_%H%M%S")
+        stem = f"{ts}_{self.recording_id}"
+        self.original_path = os.path.join(self.rec_dir, f"{stem}_original.mp4")
+        self.blurred_path = os.path.join(self.rec_dir, f"{stem}_blurred.mp4")
+        self.filename_original = f"{self.camera_id}/{stem}_original.mp4.enc"
+        self.filename_blurred = f"{self.camera_id}/{stem}_blurred.mp4"
+        self.display_filename = f"{ts}.mp4"
+        self.recorded_frames = 0
+        self._segment_start_sec = source_sec
+        self._face_chain_index = 0
+        self._row_inserted = self._delivery_enqueued = self._validated = False
+        self.arcface_tasks = []
+        # Every segment needs its own evidence keys and face rows.
+        self.face_memory = SessionFaceMemory(self.engine.cosine)
+        self._journal_active()
+        await self._open_recording_row()
+        self.original_writer = _ffmpeg_mp4_writer(self.original_path, width, height, self.fps)
+        if self.blur_strategy == "baked":
+            self.blurred_writer = _ffmpeg_mp4_writer(self.blurred_path, width, height, self.fps)
+
+    async def _emit_frame(self, source_sec: float, source_frame):
+        h, w = source_frame.shape[:2]
+        if not self._is_file_mode and time.monotonic() - self._last_capacity_check >= 5:
+            spool = get_recording_spool()
+            await asyncio.to_thread(check_capture_capacity, str(Path(self.rec_dir).parent), spool.root)
+            self._last_capacity_check = time.monotonic()
+        if not self._is_file_mode and self.recorded_frames / self.fps >= self.segment_duration_sec:
+            await self._rotate_segment(source_sec, w, h)
+        frame = source_frame.copy()
+        if self.blur_strategy == "baked":
+            blurred = await asyncio.to_thread(self.masker.mask, frame)
+            self._draw_kst_timestamp(blurred, self.recorded_frames)
+            self._write_safe(self.blurred_writer, blurred)
+        self._draw_kst_timestamp(frame, self.recorded_frames)
+        self._write_safe(self.hls, frame)
+        self._write_safe(self.original_writer, frame)
+        offset = self.recorded_frames / self.fps
+        if self.recorded_frames % max(1, round(self.fps)) == 0:
+            self.arcface_tasks = [t for t in self.arcface_tasks if not t.done()]
+            captured_at = self.capture_started_at + timedelta(seconds=source_sec)
+            self.arcface_tasks.append(asyncio.create_task(
+                self._process_arcface(frame, source_offset_sec=offset, captured_at=captured_at)
+            ))
+        self.recorded_frames += 1
+        self.total_frames += 1
+        self.capture_time_sec = source_sec
+        self.beat_if_due()
+        await asyncio.sleep(0)
+
     async def _run(self):
-        # HLS folder-ийг арилгаад дахин үүсгэх
         shutil.rmtree(self.hls_dir, ignore_errors=True)
         os.makedirs(self.hls_dir, exist_ok=True)
-
-        # Numeric string ("0", "1", ...) бол webcam device index болгож хөрвүүлнэ.
-        # RTSP URL, file path-уудыг хэвээр нь дамжуулна.
-        src: str | int = (
-            int(self.source_url)
-            if isinstance(self.source_url, str) and self.source_url.isdigit()
-            else self.source_url
-        )
-        # demo://<name> → cached synthetic clip, but treated as LIVE below
-        # (HLS on, loop on EOF, real-time pacing) — it stands in for a camera.
+        src = int(self.source_url) if isinstance(self.source_url, str) and self.source_url.isdigit() else self.source_url
         is_demo = is_demo_url(self.source_url)
         if is_demo:
             try:
                 src = await asyncio.to_thread(resolve_demo_source, self.source_url)
-            except Exception as e:  # noqa: BLE001
-                self.exit_reason = f"demo source unavailable: {type(e).__name__}"
-                log.error("Demo source %s unavailable: %s", self.source_url, e)
+            except Exception as exc:
+                self.exit_reason = f"demo source unavailable: {type(exc).__name__}"
+                self._encoder_error = self.exit_reason
                 return
-        # File mode detection — local file path бол EOF дээр зогсооно
-        # (хэрэв live stream бол EOF гэдэг алхам байхгүй болохоор retry).
-        is_file_mode = (
-            not is_demo
-            and isinstance(self.source_url, str)
-            and not self.source_url.isdigit()
-            and "://" not in self.source_url
-            and os.path.isfile(self.source_url)
-        )
-        self.cap = cv2.VideoCapture(src)
+        self._is_file_mode = not is_demo and isinstance(src, str) and "://" not in src and os.path.isfile(src)
+        self.cap = open_video_capture(src)
         if not self.cap.isOpened():
             self.exit_reason = "source unreachable at open"
-            log.error("Камер нээгдсэнгүй: %s", redact_url(self.source_url))
+            self._encoder_error = self.exit_reason
+            self.cap.release()
             return
-
+        w, h = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        input_fps = self.cap.get(cv2.CAP_PROP_FPS)
+        if not math.isfinite(input_fps) or input_fps <= 0:
+            input_fps = self.fps
+        self.fps = min(input_fps, 15.0) if self._is_file_mode else float(self.fps)
+        self.source_duration_sec = self.cap.get(cv2.CAP_PROP_FRAME_COUNT) / input_fps if self._is_file_mode else 0
+        self._journal_active()
         await self._open_recording_row()
-
-        w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        # File mode-д file fps-ийг ашиглана; live mode-д configured self.fps
-        # 30-60 fps браузер бичлэгүүдийг 15 fps-руу буурууж 2-4x хурдасгана.
-        # Output fps хэвээр өндөр (smooth playback) — input frame skip ашиглана.
-        input_fps = self.cap.get(cv2.CAP_PROP_FPS) or self.fps
-        if is_file_mode:
-            target_fps = 15
-            self.fps = min(int(round(input_fps)), target_fps)
-            frame_skip_ratio = max(1, int(round(input_fps / target_fps)))
-        else:
-            frame_skip_ratio = 1
-        if is_demo and input_fps > 0:
-            # Frames are paced at the clip's own rate, so the encoders must
-            # be told that rate or HLS/MP4 timing drifts from wall clock.
-            self.fps = max(1, int(round(input_fps)))
-        log.info(
-            "Камер %s: %dx%d input=%dfps output=%dfps skip=%d %s",
-            self.camera_id, w, h, int(input_fps), self.fps, frame_skip_ratio,
-            "[FILE MODE]" if is_file_mode else ("[DEMO]" if is_demo else "[LIVE]"),
-        )
-
-        # File mode-д HLS хэрэггүй (live preview-тэй холбоогүй)
-        if not is_file_mode:
-            self.hls = _ffmpeg_hls_writer(self.hls_dir, w, h, self.fps)
-        # On-demand mode: skip the blurred encoder pipe entirely. Frees an
-        # ffmpeg process + per-frame BGR write + the heavy FaceMasker.mask
-        # call below (~10-30% recording-time CPU saved).
-        if self.blur_strategy == "baked":
-            self.blurred_writer = _ffmpeg_mp4_writer(self.blurred_path, w, h, self.fps)
-        self.original_writer = _ffmpeg_mp4_writer(self.original_path, w, h, self.fps)
-
-        # A live (or demo) camera reports liveness for as long as frames keep
-        # arriving. File mode is a browser upload being processed — it has no
-        # camera in front of it, so it must not stamp one as streaming.
-        self._heartbeat_enabled = not is_file_mode and bool(self.db_camera_id)
-
-        frame_idx = 0
-        read_idx = 0
-        process_every_n = max(self.fps, 10)  # ArcFace embed/match ~1s/once
-        read_failures = 0
-        demo_reopens = 0
-        # Demo pacing: a file decodes far faster than real time; emit frames
-        # on the clip's clock so HLS viewers and KST burn-in see real time.
-        frame_interval = 1.0 / max(1, self.fps)
-        next_due = time.monotonic()
-
+        self._heartbeat_enabled = not self._is_file_mode and bool(self.db_camera_id)
+        sampler = SourceSampler(input_fps, self.fps)
+        input_index = 0
+        read_failures = demo_reopens = 0
+        demo_due = time.monotonic()
+        live_origin = demo_due
         try:
+            if not self._is_file_mode:
+                self.hls = _ffmpeg_hls_writer(self.hls_dir, w, h, self.fps)
+            if self.blur_strategy == "baked":
+                self.blurred_writer = _ffmpeg_mp4_writer(self.blurred_path, w, h, self.fps)
+            self.original_writer = _ffmpeg_mp4_writer(self.original_path, w, h, self.fps)
             while not self.stop_flag.is_set():
                 ok, frame = self.cap.read()
                 if not ok or frame is None:
-                    if is_file_mode:
-                        # EOF — file дуусчихсан, loop-аас гарна
-                        log.info("File processing complete, %d frame written", frame_idx)
+                    if self._is_file_mode:
+                        expected = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)
+                        if math.isfinite(expected) and expected > 0 and input_index < round(expected):
+                            raise RuntimeError("source ended before all frames were decoded")
+                        for ts, pending in sampler.finish():
+                            await self._emit_frame(ts, pending)
+                        self.input_complete = True
                         self.stop_flag.set()
                         break
                     if is_demo:
-                        # EOF on the clip: rewind by re-opening; frame_idx keeps
-                        # counting so timestamps and recording length stay
-                        # continuous across loops.
                         demo_reopens += 1
                         if demo_reopens > DEMO_REOPEN_LIMIT:
                             self.exit_reason = "demo source yields no frames"
-                            log.error("Demo %s: re-open produced no frames", self.camera_id)
                             break
                         self.cap.release()
-                        self.cap = cv2.VideoCapture(src)
+                        self.cap = open_video_capture(src)
                         if not self.cap.isOpened():
                             self.exit_reason = "demo source re-open failed"
-                            log.error("Demo %s: re-open failed", self.camera_id)
                             break
                         continue
                     read_failures += 1
                     if read_failures >= LIVE_READ_FAIL_LIMIT:
                         self.exit_reason = "source dropped (no frames)"
-                        log.warning(
-                            "Камер %s: %d consecutive read failures — source dropped",
-                            self.camera_id, read_failures,
-                        )
                         break
                     await asyncio.sleep(0.1)
                     continue
-                read_failures = 0
-                demo_reopens = 0
-                # Frames ARE arriving → say so (at most once per
-                # CAMERA_HEARTBEAT_SEC, off the loop). This is what the
-                # status dots read; detections only say what was seen.
-                self.beat_if_due()
-
-                read_idx += 1
-                # Frame skip: 30 fps file → process every 2nd → 15 fps output
-                if frame_skip_ratio > 1 and (read_idx % frame_skip_ratio) != 0:
-                    continue
-
-                # Per-frame masking is only needed when baking a blurred MP4.
-                # On-demand mode skips this (the view is derived at request
-                # time from the encrypted original by the same FaceMasker).
-                if self.blur_strategy == "baked":
-                    blurred = await asyncio.to_thread(self.masker.mask, frame)
-                    self._draw_kst_timestamp(blurred, frame_idx)
-
-                # KST timestamp burn-in on the original (also flows to HLS).
-                # Recording-ийн жинхэнэ цаг харагдах нь видеоны forensic мэдээлэл.
-                self._draw_kst_timestamp(frame, frame_idx)
-
-                # Pipes
-                self._write_safe(self.hls, frame)            # LIVE = unblurred
-                if self.blur_strategy == "baked":
-                    self._write_safe(self.blurred_writer, blurred)  # SAVED = blurred
-                self._write_safe(self.original_writer, frame)   # ORIGINAL kept for reveal
-
-                # Periodic ArcFace match (alerts + insert face row)
-                if frame_idx % process_every_n == 0:
-                    # Track-д хадгалж finalize-д бүгдийг хүлээх. Drop finished
-                    # ones first — a demo/live session runs for hours and only
-                    # in-flight tasks matter to finalize.
-                    self.arcface_tasks = [t for t in self.arcface_tasks if not t.done()]
-                    t = asyncio.create_task(self._process_arcface(frame))
-                    self.arcface_tasks.append(t)
-
-                frame_idx += 1
-                self.recorded_frames = frame_idx
+                read_failures = demo_reopens = 0
+                # File PTS preserves VFR intervals. Demo loops use a continuous
+                # frame clock; live source PTS is normalized by the sampler.
+                pts = input_index / input_fps if is_demo else self.cap.get(cv2.CAP_PROP_POS_MSEC) / 1000
+                fallback = None if self._is_file_mode or is_demo else time.monotonic() - live_origin
+                for ts, sampled in sampler.push(frame, pts, fallback_sec=fallback):
+                    await self._emit_frame(ts, sampled)
+                input_index += 1
                 if is_demo:
-                    next_due += frame_interval
-                    delay = next_due - time.monotonic()
-                    if delay > 0:
-                        await asyncio.sleep(delay)
-                    else:
-                        # Fell behind (CPU contention) — resync rather than
-                        # bursting frames to repay the debt.
-                        next_due = time.monotonic()
-                        await asyncio.sleep(0)
+                    demo_due += 1 / input_fps
+                    await asyncio.sleep(max(0, demo_due - time.monotonic()))
                 else:
                     await asyncio.sleep(0)
-        except Exception as e:  # noqa: BLE001 — log with traceback; stop()/_finalize still run
-            self.exit_reason = f"capture loop crashed: {type(e).__name__}"
-            log.exception("Capture loop crashed for camera %s", self.camera_id)
+            if not self._is_file_mode:
+                for ts, pending in sampler.finish():
+                    await self._emit_frame(ts, pending)
+        except Exception as exc:
+            self.exit_reason = f"capture failed: {type(exc).__name__}"
+            if not self._validated:
+                self._encoder_error = self.exit_reason
             self.stop_flag.set()
+            log.exception("Capture loop crashed for camera %s", self.camera_id)
         finally:
-            # The loop is over: no more frames, so no more heartbeats. The
-            # last stamp stays on the row on purpose — camera_health() ages it
-            # into `stale` and then `offline`, which is exactly what happened.
             self._heartbeat_enabled = False
             self.cap.release()
-            # Close the encoder pipes here as well: if the loop crashed, stop()
-            # may not be called by the manager and ffmpeg would linger.
+            # stop/rotation performs the checked wait; close here so a crashed
+            # loop cannot leave encoders waiting on stdin indefinitely.
             for proc in (self.hls, self.blurred_writer, self.original_writer):
-                if proc and proc.stdin:
+                if proc and proc.stdin and not proc.stdin.closed:
                     try:
                         proc.stdin.close()
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except (BrokenPipeError, OSError):
+                        self._encoder_error = "capture encoder input failed"
 
     async def _open_recording_row(self) -> None:
         """Insert the recordings row at session start.
@@ -1123,18 +1203,7 @@ class RecordingSession:
         try:
             rec_id = await self.storage.insert_recording_returning_id(
                 recording_id=self.recording_id,
-                filename=self.display_filename,
-                storage_path=self.filename_original,
-                duration_sec=None,
-                size_bytes=None,
-                encrypted=True,
-                has_original=False,
-                camera_id=self.db_camera_id,
-                camera_name=self.camera_name,
-                started_at=self.started_at.isoformat(),
-                ended_at=None,
-                original_path=None,
-                blur_strategy=self.blur_strategy,
+                **self._capture_row(),
             )
             self._row_inserted = bool(rec_id)
         except Exception as e:  # noqa: BLE001 — recording continues; finalize falls back to insert
@@ -1146,14 +1215,16 @@ class RecordingSession:
         if not proc or not proc.stdin:
             return
         try:
+            if proc.poll() is not None:
+                raise RuntimeError("capture encoder exited before input completed")
             proc.stdin.write(frame.tobytes())
-        except (BrokenPipeError, OSError):
-            pass
+        except (BrokenPipeError, OSError, ValueError) as exc:
+            raise RuntimeError("capture encoder input failed") from exc
 
     # ────────────────────────────────────────────
     # ArcFace processing (periodic — DB-д тэмдэглэх + alert)
     # ────────────────────────────────────────────
-    async def _process_arcface(self, frame: np.ndarray):
+    async def _process_arcface(self, frame: np.ndarray, *, source_offset_sec=None, captured_at=None):
         ok, encoded = cv2.imencode(".jpg", frame)
         if not ok:
             self._note_detect_failure(ValueError("frame JPEG encode амжилтгүй"))
@@ -1170,7 +1241,7 @@ class RecordingSession:
         if not faces:
             return
 
-        now = time.time()
+        now = captured_at.timestamp() if captured_at is not None else time.time()
         # Serialise the memory read-modify-write (+ DB writes) across
         # overlapping arcface tasks so two of them can't both miss-then-record
         # the same person. Detection (the CPU-heavy to_thread above) already
@@ -1188,7 +1259,10 @@ class RecordingSession:
                     crop_path: str | None = None
                     ttl: float | None = None
                     try:
-                        face_id, crop_path = await self._persist_face(frame, f, now)
+                        timing = {} if source_offset_sec is None else {
+                            "source_offset_sec": source_offset_sec, "captured_at": captured_at,
+                        }
+                        face_id, crop_path = await self._persist_face(frame, f, now, **timing)
                     except Exception as e:  # noqa: BLE001 — тодорхой бүртгэнэ
                         log.exception("Нүүр хадгалахад алдаа (alert зам үргэлжилнэ): %s", e)
                         # Богино TTL: Storage сэргэмэгц нотлох баримт эргэж
@@ -1234,7 +1308,7 @@ class RecordingSession:
             self._detect_failures = 0
 
     async def _persist_face(
-        self, frame: np.ndarray, f: DetectedFace, now: float
+        self, frame: np.ndarray, f: DetectedFace, now: float, *, source_offset_sec=None, captured_at=None
     ) -> tuple[str | None, str | None]:
         """Нэг нүүрийг битүүмжилж хадгалаад (face_id, storage path) буцаана.
 
@@ -1290,6 +1364,8 @@ class RecordingSession:
             chain_index=chain_index,
             embedding_sealed=embedding_sealed,
             crop_sealed=True,
+            source_offset_sec=source_offset_sec,
+            detected_at=captured_at.isoformat() if captured_at is not None else None,
         )
         # Return the object that was actually uploaded. `path` itself is only
         # the DB pointer (faces.image_path); the bytes live at `<path>.enc`

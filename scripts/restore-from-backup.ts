@@ -33,6 +33,7 @@
  *     storage backup / PITR and compare with buckets/*.manifest.json.
  */
 
+import { validateBackupIntegrity, type BackupManifest } from "../lib/backup-integrity";
 import { config as loadEnv } from "dotenv";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -126,7 +127,10 @@ function readTable(tablesDir: string, table: string): { rows: Row[]; present: bo
  * restore. `null` in a required column is a real defect and is reported.
  */
 function missingRequired(table: string, rows: Row[]): string[] {
-  const required = REQUIRED_COLUMNS[table] ?? [];
+  const required = [...(REQUIRED_COLUMNS[table] ?? [])];
+  if (table === "reveal_jobs" && rows.some((r) => r.method === "upload" && r.status === "pending_approval" && r.request_scope != null)) {
+    required.push("reference_sealed");
+  }
   if (rows.length === 0) return [];
   const sample = rows[0];
   return required.filter(
@@ -163,6 +167,9 @@ async function main() {
   if (!existsSync(tablesDir)) throw new Error(`No tables/ directory under ${dirArg}`);
 
   const manifest = readManifest(dirArg);
+  const integrityErrors = validateBackupIntegrity(manifest as BackupManifest | null,
+    (relative) => readFileSync(path.join(dirArg, relative)));
+  if (integrityErrors.length) throw new Error(`Backup integrity preflight failed before any write:\n${integrityErrors.join("\n")}`);
   const includeBiometrics = manifest?.include_biometrics === true;
   console.log(`Backup: ${path.resolve(dirArg)}`);
   console.log(

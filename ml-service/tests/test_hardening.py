@@ -12,13 +12,37 @@ os.environ.setdefault("ML_SERVICE_TOKEN", "test-token")
 
 import numpy as np
 import pytest
+import cv2
 from cryptography.exceptions import InvalidTag
 from pydantic import ValidationError
 
 import hierarchical_keys as hk
 import main
 from reveal_job import _parse_reveal_level
-from recording_pipeline import redact_url
+from recording_pipeline import open_video_capture, redact_url
+
+
+def test_opencv_native_diagnostics_are_silent():
+    native_logging = cv2.utils.logging
+    assert native_logging.getLogLevel() == native_logging.LOG_LEVEL_SILENT
+
+
+def test_network_capture_uses_ffmpeg_with_bounded_io(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cv2, "VideoCapture", lambda *args: calls.append(args) or object())
+    open_video_capture("https://user:secret@camera.invalid/mjpeg")
+    assert calls == [(
+        "https://user:secret@camera.invalid/mjpeg",
+        cv2.CAP_FFMPEG,
+        [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000, cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000],
+    )]
+
+
+def test_local_capture_keeps_automatic_backend(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cv2, "VideoCapture", lambda *args: calls.append(args) or object())
+    open_video_capture("/tmp/fixture.mp4")
+    assert calls == [("/tmp/fixture.mp4",)]
 
 
 def test_unseal_at_index_tries_previous_master():

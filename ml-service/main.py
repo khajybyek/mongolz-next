@@ -31,7 +31,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 # Local-д ажиллахад .env файлыг автоматаар уншуулна
 try:
@@ -41,6 +41,10 @@ try:
 except ImportError:
     pass
 
+# Native OpenCV diagnostics can echo a complete credential-bearing camera URL
+# before Python gets a chance to redact it. Application-level errors already
+# expose a safe camera id and reason, so keep the native channel silent.
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
 import cv2
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
@@ -52,6 +56,7 @@ from face_engine import FaceEngine
 from camera_worker import CameraManager
 from storage import SupabaseStorage
 from recording_spool import get_recording_spool
+from durable_jobs import UploadStore, UploadWorker, RevealWorker, UploadConflict
 from crypto_utils import init_master_key, self_test as crypto_self_test, decrypt_bytes, master_key_candidates
 from demo_source import DEMO_FPS, DEMO_HEIGHT, DEMO_WIDTH, demo_name, is_demo_url, resolve_demo_source
 from hierarchical_keys import unseal_at_index
@@ -65,6 +70,13 @@ from view_renderer import render_blurred_view
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("mongolz-ml")
+
+try:
+    _cv_logging = cv2.utils.logging
+    _cv_logging.setLogLevel(_cv_logging.LOG_LEVEL_SILENT)
+except (AttributeError, TypeError):
+    # Some OpenCV builds only honour OPENCV_LOG_LEVEL at import time.
+    pass
 
 
 _CRED_URL_RE = re.compile(r"(\w+://)[^/@\s]+@")
@@ -147,11 +159,14 @@ if not ML_TOKEN and os.getenv("ALLOW_NO_AUTH") != "1":
 face_engine: FaceEngine | None = None
 camera_manager: CameraManager | None = None
 storage: SupabaseStorage | None = None
+upload_store: UploadStore | None = None
+upload_worker: UploadWorker | None = None
+reveal_worker: RevealWorker | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global face_engine, camera_manager, storage
+    global face_engine, camera_manager, storage, upload_store, upload_worker, reveal_worker
     log.info("Initializing FaceEngine...")
     init_master_key()
     crypto_self_test()
@@ -160,9 +175,23 @@ async def lifespan(app: FastAPI):
     recording_spool = get_recording_spool()
     recording_spool.start(storage)
     camera_manager = CameraManager(face_engine=face_engine, storage=storage, hls_dir=HLS_DIR)
-    # A restart mid-reveal leaves jobs stuck in 'processing' forever.
-    storage.fail_stale_reveal_jobs()
-    _sweep_abandoned_uploads()
+    # Admission is closed unless inputs survive a Railway container restart.
+    # Other service functions can still start when the upload volume is absent.
+    try:
+        upload_store = UploadStore.from_env()
+    except (RuntimeError, OSError):
+        upload_store = None
+        log.error("Durable upload volume unavailable; upload admission disabled")
+    if upload_store:
+        from recording_pipeline import RecordingSession
+        upload_worker = UploadWorker(upload_store, storage, recording_spool,
+            lambda **kwargs: RecordingSession(engine=face_engine, storage=storage, **kwargs),
+            hls_dir=HLS_DIR)
+        upload_worker.start()
+    reveal_worker = RevealWorker(storage, camera_manager.reveal)
+    reveal_worker.start()
+    from retention_worker import run_retention_worker
+    retention_task = asyncio.create_task(run_retention_worker(storage))
     # Bring back the cameras that were running before this (re)deploy, then
     # keep them alive. Both are best-effort: a bad row or dead source is
     # recorded on camera_sessions.last_error, never raised into boot.
@@ -176,6 +205,13 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         log.info("Shutting down...")
+        retention_task.cancel()
+        await asyncio.gather(retention_task, return_exceptions=True)
+        await _stop_background_tasks()
+        if upload_worker:
+            await upload_worker.stop()
+        if reveal_worker:
+            await reveal_worker.stop()
         await camera_manager.stop_all()
         await recording_spool.stop()
 
@@ -234,6 +270,7 @@ def health():
         "engine": face_engine.info() if face_engine else None,
         "active_cameras": camera_manager.active_count() if camera_manager else 0,
         "tunnel": tunnel_status(),
+        "durable_uploads_ready": upload_store is not None,
     }
 
 
@@ -592,12 +629,25 @@ def _spawn(coro) -> asyncio.Task:
     return task
 
 
+async def _stop_background_tasks() -> None:
+    # `/reveal/run` starts the same leased processor used by the reconciler.
+    # Letting those tasks outlive lifespan shutdown would keep decrypt/render
+    # work running after the workers and cameras have already been stopped.
+    tasks = tuple(_background_tasks)
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 @app.post("/reveal/run", dependencies=[Depends(require_token)])
 async def reveal_run_endpoint(req: RevealRunReq):
     """Next.js DB-д job үүсгэсний дараа дуудна — background-д ажиллана."""
     if not camera_manager:
         raise HTTPException(503, "service not ready")
 
+    if not _UUID_RE.match(req.job_id):
+        raise HTTPException(400, "invalid job_id")
     _spawn(camera_manager.reveal_job(req.job_id))
     return {"ok": True, "job_id": req.job_id}
 
@@ -839,237 +889,109 @@ async def secure_crop_endpoint(face_id: str, level: int = 0):
     )
 
 
-# ── Upload-аас бичлэг боловсруулах ─────────────────────────────
-# Browser MediaRecorder (Тухайн төхөөрөмж) эсвэл Гар утас mode-аас ирсэн
-# webm/mp4 blob-ыг IP CCTV pipeline-тай яг адил бүрэн боловсруулна:
-#   • Blurred MP4 (face blur with persistence + padding)
-#   • Original MP4 (AES-256-GCM encrypted)
-#   • Faces with bbox + recording_id (ArcFace dedup 0.45)
-# ── Chunked browser uploads ─────────────────────────────────────
-# The client splits recordings into ~3 MB chunks (Vercel body limit) tagged
-# session_id / chunk_index / is_final. Chunks are stored under
-# UPLOAD_DIR/<session>/<index>.part and concatenated in index order once the
-# final marker arrives; only then does one RecordingSession process the
-# whole clip. (Before this, every chunk was processed as its own recording
-# and everything after the first chunk was silently lost.)
-_UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/tmp/mongolz-upload")
-_UPLOAD_MAX_CHUNKS = 400              # 400 × 4 MB ≈ 1.6 GB hard cap
+# ── Durable uploads ─────────────────────────────────────────────
+# Service-token callers must pass the authenticated principal from the Next
+# proxy. Receipt status means durable acceptance, never render completion.
 _UPLOAD_MAX_CHUNK_BYTES = 8 * 1024 * 1024
-_UPLOAD_SESSION_TTL_SEC = 3600
-_UPLOAD_ASSEMBLY_WAIT_SEC = 30
-_upload_locks: dict[str, asyncio.Lock] = {}
-_completed_uploads: dict[str, tuple[float, dict]] = {}
-_MAX_UPLOAD_RECEIPTS = 2048
-_MAX_UPLOAD_LOCKS = 256
-os.makedirs(_UPLOAD_DIR, exist_ok=True)
-
-
-def _get_upload_lock(session_id: str) -> asyncio.Lock:
-    lock = _upload_locks.get(session_id)
-    if lock is None:
-        if len(_upload_locks) >= _MAX_UPLOAD_LOCKS:
-            for k in [k for k, lk in _upload_locks.items() if not lk.locked()]:
-                del _upload_locks[k]
-                if len(_upload_locks) < _MAX_UPLOAD_LOCKS:
-                    break
-        lock = asyncio.Lock()
-        _upload_locks[session_id] = lock
-    return lock
-
-
-def _part_path(session_dir: str, index: int) -> str:
-    return os.path.join(session_dir, f"{index:05d}.part")
-
-
-def _missing_parts(session_dir: str, expected: int) -> list[int]:
-    return [i for i in range(expected) if not os.path.exists(_part_path(session_dir, i))]
-
-
-def _assemble_session(session_dir: str, expected: int, suffix: str) -> str:
-    """Concatenate parts 0..expected-1 into a fresh temp file; return its path."""
-    fd, out_path = tempfile.mkstemp(suffix=suffix, prefix="mongolz_upload_")
-    try:
-        with os.fdopen(fd, "wb") as out:
-            for i in range(expected):
-                with open(_part_path(session_dir, i), "rb") as f:
-                    shutil.copyfileobj(f, out)
-    except Exception:
-        try:
-            os.unlink(out_path)
-        except OSError:
-            pass
-        raise
-    return out_path
-
-
-def _sweep_abandoned_uploads(now: float | None = None) -> int:
-    """Delete session directories untouched for longer than the TTL."""
-    now = now or time.time()
-    removed = 0
-    try:
-        for name in os.listdir(_UPLOAD_DIR):
-            path = os.path.join(_UPLOAD_DIR, name)
-            try:
-                if os.path.isdir(path) and now - os.path.getmtime(path) > _UPLOAD_SESSION_TTL_SEC:
-                    shutil.rmtree(path, ignore_errors=True)
-                    removed += 1
-            except OSError:
-                continue
-    except OSError:
-        pass
-    if removed:
-        log.info("upload sweep: removed %d abandoned session(s)", removed)
-    return removed
-
-
-def _start_upload_processing(tmp_path: str, camera_name: str) -> dict:
-    size_mb = os.path.getsize(tmp_path) / 1024 / 1024
-    log.info("Process upload: %s (%.1fMB) → background pipeline", os.path.basename(tmp_path), size_mb)
-
-    from recording_pipeline import RecordingSession
-
-    virtual_camera_id = f"upload_{uuid4().hex[:8]}"
-    session = RecordingSession(
-        camera_id=virtual_camera_id,
-        camera_name=camera_name,
-        source_url=tmp_path,
-        engine=face_engine,
-        storage=storage,
-        hls_dir=HLS_DIR,
-        recordings_dir="/tmp/mongolz-rec",
-        fps=15,
-        db_camera_id=None,  # browser upload — no real camera FK
-    )
-
-    async def _process_in_background():
-        try:
-            await session.start()
-            if session.task:
-                try:
-                    await asyncio.wait_for(session.task, timeout=300)
-                except asyncio.TimeoutError:
-                    log.warning("Process upload timeout — finalize-руу шилжилт")
-                    session.stop_flag.set()
-            await session.stop()
-            log.info("✓ Background process complete: recording_id=%s", session.recording_id)
-        except Exception as e:
-            log.exception("Background process failed: %s", e)
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-    # Fire-and-forget (strong reference kept) — Vercel timeout-аас зайлсхийнэ
-    _spawn(_process_in_background())
-
-    return {
-        "ok": True,
-        "recording_id": session.recording_id,
-        "camera_id": virtual_camera_id,
-        "size_mb": round(size_mb, 2),
-        "status": "processing",
-    }
 
 
 @app.post("/process-upload", dependencies=[Depends(require_token)])
 async def process_upload_endpoint(
     file: UploadFile = File(...),
+    requested_by: str = Form(...),
     camera_name: str = Form("Browser camera"),
     session_id: str | None = Form(None),
     chunk_index: int = Form(0),
     is_final: bool = Form(True),
 ):
-    if not face_engine or not storage:
-        raise HTTPException(503, "service not ready")
-
+    if not face_engine or not storage or not upload_store:
+        raise HTTPException(503, "Durable upload storage unavailable; retry after service recovery")
+    try:
+        owner = str(UUID(requested_by))
+        job_id = str(UUID(session_id)) if session_id else str(uuid4())
+    except ValueError:
+        raise HTTPException(400, "invalid upload identity")
     camera_name = (camera_name or "").strip()[:80] or "Browser camera"
     content_type = (file.content_type or "").lower()
     filename = (file.filename or "").lower()
     suffix = ".webm" if content_type.endswith("webm") or filename.endswith(".webm") else ".mp4"
+    # Read one byte beyond the bound; a hostile body cannot cause an unbounded
+    # in-memory read before the limit is checked.
+    limit = _UPLOAD_MAX_CHUNK_BYTES if session_id else 100 * 1024 * 1024
+    data = await file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(413, "upload too large")
+    if not session_id and not data:
+        raise HTTPException(400, "empty upload")
+    try:
+        receipt = await asyncio.to_thread(upload_store.accept, storage, job_id=job_id,
+            owner=owner, camera_name=camera_name, suffix=suffix,
+            index=chunk_index if session_id else 0, final=is_final if session_id else True, data=data)
+    except UploadConflict as exc:
+        raise HTTPException(409, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        log.warning("Upload acceptance unavailable (%s)", type(exc).__name__)
+        raise HTTPException(503, "Could not durably accept upload; retry the same session")
+    return JSONResponse(receipt, status_code=200 if receipt["status"] == "chunk_received" else 202)
 
-    data = await file.read()
-    if len(data) > _UPLOAD_MAX_CHUNK_BYTES * (1 if session_id else 16):
-        raise HTTPException(413, "chunk too large")
 
-    # ── Legacy single-shot upload ──
-    if not session_id:
-        if not data:
-            raise HTTPException(400, "empty upload")
-        fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="mongolz_upload_")
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        return _start_upload_processing(tmp_path, camera_name)
+class UploadActionReq(BaseModel):
+    requested_by: UUID
+    is_admin: bool = False
 
-    # ── Chunked session ──
-    if not _UUID_RE.match(session_id):
-        raise HTTPException(400, "invalid session_id")
-    if not (0 <= chunk_index < _UPLOAD_MAX_CHUNKS):
-        raise HTTPException(400, "invalid chunk_index")
 
-    session_dir = os.path.join(_UPLOAD_DIR, session_id)
-    os.makedirs(session_dir, exist_ok=True)
+async def _authorized_upload(job_id: str, requested_by: str, is_admin: bool):
+    if not storage:
+        raise HTTPException(503, "service not ready")
+    if not _UUID_RE.match(job_id) or not _UUID_RE.match(requested_by):
+        raise HTTPException(400, "invalid upload identity")
+    row = await asyncio.to_thread(storage.upload_job, job_id)
+    if not row or (row["requested_by"] != requested_by and not is_admin):
+        raise HTTPException(404, "upload not found")
+    return row
 
-    async with _get_upload_lock(session_id):
-        now = time.time()
-        for completed_id, (accepted_at, _) in list(_completed_uploads.items()):
-            if now - accepted_at > _UPLOAD_SESSION_TTL_SEC:
-                del _completed_uploads[completed_id]
-        if session_id in _completed_uploads:
-            # A lost final HTTP response must not start a second pipeline.
-            return _completed_uploads[session_id][1]
-        if is_final and len(_completed_uploads) >= _MAX_UPLOAD_RECEIPTS:
-            raise HTTPException(503, "upload receipt capacity reached; retry later")
-        if data:
-            part = _part_path(session_dir, chunk_index)
-            if os.path.exists(part):
-                with open(part, "rb") as previous:
-                    if previous.read() != data:
-                        raise HTTPException(409, "chunk content changed; use a new upload session")
-            tmp_part = part + ".tmp"
-            with open(tmp_part, "wb") as f:
-                f.write(data)
-            os.replace(tmp_part, part)  # atomic: a reader never sees a half-written part
-            os.utime(session_dir, None)
 
-        if not is_final:
-            return {
-                "ok": True,
-                "status": "chunk_received",
-                "session_id": session_id,
-                "chunk_index": chunk_index,
-            }
+def _upload_metadata(row: dict):
+    return {key: row.get(key) for key in ("id", "recording_id", "camera_name", "status",
+        "progress", "attempts", "error_message", "created_at", "updated_at", "completed_at")}
 
-        # Final marker: chunk_index is the last data chunk, or (when empty)
-        # the count of data chunks sent before it.
-        expected = chunk_index + (1 if data else 0)
-        if expected <= 0:
-            shutil.rmtree(session_dir, ignore_errors=True)
-            raise HTTPException(400, "empty session")
 
-        # Do not wait while holding the session lock: missing parts cannot
-        # arrive through another request until this handler releases it.
-        missing = _missing_parts(session_dir, expected)
-        if missing:
-            # Keep received parts so the caller can retry missing chunks.
-            raise HTTPException(400, f"missing chunks: {missing[:5]}")
+@app.get("/upload-jobs/{job_id}", dependencies=[Depends(require_token)])
+async def upload_job_endpoint(job_id: str, requested_by: str, is_admin: bool = False):
+    return _upload_metadata(await _authorized_upload(job_id, requested_by, is_admin))
 
-        try:
-            tmp_path = await asyncio.to_thread(_assemble_session, session_dir, expected, suffix)
-        except Exception as e:
-            log.warning("upload assembly failed for %s: %s", session_id[:8], e)
-            raise HTTPException(500, "could not assemble upload")
-        try:
-            receipt = _start_upload_processing(tmp_path, camera_name)
-        except Exception:
-            os.unlink(tmp_path)
-            raise
-        # Publish the receipt under the same lock as assembly/start.
-        _completed_uploads[session_id] = (time.time(), receipt)
-        shutil.rmtree(session_dir, ignore_errors=True)
 
-    _sweep_abandoned_uploads()
-    return receipt
+@app.post("/upload-jobs/{job_id}/cancel", dependencies=[Depends(require_token)])
+async def upload_cancel_endpoint(job_id: str, req: UploadActionReq):
+    row = await _authorized_upload(job_id, str(req.requested_by), req.is_admin)
+    if row["status"] == "cancelled":
+        return _upload_metadata(row)
+    from durable_jobs import _now
+    updated = await asyncio.to_thread(storage.update_upload_job, job_id,
+        ("queued", "processing", "failed"), status="cancelled", completed_at=_now(), error_message=None)
+    if not updated:
+        raise HTTPException(409, "Upload is committing or has already completed")
+    return _upload_metadata(updated)
+
+
+@app.post("/upload-jobs/{job_id}/retry", dependencies=[Depends(require_token)])
+async def upload_retry_endpoint(job_id: str, req: UploadActionReq):
+    await _authorized_upload(job_id, str(req.requested_by), req.is_admin)
+    if not upload_store:
+        raise HTTPException(503, "Durable input storage unavailable")
+    try:
+        available = await asyncio.to_thread(upload_store.verify, job_id)
+    except Exception:
+        available = False
+    if not available:
+        raise HTTPException(409, "Input unavailable; submit the original video again")
+    updated = await asyncio.to_thread(storage.update_upload_job, job_id, ("failed",),
+        status="queued", progress=0, attempts=0, completed_at=None, error_message=None)
+    if not updated:
+        raise HTTPException(409, "Only failed uploads can be retried")
+    return _upload_metadata(updated)
 
 
 # ── Eval endpoint ──────────────────────────────────────────────

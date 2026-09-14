@@ -1,0 +1,103 @@
+import type { Lang } from "@/lib/i18n/translations";
+
+// Copy shared by the operator workflows, kept together with their behaviour.
+const en = {
+  from: "From", to: "Through", camera: "Camera", allCameras: "All cameras",
+  apply: "Apply filters", clear: "Clear", previous: "Previous", next: "Next", page: "Page",
+  invalidFilters: "Check the dates, camera and page number.",
+  unavailable: "Could not load this information.", retry: "Try again",
+  noAccess: "Your session cannot read this information.",
+  noResults: "No results for these filters.", kst: "Dates use Asia/Seoul (UTC+9).",
+  countUnavailable: "Count unavailable", openRecording: "Open recording at this face",
+  missingRecording: "Recording unavailable or expired", candidate: "Similarity is a candidate match. Confirm it against the recording.",
+  outstanding: "Awaiting review", reviewed: "Reviewed", reviewFailed: "Review was not saved. Try again.",
+  reviewConflict: "This face was already reviewed or removed. Refresh to see the current queue.",
+  uncertain: "Uncertain", refresh: "Refresh", recording: "Recording", reveal: "Reveal", upload: "Upload",
+  all: "All", active: "Active", finished: "Finished", detail: "Details", result: "View result",
+  approval: "Open approvals", cancel: "Cancel", retryJob: "Retry processing", actionFailed: "The action failed. Refresh and try again.",
+  autoRefresh: "Active work refreshes every 5 seconds while this tab is visible.",
+  uploadAccepted: "Upload received. Processing must finish before playback is ready.",
+  jobsScope: "Uploads and reveal requests. Choose Active to see outstanding work first.",
+  waiting: "Waiting", queued: "Queued", processing: "Processing", delivering: "Saving", ready: "Ready",
+  completed: "Completed", failed: "Failed", cancelled: "Cancelled", rejected: "Rejected", capturing: "Recording", partial: "Incomplete",
+  captureNotReady: "This recording is not ready for playback. Check its processing status.",
+  checkedAt: "Checked", healthy: "Current", needsAttention: "Needs attention", unknown: "Unavailable",
+  setupIntro: "Readiness is checked now. Historical footage does not prove the current camera is working.",
+  cameraReady: "Enabled camera sending frames", cameraHint: "At least one enabled camera must have a frame heartbeat in the last 90 seconds.",
+  ingestReady: "Recent recording saved", ingestHint: "At least one enabled camera has a ready recording from the last 30 minutes.",
+  faceReady: "Recent face processing", faceHint: "A face from the last 30 minutes confirms detection. A quiet scene may have no faces.",
+  depsReady: "Database and processing service reachable", depsHint: "This checks service reachability; open a recent recording to verify playback.",
+  openRecent: "Open latest ready recording", playbackUnverified: "Playback still needs a visual check; service health alone does not verify video.",
+  watchlistOptional: "Watchlist is optional when only recording is required.", lastSeen: "Latest evidence",
+  setupError: "Some readiness checks could not be read. Refresh after restoring the connection.",
+};
+type Copy = typeof en;
+
+const mn: Copy = {
+  from: "Эхлэх огноо", to: "Дуусах огноо", camera: "Камер", allCameras: "Бүх камер",
+  apply: "Шүүх", clear: "Цэвэрлэх", previous: "Өмнөх", next: "Дараах", page: "Хуудас",
+  invalidFilters: "Огноо, камер болон хуудасны дугаараа шалгана уу.",
+  unavailable: "Мэдээллийг уншиж чадсангүй.", retry: "Дахин оролдох",
+  noAccess: "Энэ мэдээллийг унших эрх сессэд алга.",
+  noResults: "Энэ шүүлтүүрт тохирох үр дүн алга.", kst: "Огноо: Asia/Seoul (UTC+9).",
+  countUnavailable: "Тоо тодорхойгүй", openRecording: "Нүүр илэрсэн мөчийг нээх",
+  missingRecording: "Бичлэг байхгүй эсвэл хугацаа дууссан", candidate: "Төстэй байдал нь боломжит тохирол. Бичлэгтэй тулгаж баталгаажуулна уу.",
+  outstanding: "Шалгаагүй", reviewed: "Шалгасан", reviewFailed: "Шалгалт хадгалагдсангүй. Дахин оролдоно уу.",
+  reviewConflict: "Энэ нүүрийг аль хэдийн шалгасан эсвэл устгасан байна. Жагсаалтаа шинэчилнэ үү.",
+  uncertain: "Тодорхойгүй", refresh: "Шинэчлэх", recording: "Бичлэг", reveal: "Нүүр тайлах", upload: "Файл илгээх",
+  all: "Бүгд", active: "Хүлээгдэж буй", finished: "Дууссан", detail: "Дэлгэрэнгүй", result: "Үр дүнг үзэх",
+  approval: "Зөвшөөрөл шалгах", cancel: "Цуцлах", retryJob: "Дахин боловсруулах", actionFailed: "Үйлдэл амжилтгүй. Шинэчлээд дахин оролдоно уу.",
+  autoRefresh: "Энэ цонх нээлттэй үед хүлээгдэж буй ажил 5 секунд тутам шинэчлэгдэнэ.",
+  uploadAccepted: "Файл хүлээн авсан. Боловсруулалт дууссаны дараа бичлэг үзэхэд бэлэн болно.",
+  jobsScope: "Файл илгээлт болон нүүр тайлах хүсэлтүүд. Хүлээгдэж буй ажлыг тусад нь шүүж болно.",
+  waiting: "Зөвшөөрөл хүлээж буй", queued: "Дараалалд", processing: "Боловсруулж буй", delivering: "Хадгалж буй", ready: "Бэлэн",
+  completed: "Дууссан", failed: "Алдаатай", cancelled: "Цуцлагдсан", rejected: "Татгалзсан", capturing: "Бичиж буй", partial: "Дутуу",
+  captureNotReady: "Бичлэг үзэхэд бэлэн болоогүй байна. Боловсруулалтын төлөвийг шалгана уу.",
+  checkedAt: "Шалгасан", healthy: "Хэвийн", needsAttention: "Анхаарах", unknown: "Тодорхойгүй",
+  setupIntro: "Бэлэн байдлыг одоо шалгаж байна. Хуучин бичлэг байгаа нь камер одоо ажиллаж байгааг батлахгүй.",
+  cameraReady: "Идэвхтэй камераас дүрс ирж байна", cameraHint: "Нэгээс доошгүй идэвхтэй камер сүүлийн 90 секундэд дүрс ирснийг мэдээлсэн байх ёстой.",
+  ingestReady: "Сүүлийн бичлэг хадгалагдсан", ingestHint: "Идэвхтэй камераас сүүлийн 30 минутад бэлэн бичлэг үүссэн байх ёстой.",
+  faceReady: "Сүүлийн нүүр илрүүлэлт", faceHint: "Сүүлийн 30 минутын нүүр илрүүлэлт боловсруулалтыг батална. Хүнгүй орчинд нүүр илрэхгүй байж болно.",
+  depsReady: "Өгөгдлийн сан, боловсруулалтын үйлчилгээ холбогдсон", depsHint: "Үйлчилгээний холболтыг шалгана. Сүүлийн бичлэгээ нээж дүрсийг давхар шалгана уу.",
+  openRecent: "Сүүлийн бэлэн бичлэгийг нээх", playbackUnverified: "Playback-ийг дүрсээр нь шалгах шаардлагатай. Үйлчилгээний төлөв дангаараа бичлэг тоглохыг батлахгүй.",
+  watchlistOptional: "Зөвхөн бичлэг хийх бол ажиглалтын жагсаалт заавал шаардлагагүй.", lastSeen: "Сүүлийн мэдээлэл",
+  setupError: "Зарим шалгалтын мэдээллийг уншсангүй. Холболтыг сэргээгээд шинэчилнэ үү.",
+};
+
+const kr: Copy = {
+  from: "시작일", to: "종료일", camera: "카메라", allCameras: "모든 카메라",
+  apply: "필터 적용", clear: "초기화", previous: "이전", next: "다음", page: "페이지",
+  invalidFilters: "날짜, 카메라와 페이지 번호를 확인하세요.",
+  unavailable: "정보를 불러오지 못했습니다.", retry: "다시 시도",
+  noAccess: "이 세션에는 정보를 읽을 권한이 없습니다.",
+  noResults: "필터에 맞는 결과가 없습니다.", kst: "날짜 기준: Asia/Seoul (UTC+9).",
+  countUnavailable: "집계 불가", openRecording: "이 얼굴이 나타난 시점 열기",
+  missingRecording: "녹화가 없거나 만료되었습니다", candidate: "유사도는 후보 일치입니다. 녹화와 비교하여 확인하세요.",
+  outstanding: "검토 대기", reviewed: "검토 완료", reviewFailed: "검토를 저장하지 못했습니다. 다시 시도하세요.",
+  reviewConflict: "이미 검토되었거나 삭제된 얼굴입니다. 목록을 새로 고치세요.",
+  uncertain: "불확실", refresh: "새로 고침", recording: "녹화", reveal: "얼굴 공개", upload: "업로드",
+  all: "전체", active: "진행 중", finished: "종료됨", detail: "상세", result: "결과 보기",
+  approval: "승인 요청 열기", cancel: "취소", retryJob: "처리 재시도", actionFailed: "작업이 실패했습니다. 새로 고친 후 다시 시도하세요.",
+  autoRefresh: "이 탭이 보이는 동안 진행 중인 작업이 5초마다 갱신됩니다.",
+  uploadAccepted: "업로드를 받았습니다. 처리가 완료되어야 재생할 수 있습니다.",
+  jobsScope: "업로드 및 얼굴 공개 요청입니다. 진행 중 필터로 미완료 작업을 먼저 확인하세요.",
+  waiting: "승인 대기", queued: "대기열", processing: "처리 중", delivering: "저장 중", ready: "준비 완료",
+  completed: "완료", failed: "실패", cancelled: "취소됨", rejected: "거절됨", capturing: "녹화 중", partial: "불완전",
+  captureNotReady: "아직 재생할 수 없는 녹화입니다. 처리 상태를 확인하세요.",
+  checkedAt: "확인 시각", healthy: "정상", needsAttention: "확인 필요", unknown: "확인 불가",
+  setupIntro: "현재 준비 상태를 확인합니다. 과거 녹화가 있다는 사실만으로 현재 카메라 작동이 확인되지는 않습니다.",
+  cameraReady: "활성 카메라에서 프레임 수신", cameraHint: "활성 카메라 한 대 이상이 최근 90초 내 프레임 수신을 보고해야 합니다.",
+  ingestReady: "최근 녹화 저장", ingestHint: "활성 카메라에서 최근 30분 내 준비 완료된 녹화가 있어야 합니다.",
+  faceReady: "최근 얼굴 처리", faceHint: "최근 30분 내 얼굴 검출로 처리를 확인합니다. 사람이 없는 장면에서는 검출이 없을 수 있습니다.",
+  depsReady: "데이터베이스 및 처리 서비스 연결", depsHint: "서비스 연결을 확인합니다. 최근 녹화를 열어 재생도 확인하세요.",
+  openRecent: "최근 준비 완료 녹화 열기", playbackUnverified: "영상 재생은 직접 확인해야 합니다. 서비스 상태만으로 재생을 보장하지 않습니다.",
+  watchlistOptional: "녹화만 필요하다면 관심 인물 목록은 선택 사항입니다.", lastSeen: "최근 확인 자료",
+  setupError: "일부 준비 상태 정보를 읽지 못했습니다. 연결 복구 후 새로 고치세요.",
+};
+
+export function workflowCopy(lang: Lang): Copy { return { mn, en, kr }[lang]; }
+export function workflowStatus(status: string, lang: Lang): string {
+  const c = workflowCopy(lang);
+  if (status === "pending_approval") return c.waiting;
+  return status in c ? c[status as keyof Copy] : status;
+}

@@ -15,7 +15,7 @@ Blurred recording-аас тодорхой нэг (эсвэл олон) хүни�
      b. Тус бүрийн cosine similarity-г target ХЭЛЭХ embedding-тэй харьцуулна
         - max(sim) >= threshold → ENERGI HARUUL (original face үлдээх)
         - max(sim) <  threshold → BLUR (Gaussian)
-  4. Шинэ MP4 → Storage `revealed/<job_id>.mp4`
+  4. Шинэ MP4 → Storage `revealed/<job_id>/<lease_token>.mp4`
   5. reveal_jobs.status='completed', output_path=...
 """
 
@@ -27,6 +27,8 @@ import logging
 import os
 import subprocess
 import tempfile
+import threading
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -42,6 +44,14 @@ from view_renderer import abort_encoder, finish_encoder, verify_rendered_video
 # x264) and shares the box with live recording. Everything blocking runs in
 # a worker thread so HTTP handlers and camera loops stay responsive.
 _REVEAL_SLOTS = asyncio.Semaphore(1)
+# Context is copied into render threads. Every DB write is fenced by the
+# attempt token; losing the lease also interrupts the frame loop promptly.
+_LEASE: ContextVar[tuple[str, threading.Event] | None] = ContextVar("reveal_lease", default=None)
+_HEARTBEAT_SECONDS = 20
+
+
+class RevealLeaseLost(RuntimeError):
+    pass
 
 if TYPE_CHECKING:
     from face_engine import FaceEngine
@@ -81,22 +91,48 @@ class RevealProcessor:
         self.storage = storage
 
     async def run(self, job_id: str):
-        """Reveal job-ыг ажиллуулна. Алдаа гарвал DB-д бичигдэнэ."""
         if not self.storage.client:
-            log.error("Storage хэрэгсэлгүй — reveal алгасъя")
             return
         async with _REVEAL_SLOTS:
             try:
+                token = await asyncio.to_thread(self._claim, job_id)
+            except Exception as exc:
+                # No ownership means no failure write. The reconciler retries
+                # persisted queued work after the database becomes available.
+                log.warning("Reveal claim unavailable (%s)", type(exc).__name__)
+                return
+            if not token:
+                return
+            lost = threading.Event()
+            context = _LEASE.set((token, lost))
+            heartbeat = asyncio.create_task(self._heartbeat(job_id, lost))
+            try:
                 await self._run(job_id)
-            except Exception as e:  # noqa: BLE001 — never leave a job silently stuck
+            except RevealLeaseLost:
+                log.warning("Reveal %s lease lost; newer attempt owns the outcome", job_id)
+            except Exception as exc:
                 log.exception("Reveal job %s crashed", job_id)
-                await self._fail(job_id, f"Дотоод алдаа: {type(e).__name__}")
+                await self._fail(job_id, f"Дотоод алдаа: {type(exc).__name__}")
+            finally:
+                lost.set()
+                heartbeat.cancel()
+                await asyncio.gather(heartbeat, return_exceptions=True)
+                _LEASE.reset(context)
+
+    async def _heartbeat(self, job_id: str, lost: threading.Event):
+        while not lost.is_set():
+            await asyncio.sleep(_HEARTBEAT_SECONDS)
+            if not await self._update(job_id):
+                # A network outage cannot prove ownership. Stop rendering and
+                # let the expiry/claim transaction decide the next attempt.
+                lost.set()
+                return
 
     async def _run(self, job_id: str):
         # 1. Job-ийг авах — олдоогүй тохиолдолд PostgREST 406 алдаа гаргахгүй
         # маяг try-catch + .maybe_single()-аар бэлэн.
         try:
-            job_res = (
+            job_res = await asyncio.to_thread(lambda:
                 self.storage.client.table("reveal_jobs")
                 .select("*, recordings(filename, storage_path, camera_id)")
                 .eq("id", job_id)
@@ -126,8 +162,9 @@ class RevealProcessor:
         # The Next.js trigger only fires for queued jobs today, but if a job is
         # still awaiting a second admin (pending_approval) or was rejected,
         # refuse it here so a stray /reveal/run call can't bypass approval.
-        status = (job.get("status") or "queued")
-        if status != "queued":
+        status = job.get("status")
+        lease = _LEASE.get()
+        if not lease or status != "processing" or job.get("worker_lease_token") != lease[0]:
             # pending_approval / rejected: not cleared to run (4-eyes, ADR
             # 0003). processing: another run owns it. completed / failed:
             # terminal. A stray or duplicated /reveal/run call is a no-op.
@@ -144,7 +181,7 @@ class RevealProcessor:
         # privacy-promise-ийг бодит болгох loop closure.
         camera_id_for_zones = recording.get("camera_id") if recording else None
         try:
-            privacy_zones = self._load_privacy_zones(camera_id_for_zones)
+            privacy_zones = await asyncio.to_thread(self._load_privacy_zones, camera_id_for_zones)
         except RuntimeError:
             await self._fail(job_id, "Privacy rules unavailable; retry after restoring the database connection")
             return
@@ -184,7 +221,7 @@ class RevealProcessor:
 
         try:
             if reveal_level > 0:
-                target_embeddings = self._collect_targets_sealed(job, rec_uuid, reveal_level)
+                target_embeddings = await asyncio.to_thread(self._collect_targets_sealed, job, rec_uuid, reveal_level)
                 if not target_embeddings:
                     await self._fail(
                         job_id,
@@ -193,7 +230,7 @@ class RevealProcessor:
                     )
                     return
             else:
-                target_embeddings = self._collect_targets(job)
+                target_embeddings = await asyncio.to_thread(self._collect_targets, job)
         except RevealDataError:
             # DB алдааг "эрхгүй" / "target алга" гэж харуулбал админ буруу
             # дүгнэлт хийнэ — шалтгааныг нь шууд хэлнэ.
@@ -211,13 +248,6 @@ class RevealProcessor:
             "Reveal job %s — %d target(s), threshold=%.2f",
             job_id, len(target_embeddings), threshold,
         )
-
-        # Compare-and-set queued → processing: two overlapping /reveal/run
-        # calls for the same job must not both decrypt + render.
-        claimed = await asyncio.to_thread(self._claim, job_id)
-        if not claimed:
-            log.warning("Reveal job %s already claimed by another run", job_id)
-            return
 
         # 2. Original MP4-ыг татаж local-руу
         with tempfile.TemporaryDirectory() as tmp:
@@ -281,6 +311,8 @@ class RevealProcessor:
                     target_end_sec=target_end_sec,
                     privacy_zones=privacy_zones,
                 )
+            except RevealLeaseLost:
+                raise
             except RevealRenderError as e:
                 # Encoder died / output truncated. NOTHING is uploaded and the
                 # job is failed with a reason the reveal modal can render.
@@ -295,7 +327,10 @@ class RevealProcessor:
             # 4. Result-г Storage-руу upload. `_process_video` аль хэдийн
             # файлыг нээж, frame тоог шалгасан — өөрөөр хэлбэл энд зөвхөн
             # бүрэн бүтэн artifact ирнэ.
-            output_path = f"{job_id}.mp4"
+            lease = _LEASE.get()
+            if not lease or lease[1].is_set() or not await self._update(job_id):
+                raise RevealLeaseLost("Ownership expired before upload")
+            output_path = f"{job_id}/{lease[0]}.mp4"
             try:
                 def _upload() -> None:
                     with open(output_mp4, "rb") as f:
@@ -326,14 +361,17 @@ class RevealProcessor:
                 completed_at=self._now(),
             )
             if not completed:
-                # The artifact exists but the row still says `processing`; the
-                # startup sweep will fail it and the requester resubmits. Loud
-                # log so the mismatch is diagnosable rather than mysterious.
-                log.error(
-                    "Reveal job %s: artifact uploaded (revealed/%s) but the status "
-                    "update failed — job row left in-flight",
-                    job_id, output_path,
-                )
+                # Remove only this attempt's unreferenced artifact. On an
+                # ambiguous DB/network error retain it: the commit might have
+                # succeeded, and deleting then would break an authorized URL.
+                try:
+                    current = await asyncio.to_thread(lambda: self.storage.client.table("reveal_jobs")
+                        .select("status,output_path").eq("id", job_id).maybe_single().execute())
+                    row = current.data if current else None
+                    if row and row.get("output_path") != output_path:
+                        await asyncio.to_thread(lambda: self.storage.client.storage.from_("revealed").remove([output_path]))
+                except Exception:
+                    log.warning("Reveal %s attempt cleanup deferred", job_id)
                 return
             log.info("✓ Reveal job %s completed → revealed/%s (%ds)", job_id, output_path, duration)
 
@@ -661,15 +699,22 @@ class RevealProcessor:
                     ) from exc
 
                 frame_idx += 1
+                lease = _LEASE.get()
+                if lease and lease[1].is_set():
+                    raise RevealLeaseLost("Worker lease expired")
                 # Progress update (DB). Cosmetic — a failed write must not
                 # abort the render, but stays visible in the log.
                 if total_frames and frame_idx - last_progress_update >= progress_step:
                     pct = min(95, int(5 + 90 * frame_idx / total_frames))
                     try:
-                        self.storage.client.table("reveal_jobs").update(
-                            {"progress": pct}
-                        ).eq("id", job_id).execute()
+                        if lease and not self._update_owned(job_id, {"progress": pct}):
+                            lease[1].set()
+                            raise RevealLeaseLost("Worker lease expired")
+                    except RevealLeaseLost:
+                        raise
                     except Exception as e:  # noqa: BLE001
+                        # Heartbeat provides the authoritative bound when a
+                        # cosmetic progress request experiences a transient error.
                         log.debug("Reveal %s: progress update skipped: %s", job_id, e)
                     last_progress_update = frame_idx
 
@@ -927,61 +972,31 @@ class RevealProcessor:
             return data.get("original_path")
         return None
 
-    def _claim(self, job_id: str) -> bool:
-        """queued → processing, only if still queued (returns False otherwise)."""
-        res = (
-            self.storage.client.table("reveal_jobs")
-            .update({"status": "processing", "started_at": self._now(), "progress": 5})
-            .eq("id", job_id)
-            .eq("status", "queued")
-            .execute()
-        )
-        return bool(res.data)
+    def _claim(self, job_id: str) -> str | None:
+        response = self.storage.client.rpc("claim_reveal_job", {"p_job_id": job_id}).execute()
+        return response.data or None
+
+    def _update_owned(self, job_id: str, fields: dict) -> bool:
+        lease = _LEASE.get()
+        if not lease or lease[1].is_set():
+            return False
+        result = self.storage.client.rpc("update_reveal_job_lease", {
+            "p_job_id": job_id, "p_token": lease[0], "p_fields": fields,
+        }).execute()
+        return result.data is True
 
     async def _update(self, job_id: str, **fields) -> bool:
-        """Write job fields. Returns False when the write did not land, so a
-        caller can tell "job marked completed" from "we think it is"."""
         try:
-            await asyncio.to_thread(
-                lambda: self.storage.client.table("reveal_jobs")
-                .update(fields)
-                .eq("id", job_id)
-                .execute()
-            )
-            return True
-        except Exception as e:
-            log.error("Job %s update failed (%s): %s", job_id, ",".join(fields), e)
+            return await asyncio.to_thread(self._update_owned, job_id, fields)
+        except Exception as exc:
+            log.warning("Reveal %s update unavailable (%s)", job_id, type(exc).__name__)
             return False
 
-    async def _fail(
-        self, job_id: str, msg: str, only_statuses: tuple[str, ...] | None = None
-    ) -> bool:
-        """Mark the job failed with a message the reveal modal shows verbatim.
-
-        `only_statuses` guards the one path that fails a job whose status we
-        could not read: a transient read error must not stomp a job that is
-        still `pending_approval` (4-eyes) into `failed`.
-        """
+    async def _fail(self, job_id: str, msg: str, only_statuses=None) -> bool:
+        # Kept signature-compatible for callers; token ownership is stronger
+        # than a status filter and is required for every failure write.
         log.error("Job %s failed: %s", job_id, msg)
-        fields = {
-            "status": "failed",
-            "error_message": msg,
-            "completed_at": self._now(),
-        }
-        if only_statuses is None:
-            return await self._update(job_id, **fields)
-        try:
-            await asyncio.to_thread(
-                lambda: self.storage.client.table("reveal_jobs")
-                .update(fields)
-                .eq("id", job_id)
-                .in_("status", list(only_statuses))
-                .execute()
-            )
-            return True
-        except Exception as e:
-            log.error("Job %s fail-marking failed: %s", job_id, e)
-            return False
+        return await self._update(job_id, status="failed", error_message=msg)
 
     @staticmethod
     def _now() -> str:

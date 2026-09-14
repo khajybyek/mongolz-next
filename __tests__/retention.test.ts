@@ -12,6 +12,7 @@ function mockClient(batches: Item[][], remove = jest.fn(async (paths: string[]) 
 }))) {
   const rpc = jest.fn(async (name: string, args?: { p_ids: string[] }) => {
     if (name === "sweep_retention") return { data: { reveal_outputs: 1 }, error: null };
+    if (name === "retention_queue_health") return { data: { pending: batches.reduce((n,b) => n+b.length,0), failed: 0, oldest_created_at: null }, error: null };
     if (name === "claim_retention_deletions") return { data: batches.shift() ?? [], error: null };
     if (name === "settle_retention_deletions") return { data: args?.p_ids.length ?? 0, error: null };
     throw new Error(`Unexpected RPC ${name}`);
@@ -40,6 +41,7 @@ describe("durable retention worker", () => {
     expect(state.rpc).toHaveBeenCalledWith("settle_retention_deletions", {
       p_ids: ["output"], p_lease_token: "lease-1", p_error: "Storage offline",
     });
+    expect(result.status).toBe("degraded");
     expect(result.objects.revealed).toMatchObject({ removed: 0, error: "Storage offline" });
     expect(result.objects.faces.removed).toBe(1);
   });
@@ -82,7 +84,16 @@ describe("durable retention worker", () => {
 
   it("bounds one invocation while leaving remaining work durably queued", async () => {
     const state = mockClient(Array.from({ length: 5 }, (_, n) => [item(`object-${n}`)]));
-    await runRetentionSweep(state.client);
+    const result = await runRetentionSweep(state.client, { maxBatches: 4 });
+    expect(result.status).toBe("pending");
     expect(state.remove).toHaveBeenCalledTimes(4);
   });
+});
+
+it("drains a backlog larger than 1000 objects in one bounded invocation", async () => {
+  const state = mockClient(Array.from({ length: 6 }, (_, batch) => Array.from({ length: 250 }, (_, i) => item(`${batch}-${i}`))));
+  const result = await runRetentionSweep(state.client);
+  expect(result.status).toBe("ok");
+  expect(result.objects.revealed.removed).toBe(1500);
+  expect(result.queue.pending).toBe(0);
 });

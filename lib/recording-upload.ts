@@ -4,6 +4,13 @@ export interface RecordingChunk {
   final: boolean;
 }
 
+/** Durable upload manifests reject a recording once its combined parts exceed this size. */
+export const MAX_RECORDING_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+export function isRecordingUploadSizeAllowed(size: number): boolean {
+  return Number.isSafeInteger(size) && size >= 0 && size <= MAX_RECORDING_UPLOAD_BYTES;
+}
+
 /** Keep unacknowledged bytes until a retry succeeds, always in index order. */
 export class RecordingUploadQueue {
   private pending: RecordingChunk[] = [];
@@ -67,6 +74,21 @@ export function isUploadAcknowledged(body: unknown, final: boolean): boolean {
   if (!body || typeof body !== "object") return false;
   const data = body as Record<string, unknown>;
   return data.ok === true && (final
-    ? data.status === "processing" && typeof data.recording_id === "string" && data.recording_id.length > 0
+    ? isUploadJobStatus(data.status) && isJobId(data.recording_id) && isJobId(data.job_id)
     : data.status === "chunk_received");
 }
+
+export const UPLOAD_JOB_STATUSES = ["queued", "processing", "delivering", "ready", "failed", "cancelled"] as const;
+export type UploadJobStatus = typeof UPLOAD_JOB_STATUSES[number];
+export function isUploadJobStatus(status: unknown): status is UploadJobStatus {
+  return typeof status === "string" && (UPLOAD_JOB_STATUSES as readonly string[]).includes(status);
+}
+function isJobId(id: unknown): id is string {
+  return typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+export function isActiveUpload(status: string): boolean { return ["queued", "processing", "delivering"].includes(status); }
+export function canCancelUpload(status: string): boolean { return ["queued", "processing", "failed"].includes(status); }
+export type UploadJob = {
+  id: string; recording_id: string; camera_name: string; status: UploadJobStatus; progress: number;
+  error_message: string | null; attempts: number; created_at: string; updated_at: string; completed_at: string | null;
+};

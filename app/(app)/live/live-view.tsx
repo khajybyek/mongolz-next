@@ -17,7 +17,13 @@ import { startCameraAction, stopCameraAction, getStreamTicketAction, type StartC
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
 import type { TranslationKey } from "@/lib/i18n/translations";
-import { isUploadAcknowledged, RecordingUploadQueue } from "@/lib/recording-upload";
+import {
+  isRecordingUploadSizeAllowed,
+  isUploadAcknowledged,
+  RecordingUploadQueue,
+} from "@/lib/recording-upload";
+import { UploadJobPanel } from "@/components/upload-job-panel";
+import { workflowCopy } from "@/lib/workflow-copy";
 
 interface Camera {
   id: string;
@@ -134,6 +140,7 @@ function DeviceCameraView({ onBusyChange }: { onBusyChange: (busy: boolean) => v
   const uploadStartRef = useRef<number>(0);
   const [elapsed, setElapsed] = useState(0);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [uploadJobId, setUploadJobId] = useState<string | null>(null);
 
   const hasUnsavedRecording = recording || uploading || failedUpload;
   useEffect(() => {
@@ -438,6 +445,7 @@ function DeviceCameraView({ onBusyChange }: { onBusyChange: (busy: boolean) => v
     if (!isUploadAcknowledged(receipt, isFinal)) {
       throw new Error(t("live_upload_unconfirmed"));
     }
+    if (isFinal) setUploadJobId((receipt as { job_id: string }).job_id);
   }
 
   async function retryUpload() {
@@ -601,6 +609,7 @@ function DeviceCameraView({ onBusyChange }: { onBusyChange: (busy: boolean) => v
           </div>
         )}
 
+        {uploadJobId && <UploadJobPanel key={uploadJobId} jobId={uploadJobId} />}
         <p className="text-2xs text-text-muted leading-relaxed">💡 {t("live_recording_hint")}</p>
       </div>
     </div>
@@ -855,7 +864,8 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
 //    (жишээ нь Dahua/RTSP-аас ffmpeg-ээр бичсэн файл, эсвэл утасны бичлэг)
 // ────────────────────────────────────────────────────
 function FileUploadView() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const c = workflowCopy(lang);
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -863,12 +873,19 @@ function FileUploadView() {
   const [chunksTotal, setChunksTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [uploadJobId, setUploadJobId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const fileTooLarge = Boolean(file && !isRecordingUploadSizeAllowed(file.size));
 
   async function upload() {
     if (!file) return;
+    if (!isRecordingUploadSizeAllowed(file.size)) {
+      setError(t("live_file_too_big"));
+      return;
+    }
     setError(null);
     setSavedMsg(null);
+    setUploadJobId(null);
     setUploading(true);
     setProgress(0);
 
@@ -926,13 +943,16 @@ function FileUploadView() {
           }
           throw new Error(`Chunk ${i + 1}/${total}: ${msg}`);
         }
+        const receipt: unknown = await res.json().catch(() => null);
+        if (!isUploadAcknowledged(receipt, isFinal)) throw new Error(t("live_upload_unconfirmed"));
+        if (isFinal) setUploadJobId((receipt as { job_id: string }).job_id);
         setChunksDone(i + 1);
         setProgress(Math.round(((i + 1) / total) * 100));
       }
 
       const sizeMB = (file.size / 1024 / 1024).toFixed(1);
       setSavedMsg(
-        `✓ ${file.name} (${sizeMB} MB · ${total} chunks) — ${t("live_upload_done")} ${t("live_upload_done_hint")}`,
+        `${file.name} (${sizeMB} MB) — ${c.uploadAccepted}`,
       );
       setFile(null);
       if (inputRef.current) inputRef.current.value = "";
@@ -967,7 +987,7 @@ function FileUploadView() {
           onChange={(e) => {
             const f = e.target.files?.[0] ?? null;
             setFile(f);
-            setError(null);
+            setError(f && !isRecordingUploadSizeAllowed(f.size) ? t("live_file_too_big") : null);
             setSavedMsg(null);
           }}
           className="input file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:bg-accent/15 file:text-accent file:font-medium hover:file:bg-accent/25 file:cursor-pointer"
@@ -1020,7 +1040,7 @@ function FileUploadView() {
 
       <button
         type="button"
-        disabled={!file || uploading}
+        disabled={!file || fileTooLarge || uploading}
         onClick={upload}
         className="btn-primary w-full"
       >
@@ -1042,6 +1062,7 @@ function FileUploadView() {
           {savedMsg}
         </div>
       )}
+      {uploadJobId && <UploadJobPanel key={uploadJobId} jobId={uploadJobId} />}
 
       {error && (
         <div className="rounded-md bg-danger-soft border border-danger/30 text-danger text-sm p-3 flex items-start gap-2">

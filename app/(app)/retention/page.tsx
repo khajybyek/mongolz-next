@@ -1,3 +1,4 @@
+import { readRetentionQueueHealth } from "@/lib/retention";
 import { Calendar, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAdmin } from "@/lib/supabase/auth";
@@ -28,7 +29,7 @@ const LABELS: Record<string, { key: TranslationKey; warn?: boolean }> = {
 
 export default async function RetentionPage() {
   await requireAdmin();
-  const { t } = await getT();
+  const { t, lang } = await getT();
   const svc = createServiceClient();
   const { data } = await svc
     .from("retention_policies")
@@ -36,11 +37,25 @@ export default async function RetentionPage() {
     .order("resource");
 
   const policies = (data ?? []) as Policy[];
+  const queue = await readRetentionQueueHealth(svc).catch(() => null);
+  const copy = {
+    mn: { title: "Storage устгалын дараалал", pending: "Хүлээгдсэн", failed: "Дахин оролдох алдаатай", oldest: "Хамгийн хуучин", unavailable: "Устгалын төлөвийг шалгаж чадсангүй.", retry: "Үлдсэн ажлыг background worker дахин оролдоно. Мөр устсан нь файл устсаны баталгаа биш." },
+    en: { title: "Storage deletion queue", pending: "Pending", failed: "Failed, awaiting retry", oldest: "Oldest", unavailable: "Deletion queue health unavailable.", retry: "The background worker retries outstanding work. A deleted row does not prove its file was removed." },
+    kr: { title: "스토리지 삭제 대기열", pending: "대기 중", failed: "실패, 재시도 대기", oldest: "가장 오래된 항목", unavailable: "삭제 대기열 상태를 확인할 수 없습니다.", retry: "백그라운드 작업자가 남은 항목을 재시도합니다. 행 삭제가 파일 삭제를 증명하지는 않습니다." },
+  }[lang];
 
   return (
     <>
       <PageHeader title={t("retention_title")} subtitle={t("retention_subtitle")} />
 
+      <section className="card mt-4 space-y-2" aria-label={copy.title}>
+        <h2 className="section-title">{copy.title}</h2>
+        {queue ? <>
+          <p className={queue.failed ? "text-warning" : "text-text-soft"}>{copy.pending}: {queue.pending} · {copy.failed}: {queue.failed}</p>
+          {queue.oldest_created_at && <p className="text-xs">{copy.oldest}: {formatDate(queue.oldest_created_at)}</p>}
+          {queue.pending > 0 && <p className="helper">{copy.retry}</p>}
+        </> : <p role="alert" className="text-danger">{copy.unavailable}</p>}
+      </section>
       <form action={runSweepAction} className="mt-3 mb-6">
         <button type="submit" className="btn-secondary">
           <RefreshCw className="w-3.5 h-3.5" />

@@ -3,6 +3,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { authorizeCron } from "@/lib/auth/cron";
 import { runRetentionSweep } from "@/lib/retention";
 
+export const maxDuration = 60;
+
 /**
  * Daily retention sweep (04:00 UTC ≈ 13:00 KST).
  * Deletes expired rows via public.sweep_retention() and then removes the
@@ -15,7 +17,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const swept = await runRetentionSweep(createServiceClient());
-    return NextResponse.json({ status: "ok", swept });
+    return NextResponse.json({ status: swept.status, swept }, { status: swept.status === "degraded" ? 503 : swept.status === "pending" ? 202 : 200 });
   } catch (e) {
     console.error("[retention-sweep]", e instanceof Error ? e.message : e);
     return NextResponse.json({ error: "sweep failed" }, { status: 500 });

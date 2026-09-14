@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
-import { isUploadAcknowledged } from "@/lib/recording-upload";
+import { isRecordingUploadSizeAllowed, isUploadAcknowledged } from "@/lib/recording-upload";
 
 export const runtime = "nodejs";
 // Vercel Hobby tier caps function duration at 60 s; any larger value
@@ -42,11 +42,11 @@ export async function POST(request: NextRequest) {
   }
 
   // Хэт том файл шалгах
-  if (file.size > 100 * 1024 * 1024) {
+  if (!isRecordingUploadSizeAllowed(file.size)) {
     return NextResponse.json(
       {
         error:
-          "Файл хэтэрхий том (100MB-аас бага байх ёстой). Урт бичлэг бол IP CCTV ашиглана уу.",
+          "Файл хэтэрхий том (100 MB эсвэл бага байх ёстой). Урт бичлэг бол IP CCTV ашиглана уу.",
       },
       { status: 413 }
     );
@@ -76,6 +76,8 @@ export async function POST(request: NextRequest) {
   const mlForm = new FormData();
   mlForm.append("file", file, file.name || "recording");
   mlForm.append("camera_name", cameraName.slice(0, 80));
+  // Never trust an ownership field supplied by a browser form.
+  mlForm.append("requested_by", auth.user.id);
   if (isChunk) {
     mlForm.append("session_id", String(sessionId));
     mlForm.append("chunk_index", String(chunkIndex));
@@ -109,12 +111,13 @@ export async function POST(request: NextRequest) {
       ok: true,
       status: data.status,
       recording_id: data.recording_id ?? null,
+      job_id: data.job_id ?? null,
       camera_id: data.camera_id ?? null,
       size_mb: data.size_mb ?? null,
       session_id: isChunk ? sessionId : undefined,
       chunk_index: chunkIndex,
       is_final: isFinal,
-    });
+    }, { status: !isChunk || isFinal ? 202 : 200, headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     return NextResponse.json(
       {

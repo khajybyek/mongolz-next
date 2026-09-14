@@ -6,6 +6,8 @@ import { FaceThumb } from "@/components/face-thumb";
 import { Empty } from "@/components/ui/empty";
 import { formatDate } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
+import { recordingFaceHref } from "@/lib/workflow-query";
+import { workflowCopy } from "@/lib/workflow-copy";
 
 interface Match {
   id: string;
@@ -15,11 +17,13 @@ interface Match {
   detected_at: string;
   similarity: number;
   recording_filename: string | null;
+  recording_id: string | null;
   camera_name: string | null;
 }
 
 export function SearchForm() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const copy = workflowCopy(lang);
   const [file, setFile] = useState<File | null>(null);
   const [matches, setMatches] = useState<Match[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -77,6 +81,7 @@ export function SearchForm() {
           <h2 className="section-title mb-3">
             {`${matches.length} ${t("search_matches_suffix")}`}
           </h2>
+          <p className="text-xs text-text-muted mb-3">{copy.candidate}</p>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {matches.map((m) => {
               const pct = Math.round(m.similarity * 100);
@@ -114,6 +119,7 @@ export function SearchForm() {
                       </div>
                     )}
                   </div>
+                  {recordingFaceHref(m.recording_id, m.id) ? <a className="btn-secondary btn-sm w-full" href={recordingFaceHref(m.recording_id, m.id)!}>{copy.openRecording}</a> : <p className="text-xs text-text-muted">{copy.missingRecording}</p>}
                 </div>
               );
             })}

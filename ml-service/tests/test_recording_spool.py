@@ -5,10 +5,13 @@ import asyncio
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+import cv2
+import numpy as np
 
 import crypto_utils
 import recording_pipeline as pipeline
@@ -16,8 +19,21 @@ import recording_spool as spool_module
 from recording_spool import RecordingSpool
 from storage import SupabaseStorage
 
-ORIGINAL = b"private original video frame" * 100
-PLAYBACK = b"masked playback video frame" * 100
+def _video_bytes(shade):
+    # The delivery tests also cross capture validation. Use actual decodable
+    # media so outage replay can never regress to accepting arbitrary bytes.
+    with tempfile.TemporaryDirectory() as directory:
+        path = str(Path(directory) / "video.mp4")
+        writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*"mp4v"), 15, (64, 48))
+        assert writer.isOpened()
+        for i in range(45):
+            writer.write(np.full((48, 64, 3), (shade + i) % 255, dtype=np.uint8))
+        writer.release()
+        return Path(path).read_bytes()
+
+
+ORIGINAL = _video_bytes(10)
+PLAYBACK = _video_bytes(100)
 
 
 class FakeStorage:
@@ -218,5 +234,21 @@ def test_railway_without_persistent_spool_fails_closed(monkeypatch):
     monkeypatch.delenv("RECORDING_SPOOL_DIR", raising=False)
     monkeypatch.delenv("RAILWAY_VOLUME_MOUNT_PATH", raising=False)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "test-environment")
-    with pytest.raises(RuntimeError, match="persistent volume"):
+    with pytest.raises(RuntimeError, match="mounted Railway volume"):
+        RecordingSpool.from_env()
+
+
+def test_railway_spool_must_be_inside_real_mount(monkeypatch, tmp_path):
+    mount = tmp_path / "volume"
+    mount.mkdir()
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "test-environment")
+    monkeypatch.setenv("RAILWAY_VOLUME_MOUNT_PATH", str(mount))
+    monkeypatch.setenv("RECORDING_SPOOL_DIR", str(mount / "spool"))
+    monkeypatch.setattr(spool_module.os.path, "ismount", lambda path: False)
+    with pytest.raises(RuntimeError, match="mounted Railway volume"):
+        RecordingSpool.from_env()
+
+    monkeypatch.setattr(spool_module.os.path, "ismount", lambda path: True)
+    monkeypatch.setenv("RECORDING_SPOOL_DIR", str(tmp_path / "outside"))
+    with pytest.raises(RuntimeError, match="inside the mounted Railway volume"):
         RecordingSpool.from_env()

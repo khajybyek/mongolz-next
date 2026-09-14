@@ -410,6 +410,7 @@ export type Database = {
           reviewed: boolean
           reviewed_at: string | null
           reviewed_by: string | null
+          source_offset_sec: number | null
         }
         Insert: {
           bbox?: Json | null
@@ -428,6 +429,7 @@ export type Database = {
           reviewed?: boolean
           reviewed_at?: string | null
           reviewed_by?: string | null
+          source_offset_sec?: number | null
         }
         Update: {
           bbox?: Json | null
@@ -446,6 +448,7 @@ export type Database = {
           reviewed?: boolean
           reviewed_at?: string | null
           reviewed_by?: string | null
+          source_offset_sec?: number | null
         }
         Relationships: [
           {
@@ -672,6 +675,8 @@ export type Database = {
           blur_strategy: string
           camera_id: string | null
           camera_name: string | null
+          capture_error: string | null
+          capture_status: string
           chunk_index: number | null
           duration_sec: number | null
           encrypted: boolean
@@ -690,6 +695,8 @@ export type Database = {
           blur_strategy?: string
           camera_id?: string | null
           camera_name?: string | null
+          capture_error?: string | null
+          capture_status?: string
           chunk_index?: number | null
           duration_sec?: number | null
           encrypted?: boolean
@@ -708,6 +715,8 @@ export type Database = {
           blur_strategy?: string
           camera_id?: string | null
           camera_name?: string | null
+          capture_error?: string | null
+          capture_status?: string
           chunk_index?: number | null
           duration_sec?: number | null
           encrypted?: boolean
@@ -819,10 +828,12 @@ export type Database = {
           reason: string | null
           reauth_at: string | null
           recording_id: string
+          reference_sealed: string | null
           rejected_at: string | null
           rejected_by: string | null
           rejected_email: string | null
           rejected_reason: string | null
+          request_scope: Json | null
           requested_by: string | null
           requested_email: string | null
           reveal_level: number
@@ -832,6 +843,9 @@ export type Database = {
           target_end_sec: number | null
           target_start_sec: number | null
           threshold: number
+          worker_attempts: number
+          worker_lease_token: string | null
+          worker_lease_until: string | null
         }
         Insert: {
           approval_required?: boolean
@@ -853,10 +867,12 @@ export type Database = {
           reason?: string | null
           reauth_at?: string | null
           recording_id: string
+          reference_sealed?: string | null
           rejected_at?: string | null
           rejected_by?: string | null
           rejected_email?: string | null
           rejected_reason?: string | null
+          request_scope?: Json | null
           requested_by?: string | null
           requested_email?: string | null
           reveal_level?: number
@@ -866,6 +882,9 @@ export type Database = {
           target_end_sec?: number | null
           target_start_sec?: number | null
           threshold?: number
+          worker_attempts?: number
+          worker_lease_token?: string | null
+          worker_lease_until?: string | null
         }
         Update: {
           approval_required?: boolean
@@ -887,10 +906,12 @@ export type Database = {
           reason?: string | null
           reauth_at?: string | null
           recording_id?: string
+          reference_sealed?: string | null
           rejected_at?: string | null
           rejected_by?: string | null
           rejected_email?: string | null
           rejected_reason?: string | null
+          request_scope?: Json | null
           requested_by?: string | null
           requested_email?: string | null
           reveal_level?: number
@@ -900,6 +921,9 @@ export type Database = {
           target_end_sec?: number | null
           target_start_sec?: number | null
           threshold?: number
+          worker_attempts?: number
+          worker_lease_token?: string | null
+          worker_lease_until?: string | null
         }
         Relationships: [
           {
@@ -991,6 +1015,48 @@ export type Database = {
           expires_at?: string
           used_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      upload_jobs: {
+        Row: {
+          attempts: number
+          camera_name: string
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          progress: number
+          recording_id: string
+          requested_by: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          camera_name: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id: string
+          progress?: number
+          recording_id: string
+          requested_by: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          camera_name?: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          progress?: number
+          recording_id?: string
+          requested_by?: string
+          status?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -1304,6 +1370,7 @@ export type Database = {
           object_path: string
         }[]
       }
+      claim_reveal_job: { Args: { p_job_id: string }; Returns: string }
       consume_recovery_code: {
         Args: { p_code_hash: string; p_user_id: string }
         Returns: boolean
@@ -1398,6 +1465,18 @@ export type Database = {
         Args: { p_cost?: number; p_key: string; p_window_sec: number }
         Returns: undefined
       }
+      recording_face_counts: {
+        Args: { p_recording_ids: string[] }
+        Returns: {
+          face_count: number
+          recording_id: string
+        }[]
+      }
+      retention_queue_health: { Args: never; Returns: Json }
+      review_face: {
+        Args: { p_face_id: string; p_label: string }
+        Returns: string
+      }
       settle_retention_deletions: {
         Args: { p_error?: string; p_ids: string[]; p_lease_token: string }
         Returns: number
@@ -1429,6 +1508,10 @@ export type Database = {
           n_alerts: number
           suspect: string
         }[]
+      }
+      update_reveal_job_lease: {
+        Args: { p_fields?: Json; p_job_id: string; p_token: string }
+        Returns: boolean
       }
       user_can_see_camera: { Args: { p_camera_id: string }; Returns: boolean }
       verify_audit_chain: {

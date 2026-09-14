@@ -254,6 +254,8 @@ class SupabaseStorage:
         chain_index: int | None = None,
         embedding_sealed: str | None = None,
         crop_sealed: bool = False,
+        source_offset_sec: float | None = None,
+        detected_at: str | None = None,
     ) -> str | None:
         if not self.client:
             return None
@@ -265,6 +267,10 @@ class SupabaseStorage:
             "recording_id": recording_id,
             "bbox": bbox,
         }
+        if source_offset_sec is not None:
+            row["source_offset_sec"] = source_offset_sec
+        if detected_at is not None:
+            row["detected_at"] = detected_at
         # Hierarchical key fields (ADR 0009) — only set when provided so the
         # insert stays backward-compatible with pre-migration deployments.
         if chain_index is not None:
@@ -551,7 +557,7 @@ class SupabaseStorage:
         self,
         filename: str,
         storage_path: str,
-        duration_sec: int | None,
+        duration_sec: float | None,
         size_bytes: int | None,
         encrypted: bool,
         has_original: bool,
@@ -562,6 +568,7 @@ class SupabaseStorage:
         original_path: str | None = None,
         recording_id: str | None = None,
         blur_strategy: str = "baked",
+        capture_status: str | None = None,
     ) -> str | None:
         """Recording insert. `recording_id` өгсөн бол түүгээр хадгална
         (encryption-д key derivation-аас өмнө ID-г мэдэх шаардлагатай).
@@ -589,6 +596,8 @@ class SupabaseStorage:
             "ended_at": ended_at,
             "blur_strategy": blur_strategy,
         }
+        if capture_status is not None:
+            row["capture_status"] = capture_status
         if recording_id:
             row["id"] = recording_id
         res = self.client.table("recordings").insert(row).execute()
@@ -597,7 +606,7 @@ class SupabaseStorage:
     async def update_recording(self, recording_id: str, fields: dict) -> None:
         """Patch a recording row (used by _finalize to fill duration/size/…)."""
         if not self.client:
-            return
+            raise RuntimeError("Recording storage is not configured")
         self.client.table("recordings").update(fields).eq("id", recording_id).execute()
 
     def commit_recording_delivery(self, recording_id: str, fields: dict) -> None:
@@ -890,6 +899,58 @@ class SupabaseStorage:
                 "ended_at": ended_at,
             }
         ).execute()
+
+    # ── Durable processing jobs (raise on dependency errors) ──────────
+    def upload_job(self, job_id: str) -> dict | None:
+        if not self.client:
+            raise RuntimeError("Job database unavailable")
+        res = self.client.table("upload_jobs").select("*").eq("id", job_id).maybe_single().execute()
+        return res.data if res else None
+
+    def ensure_upload_job(self, row: dict) -> dict:
+        if not self.client:
+            raise RuntimeError("Job database unavailable")
+        self.client.table("upload_jobs").upsert(row, on_conflict="id", ignore_duplicates=True).execute()
+        stored = self.upload_job(row["id"])
+        if not stored or stored["requested_by"] != row["requested_by"]:
+            raise RuntimeError("Upload ownership mismatch")
+        return stored
+
+    def update_upload_job(self, job_id: str, statuses: tuple[str, ...], **fields) -> dict | None:
+        if not self.client:
+            raise RuntimeError("Job database unavailable")
+        fields["updated_at"] = _iso_now()
+        result = self.client.table("upload_jobs").update(fields).eq("id", job_id).in_("status", list(statuses)).execute()
+        return result.data[0] if result.data else None
+
+    def upload_recording_ready(self, recording_id: str) -> bool:
+        result = self.client.table("recordings").select("id,has_original,ended_at,capture_status").eq("id", recording_id).maybe_single().execute()
+        row = result.data if result else None
+        return bool(row and row.get("has_original") and row.get("ended_at") and row.get("capture_status") == "ready")
+
+    def reset_uncommitted_upload(self, recording_id: str) -> None:
+        # Called only under the durable input's process lock, after checking
+        # both the delivery spool and the committed recording. Retry keeps the
+        # UUID, and drops provisional detections from the failed attempt.
+        if self.upload_recording_ready(recording_id):
+            raise RuntimeError("Recording already committed")
+        self.client.table("faces").delete().eq("recording_id", recording_id).execute()
+        self.client.table("recordings").delete().eq("id", recording_id).execute()
+
+    def runnable_reveal_jobs(self) -> list[str]:
+        if not self.client:
+            raise RuntimeError("Job database unavailable")
+        now = _iso_now()
+        # Bounded retries stop a poison job. Only an expired lease can be
+        # retired; a worker still renewing its lease is never interrupted.
+        self.client.table("reveal_jobs").update({
+            "status": "failed", "error_message": "Worker interrupted repeatedly; submit a new approved request",
+            "completed_at": now, "worker_lease_token": None,
+        }).eq("status", "processing").gte("worker_attempts", 5).lt("worker_lease_until", now).execute()
+        result = self.client.table("reveal_jobs").select("id").or_(
+            f"status.eq.queued,and(status.eq.processing,or(worker_lease_until.is.null,worker_lease_until.lt.{now}))"
+        ).lt("worker_attempts", 5).order("created_at").limit(20).execute()
+        return [row["id"] for row in result.data or []]
 
     # ── Storage upload ────────────────────────────────────────
     def upload_bytes(self, bucket: str, path: str, data: bytes, content_type: str) -> str:

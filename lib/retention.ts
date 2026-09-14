@@ -6,7 +6,10 @@ import type { Database } from "@/lib/database.generated";
  * Workers lease that queue and acknowledge only successful Storage removals.
  * Failed requests and crashed workers leave work available for a later sweep.
  */
+export type RetentionQueueHealth = { pending: number; failed: number; oldest_created_at: string | null };
 export type SweepResult = {
+  status: "ok" | "pending" | "degraded";
+  queue: RetentionQueueHealth;
   rows: Record<string, unknown>;
   objects: Record<string, { requested: number; removed: number; error?: string }>;
 };
@@ -24,10 +27,21 @@ type QueueRpc = {
 };
 
 const BATCH_SIZE = 250;
-const MAX_BATCHES = 4;
+const MAX_BATCHES = 80;
 const BUCKETS = new Set(["recordings", "faces", "revealed"]);
 
-export async function runRetentionSweep(svc: SupabaseClient<Database>): Promise<SweepResult> {
+export async function readRetentionQueueHealth(svc: SupabaseClient<Database>): Promise<RetentionQueueHealth> {
+  const rpc = svc.rpc.bind(svc) as unknown as (name: "retention_queue_health") => RpcResult<RetentionQueueHealth>;
+  const { data, error } = await rpc("retention_queue_health");
+  if (error || !data || !Number.isSafeInteger(data.pending) || !Number.isSafeInteger(data.failed)) {
+    throw new Error("Retention queue health unavailable");
+  }
+  return data;
+}
+
+export async function runRetentionSweep(svc: SupabaseClient<Database>, options: { maxBatches?: number; budgetMs?: number } = {}): Promise<SweepResult> {
+  const maxBatches = Math.max(1, Math.min(400, options.maxBatches ?? MAX_BATCHES));
+  const deadline = Date.now() + Math.max(1, Math.min(40000, options.budgetMs ?? 20000));
   const { data, error } = await svc.rpc("sweep_retention");
   if (error) throw new Error(error.message);
   const { objects: _oldPathList, ...rows } = (data ?? {}) as Record<string, unknown>;
@@ -36,7 +50,7 @@ export async function runRetentionSweep(svc: SupabaseClient<Database>): Promise<
 
   // Bounded batches leave large backlogs for later invocations. Exclusive
   // claims expire after a crash; unclaimed work always remains queued.
-  for (let batch = 0; batch < MAX_BATCHES; batch++) {
+  for (let batch = 0; batch < maxBatches && Date.now() < deadline; batch++) {
     const { data: claimed, error: claimError } = await queueRpc("claim_retention_deletions", {
       p_limit: BATCH_SIZE,
     });
@@ -79,5 +93,9 @@ export async function runRetentionSweep(svc: SupabaseClient<Database>): Promise<
       }
     }
   }
-  return { rows, objects: summary };
+  const queue = await readRetentionQueueHealth(svc);
+  const errors = Object.values(summary).some((result) => result.error)
+    || Object.values(rows).some((result) => result && typeof result === "object" && "error" in result);
+  const status = errors || queue.failed > 0 ? "degraded" : queue.pending > 0 ? "pending" : "ok";
+  return { status, queue, rows, objects: summary };
 }

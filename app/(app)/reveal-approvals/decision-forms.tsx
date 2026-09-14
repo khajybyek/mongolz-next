@@ -13,7 +13,7 @@ import { useT } from "@/lib/i18n/client";
  * "already decided" error), errors render inline, and a stale step-up opens
  * the TOTP prompt and replays the decision afterwards.
  */
-export function DecisionForms({ jobId }: { jobId: string }) {
+export function DecisionForms({ jobId, canApprove = true }: { jobId: string; canApprove?: boolean }) {
   const { t } = useT();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -80,7 +80,7 @@ export function DecisionForms({ jobId }: { jobId: string }) {
         <button
           type="button"
           onClick={approve}
-          disabled={pending}
+          disabled={pending || !canApprove}
           className="btn-primary flex-1"
         >
           {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}

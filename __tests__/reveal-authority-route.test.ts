@@ -70,10 +70,11 @@ function status() {
 function output(range?: string) {
   return getOutput(new NextRequest(`https://app.test/api/reveal/${JOB}/output`, { headers: range ? { Range: range } : {} }), { params: Promise.resolve({ jobId: JOB }) });
 }
-function start() {
+function start(reason = "Investigate the reported entry incident") {
   const form = new FormData();
   form.set("recording_id", RECORDING);
   form.set("method", "suspect");
+  form.set("reason", reason);
   form.set("suspect_id", SUSPECT);
   return startReveal(new NextRequest("https://app.test/api/reveal/start", { method: "POST", body: form }));
 }
@@ -184,9 +185,14 @@ describe("reveal authority and media gateway", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  it.each(["", "short", "x".repeat(1001)])("rejects invalid request justification %p", async (reason) => {
+    expect((await start(reason)).status).toBe(400);
+    expect(inserted).not.toHaveBeenCalled();
+  });
+
   it("snapshots validated caller authority on an approval-gated job", async () => {
     state.profile!.reveal_level = 3;
     expect((await start()).status).toBe(200);
-    expect(inserted).toHaveBeenCalledWith("reveal_jobs", expect.objectContaining({ reveal_level: 3, status: "pending_approval", requested_by: "admin-1" }));
+    expect(inserted).toHaveBeenCalledWith("reveal_jobs", expect.objectContaining({ reveal_level: 3, status: "pending_approval", requested_by: "admin-1", reason: "Investigate the reported entry incident", request_scope: expect.objectContaining({ method: "suspect", targets: [{ id: SUSPECT, label: "fixture" }] }) }));
   });
 });

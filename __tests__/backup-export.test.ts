@@ -313,3 +313,23 @@ describe("GET /api/admin/backup — gates", () => {
     expect(full.headers.get("content-disposition")).toContain("mongolz-backup-biometric-");
   });
 });
+
+
+describe("backup completeness boundary", () => {
+  it("refuses 50001 rows instead of providing a partial restorable ZIP", async () => {
+    state.rows.faces = Array.from({ length: 50001 }, (_, i) => ({ id: `f${i}`, image_path: `f${i}.jpg` }));
+    const res = await call("?include_biometrics=1");
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "BACKUP_INCOMPLETE", table: "faces" });
+    expect(state.audits).toEqual([]);
+  });
+  it("accepts exactly 50000 rows and hashes the exported files", async () => {
+    state.rows.faces = Array.from({ length: 50000 }, (_, i) => ({ id: `f${i}`, image_path: `f${i}.jpg` }));
+    const { json } = await open();
+    const manifest = await json("manifest.json");
+    expect(manifest).toMatchObject({ format: "mongolz-backup/3", complete: true });
+    expect(manifest.tables.faces.rows).toBe(50000);
+    expect(manifest.buckets.faces.objects).toBe(50000);
+    expect(manifest.file_sha256["tables/faces.json"]).toMatch(/^[a-f0-9]{64}$/);
+  });
+});

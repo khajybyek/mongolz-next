@@ -1,5 +1,7 @@
 "use server";
 
+import { readRevealScope, REVEAL_REASON_MIN } from "@/lib/reveal-scope";
+
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { after } from "next/server";
@@ -45,12 +47,15 @@ export async function approveRevealAction(jobIdRaw: string): Promise<DecisionRes
   const svc = createServiceClient();
   const { data: job } = await svc
     .from("reveal_jobs")
-    .select("id, status, requested_by, requested_email, recording_id, reveal_level")
+    .select("id, status, requested_by, requested_email, recording_id, reveal_level, reason, request_scope")
     .eq("id", jobId)
     .maybeSingle();
 
   if (!job) return { error: "NOT_FOUND" };
   if (job.status !== "pending_approval") return { error: "ALREADY_DECIDED" };
+  if (!job.reason || job.reason.trim().length < REVEAL_REASON_MIN || !readRevealScope(job.request_scope)) {
+    return { error: "INVALID", detail: "Request reason or scope is missing; reject and resubmit." };
+  }
   // Authority: approving is what actually triggers decryption, so the approver
   // must be allowed to see the output they are releasing. The page now reads
   // under RLS, but a hand-made request must not get past that.
@@ -87,21 +92,22 @@ export async function approveRevealAction(jobIdRaw: string): Promise<DecisionRes
     const msg = e instanceof MLError ? e.message : "ML service unreachable";
     await svc
       .from("reveal_jobs")
-      .update({ status: "failed", error_message: msg })
-      .eq("id", job.id);
+      .update({ error_message: `Awaiting worker: ${msg}` })
+      .eq("id", job.id)
+      .eq("status", "queued");
     await audit(
-      "REVEAL_APPROVE_FAILED",
+      "REVEAL_APPROVE_DEFERRED",
       `job ${job.id} approved but ML trigger failed: ${msg}`,
       ctx.user.id,
       ctx.user.email,
     );
-    revalidatePath("/reveal-approvals");
-    return { error: "ML_FAILED", detail: msg };
+    // The durable worker will discover the queued row. A late HTTP failure
+    // must never overwrite processing/completed or undo a valid approval.
   }
 
   await audit(
     "REVEAL_APPROVE",
-    `job ${job.id} (requested_by=${job.requested_email}) → ML triggered`,
+    `job ${job.id} (requested_by=${job.requested_email}) → approved for durable processing`,
     ctx.user.id,
     ctx.user.email,
   );

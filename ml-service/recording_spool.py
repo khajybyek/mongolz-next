@@ -63,8 +63,13 @@ class RecordingSpool:
         volume = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
         if not configured and volume:
             configured = str(Path(volume) / "recording-spool")
-        if not configured and os.getenv("RAILWAY_ENVIRONMENT_ID"):
-            raise RuntimeError("Recording delivery requires RECORDING_SPOOL_DIR on a persistent volume")
+        if os.getenv("RAILWAY_ENVIRONMENT_ID"):
+            if not configured or not volume:
+                raise RuntimeError("Recording delivery requires a mounted Railway volume")
+            root = Path(configured).resolve()
+            mount = Path(volume).resolve()
+            if not os.path.ismount(mount) or not root.is_relative_to(mount):
+                raise RuntimeError("Recording delivery requires RECORDING_SPOOL_DIR inside the mounted Railway volume")
         return cls(configured or str(Path.home() / ".mongolz" / "recording-spool"))
 
     def _directory(self, recording_id: str) -> Path:
@@ -116,6 +121,12 @@ class RecordingSpool:
             if manifest_path.exists():
                 manifest = json.loads(manifest_path.read_text())
             else:
+                # A capture journal may outlive a successfully delivered
+                # manifest. Check under the same delivery lock, so replay
+                # never publishes an unrecoverable preparing manifest after
+                # the delivery worker has retired all of its sources.
+                if any(not Path(a["source"]).is_file() for a in artifacts):
+                    raise FileNotFoundError("Capture sources have already been retired")
                 manifest = {
                     "version": 1, "recording_id": recording_id, "row": row,
                     "state": "preparing", "attempts": 0, "next_retry_at": 0,

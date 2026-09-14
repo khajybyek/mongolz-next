@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
   if (metaErr) return NextResponse.json({ error: metaErr.message }, { status: 500 });
 
   const metaById = new Map<string, {
+    recording_id: string | null;
     recording_filename: string | null;
     camera_name: string | null;
     bbox: unknown;
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
   for (const row of metaRows ?? []) {
     const r = row as {
       id: string;
+      recording_id: string | null;
       bbox: unknown;
       crop_sealed: boolean;
       recordings: { filename: string } | { filename: string }[] | null;
@@ -82,6 +84,7 @@ export async function POST(request: NextRequest) {
     const rec = Array.isArray(r.recordings) ? r.recordings[0] : r.recordings;
     const cam = Array.isArray(r.cameras) ? r.cameras[0] : r.cameras;
     metaById.set(r.id, {
+      recording_id: rec ? r.recording_id : null,
       recording_filename: rec?.filename ?? null,
       camera_name: cam?.name ?? null,
       bbox: r.bbox,
@@ -93,6 +96,7 @@ export async function POST(request: NextRequest) {
     const meta = metaById.get(m.id);
     return {
       ...m,
+      recording_id: meta?.recording_id ?? null,
       recording_filename: meta?.recording_filename ?? null,
       camera_name: meta?.camera_name ?? null,
       bbox: meta?.bbox ?? null,

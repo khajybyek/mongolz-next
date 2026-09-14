@@ -19,14 +19,20 @@
 set -euo pipefail
 
 # Railway volumes are mounted by the platform as root-owned filesystems. The
-# application itself still runs unprivileged; this short bootstrap only makes
-# the configured spool directory writable, then re-execs this script as the
+# application itself still runs unprivileged; this short bootstrap makes every
+# durable service directory writable, then re-execs this script as the
 # dedicated user before any application code starts.
 if [ "$(id -u)" -eq 0 ]; then
-  if [ -n "${RECORDING_SPOOL_DIR:-}" ]; then
-    mkdir -p "$RECORDING_SPOOL_DIR"
-    chown mongolz:mongolz "$RECORDING_SPOOL_DIR"
-  fi
+  VOLUME_ROOT="${RAILWAY_VOLUME_MOUNT_PATH:-}"
+  RECORDING_SPOOL_ROOT="${RECORDING_SPOOL_DIR:-${VOLUME_ROOT:+$VOLUME_ROOT/recording-spool}}"
+  CAPTURE_ROOT="${RECORDINGS_DIR:-${VOLUME_ROOT:+$VOLUME_ROOT/mongolz-recordings}}"
+  UPLOAD_ROOT="${UPLOAD_JOB_DIR:-${VOLUME_ROOT:+$VOLUME_ROOT/upload-jobs}}"
+  for DURABLE_ROOT in "$RECORDING_SPOOL_ROOT" "$CAPTURE_ROOT" "$UPLOAD_ROOT"; do
+    if [ -n "$DURABLE_ROOT" ]; then
+      mkdir -p "$DURABLE_ROOT"
+      chown mongolz:mongolz "$DURABLE_ROOT"
+    fi
+  done
   export HOME=/home/mongolz
   exec runuser --preserve-environment --user mongolz -- "$0" "$@"
 fi

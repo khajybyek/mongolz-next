@@ -34,6 +34,7 @@ import { log } from "@/lib/log";
  * append-only: an operator's saved filter must keep working.
  */
 export const READ_ACTIONS = {
+  REVEAL_REFERENCE_VIEWED: "REVEAL_REFERENCE_VIEWED",
   /** A face crop was decrypted / streamed to an operator. */
   FACE_CROP_VIEWED: "FACE_CROP_VIEWED",
   /** A recording's masked view was rendered and streamed. */

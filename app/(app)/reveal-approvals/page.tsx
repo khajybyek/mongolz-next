@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { FaceThumb } from "@/components/face-thumb";
+import { readRevealScope, revealScopeCopy } from "@/lib/reveal-scope";
 import { Clock, AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
@@ -13,6 +16,7 @@ interface RevealRow {
   id: string;
   status: string;
   reason: string | null;
+  request_scope: unknown;
   requested_by: string;
   requested_email: string | null;
   recording_id: string | null;
@@ -36,7 +40,8 @@ function fmtSec(sec: number): string {
 
 export default async function RevealApprovalsPage() {
   const ctx = await requireAdmin();
-  const { t } = await getT();
+  const { t, lang } = await getT();
+  const copy = revealScopeCopy[lang];
   // Read with the caller's own token, NOT the service role: migration
   // 20260907100000 fenced reveal_jobs behind private.can_read_reveal_level, and
   // a service-role read walks straight past it — a restricted admin could see,
@@ -44,18 +49,18 @@ export default async function RevealApprovalsPage() {
   // open. RLS does the filtering here.
   const svc = await createClient();
 
-  const { data: pending } = await svc
+  const { data: pending, error: pendingError } = await svc
     .from("reveal_jobs")
     .select(
-      "id, status, reason, requested_by, requested_email, recording_id, threshold, target_start_sec, target_end_sec, created_at, approved_email, approved_at, rejected_email, rejected_reason, rejected_at",
+      "id, status, reason, request_scope, requested_by, requested_email, recording_id, threshold, target_start_sec, target_end_sec, created_at, approved_email, approved_at, rejected_email, rejected_reason, rejected_at",
     )
     .eq("status", "pending_approval")
     .order("created_at", { ascending: false });
 
-  const { data: recent } = await svc
+  const { data: recent, error: recentError } = await svc
     .from("reveal_jobs")
     .select(
-      "id, status, reason, requested_by, requested_email, recording_id, threshold, target_start_sec, target_end_sec, created_at, approved_email, approved_at, rejected_email, rejected_reason, rejected_at",
+      "id, status, reason, request_scope, requested_by, requested_email, recording_id, threshold, target_start_sec, target_end_sec, created_at, approved_email, approved_at, rejected_email, rejected_reason, rejected_at",
     )
     .in("status", ["queued", "processing", "completed", "rejected", "failed"])
     .order("created_at", { ascending: false })
@@ -68,6 +73,7 @@ export default async function RevealApprovalsPage() {
     <>
       <PageHeader title={t("reveal_approvals_title")} subtitle={t("reveal_approvals_subtitle")} />
 
+      {(pendingError || recentError) && <p role="alert" className="card text-danger">{copy.unavailable}</p>}
       {/* Pending */}
       <h2 className="text-sm font-semibold uppercase tracking-wide text-warning mt-6 mb-3 flex items-center gap-2">
         <Clock className="w-4 h-4" />
@@ -79,6 +85,7 @@ export default async function RevealApprovalsPage() {
       ) : (
         <div className="space-y-3">
           {pendingRows.map((j) => {
+            const scope = readRevealScope(j.request_scope);
             const isSelfRequested = j.requested_by === ctx.user.id;
             return (
               <div
@@ -116,13 +123,37 @@ export default async function RevealApprovalsPage() {
                   </div>
                 </div>
 
+                {scope ? (
+                  <div className="space-y-3 border-t border-text-muted/10 pt-3 text-sm">
+                    <p className="font-medium">{scope.recording.filename}</p>
+                    <p className="text-warning">{scope.start_sec === null ? copy.whole : `${fmtSec(scope.start_sec)} → ${fmtSec(scope.end_sec ?? 0)}`}</p>
+                    <p className="text-xs text-text-soft">{scope.method} · threshold {scope.threshold}</p>
+                    <div className="flex flex-wrap gap-3">
+                      {scope.targets.map((target) => (
+                        <div key={target.id} className="max-w-52 space-y-1">
+                          {scope.method === "detected_face" && <FaceThumb faceId={target.id} className="w-20 h-20 rounded" alt={target.label} />}
+                          {scope.method === "suspect" ? <Link href={`/suspects/${target.id}`} className="text-accent underline">{target.label}</Link> : <p className="break-words text-xs">{target.label}</p>}
+                        </div>
+                      ))}
+                    </div>
+                    {scope.method === "upload" && (
+                      <a href={`/api/reveal/${j.id}/reference`} target="_blank" rel="noreferrer" className="inline-block">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={`/api/reveal/${j.id}/reference`} alt={copy.reference} loading="lazy" className="h-32 w-32 rounded object-contain bg-bg-tertiary" />
+                        <span className="text-xs text-accent">{copy.reference}</span>
+                      </a>
+                    )}
+                    {j.recording_id && <Link className="btn-secondary inline-flex" href={`/playback/${j.recording_id}${scope.method === "detected_face" && scope.targets[0] ? `?face=${scope.targets[0].id}` : ""}`}>{copy.evidence}</Link>}
+                  </div>
+                ) : <p role="alert" className="text-warning text-xs">{copy.missing}</p>}
+
                 {isSelfRequested ? (
                   <div className="bg-danger/10 border border-danger/30 rounded-lg p-2.5 text-xs text-danger flex gap-2 items-start">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     {t("approvals_self")}
                   </div>
                 ) : (
-                  <DecisionForms jobId={j.id} />
+                  <DecisionForms jobId={j.id} canApprove={Boolean(scope && j.reason && j.reason.trim().length >= 10)} />
                 )}
               </div>
             );

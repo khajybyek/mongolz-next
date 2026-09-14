@@ -21,6 +21,8 @@ import base64
 import os
 import secrets
 import subprocess
+import time
+from uuid import uuid4
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -133,12 +135,43 @@ class FakeDB:
         self.error: Exception | None = None
         self.updates: list[dict] = []
         self.blob = blob
+        self.clock = time.time()
         self.storage = SimpleNamespace(
             from_=lambda _bucket: SimpleNamespace(download=lambda _p: self.blob)
         )
 
     def table(self, name: str) -> _Query:
         return _Query(self, name)
+
+    def rpc(self, name, args):
+        def execute():
+            if self.error:
+                raise self.error
+            if name == "claim_reveal_job":
+                row = self.job
+                allowed = row.get("approved_by") and row.get("approved_by") != row.get("requested_by")
+                runnable = row["status"] == "queued" or (row["status"] == "processing" and (row.get("worker_lease_until") or 0) < self.clock)
+                if not allowed or not runnable or row.get("worker_attempts", 0) >= 5:
+                    return SimpleNamespace(data=None)
+                token = str(uuid4())
+                row.update(status="processing", worker_lease_token=token,
+                    worker_lease_until=self.clock+90, worker_attempts=row.get("worker_attempts", 0)+1)
+                return SimpleNamespace(data=token)
+            assert name == "update_reveal_job_lease"
+            row = self.job
+            valid = row["status"] == "processing" and row.get("worker_lease_token") == args["p_token"] and row.get("worker_lease_until", 0) > self.clock
+            if not valid:
+                return SimpleNamespace(data=False)
+            fields = args["p_fields"]
+            if fields.get("status") == "completed":
+                assert fields["output_path"] == f"{row['id']}/{args['p_token']}.mp4"
+            row.update(fields)
+            self.updates.append(dict(fields))
+            row["worker_lease_until"] = self.clock + 90 if row["status"] == "processing" else None
+            if row["status"] != "processing":
+                row["worker_lease_token"] = None
+            return SimpleNamespace(data=True)
+        return SimpleNamespace(execute=execute)
 
     def apply_update(self, q: _Query) -> list[dict]:
         self.updates.append(dict(q.fields))
@@ -173,6 +206,8 @@ def _job_row(**overrides) -> dict:
     row = {
         "id": JOB_ID,
         "status": "queued",
+        "requested_by": "11111111-1111-4111-8111-111111111111",
+        "approved_by": "22222222-2222-4222-8222-222222222222",
         "recording_id": RECORDING_ID,
         "recordings": {
             "filename": "clip.mp4",
@@ -387,9 +422,12 @@ async def test_healthy_render_completes_and_uploads(processor):
     await proc.run(JOB_ID)
 
     assert db.job["status"] == "completed", db.job.get("error_message")
-    assert storage.uploads == [("revealed", f"{JOB_ID}.mp4", storage.uploads[0][2])]
+    assert len(storage.uploads) == 1
+    assert storage.uploads[0][0] == "revealed"
+    assert storage.uploads[0][1].startswith(f"{JOB_ID}/")
+    assert storage.uploads[0][1].endswith(".mp4")
     assert storage.uploads[0][2] > 1000
-    assert db.job["output_path"] == f"{JOB_ID}.mp4"
+    assert db.job["output_path"] == storage.uploads[0][1]
     assert db.job["progress"] == 100
 
 
@@ -491,3 +529,85 @@ async def test_unreadable_job_row_does_not_clobber_pending_approval(processor):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+@pytest.mark.asyncio
+async def test_expired_processing_job_is_recovered_without_another_deploy(processor):
+    proc, db, storage = processor
+    db.job.update(status="processing", worker_lease_token=str(uuid4()),
+        worker_lease_until=db.clock-1, worker_attempts=1)
+    await proc.run(JOB_ID)
+    assert db.job["status"] == "completed"
+    assert db.job["worker_attempts"] == 2
+    assert len(storage.uploads) == 1
+
+
+@pytest.mark.asyncio
+async def test_duplicate_trigger_does_not_render_an_owned_job(processor):
+    proc, db, storage = processor
+    db.job.update(status="processing", worker_lease_token=str(uuid4()),
+        worker_lease_until=db.clock+90, worker_attempts=1)
+    await proc.run(JOB_ID)
+    assert db.job["status"] == "processing"
+    assert storage.uploads == []
+
+
+@pytest.mark.asyncio
+async def test_unapproved_or_self_approved_job_never_claimed(processor):
+    proc, db, storage = processor
+    for approved in (None, db.job["requested_by"]):
+        db.job["approved_by"] = approved
+        await proc.run(JOB_ID)
+        assert db.job["status"] == "queued"
+        assert storage.uploads == []
+
+
+@pytest.mark.asyncio
+async def test_late_worker_cannot_overwrite_new_attempts_result(processor):
+    import threading
+    proc, db, storage = processor
+    first = proc._claim(JOB_ID)
+    old = reveal_job._LEASE.set((first, threading.Event()))
+    try:
+        db.clock += 91
+        second = proc._claim(JOB_ID)
+        assert second and second != first
+        assert not await proc._update(JOB_ID, progress=50)
+        assert not await proc._fail(JOB_ID, "late failure")
+        assert not await proc._update(JOB_ID, status="completed", output_path=f"{JOB_ID}/{first}.mp4")
+        assert db.job["worker_lease_token"] == second
+        assert db.job["status"] == "processing"
+        current = reveal_job._LEASE.set((second, threading.Event()))
+        try:
+            assert await proc._update(JOB_ID, status="completed", progress=100,
+                output_path=f"{JOB_ID}/{second}.mp4", output_duration_sec=1)
+        finally:
+            reveal_job._LEASE.reset(current)
+        assert not await proc._fail(JOB_ID, "late failure after completion")
+        assert db.job["status"] == "completed"
+    finally:
+        reveal_job._LEASE.reset(old)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_renews_lease_and_sets_lost_on_outage(processor, monkeypatch):
+    import asyncio
+    import threading
+    proc, db, _storage = processor
+    token = proc._claim(JOB_ID)
+    lost = threading.Event()
+    context = reveal_job._LEASE.set((token, lost))
+    monkeypatch.setattr(reveal_job, "_HEARTBEAT_SECONDS", 0.005)
+    db.clock += 20
+    heartbeat = asyncio.create_task(proc._heartbeat(JOB_ID, lost))
+    try:
+        await asyncio.sleep(0.03)
+        assert db.job["worker_lease_until"] == db.clock+90
+        db.error = ConnectionError("offline")
+        await asyncio.wait_for(heartbeat, 1)
+        assert lost.is_set()
+        assert db.job["status"] == "processing"
+    finally:
+        heartbeat.cancel()
+        await asyncio.gather(heartbeat, return_exceptions=True)
+        reveal_job._LEASE.reset(context)

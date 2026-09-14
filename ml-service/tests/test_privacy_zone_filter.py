@@ -107,12 +107,15 @@ def test_zone_lookup_rejects_malformed_response(data):
 @pytest.mark.asyncio
 async def test_zone_outage_fails_job_before_original_or_render():
     processor, zones = _processor_with_zone_query(error=ConnectionError("database down"))
+    lease_token = "lease-token"
+    processor._claim = Mock(return_value=lease_token)
     job_query = Mock()
     job_query.select.return_value = job_query
     job_query.eq.return_value = job_query
     job_query.maybe_single.return_value = job_query
     job_query.execute.return_value = SimpleNamespace(data={
-        "status": "queued", "recording_id": "recording-1",
+        "status": "processing", "worker_lease_token": lease_token,
+        "recording_id": "recording-1",
         "recordings": {"camera_id": "camera-1"},
     })
     processor.storage.client.table.side_effect = lambda name: job_query if name == "reveal_jobs" else zones

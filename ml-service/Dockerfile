@@ -27,7 +27,8 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    HLS_DIR=/tmp/mongolz-hls
+    HLS_DIR=/tmp/mongolz-hls \
+    OPENCV_LOG_LEVEL=SILENT
 
 WORKDIR /app
 

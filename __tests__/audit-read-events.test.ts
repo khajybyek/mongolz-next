@@ -313,6 +313,20 @@ describe("read-access ledger", () => {
     expect(rows(READ_ACTIONS.FACE_SEARCH)).toHaveLength(1);
   });
 
+  it("keeps the recording identity when enriching a search candidate", async () => {
+    state.matches = [{ id: FACE, filename: "face.jpg", image_path: "p", detected_at: "t", similarity: 0.81,
+      recording_id: REC, recordings: { filename: "evidence.mp4" }, cameras: { name: "Entry" } }];
+    const res = await call.search();
+    expect(res.status).toBe(200);
+    expect((await res.json()).matches[0]).toMatchObject({ id: FACE, recording_id: REC, recording_filename: "evidence.mp4", camera_name: "Entry" });
+  });
+
+  it("marks expired recording evidence unavailable instead of generating a dead candidate link", async () => {
+    state.matches = [{ id: FACE, filename: "face.jpg", image_path: "p", detected_at: "t", similarity: 0.81,
+      recording_id: REC, recordings: null, cameras: null }];
+    expect((await (await call.search()).json()).matches[0]).toMatchObject({ recording_id: null, recording_filename: null });
+  });
+
   it("collapses seeks into one row per playback window", async () => {
     expect((await call.output()).status).toBe(200);
     expect((await call.output("bytes=4096-")).status).toBe(200);

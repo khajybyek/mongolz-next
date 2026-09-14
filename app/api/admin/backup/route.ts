@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import JSZip from "jszip";
+import { createHash } from "node:crypto";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { hasFreshReauth } from "@/lib/auth/step-up";
@@ -77,8 +78,8 @@ const TABLES: Record<string, TableSpec> = {
   },
   reveal_jobs: {
     columns:
-      "id, recording_id, method, suspect_id, face_id, face_ids, threshold, status, progress, output_path, output_duration_sec, error_message, requested_by, requested_email, approved_by, approved_email, approved_at, approval_required, rejected_by, rejected_email, rejected_reason, rejected_at, reason, reveal_level, target_start_sec, target_end_sec, reauth_at, created_at, started_at, completed_at",
-    biometric: "query_embedding, query_embeddings",
+      "id, recording_id, method, suspect_id, face_id, face_ids, threshold, status, progress, output_path, output_duration_sec, error_message, requested_by, requested_email, approved_by, approved_email, approved_at, approval_required, rejected_by, rejected_email, rejected_reason, rejected_at, reason, request_scope, reveal_level, target_start_sec, target_end_sec, reauth_at, created_at, started_at, completed_at",
+    biometric: "query_embedding, query_embeddings, reference_sealed",
     note: "query embeddings are the biometric probe of a reveal request (nullable — a restore succeeds without them).",
   },
   webhooks: {
@@ -204,7 +205,10 @@ async function fetchAll(
     rows.push(...page);
     if (page.length < PAGE) return { rows, truncated: false };
   }
-  return { rows, truncated: true };
+  // Distinguish a complete table at the cap from a genuinely partial export.
+  const { data, error } = await client.from(table).select(pk)
+    .order(pk, { ascending: true }).range(MAX_ROWS, MAX_ROWS);
+  return { rows, truncated: Boolean(data?.length), ...(error ? { error: error.message } : {}) };
 }
 
 type TableReport = {
@@ -247,6 +251,13 @@ export async function GET(request: Request) {
   const svc = createServiceClient();
   const paged = svc as unknown as PagedClient;
   const zip = new JSZip();
+  const fileHashes: Record<string, string> = {};
+  const snapshots: Record<string, Row[]> = {};
+  const writeJson = (name: string, value: unknown) => {
+    const body = JSON.stringify(value, null, 2);
+    zip.file(name, body);
+    fileHashes[name] = createHash("sha256").update(body).digest("hex");
+  };
 
   // 1) Table dumps
   const tables: Record<string, TableReport> = {};
@@ -262,19 +273,19 @@ export async function GET(request: Request) {
       ...(includeBiometrics ? [] : (spec.biometricRequired ?? [])),
     ];
     const { rows, error, truncated } = await fetchAll(paged, table, columns, spec.pk ?? "id");
-    if (error) {
-      zip.file(`tables/${table}.error.txt`, error);
-      tables[table] = {
-        rows: -1,
-        columns,
-        restorable: false,
-        missing_required: missing,
-        error,
-        note: spec.note,
-      };
-      continue;
+    if (error || truncated) {
+      // A bounded HTTP export must never masquerade as a complete backup.
+      // Return no ZIP at all; use the database snapshot tooling for large data.
+      return NextResponse.json({
+        error: "BACKUP_INCOMPLETE", table,
+        detail: error ? "Table export failed; retry the export." : `Table exceeds ${MAX_ROWS} rows; use a database snapshot export.`,
+      }, { status: error ? 503 : 409, headers: { "Cache-Control": "no-store" } });
     }
-    zip.file(`tables/${table}.json`, JSON.stringify(rows, null, 2));
+    if (table === "reveal_jobs" && !includeBiometrics && rows.some((r) => r.method === "upload" && r.status === "pending_approval" && r.request_scope != null)) {
+      missing.push("reference_sealed");
+    }
+    snapshots[table] = rows;
+    writeJson(`tables/${table}.json`, rows);
     tables[table] = {
       rows: rows.length,
       columns,
@@ -292,13 +303,10 @@ export async function GET(request: Request) {
     const objects: { path: string; source: string; row_id: string }[] = [];
     const errors: string[] = [];
     for (const source of sources) {
-      const { rows, error } = await fetchAll(
-        paged,
-        source.table,
-        source.select,
-        source.pk ?? "id",
-      );
-      if (error) errors.push(`${source.table}: ${error}`);
+      // Reuse the actual table dump, so manifests cannot drift during a
+      // second read while capture or retention changes the source database.
+      const rows = snapshots[source.table];
+      if (!rows) { errors.push(`${source.table}: missing table export`); continue; }
       for (const row of rows) {
         for (const path of source.paths(row)) {
           if (typeof path !== "string" || path.length === 0 || seen.has(path)) continue;
@@ -313,21 +321,13 @@ export async function GET(request: Request) {
       derived_from: sources.map((s) => s.from),
       ...(error ? { error } : {}),
     };
-    zip.file(
-      `buckets/${bucket}.manifest.json`,
-      JSON.stringify(
-        {
-          bucket,
-          total_objects: objects.length,
-          derived_from: sources.map((s) => s.from),
-          note: "Object paths come from the database, not from a Storage listing. Blob bytes are NOT in this ZIP. Objects with no owning row (orphans) are not listed by design, so a restore should end up with exactly total_objects objects per bucket; a path listed here whose object is already gone from the source (a dangling row reference) shows up as a shortfall in that comparison.",
-          ...(error ? { error } : {}),
-          objects,
-        },
-        null,
-        2,
-      ),
-    );
+    writeJson(`buckets/${bucket}.manifest.json`, {
+      bucket, total_objects: objects.length,
+      derived_from: sources.map((s) => s.from),
+      complete: !error,
+      note: "Paths match the exported database rows. Blob bytes and unreferenced objects are not in this ZIP.",
+      ...(error ? { error } : {}), objects,
+    });
   }
 
   const totalObjects = Object.values(buckets).reduce((n, b) => n + b.objects, 0);
@@ -340,7 +340,10 @@ export async function GET(request: Request) {
     "manifest.json",
     JSON.stringify(
       {
-        format: "mongolz-backup/2",
+        format: "mongolz-backup/3",
+        complete: true,
+        consistency: "live-paged-export; pause writes or use a database snapshot for point-in-time recovery",
+        file_sha256: fileHashes,
         created_at: new Date().toISOString(),
         created_by: auth.user.email ?? auth.user.id,
         include_biometrics: includeBiometrics,
@@ -371,7 +374,9 @@ export async function GET(request: Request) {
       `Created: ${new Date().toISOString()}`,
       `Biometric columns: ${includeBiometrics ? "INCLUDED (see the warning below)" : "excluded"}`,
       "",
-      "tables/    — JSON row dumps (one file per table, paged, up to 50K rows each)",
+      "tables/    — JSON row dumps; exports exceeding 50K rows per table are refused",
+      "Integrity: manifest.json contains SHA-256 hashes and exact exported file counts.",
+      "Consistency: live paged export, not a transactional snapshot. Pause writes or use a database snapshot for point-in-time recovery.",
       "buckets/   — Storage object manifests derived from the DB (paths only, no blob bytes)",
       "manifest.json — machine-readable column lists, row counts and restore limits",
       "",

@@ -97,7 +97,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/cameras", icon: Cctv, labelKey: "nav_cameras", adminOnly: true, keywords: ["rtsp", "usb"] },
       { href: "/alerts-live", icon: Bell, labelKey: "nav_alerts_live", adminOnly: true, keywords: ["realtime", "live"] },
       { href: "/review", icon: ClipboardCheck, labelKey: "nav_review", adminOnly: true, keywords: ["label", "queue", "manual"] },
-      { href: "/jobs", icon: ListTodo, labelKey: "nav_jobs", adminOnly: true, keywords: ["queue", "background", "reveal"] },
+      { href: "/jobs", icon: ListTodo, labelKey: "nav_jobs", keywords: ["queue", "background", "reveal", "upload"] },
     ],
   },
   {

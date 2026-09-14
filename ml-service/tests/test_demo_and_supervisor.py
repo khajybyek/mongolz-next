@@ -670,7 +670,7 @@ def test_live_source_dropping_frames_ends_capture_with_reason(tmp_path, monkeypa
     import recording_pipeline as rp
 
     cap = _DeadAfterNCapture(good_frames=3)
-    monkeypatch.setattr(rp.cv2, "VideoCapture", lambda _src: cap)
+    monkeypatch.setattr(rp.cv2, "VideoCapture", lambda *_args: cap)
     # No ffmpeg pipes needed for this path.
     monkeypatch.setattr(rp, "_ffmpeg_hls_writer", lambda *a, **k: None)
     monkeypatch.setattr(rp, "_ffmpeg_mp4_writer", lambda *a, **k: None)

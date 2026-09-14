@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from recording_pipeline import RecordingSession, redact_url
+from capture_journal import recover_captures, recordings_directory
 from reveal_job import RevealProcessor
 from storage import CameraDesiredState, seal_camera_url, unseal_camera_url
 
@@ -44,7 +45,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("mongolz-ml.manager")
 
-RECORDINGS_DIR = os.getenv("RECORDINGS_DIR", "/tmp/mongolz-recordings")
+RECORDINGS_DIR = recordings_directory()
 
 SUPERVISOR_INTERVAL_SEC = 30.0
 BACKOFF_BASE_SEC = 5.0
@@ -107,6 +108,9 @@ class CameraManager:
                     "camera_name": getattr(s, "camera_name", None),
                     "started_at": started.isoformat() if started else None,
                     "fps": getattr(s, "fps", None),
+                    "frames_total": getattr(s, "total_frames", 0),
+                    "capture_status": "capturing",
+                    "segment_duration_sec": getattr(s, "segment_duration_sec", 120),
                     "restart_count": sup.restart_count if sup else 0,
                     "last_error": sup.last_error if sup else None,
                 }
@@ -289,6 +293,7 @@ class CameraManager:
         A row the operator disabled while this service was down is skipped
         (and the reason recorded), not started: that is the whole point of
         the disable trigger, which a supervised restart used to undo."""
+        await recover_captures(self.storage, RECORDINGS_DIR)
         try:
             rows = await asyncio.to_thread(self.storage.list_resumable_sessions)
         except Exception as e:  # noqa: BLE001
