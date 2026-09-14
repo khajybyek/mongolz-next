@@ -98,7 +98,7 @@ export default async function PlaybackPage({ searchParams }: { searchParams?: Pr
                           {r.filename}
                           {r.encrypted && <Lock className="w-3 h-3 text-warning" />}
                         </div>
-                        <div className="text-xs text-text-muted flex items-center gap-1.5">
+                        <div className="text-xs text-text-muted flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                           <span>{formatDate(r.started_at)}</span>
                           <span>·</span>
                           <span>{r.camera_name ?? "—"}</span>

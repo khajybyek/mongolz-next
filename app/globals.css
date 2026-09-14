@@ -91,13 +91,21 @@ html[data-theme="light"] {
 html,
 body {
   @apply bg-bg text-text;
-  min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 
+html {
+  min-height: 100%;
+}
+
 body {
+  /* `100vh` includes Safari's collapsing browser chrome. `100dvh` follows
+     the visible viewport and keeps standalone/PWA screens from growing
+     behind the home indicator or an open keyboard. */
+  min-height: 100vh;
+  min-height: 100dvh;
   font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
   overflow-wrap: break-word;
 }
@@ -475,6 +483,67 @@ html {
 .status-bar-strip {
   height: env(safe-area-inset-top, 0px);
   background: rgb(var(--status-bar));
+}
+
+/* App chrome must also clear the notch when an installed iPhone app rotates
+   to landscape. The minimum gutter stays identical on ordinary browsers. */
+.app-header-gutter {
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+}
+
+.app-content-gutter {
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+.page-safe-gutter {
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+.auth-safe-gutter {
+  padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+}
+
+@media (min-width: 768px) {
+  .app-header-gutter,
+  .app-content-gutter {
+    padding-left: max(1.5rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.5rem, env(safe-area-inset-right, 0px));
+  }
+}
+
+@media (min-width: 640px) {
+  .page-safe-gutter {
+    padding-left: max(1.5rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.5rem, env(safe-area-inset-right, 0px));
+  }
+
+  .auth-safe-gutter {
+    padding-left: max(2rem, env(safe-area-inset-left, 0px));
+    padding-right: max(2rem, env(safe-area-inset-right, 0px));
+  }
+}
+
+@media (min-width: 1024px) {
+  .page-safe-gutter {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+
+  .auth-safe-gutter {
+    padding-left: 3rem;
+    padding-right: 3rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .app-content-gutter {
+    padding-left: 2.25rem;
+    padding-right: 2.25rem;
+  }
 }
 
 @layer utilities {

@@ -45,6 +45,7 @@ test.describe("Public surfaces", () => {
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.name).toBeDefined();
+    expect(body.orientation).toBeUndefined();
   });
 
   test("FastAPI /docs is closed in production", async ({ request }) => {

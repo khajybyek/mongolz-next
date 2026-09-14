@@ -66,7 +66,7 @@ export function Dialog({
           // Phones get a bottom sheet (slides up, rounded top corners,
           // scrolls inside); larger screens keep the centred card.
           "relative z-10 w-full bg-surface-elevated border border-border-strong shadow-overlay",
-          "max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-2xl animate-slide-up pb-[env(safe-area-inset-bottom)]",
+          "max-h-[92vh] max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-2xl animate-slide-up pb-[env(safe-area-inset-bottom,0px)]",
           "sm:max-h-[85vh] sm:rounded-2xl sm:animate-scale-in",
           sizeMap[size]
         )}
@@ -83,14 +83,14 @@ export function Dialog({
           <X className="w-4 h-4" />
         </button>
         {(title || description) && (
-          <div className="px-6 pt-6 pb-4 border-b border-border">
+          <div className="px-4 pt-6 pb-4 sm:px-6 border-b border-border">
             {title && <h3 id={headingId} className="text-lg font-semibold tracking-tight pr-10">{title}</h3>}
             {description && <p id={descriptionId} className="text-sm text-text-soft mt-1 pr-8">{description}</p>}
           </div>
         )}
-        <div className="px-6 py-5">{children}</div>
+        <div className="px-4 py-5 sm:px-6">{children}</div>
         {footer && (
-          <div className="px-6 py-4 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-surface/50">
+          <div className="px-4 py-4 sm:px-6 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-surface/50">
             {footer}
           </div>
         )}

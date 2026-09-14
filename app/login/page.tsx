@@ -43,7 +43,7 @@ export default async function LoginPage({
 
   return (
     <div className="relative flex min-h-svh flex-col bg-bg">
-      <header className="relative z-10 mx-auto flex w-full max-w-[1440px] items-center justify-between gap-3 px-5 py-5 pt-[calc(1.25rem+env(safe-area-inset-top,0px))] sm:px-8 lg:px-12 lg:py-7">
+      <header className="auth-safe-gutter relative z-10 mx-auto flex w-full max-w-[1440px] items-center justify-between gap-3 py-5 pt-[calc(1.25rem+env(safe-area-inset-top,0px))] lg:py-7">
         <Link href="/" className="flex min-h-11 items-center gap-3 rounded-lg" aria-label="MONGOLZ Security">
           <MongolzLogo size={36} />
           <span className="hidden flex-col gap-0.5 min-[400px]:flex">
@@ -57,7 +57,7 @@ export default async function LoginPage({
         </div>
       </header>
 
-      <main id="main-content" className="relative mx-auto flex w-full max-w-[1280px] flex-1 items-center px-5 py-5 sm:px-8 lg:py-8">
+      <main id="main-content" className="auth-safe-gutter relative mx-auto flex w-full max-w-[1280px] flex-1 items-center py-5 lg:py-8">
         <div className="grid w-full overflow-hidden rounded-3xl border border-border bg-surface shadow-soft lg:min-h-[640px] lg:grid-cols-[1.05fr_1fr]">
           <section className="relative isolate hidden flex-col overflow-hidden bg-[#0b1729] p-12 text-white lg:flex xl:p-14" aria-labelledby="product-heading">
             <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden style={{ backgroundImage: "radial-gradient(ellipse at 0% 0%, rgba(34, 211, 238, 0.11), transparent 65%)" }} />
@@ -180,7 +180,7 @@ export default async function LoginPage({
         </div>
       </main>
 
-      <footer className="mx-auto flex w-full max-w-[1280px] flex-col items-center justify-between gap-2 px-5 py-6 text-[11px] leading-5 text-text-muted sm:flex-row sm:px-8">
+      <footer className="auth-safe-gutter mx-auto flex w-full max-w-[1280px] flex-col items-center justify-between gap-2 py-[max(1.5rem,env(safe-area-inset-bottom,0px))] text-[11px] leading-5 text-text-muted sm:flex-row">
         <span className="font-medium tracking-wide">MONGOLZ Security</span>
         <p>{copy.authorized}</p>
       </footer>

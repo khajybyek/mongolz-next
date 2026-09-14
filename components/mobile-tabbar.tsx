@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
@@ -15,13 +16,40 @@ import { t, type Lang } from "@/lib/i18n/translations";
 export function MobileTabbar({ role, lang }: { role: Role; lang: Lang }) {
   const pathname = usePathname();
   const { mobileNavOpen, setMobileNavOpen } = useShell();
+  const [editing, setEditing] = useState(false);
   const tabs = mobileTabs(role);
   const moreActive = !tabs.some((tab) => isActivePath(pathname, tab.href));
+
+  useEffect(() => {
+    const isTextEntry = (node: Element | null) =>
+      node instanceof HTMLTextAreaElement ||
+      node instanceof HTMLSelectElement ||
+      (node instanceof HTMLInputElement &&
+        !["button", "checkbox", "color", "file", "hidden", "radio", "range", "reset", "submit"].includes(node.type)) ||
+      (node instanceof HTMLElement && node.isContentEditable);
+
+    const sync = () => setEditing(isTextEntry(document.activeElement));
+    // A focused input can be removed with its modal before Safari updates
+    // `document.activeElement`, so clear immediately on focusout. A following
+    // focusin will set the correct state when focus moves to another editor.
+    const onFocusOut = () => setEditing(false);
+    document.addEventListener("focusin", sync);
+    document.addEventListener("focusout", onFocusOut);
+    return () => {
+      document.removeEventListener("focusin", sync);
+      document.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
 
   return (
     <nav
       aria-label={t("nav_mobile_navigation", lang)}
-      className="md:hidden fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] inset-x-3 z-30 rounded-2xl border border-border-strong bg-surface/95 shadow-[0_8px_32px_rgb(0_0_0/0.16)] backdrop-blur-xl"
+      data-mobile-tabbar
+      data-editing={editing ? "true" : "false"}
+      className={cn(
+        "lg:hidden fixed bottom-[max(0.75rem,env(safe-area-inset-bottom,0px))] left-[max(0.75rem,env(safe-area-inset-left,0px))] right-[max(0.75rem,env(safe-area-inset-right,0px))] z-30 rounded-2xl border border-border-strong bg-surface/95 shadow-[0_8px_32px_rgb(0_0_0/0.16)] backdrop-blur-xl transition-[transform,opacity] duration-200 motion-reduce:transition-none",
+        editing && "translate-y-[calc(100%+4rem)] opacity-0 pointer-events-none",
+      )}
     >
       <ul
         className="grid h-[68px] gap-1 p-1.5"

@@ -54,7 +54,7 @@ export function SearchForm() {
 
   return (
     <div className="space-y-6">
-      <form onSubmit={submit} className="card flex items-center gap-3">
+      <form onSubmit={submit} className="card flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
         <input
           type="file"
           accept="image/*"
@@ -62,7 +62,7 @@ export function SearchForm() {
           required
           className="input file:bg-accent/15 file:text-accent file:border-0 file:rounded file:px-2 file:py-1 file:mr-2"
         />
-        <button type="submit" disabled={!file || loading} className="btn-primary shrink-0">
+        <button type="submit" disabled={!file || loading} className="btn-primary w-full shrink-0 sm:w-auto">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
           {t("search_btn")}
         </button>

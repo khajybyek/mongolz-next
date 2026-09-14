@@ -60,9 +60,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html
       lang={htmlLang}
       data-theme={theme}
+      data-scroll-behavior="smooth"
       className={`${geist.variable} ${geistMono.variable}${theme === "dark" ? " dark" : ""}`}
     >
-      <body className="min-h-screen antialiased font-sans">
+      <body className="min-h-dvh antialiased font-sans">
         <ThemeProvider initial={theme}>{children}</ThemeProvider>
         <SpeedInsights />
         <ServiceWorkerRegister />

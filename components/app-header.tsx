@@ -211,23 +211,23 @@ export function AppHeader({ lang, role, email, isSuperAdmin = false }: Props) {
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur-xl">
       <div className="status-bar-strip" aria-hidden />
-      <div className="h-16 md:h-[76px] px-3 md:px-6 lg:px-8 max-w-[1440px] mx-auto flex min-w-0 items-center gap-2 md:gap-3">
+      <div className="app-header-gutter h-16 lg:h-[76px] max-w-[1440px] mx-auto flex min-w-0 items-center gap-2 lg:gap-3">
         <button
           type="button"
           onClick={() => setMobileNavOpen(true)}
           aria-label={t("open_menu", lang)}
           aria-expanded={mobileNavOpen}
           aria-controls={mobileNavOpen ? "mobile-navigation" : undefined}
-          className={cn(iconBtn, "md:hidden")}
+          className={cn(iconBtn, "lg:hidden")}
         >
           <Menu className="w-5 h-5" />
         </button>
-        <Link href={(role === "auditor" ? "/audit" : "/dashboard") as never} className="hidden sm:inline-flex md:hidden shrink-0 min-h-11 items-center rounded-lg" aria-label="MONGOLZ">
+        <Link href={(role === "auditor" ? "/audit" : "/dashboard") as never} className="hidden sm:inline-flex lg:hidden shrink-0 min-h-11 items-center rounded-lg" aria-label="MONGOLZ">
           <MongolzLogo size={26} />
         </Link>
 
-        {CurrentIcon && <span className="hidden md:flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-bg-secondary/60 text-text-muted"><CurrentIcon className="h-[18px] w-[18px]" strokeWidth={1.7} aria-hidden /></span>}
-        <nav aria-label={t("nav_breadcrumb", lang)} className="hidden md:flex flex-1 items-center gap-1 text-[13px] min-w-0 overflow-hidden">
+        {CurrentIcon && <span className="hidden lg:flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-bg-secondary/60 text-text-muted"><CurrentIcon className="h-[18px] w-[18px]" strokeWidth={1.7} aria-hidden /></span>}
+        <nav aria-label={t("nav_breadcrumb", lang)} className="hidden lg:flex flex-1 items-center gap-1 text-[13px] min-w-0 overflow-hidden">
           {crumbs.map((c, i) => {
             const last = i === crumbs.length - 1;
             return (
@@ -254,7 +254,7 @@ export function AppHeader({ lang, role, email, isSuperAdmin = false }: Props) {
             );
           })}
         </nav>
-        <span className="md:hidden flex-1 min-w-0 text-sm font-semibold truncate" title={current}>{current}</span>
+        <span className="lg:hidden flex-1 min-w-0 text-sm font-semibold truncate" title={current}>{current}</span>
 
         <div className="ml-auto flex shrink-0 items-center gap-1 md:gap-1.5">
           <button

@@ -59,9 +59,9 @@ export default async function HomePage() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-hero relative overflow-hidden">
+    <div className="min-h-screen min-h-dvh bg-gradient-hero relative overflow-hidden">
       <header className="relative z-20 border-b border-border bg-bg/80 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto flex min-h-20 flex-wrap items-center justify-between gap-3 px-4 sm:px-6 lg:px-8 py-3">
+        <div className="page-safe-gutter max-w-7xl mx-auto flex min-h-20 flex-wrap items-center justify-between gap-3 py-3">
           <Link href="/" className="flex items-center gap-3" aria-label="MONGOLZ Security">
             <MongolzLogo size={38} />
             <div>
@@ -88,7 +88,7 @@ export default async function HomePage() {
         </div>
       </header>
 
-      <main className="relative z-10 max-w-7xl mx-auto px-4 md:px-6 lg:px-8 pb-16">
+      <main className="page-safe-gutter relative z-10 max-w-7xl mx-auto pb-[calc(4rem+env(safe-area-inset-bottom,0px))]">
         {/* Hero */}
         <section className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-14 items-center pt-12 md:pt-20 pb-12 md:pb-20">
           <div className="text-left animate-fade-in-up">

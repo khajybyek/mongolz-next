@@ -21,7 +21,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <LangProvider initial={lang}>
       <ShellProvider>
         <ToastProvider>
-          <div className="md:flex min-h-dvh relative bg-bg-secondary">
+          <div className="min-h-screen min-h-dvh lg:flex relative bg-bg-secondary">
             {staging && (
               <div className="fixed top-0 left-0 right-0 z-40 bg-warning-soft border-b border-warning/30 text-warning text-2xs font-medium text-center pt-[calc(0.25rem+env(safe-area-inset-top,0px))] pb-1 pointer-events-none backdrop-blur">
                 ⚠ {envLabel().toUpperCase()} {t("staging_not_production", lang)}
@@ -48,8 +48,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                 email={user.email}
                 isSuperAdmin={profile.is_super_admin}
               />
-              <main id="main" tabIndex={-1} className="flex-1 min-w-0 overflow-x-hidden pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
-                <div className="px-4 md:px-6 xl:px-9 py-6 lg:py-8 max-w-[1440px] mx-auto animate-fade-in">
+              <main id="main" tabIndex={-1} className="flex-1 min-w-0 overflow-x-hidden pb-[calc(6rem+env(safe-area-inset-bottom,0px))] lg:pb-0">
+                <div className="app-content-gutter py-6 lg:py-8 max-w-[1440px] mx-auto animate-fade-in">
                   {children}
                 </div>
               </main>

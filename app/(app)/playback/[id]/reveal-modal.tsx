@@ -251,16 +251,16 @@ export function RevealModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top,0px))]"
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top,0px))] pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
       onClick={onClose}
     >
       <div
-        className="bg-bg-secondary border border-text-muted/10 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        className="bg-bg-secondary border border-text-muted/10 rounded-2xl w-full max-w-2xl max-h-[90vh] max-h-[90dvh] overflow-y-auto overscroll-contain"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-5 border-b border-text-muted/5">
-          <div className="flex items-center gap-3 min-w-0">
-            <h2 className="font-semibold flex items-center gap-2">
+        <div className="flex items-start justify-between gap-2 p-4 sm:p-5 border-b border-text-muted/5">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+            <h2 className="min-w-0 font-semibold flex items-center gap-2">
               <Lock className="w-4 h-4 text-accent" />
               {t("pb_modal_title")}
             </h2>
@@ -277,14 +277,14 @@ export function RevealModal({
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="p-4 sm:p-5 space-y-4">
           {/* Step indicator */}
           <Stepper current={step} />
 
           {/* ─── STEP 1: Method ─── */}
           {step === "method" && (
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 min-[480px]:grid-cols-3 gap-2">
                 <MethodCard
                   active={method === "upload"}
                   onClick={() => setMethod("upload")}
@@ -448,7 +448,7 @@ export function RevealModal({
                   </label>
                   {windowEnabled ? (
                     <>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
                           <div className="text-[10px] text-text-muted mb-1">
                             {t("pb_window_start")} — {fmtSec(windowStart)}
@@ -506,7 +506,7 @@ export function RevealModal({
                 <p className="helper">{copy.hint}</p>
                 <p className="helper">{windowEnabled ? `${fmtSec(windowStart)} → ${fmtSec(windowEnd)}` : copy.whole}</p>
               </div>
-              <div className="flex gap-2 pt-2">
+              <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row">
                 <button onClick={onClose} className="btn-ghost flex-1">
                   {t("pb_cancel_btn")}
                 </button>
@@ -814,7 +814,7 @@ function SideBySidePlayer({
   }, []);
 
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-2">
       <div className="space-y-1">
         <div className="section-title">
           {t("pb_masked_label")}

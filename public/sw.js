@@ -12,7 +12,7 @@
 //     would survive logout on a shared browser.
 //   * On logout the app posts {type: "purge"}; the cache is dropped.
 
-const CACHE = "mongolz-v2";
+const CACHE = "mongolz-v3";
 const PRECACHE = ["/", "/login", "/offline.html", "/manifest.webmanifest"];
 
 function isStaticAsset(url) {
