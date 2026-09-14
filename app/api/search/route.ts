@@ -1,17 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { mlEmbed } from "@/lib/ml-client";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { vectorParam } from "@/lib/pgvector";
 import { recordAccess, READ_ACTIONS } from "@/lib/audit";
+import { parseSearchFilters } from "@/lib/search-filters";
+import type { FilteredFaceSearchResult } from "@/lib/database.types";
 
-interface MatchRow {
-  id: string;
-  filename: string;
-  image_path: string;
-  detected_at: string;
-  similarity: number;
-}
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   const auth = await requireAdminApi();
@@ -19,90 +15,42 @@ export async function POST(request: NextRequest) {
 
   const fd = await request.formData();
   const file = fd.get("file");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "missing file" }, { status: 400 });
+  const filters = parseSearchFilters({
+    cameraId: fd.get("camera_id"), from: fd.get("from"), to: fd.get("to"),
+    threshold: fd.get("threshold"), limit: fd.get("limit"),
+  });
+  if (!(file instanceof File) || !file.type.startsWith("image/") || file.size < 1 || file.size > MAX_IMAGE_BYTES) {
+    return NextResponse.json({ error: "invalid_image" }, { status: 400 });
   }
+  if (!filters) return NextResponse.json({ error: "invalid_filters" }, { status: 400 });
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const embedding = await mlEmbed(buffer);
-
-  const svc = createServiceClient();
-  const { data: rows, error } = await svc.rpc("match_faces", {
-    query_embedding: vectorParam(embedding),
-    match_threshold: 0.5,
-    match_limit: 50,
-  });
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const matches = (rows ?? []) as MatchRow[];
-
-  // A 1:N biometric query ran against every stored face — the single most
-  // invasive read in the product, and until the 2026-09-08 audit it left no
-  // trace at all. Logged once the search actually resolved, hit or miss; the
-  // uploaded probe image itself is never described in the ledger.
-  await recordAccess({
-    action: READ_ACTIONS.FACE_SEARCH,
-    detail: `1:N face search · threshold=0.5 · matches=${matches.length}${
-      matches[0] ? ` · top=${matches[0].id} (${Number(matches[0].similarity).toFixed(3)})` : ""
-    }`,
-    userId: auth.user.id,
-    userEmail: auth.user.email,
-    request,
-  });
-
-  if (matches.length === 0) return NextResponse.json({ matches: [] });
-
-  const ids = matches.map((m) => m.id);
-
-  // ADR 0009 / Tier 2: client-ийн <FaceThumb faceId> нь crop-уудыг өөрөө
-  // unified endpoint-аас унших тул signed URL бэлдэхгүй. Зөвхөн metadata-г
-  // буцаана (camera/recording badge).
-  const { data: metaRows, error: metaErr } = await svc
-    .from("faces")
-    .select("id, recording_id, camera_id, bbox, crop_sealed, recordings:recordings(filename), cameras:cameras(name)")
-    .in("id", ids);
-
-  if (metaErr) return NextResponse.json({ error: metaErr.message }, { status: 500 });
-
-  const metaById = new Map<string, {
-    recording_id: string | null;
-    recording_filename: string | null;
-    camera_name: string | null;
-    bbox: unknown;
-    crop_sealed: boolean;
-  }>();
-  for (const row of metaRows ?? []) {
-    const r = row as {
-      id: string;
-      recording_id: string | null;
-      bbox: unknown;
-      crop_sealed: boolean;
-      recordings: { filename: string } | { filename: string }[] | null;
-      cameras: { name: string } | { name: string }[] | null;
-    };
-    const rec = Array.isArray(r.recordings) ? r.recordings[0] : r.recordings;
-    const cam = Array.isArray(r.cameras) ? r.cameras[0] : r.cameras;
-    metaById.set(r.id, {
-      recording_id: rec ? r.recording_id : null,
-      recording_filename: rec?.filename ?? null,
-      camera_name: cam?.name ?? null,
-      bbox: r.bbox,
-      crop_sealed: Boolean(r.crop_sealed),
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const embedding = await mlEmbed(buffer);
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("search_faces_filtered", {
+      query_embedding: vectorParam(embedding),
+      match_threshold: filters.threshold,
+      match_limit: filters.limit,
+      p_camera_id: filters.cameraId,
+      p_from: filters.from,
+      p_to: filters.to,
     });
+    if (error) return NextResponse.json({ error: "search_unavailable" }, { status: 503 });
+
+    const matches = (data ?? []) as FilteredFaceSearchResult[];
+    await recordAccess({
+      action: READ_ACTIONS.FACE_SEARCH,
+      detail: `1:N face search · threshold=${filters.threshold} · limit=${filters.limit} · camera=${filters.cameraId ?? "all"} · from=${filters.from ?? "any"} · to=${filters.to ?? "any"} · matches=${matches.length}${
+        matches[0] ? ` · top=${matches[0].id} (${Number(matches[0].similarity).toFixed(3)})` : ""
+      }`,
+      userId: auth.user.id,
+      userEmail: auth.user.email,
+      request,
+    });
+
+    return NextResponse.json({ matches });
+  } catch {
+    return NextResponse.json({ error: "search_unavailable" }, { status: 503 });
   }
-
-  const enriched = matches.map((m) => {
-    const meta = metaById.get(m.id);
-    return {
-      ...m,
-      recording_id: meta?.recording_id ?? null,
-      recording_filename: meta?.recording_filename ?? null,
-      camera_name: meta?.camera_name ?? null,
-      bbox: meta?.bbox ?? null,
-      crop_sealed: meta?.crop_sealed ?? false,
-    };
-  });
-
-  return NextResponse.json({ matches: enriched });
 }

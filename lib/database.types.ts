@@ -35,6 +35,10 @@ export type AlertLabel = Enums<"alert_label">;
  * with reopen back to new. Transition rules live in `lib/alerts.ts`.
  */
 export type AlertState = "new" | "acknowledged" | "closed";
+/** incidents.status — operator workflow state. */
+export type IncidentStatus = "open" | "investigating" | "resolved";
+/** incidents.priority — case triage priority. */
+export type IncidentPriority = "low" | "medium" | "high" | "critical";
 
 // ── CHECK-constrained text columns (not Postgres enums) ───────────────
 /** cameras.cam_type — `demo` is a synthetic source built into the ML service (url `demo://<name>`). */
@@ -84,6 +88,11 @@ export type Recording = Omit<Tables<"recordings">, "blur_strategy"> & {
 export type AuditLog = Tables<"audit_log">;
 export type RevealJob = Tables<"reveal_jobs">;
 export type Webhook = Omit<Tables<"webhooks">, "kind"> & { kind: WebhookKind };
+export type Incident = Omit<Tables<"incidents">, "status" | "priority"> & {
+  status: IncidentStatus;
+  priority: IncidentPriority;
+};
+export type IncidentEvent = Tables<"incident_events">;
 
 // ── RPC results ───────────────────────────────────────────────────────
 type Fn<N extends keyof Database["public"]["Functions"]> =
@@ -91,6 +100,15 @@ type Fn<N extends keyof Database["public"]["Functions"]> =
 
 export type MatchSuspectResult = Fn<"match_suspects">[number];
 export type MatchFaceResult = Fn<"match_faces">[number];
+export type FilteredFaceSearchResult = Omit<
+  Fn<"search_faces_filtered">[number],
+  "camera_id" | "camera_name" | "recording_id" | "recording_filename"
+> & {
+  camera_id: string | null;
+  camera_name: string | null;
+  recording_id: string | null;
+  recording_filename: string | null;
+};
 
 /** Relative frame coordinates (0–1 ratios) stored in faces.bbox. */
 export type FaceBbox = { x: number; y: number; w: number; h: number };

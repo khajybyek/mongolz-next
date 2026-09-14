@@ -474,6 +474,201 @@ export type Database = {
           },
         ]
       }
+      incident_alerts: {
+        Row: {
+          added_at: string
+          added_by: string | null
+          alert_id: string
+          incident_id: string
+        }
+        Insert: {
+          added_at?: string
+          added_by?: string | null
+          alert_id: string
+          incident_id: string
+        }
+        Update: {
+          added_at?: string
+          added_by?: string | null
+          alert_id?: string
+          incident_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_alerts_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_alerts_alert_id_fkey"
+            columns: ["alert_id"]
+            isOneToOne: false
+            referencedRelation: "alerts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_alerts_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incidents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      incident_events: {
+        Row: {
+          actor_email: string | null
+          actor_id: string | null
+          created_at: string
+          detail: string | null
+          event_type: string
+          id: number
+          incident_id: string
+        }
+        Insert: {
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          detail?: string | null
+          event_type: string
+          id?: never
+          incident_id: string
+        }
+        Update: {
+          actor_email?: string | null
+          actor_id?: string | null
+          created_at?: string
+          detail?: string | null
+          event_type?: string
+          id?: never
+          incident_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_events_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_events_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incidents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      incident_faces: {
+        Row: {
+          added_at: string
+          added_by: string | null
+          face_id: string
+          incident_id: string
+        }
+        Insert: {
+          added_at?: string
+          added_by?: string | null
+          face_id: string
+          incident_id: string
+        }
+        Update: {
+          added_at?: string
+          added_by?: string | null
+          face_id?: string
+          incident_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_faces_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_faces_face_id_fkey"
+            columns: ["face_id"]
+            isOneToOne: false
+            referencedRelation: "faces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_faces_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incidents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      incidents: {
+        Row: {
+          assignee_id: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          priority: string
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          assignee_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          priority?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          assignee_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          priority?: string
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incidents_assignee_id_fkey"
+            columns: ["assignee_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incidents_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incidents_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       masking_schedules: {
         Row: {
           camera_id: string
@@ -1315,6 +1510,14 @@ export type Database = {
           n_total: number
         }[]
       }
+      attach_incident_alert: {
+        Args: { p_alert_id: string; p_incident_id: string }
+        Returns: string
+      }
+      attach_incident_face: {
+        Args: { p_face_id: string; p_incident_id: string }
+        Returns: string
+      }
       camera_anomaly_scores: {
         Args: { p_baseline_days?: number; p_window_hours?: number }
         Returns: {
@@ -1378,6 +1581,16 @@ export type Database = {
       consume_totp_code: {
         Args: { p_code_hash: string; p_ttl_sec?: number; p_user_id: string }
         Returns: boolean
+      }
+      create_incident: {
+        Args: {
+          p_alert_id?: string | null
+          p_assignee_id?: string | null
+          p_description?: string | null
+          p_priority?: string
+          p_title: string
+        }
+        Returns: string
       }
       effective_mask_mode: {
         Args: { p_at?: string; p_camera_id: string }
@@ -1477,6 +1690,28 @@ export type Database = {
         Args: { p_face_id: string; p_label: string }
         Returns: string
       }
+      search_faces_filtered: {
+        Args: {
+          match_limit?: number
+          match_threshold?: number
+          p_camera_id?: string | null
+          p_from?: string | null
+          p_to?: string | null
+          query_embedding: string
+        }
+        Returns: {
+          camera_id: string
+          camera_name: string
+          crop_sealed: boolean
+          detected_at: string
+          filename: string
+          id: string
+          image_path: string
+          recording_filename: string
+          recording_id: string
+          similarity: number
+        }[]
+      }
       settle_retention_deletions: {
         Args: { p_error?: string; p_ids: string[]; p_lease_token: string }
         Returns: number
@@ -1508,6 +1743,19 @@ export type Database = {
           n_alerts: number
           suspect: string
         }[]
+      }
+      update_incident: {
+        Args: {
+          p_assignee_id?: string | null
+          p_description: string | null
+          p_expected_updated_at: string
+          p_incident_id: string
+          p_note?: string | null
+          p_priority: string
+          p_status: string
+          p_title: string
+        }
+        Returns: string
       }
       update_reveal_job_lease: {
         Args: { p_fields?: Json; p_job_id: string; p_token: string }

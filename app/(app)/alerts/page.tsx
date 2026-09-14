@@ -1,4 +1,4 @@
-import { Download, Bell, Cctv, Clock, RotateCw } from "lucide-react";
+import { Download, Bell, Cctv, Clock, RotateCw, FolderPlus } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
@@ -25,6 +25,7 @@ import {
   stateBadgeVariant,
 } from "@/lib/alerts";
 import { AlertStateActions } from "./alert-state-actions";
+import { incidentCopy } from "@/lib/incident-copy";
 
 import type { AlertState } from "@/lib/database.types";
 import type { TranslationKey } from "@/lib/i18n/translations";
@@ -51,7 +52,8 @@ export default async function AlertsPage({
   searchParams?: Promise<{ state?: string }>;
 }) {
   const { profile } = await requireAdmin();
-  const { t } = await getT();
+  const { t, lang } = await getT();
+  const incident = incidentCopy(lang);
   const supabase = await createClient();
 
   const sp = (await searchParams) ?? {};
@@ -322,7 +324,13 @@ export default async function AlertsPage({
                         )}
                       </td>
                       <td>
-                        <AlertStateActions id={a.id} state={state} note={a.note} />
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <Link href={`/incidents?alert=${a.id}` as never} className="btn-ghost btn-sm" title={incident.createFromAlert}>
+                            <FolderPlus className="h-3.5 w-3.5" />
+                            {incident.createFromAlert}
+                          </Link>
+                          <AlertStateActions id={a.id} state={state} note={a.note} />
+                        </div>
                       </td>
                     </tr>
                   );

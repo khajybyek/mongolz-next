@@ -1,0 +1,64 @@
+import type { Lang } from "@/lib/i18n/translations";
+import type { IncidentPriority, IncidentStatus } from "@/lib/database.types";
+
+const en = {
+  title: "Incidents", subtitle: "Group alerts and face evidence into an owned investigation.",
+  newIncident: "New incident", create: "Create incident", details: "Incident details", activity: "Activity",
+  empty: "No incidents yet", emptyDesc: "Create one from an alert or start a new investigation here.",
+  name: "Title", description: "Description", status: "Status", priority: "Priority", assignee: "Assignee",
+  unassigned: "Unassigned", optional: "Optional", save: "Save changes", saving: "Saving…", cancel: "Cancel",
+  note: "Add a timeline note", noteHint: "Decision, observation, or next action", created: "Created", updated: "Updated",
+  resolved: "Resolved", open: "Open", investigating: "Investigating", low: "Low", medium: "Medium", high: "High", critical: "Critical",
+  alerts: "Linked alerts", evidence: "Face evidence", noAlerts: "No alerts linked", noEvidence: "No face evidence attached",
+  attachAlert: "Attach alert", chooseAlert: "Choose an alert", attached: "Attached", attach: "Attach to incident",
+  chooseIncident: "Choose an active incident", createFromAlert: "Create incident", viewIncident: "Open incident",
+  createdOk: "Incident created.", savedOk: "Incident updated.", attachedOk: "Evidence attached.",
+  invalid: "Check the entered information.", conflict: "This incident changed in another session. Refresh and try again.",
+  unavailable: "The action could not be completed. Try again.", all: "All", owner: "Owner", lastUpdated: "Last updated",
+  searchFilters: "Search scope", threshold: "Minimum similarity", resultLimit: "Maximum results", kst: "Dates use Asia/Seoul (UTC+9).",
+  uploadProbe: "Reference face image", searchAndFilter: "Search evidence", searchInvalid: "Check the camera, dates, similarity, and result limit.",
+  eventCreated: "Incident created", eventUpdated: "Incident updated", eventNote: "Note added", eventAlert: "Alert attached", eventFace: "Face evidence attached",
+};
+type Copy = typeof en;
+
+const mn: Copy = {
+  title: "Хэрэг бүртгэл", subtitle: "Сэрэмжлүүлэг болон нүүрний нотолгоог нэг шалгалтын хэрэгт нэгтгэнэ.",
+  newIncident: "Шинэ хэрэг", create: "Хэрэг үүсгэх", details: "Хэргийн мэдээлэл", activity: "Үйл явц",
+  empty: "Одоогоор хэрэг алга", emptyDesc: "Сэрэмжлүүлгээс эсвэл эндээс шинэ шалгалтын хэрэг үүсгэнэ үү.",
+  name: "Гарчиг", description: "Тайлбар", status: "Төлөв", priority: "Зэрэглэл", assignee: "Хариуцагч",
+  unassigned: "Оноогоогүй", optional: "Заавал биш", save: "Өөрчлөлт хадгалах", saving: "Хадгалж байна…", cancel: "Цуцлах",
+  note: "Үйл явцад тэмдэглэл нэмэх", noteHint: "Шийдвэр, ажиглалт эсвэл дараагийн алхам", created: "Үүсгэсэн", updated: "Шинэчилсэн",
+  resolved: "Шийдвэрлэсэн", open: "Нээлттэй", investigating: "Шалгаж байгаа", low: "Бага", medium: "Дунд", high: "Өндөр", critical: "Нэн өндөр",
+  alerts: "Холбосон сэрэмжлүүлэг", evidence: "Нүүрний нотолгоо", noAlerts: "Сэрэмжлүүлэг холбоогүй", noEvidence: "Нүүрний нотолгоо хавсаргаагүй",
+  attachAlert: "Сэрэмжлүүлэг холбох", chooseAlert: "Сэрэмжлүүлэг сонгох", attached: "Хавсаргасан", attach: "Хэрэгт хавсаргах",
+  chooseIncident: "Идэвхтэй хэрэг сонгох", createFromAlert: "Хэрэг үүсгэх", viewIncident: "Хэрэг нээх",
+  createdOk: "Хэрэг үүсгэлээ.", savedOk: "Хэргийг шинэчиллээ.", attachedOk: "Нотолгоог хавсаргалаа.",
+  invalid: "Оруулсан мэдээллээ шалгана уу.", conflict: "Энэ хэргийг өөр сесс шинэчилсэн байна. Шинэчлээд дахин оролдоно уу.",
+  unavailable: "Үйлдлийг дуусгаж чадсангүй. Дахин оролдоно уу.", all: "Бүгд", owner: "Хариуцагч", lastUpdated: "Сүүлд шинэчилсэн",
+  searchFilters: "Хайлтын хүрээ", threshold: "Доод төстэй байдал", resultLimit: "Үр дүнгийн дээд тоо", kst: "Огноо: Asia/Seoul (UTC+9).",
+  uploadProbe: "Хайх нүүрний зураг", searchAndFilter: "Нотолгоо хайх", searchInvalid: "Камер, огноо, төстэй байдал болон үр дүнгийн тоог шалгана уу.",
+  eventCreated: "Хэрэг үүсгэсэн", eventUpdated: "Хэрэг шинэчилсэн", eventNote: "Тэмдэглэл нэмсэн", eventAlert: "Сэрэмжлүүлэг холбосон", eventFace: "Нүүрний нотолгоо хавсаргасан",
+};
+
+const kr: Copy = {
+  title: "사건 관리", subtitle: "알림과 얼굴 증거를 담당자가 있는 하나의 조사로 묶습니다.",
+  newIncident: "새 사건", create: "사건 만들기", details: "사건 정보", activity: "활동 기록",
+  empty: "아직 사건이 없습니다", emptyDesc: "알림에서 만들거나 여기서 새 조사를 시작하세요.",
+  name: "제목", description: "설명", status: "상태", priority: "우선순위", assignee: "담당자",
+  unassigned: "미지정", optional: "선택 사항", save: "변경 저장", saving: "저장 중…", cancel: "취소",
+  note: "타임라인 메모 추가", noteHint: "결정, 관찰 또는 다음 조치", created: "생성", updated: "수정",
+  resolved: "해결됨", open: "열림", investigating: "조사 중", low: "낮음", medium: "보통", high: "높음", critical: "긴급",
+  alerts: "연결된 알림", evidence: "얼굴 증거", noAlerts: "연결된 알림 없음", noEvidence: "첨부된 얼굴 증거 없음",
+  attachAlert: "알림 연결", chooseAlert: "알림 선택", attached: "첨부됨", attach: "사건에 첨부",
+  chooseIncident: "진행 중인 사건 선택", createFromAlert: "사건 만들기", viewIncident: "사건 열기",
+  createdOk: "사건을 만들었습니다.", savedOk: "사건을 수정했습니다.", attachedOk: "증거를 첨부했습니다.",
+  invalid: "입력 내용을 확인하세요.", conflict: "다른 세션에서 이 사건이 변경되었습니다. 새로 고친 후 다시 시도하세요.",
+  unavailable: "작업을 완료하지 못했습니다. 다시 시도하세요.", all: "전체", owner: "담당자", lastUpdated: "최근 수정",
+  searchFilters: "검색 범위", threshold: "최소 유사도", resultLimit: "최대 결과 수", kst: "날짜 기준: Asia/Seoul (UTC+9).",
+  uploadProbe: "기준 얼굴 이미지", searchAndFilter: "증거 검색", searchInvalid: "카메라, 날짜, 유사도와 결과 수를 확인하세요.",
+  eventCreated: "사건 생성", eventUpdated: "사건 수정", eventNote: "메모 추가", eventAlert: "알림 연결", eventFace: "얼굴 증거 첨부",
+};
+
+export function incidentCopy(lang: Lang): Copy { return { mn, en, kr }[lang]; }
+export function incidentStatusLabel(value: IncidentStatus, lang: Lang): string { return incidentCopy(lang)[value]; }
+export function incidentPriorityLabel(value: IncidentPriority, lang: Lang): string { return incidentCopy(lang)[value]; }

@@ -261,11 +261,15 @@ body {
 
   /* ─────────── Inputs ─────────── */
   .input {
-    @apply w-full rounded-lg bg-surface-elevated border border-border-strong px-3.5 py-2.5 text-text
+    @apply min-w-0 w-full rounded-lg bg-surface-elevated border border-border-strong px-3.5 py-2.5 text-text
       placeholder:text-text-muted transition-colors;
     /* iOS Safari zoom-prevention */
     font-size: 16px;
     min-height: 44px;
+  }
+  input[type="datetime-local"]::-webkit-date-and-time-value {
+    min-width: 0;
+    text-align: left;
   }
   .input:hover:not(:disabled):not(:focus) {
     @apply border-text-muted/15;

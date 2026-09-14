@@ -41,6 +41,7 @@ import {
   Cpu,
   KeyRound,
   UserRoundCheck,
+  BriefcaseBusiness,
   type LucideIcon,
 } from "lucide-react";
 import type { TranslationKey } from "@/lib/i18n/translations";
@@ -82,6 +83,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/live", icon: Video, labelKey: "nav_live", shortLabelKey: "tab_live", keywords: ["camera", "record", "webcam"] },
       { href: "/playback", icon: PlayCircle, labelKey: "nav_playback", shortLabelKey: "tab_playback", keywords: ["recording", "video"] },
       { href: "/alerts", icon: Bell, labelKey: "nav_alerts", shortLabelKey: "tab_alerts", adminOnly: true, keywords: ["history", "csv"] },
+      { href: "/incidents", icon: BriefcaseBusiness, labelKey: "nav_incidents", adminOnly: true, keywords: ["case", "investigation", "evidence"] },
       { href: "/search", icon: Search, labelKey: "nav_search", adminOnly: true, keywords: ["face", "similarity"] },
       { href: "/analytics", icon: BarChart3, labelKey: "nav_analytics", shortLabelKey: "tab_analytics", keywords: ["charts", "stats"] },
     ],

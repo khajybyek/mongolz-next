@@ -160,7 +160,7 @@ function fakeClient() {
           : { data: state.canSee, error: null };
       }
       if (fn === "camera_trail") return { data: state.trail, error: null };
-      if (fn === "match_faces") return { data: state.matches, error: null };
+      if (fn === "match_faces" || fn === "search_faces_filtered") return { data: state.matches, error: null };
       return { data: null, error: null };
     },
     storage: {
@@ -265,7 +265,8 @@ describe("read-access ledger", () => {
     state.permError = false;
     state.grant = null;
     state.alerts = [{ suspect_name: "x", similarity: 0.9, camera_name: "c", created_at: "t", state: "new", screenshot_path: null }];
-    state.matches = [{ id: FACE, filename: "f", image_path: "p", detected_at: "t", similarity: 0.81 }];
+    state.matches = [{ id: FACE, filename: "f", image_path: "p", detected_at: "t", similarity: 0.81,
+      recording_id: null, recording_filename: null, camera_id: null, camera_name: null, crop_sealed: false }];
     state.trail = [{ face_id: FACE, camera_id: CAM, camera_name: "gate", detected_at: "t", similarity: 0.7, bbox: null, recording_id: null }];
     state.job = { id: JOB, status: "completed", output_path: `${JOB}.mp4` };
     state.ledgerHits = 0;
@@ -315,7 +316,7 @@ describe("read-access ledger", () => {
 
   it("keeps the recording identity when enriching a search candidate", async () => {
     state.matches = [{ id: FACE, filename: "face.jpg", image_path: "p", detected_at: "t", similarity: 0.81,
-      recording_id: REC, recordings: { filename: "evidence.mp4" }, cameras: { name: "Entry" } }];
+      recording_id: REC, recording_filename: "evidence.mp4", camera_id: CAM, camera_name: "Entry", crop_sealed: false }];
     const res = await call.search();
     expect(res.status).toBe(200);
     expect((await res.json()).matches[0]).toMatchObject({ id: FACE, recording_id: REC, recording_filename: "evidence.mp4", camera_name: "Entry" });
@@ -323,7 +324,7 @@ describe("read-access ledger", () => {
 
   it("marks expired recording evidence unavailable instead of generating a dead candidate link", async () => {
     state.matches = [{ id: FACE, filename: "face.jpg", image_path: "p", detected_at: "t", similarity: 0.81,
-      recording_id: REC, recordings: null, cameras: null }];
+      recording_id: null, recording_filename: null, camera_id: null, camera_name: null, crop_sealed: false }];
     expect((await (await call.search()).json()).matches[0]).toMatchObject({ recording_id: null, recording_filename: null });
   });
 

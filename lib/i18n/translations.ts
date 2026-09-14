@@ -46,6 +46,7 @@ export const T = {
   nav_live: { mn: "Live бичлэг", en: "Live Feed", kr: "라이브" },
   nav_playback: { mn: "Тоглуулагч", en: "Playback", kr: "재생" },
   nav_search: { mn: "Царай хайх", en: "Face Search", kr: "얼굴 검색" },
+  nav_incidents: { mn: "Хэрэг бүртгэл", en: "Incidents", kr: "사건 관리" },
   nav_suspects: { mn: "Сэжигтэн", en: "Suspects", kr: "용의자" },
   nav_alerts: { mn: "Сэрэмжлүүлэг", en: "Alerts", kr: "알림" },
   nav_analytics: { mn: "Аналитик", en: "Analytics", kr: "분석" },
