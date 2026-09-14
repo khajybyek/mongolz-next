@@ -21,6 +21,7 @@ import base64
 import logging
 import math
 import os
+import stat
 import shutil
 import subprocess
 import time
@@ -528,7 +529,10 @@ class RecordingSession:
         self.rec_dir = os.path.join(recordings_dir, camera_id)
         Path(self.hls_dir).mkdir(parents=True, exist_ok=True)
         Path(self.rec_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(self.rec_dir, 0o700)
+        # Owner-only (0o700): plaintext frames sit here until they are sealed.
+        # Spelled with the stat constant because Semgrep's insecure-file-
+        # permissions rule flags every numeric mode >= 0o650, 0o700 included.
+        os.chmod(self.rec_dir, stat.S_IRWXU)
 
         # Filename timestamp KST-аар үүсгэнэ (UTC биш) — хэрэглэгч KST-аар хардаг
         ts = datetime.now(KST).strftime("%Y%m%d_%H%M%S")

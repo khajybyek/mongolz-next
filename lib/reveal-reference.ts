@@ -24,7 +24,7 @@ export function sealRevealReference(jobId: string, bytes: Buffer, mime: string):
     throw new Error("Invalid reveal reference");
   }
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key(process.env.CAMERA_URL_KEY, jobId), iv);
+  const cipher = createCipheriv("aes-256-gcm", key(process.env.CAMERA_URL_KEY, jobId), iv, { authTagLength: 16 });
   cipher.setAAD(Buffer.from(jobId));
   const body = Buffer.from(JSON.stringify({ mime, data: bytes.toString("base64") }));
   const encrypted = Buffer.concat([cipher.update(body), cipher.final()]);
@@ -36,7 +36,9 @@ export function openRevealReference(jobId: string, sealed: string): { mime: stri
   for (const raw of [process.env.CAMERA_URL_KEY, process.env.CAMERA_URL_KEY_PREV]) {
     if (!raw) continue;
     try {
-      const decipher = createDecipheriv("aes-256-gcm", key(raw, jobId), payload.subarray(0, 12));
+      // The explicit tag length pins the 16-byte tag the seal writes at bytes 12–28;
+      // a shorter tag must not be accepted on decrypt.
+      const decipher = createDecipheriv("aes-256-gcm", key(raw, jobId), payload.subarray(0, 12), { authTagLength: 16 });
       decipher.setAuthTag(payload.subarray(12, 28));
       decipher.setAAD(Buffer.from(jobId));
       const body = JSON.parse(Buffer.concat([decipher.update(payload.subarray(28)), decipher.final()]).toString());

@@ -90,6 +90,12 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-asyncio httpx
 
+      # The capture-integrity tests encode and decode real segments with the
+      # service's FFmpeg dependency; without it they fail rather than skip,
+      # so the runner gets the same binary the Docker image ships.
+      - name: Install FFmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg
+
       - name: Run tests
         working-directory: ml-service
         run: pytest -v --tb=short
