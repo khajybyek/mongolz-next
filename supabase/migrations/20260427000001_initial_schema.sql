@@ -4,7 +4,11 @@
 -- ════════════════════════════════════════════════════════════════
 
 create extension if not exists "uuid-ossp";
-create extension if not exists vector;
+-- Supabase hosts pgvector in `extensions` (including on production). Keeping
+-- the same schema on a fresh local database makes later schema-qualified
+-- HNSW opclasses portable across both environments.
+create schema if not exists extensions;
+create extension if not exists vector with schema extensions;
 create extension if not exists pgcrypto;
 
 -- ════════════════════════════════════════════════════════════════
