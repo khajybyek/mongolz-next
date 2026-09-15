@@ -1,9 +1,16 @@
 import { createHash } from "node:crypto";
 
-type Report = { rows?: number; objects?: number; truncated?: boolean; error?: string };
+type Report = {
+  rows?: number;
+  objects?: number;
+  restorable?: boolean;
+  truncated?: boolean;
+  error?: string;
+};
 export type BackupManifest = {
   format?: string;
   complete?: boolean;
+  include_biometrics?: boolean;
   tables?: Record<string, Report>;
   buckets?: Record<string, Report>;
   file_sha256?: Record<string, string>;

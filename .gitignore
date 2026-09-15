@@ -70,3 +70,8 @@ thesis/
 playwright-report/
 test-results/
 coverage/
+
+# Complete recovery artifacts contain encrypted biometric/video material.
+recovery-bundles/
+*.key-escrow.json
+recovery-report-*.json

@@ -248,16 +248,22 @@ async def test_cancel_wins_before_finalize(context):
 
 @pytest.mark.asyncio
 async def test_interrupted_worker_resumes_same_recording_id(context):
-    store, db, _spool, seen = context
+    store, db, spool, seen = context
     receipt = accept(store, db)
     with pytest.raises(asyncio.CancelledError):
         await worker(context, interrupted=True).process(JOB)
     assert db.jobs[JOB]["status"] == "processing"
     assert (store.directory(JOB) / "0.enc").exists()
-    await worker(context).process(JOB)
+    # Recreate both the store and worker as a replacement container/process
+    # would. Recovery must come only from the fsynced volume + database row,
+    # never an in-memory reference retained by the interrupted worker.
+    restarted_store = UploadStore(store.root)
+    restarted_context = (restarted_store, db, spool, seen)
+    await worker(restarted_context).run_once()
     assert db.jobs[JOB]["status"] == "ready"
     assert db.jobs[JOB]["attempts"] == 2
     assert {s.recording_id for s in seen} == {receipt["recording_id"]}
+    assert not (restarted_store.directory(JOB) / "0.enc").exists()
 
 
 @pytest.mark.asyncio

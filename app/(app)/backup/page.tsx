@@ -1,4 +1,4 @@
-import { AlertTriangle, ShieldAlert } from "lucide-react";
+import { AlertTriangle, ArchiveRestore, ShieldAlert } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
@@ -31,8 +31,22 @@ export default async function BackupPage() {
           </div>
         </div>
 
-        {/* The restore limits are the point of this page: an operator must not
-            discover them halfway through a drill. */}
+        <div className="card border border-accent/25 bg-accent/[0.05] space-y-2.5">
+          <h3 className="section-title flex items-center gap-2 text-accent">
+            <ArchiveRestore className="w-4 h-4 shrink-0" />
+            {t("backup_recovery_title")}
+          </h3>
+          <p className="text-xs text-text-soft leading-relaxed">
+            {t("backup_recovery_body")}
+          </p>
+          <ol className="list-decimal list-outside ml-5 space-y-1.5 text-xs text-text-soft leading-relaxed">
+            <li>{t("backup_recovery_export")}</li>
+            <li>{t("backup_recovery_separate")}</li>
+            <li>{t("backup_recovery_verify")}</li>
+          </ol>
+        </div>
+
+        {/* Operators must know the browser ZIP limits before a restore drill. */}
         <div className="card border border-danger/30 bg-danger-soft space-y-2">
           <h3 className="section-title flex items-center gap-2 text-danger">
             <ShieldAlert className="w-4 h-4 shrink-0" />

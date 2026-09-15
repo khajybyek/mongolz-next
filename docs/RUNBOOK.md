@@ -178,180 +178,128 @@ Store post-mortems in `docs/postmortems/YYYY-MM-DD-slug.md`.
 
 ## 3. Backup Restore Drill
 
-Run on a staging copy every semester.
+Run on an isolated staging project every semester. The browser ZIP and complete
+recovery bundle serve different purposes:
 
-**Read this first — what the ZIP can and cannot do.** The artifact from
-`/api/admin/backup` is a *row-and-path* backup, not a system image:
+| Artifact | Contains | Must stay separate from |
+|---|---|---|
+| Browser biometric ZIP | Restorable row dumps, biometric embeddings, and every DB-referenced Storage path | Source service-role credentials |
+| Recovery bundle | Every browser-ZIP file and referenced Storage object, each sealed with a random recovery data key; only paths/counts/hashes remain visible in its manifest | Key escrow |
+| Key escrow | Recovery data key plus active/previous camera and recording keys, protected with scrypt + AES-256-GCM | Bundle and passphrase |
 
-| Restores from the ZIP | Does NOT restore from the ZIP |
-|---|---|
-| `profiles` (identity fields), `cameras` (incl. the encrypted `url`), `recordings`, `alerts`, `alert_rules`, `reveal_jobs`, `camera_permissions`, `masking_schedules`, `privacy_zones`, `retention_policies`, `clusters`, `audit_log` | **Supabase `auth.users`** — passwords, sessions, identities |
-| `suspects` + `faces` **only** when the export was taken with *Include biometric embeddings* (`?include_biometrics=1`) | TOTP seeds, recovery-code hashes, passkeys — operators re-enrol 2FA |
-| Storage object **paths + per-bucket totals** (`buckets/*.manifest.json`) | `webhooks.url` + HMAC secret, `push_subscriptions` endpoint/p256dh/auth — those two tables are reference-only |
-| `manifest.json` — the exact column list, row counts and restore limits of that artifact | Storage **blob bytes** — restore them from Supabase Storage backup / PITR |
-
-Two consequences to plan around:
-
-- **`auth.users` gap.** `profiles.id` is a FK onto `auth.users`. A clean
-  project has no auth users, so `profiles.json` is rejected in full until the
-  accounts exist. Recreate them first (Dashboard → Authentication → invite, or
-  restore the auth schema from PITR) using the emails in `tables/profiles.json`,
-  then keep the same UUIDs — the restore upserts profiles by `id`.
-- **Biometrics.** `suspects.embedding` and `faces.embedding` are `NOT NULL` and
-  are biometric personal data, so a default export leaves them out and those
-  two tables cannot be restored from it (face matching does not come back). For
-  a drill that must prove recognition works, take the export with the checkbox
-  ticked — it needs fresh TOTP step-up and is audited as
-  `BACKUP_DOWNLOAD_BIOMETRIC`; treat the file like the face database itself
-  (encrypted storage, deleted after the drill).
+The workflow still excludes Supabase `auth.users`, TOTP seeds, recovery codes,
+passkeys, webhook bearer URLs/HMAC secrets, and push endpoint keys. Restore the
+auth schema from PITR or recreate users with the same UUIDs before loading
+`profiles`; operators re-enrol 2FA and operators recreate webhooks/push.
 
 ### 3.1 Inputs
 
-- A `mongolz-backup-<ts>.zip` (or `mongolz-backup-biometric-<ts>.zip`) produced
-  by `/backup` → *Download backup* (admin-only, TOTP step-up).
-- A clean Supabase project for restore (different `project_ref`).
-- `CAMERA_URL_KEY` from the source environment — `cameras.url` is an
-  AES-256-GCM ciphertext and stays unreadable without it (or
-  `CAMERA_URL_KEY_PREV` after a rotation).
-- `ML_ENCRYPTION_KEY` (and `ML_ENCRYPTION_KEY_PREV` if rotated) if the drill
-  includes reveal/playback of restored blobs.
+- A complete `mongolz-backup-biometric-<ts>.zip` from `/backup`, created by the
+  super admin after fresh TOTP verification.
+- Read access to source Storage using `NEXT_PUBLIC_SUPABASE_URL` and
+  `SUPABASE_SERVICE_ROLE_KEY` while creating the bundle.
+- Source `CAMERA_URL_KEY`, `ML_ENCRYPTION_KEY`, and any current `*_PREV` keys.
+- `RECOVERY_ESCROW_PASSPHRASE` of at least 16 characters from the secrets vault.
+- A migrated Supabase restore project with a different URL/project ref and the
+  source auth users restored or recreated with the same UUIDs.
 
 ### 3.2 Steps
 
-1. **Unzip and read the manifest**
+1. **Extract and inspect the biometric export**
 
    ```bash
-   unzip mongolz-backup-*.zip -d ./restore
-   ls restore/tables/                       # one JSON per table
-   ls restore/buckets/                      # 5 manifests, paths from the DB
-   jq '.include_biometrics, (.tables | map_values(.rows))' restore/manifest.json
-   jq -r '.tables | to_entries[] | select(.value.restorable | not)
-          | "\(.key): missing \(.value.missing_required | join(", "))"' restore/manifest.json
+   unzip mongolz-backup-biometric-*.zip -d ./backup-input
+   jq '.complete, .include_biometrics, (.tables | map_values(.rows))' backup-input/manifest.json
    ```
 
-   The last command prints exactly which tables this artifact cannot restore.
-   Without the biometric flag it prints `suspects`, `faces` (plus the always
-   reference-only `webhooks` and `push_subscriptions`).
+   `complete` and `include_biometrics` must both be `true`. The bundle tool
+   refuses anything weaker rather than silently creating a partial recovery.
 
-2. **Apply schema**
+2. **Create the complete recovery bundle while source Storage is available**
 
    ```bash
-   cd mongolz-next
+   export RECOVERY_ESCROW_PASSPHRASE='<value from secrets vault>'
+   npm run recovery:create -- ./backup-input ./recovery-bundles/2026-Q3 \
+     --key-escrow=../mongolz-2026-Q3.key-escrow.json
+   ```
+
+   The command seals every DB/table/manifest file, downloads and seals each
+   Storage path, and records original plus sealed SHA-256 hashes. The recovery
+   manifest is authenticated with HMAC from the data key and written last. A
+   missing object or failed download removes the incomplete output. The tool
+   refuses to store escrow inside the bundle. Store bundle, escrow, and
+   passphrase in three separate locations; securely delete the extracted
+   biometric ZIP after the bundle validates.
+
+3. **Prepare a different restore project**
+
+   ```bash
    npx supabase db push --linked        # linked to the RESTORE project
+   jq -r '.[] | [.id, .email, .role] | @tsv' backup-input/tables/profiles.json
    ```
 
-3. **Recreate the auth users** (nothing else works before this)
+   Restore the auth schema from PITR, or recreate/invite each account with its
+   original UUID before loading rows. Set temporary passwords and require every
+   operator to re-enrol TOTP/passkeys.
+
+4. **Run cryptographic preflight without writes**
 
    ```bash
-   jq -r '.[] | [.id, .email, .role] | @tsv' restore/tables/profiles.json
+   export RESTORE_SUPABASE_URL='https://<restore-project>.supabase.co'
+   npm run recovery:restore -- ./recovery-bundles/2026-Q3 \
+     --key-escrow=../mongolz-2026-Q3.key-escrow.json
    ```
 
-   For each row, create the auth user with that **same UUID** (Dashboard →
-   Authentication → Add user, or the Admin API `auth.admin.createUser({ id, email })`),
-   set a temporary password and require a reset. TOTP and passkeys are not in
-   the backup: every operator re-enrols from `/settings`, and the super-admin
-   flag rides along in `profiles.is_super_admin`.
+   This validates the HMAC-bound manifest, browser-backup hashes/counts, escrow
+   authentication, every sealed and original DB/Storage checksum, every
+   encrypted camera URL, and every encrypted recording's GCM tag plus full
+   `ffprobe` decode scan. It also refuses a target whose project fingerprint
+   matches the source.
 
-4. **Preflight the row load** (no writes)
+5. **Restore and verify**
 
    ```bash
-   npx tsx scripts/restore-from-backup.ts ./restore
+   export RESTORE_SUPABASE_SERVICE_ROLE_KEY='<restore project service role>'
+   npm run recovery:restore -- ./recovery-bundles/2026-Q3 \
+     --key-escrow=../mongolz-2026-Q3.key-escrow.json --apply
    ```
 
-   It reads every table file, checks it against the `NOT NULL` columns that
-   have no default and prints `✓` / `✗` per table with the reason. Nothing is
-   written; a `✗` here is the same failure Postgres would have raised mid-run.
+   The command uploads each original Storage object and downloads it again to
+   compare SHA-256, loads rows in FK order, checks every restorable table count,
+   decrypts every target camera URL, writes `BACKUP_RESTORE_DRILL` to the target
+   audit log, and creates a mode-0600 `recovery-report-*.json`. Only tables that
+   the authenticated manifest already marks unrestorable (webhook/push secrets)
+   may be skipped; any unexpected skip or mismatch exits nonzero. There is no
+   damaged-object skip mode. Files above 6 MiB use resumable chunk upload.
 
-5. **Load rows**
-
-   ```bash
-   npx tsx scripts/restore-from-backup.ts ./restore --apply
-   # a default (non-biometric) export aborts with exit 3 and this instead:
-   npx tsx scripts/restore-from-backup.ts ./restore --apply --skip-unrestorable
-   ```
-
-   FK order: `profiles` → `cameras`, `suspects` → `recordings`, `faces`,
-   `clusters` → `alert_rules`, `alerts`, `reveal_jobs` → `webhooks`,
-   `camera_permissions`, `masking_schedules`, `privacy_zones`,
-   `retention_policies`, `push_subscriptions` → `audit_log` last, in `id`
-   order and only into an empty table so the hash chain re-binds. The run ends
-   with per-table counts and a **Skipped** list — copy both into the drill note.
-
-6. **Restore the Storage objects**
-
-   The ZIP holds no blob bytes. Re-upload from the Supabase Storage backup /
-   PITR or an offline mirror, preserving the exact paths, then check
-   completeness against the manifests (they are derived from the database, so
-   `total_objects` is what a healthy restore must end up with):
-
-   ```bash
-   jq -r '.bucket + ": " + (.total_objects|tostring)' restore/buckets/*.manifest.json
-   # per bucket, compare with the restored project:
-   #   recordings        recordings.storage_path + original_path
-   #   faces             faces.image_path (+ ".enc" when crop_sealed)
-   #   suspects          suspects.image_path
-   #   alert-screenshots alerts.screenshot_path
-   #   revealed          reveal_jobs.output_path
-   ```
-
-   The manifest lists what the database *references*. Two mismatches are
-   expected rather than failures, and both are worth writing down: objects in
-   the source bucket with no owning row (orphans) are not listed, and a listed
-   path whose object was already deleted in the source (a dangling reference)
-   comes back as a shortfall. Anything else is an incomplete restore.
-
-   Then decrypt-smoke-test a sample:
-
-   ```bash
-   npm run backup:verify
-   ```
-
-7. **Re-key if rotation occurred**
-
-   If `ML_ENCRYPTION_KEY` or `CAMERA_URL_KEY` was rotated since the backup, set
-   the matching `*_PREV` on the restore environment (see CLAUDE.md → Key
-   Rotation Procedure) before verifying reveal or camera connectivity.
-
-8. **Verify**
+6. **Application smoke test**
 
    ```sql
    SELECT count(*) FROM verify_audit_chain();   -- 0 = healthy
    ```
 
    ```bash
-   curl -s "$RESTORE_URL/api/uptime" | jq
-   # expect status=ok, ml=ok, db=ok
+   curl -s "$RESTORE_URL/api/uptime" | jq       # status=ok, ml=ok, db=ok
    ```
 
-   Then in the app: log in as a restored admin (after the password reset),
-   open `/cameras` (a camera must show its URL, proving `CAMERA_URL_KEY`), open
-   `/playback` on a restored recording, and — only for a biometric drill —
-   run a `/search` that matches a restored suspect.
-
-9. **Record drill outcome**
-
-   ```sql
-   INSERT INTO audit_log (action, detail)
-   VALUES ('BACKUP_RESTORE_DRILL',
-           'Drill 2026-Q1: restore took <N> min, biometrics=<yes|no>, tables restored <N>/<N>, storage objects <N>/<N>, operator <name>');
-   ```
+   Log in as a restored admin, re-enrol TOTP, open `/cameras`, play a restored
+   recording, run a biometric search, and send a test alert to a re-created
+   webhook. Attach the generated recovery report to the drill record.
 
 ### 3.3 Acceptance criteria for "successful drill"
 
-- The **Skipped** list from step 5 contains only what the manifest predicted —
-  no surprise table.
-- Every restorable table's row count matches `manifest.json`.
-- Auth users recreated for every profile row; each operator can log in and
-  re-enrol TOTP.
-- `verify_audit_chain()` returns no mismatches.
-- Storage object counts per bucket match `buckets/*.manifest.json`.
-- `/api/uptime` returns `status: ok`.
-- A camera URL decrypts (`CAMERA_URL_KEY` present) and a test alert triggers a
-  re-created webhook.
-- A test reveal job completes end-to-end on a restored recording.
-- Biometric drill only: a `/search` hit re-identifies a restored suspect.
+- Cryptographic preflight passes before any target write.
+- Every restorable table count matches the browser backup manifest.
+- Every referenced Storage object round-trips with the source SHA-256.
+- Every camera URL decrypts with the escrowed active/previous key.
+- Every encrypted recording authenticates and decrypts to MP4/WebM.
+- Auth users can log in and re-enrol 2FA; `verify_audit_chain()` is clean.
+- `/api/uptime` is healthy, a restored recording plays, biometric search finds
+  a restored suspect, and a recreated webhook receives a test alert.
+- The audit log contains `BACKUP_RESTORE_DRILL`; the recovery report says
+  `status: passed` and contains no key or plaintext camera URL.
 
-If any check fails, file an issue with `[backup-restore]` label and treat as
+If any check fails, file an issue with `[backup-restore]` label and treat it as
 P2 until resolved.
 
 ---

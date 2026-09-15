@@ -7,6 +7,8 @@
  *   npx tsx scripts/restore-from-backup.ts ./restore              # preflight + dry-run
  *   npx tsx scripts/restore-from-backup.ts ./restore --apply      # upsert rows
  *   npx tsx scripts/restore-from-backup.ts ./restore --apply --skip-unrestorable
+ *   # Complete recovery uses --strict-manifest-skips as well: only tables the
+ *   # signed recovery manifest predicted as unrestorable may be skipped.
  *
  * Required env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
  *
@@ -29,8 +31,9 @@
  *   • Auth material and secrets are not in the backup by design (TOTP seeds,
  *     recovery codes, passkeys, webhook url + secret, push endpoints/keys) —
  *     users re-enrol 2FA, webhooks and push subscriptions are recreated.
- *   • Storage blobs are not restored here; recover them from the Supabase
- *     storage backup / PITR and compare with buckets/*.manifest.json.
+ *   • Storage blobs are not restored here. For the complete two-part recovery
+ *     flow use scripts/create-recovery-bundle.ts followed by
+ *     scripts/restore-recovery-bundle.ts; it restores and verifies the bytes.
  */
 
 import { validateBackupIntegrity, type BackupManifest } from "../lib/backup-integrity";
@@ -38,8 +41,8 @@ import { config as loadEnv } from "dotenv";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-if (existsSync(".env.production.tmp")) loadEnv({ path: ".env.production.tmp" });
-else if (existsSync(".env.local")) loadEnv({ path: ".env.local" });
+if (existsSync(".env.production.tmp")) loadEnv({ path: ".env.production.tmp", quiet: true });
+else if (existsSync(".env.local")) loadEnv({ path: ".env.local", quiet: true });
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -172,12 +175,13 @@ async function main() {
   const [dirArg, ...flags] = process.argv.slice(2);
   if (!dirArg) {
     console.error(
-      "Usage: tsx scripts/restore-from-backup.ts <backup-dir> [--apply] [--skip-unrestorable]",
+      "Usage: tsx scripts/restore-from-backup.ts <backup-dir> [--apply] [--skip-unrestorable] [--strict-manifest-skips]",
     );
     process.exit(2);
   }
   const apply = flags.includes("--apply");
   const skipUnrestorable = flags.includes("--skip-unrestorable");
+  const strictManifestSkips = flags.includes("--strict-manifest-skips");
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing");
@@ -225,6 +229,10 @@ async function main() {
   }
 
   const blocked = plans.filter((p) => p.present && p.missing.length > 0);
+  const manifestTables = manifest?.tables && typeof manifest.tables === "object"
+    ? manifest.tables as Record<string, { restorable?: boolean }>
+    : {};
+  const unexpectedBlocked = blocked.filter((p) => manifestTables[p.table]?.restorable !== false);
   if (blocked.length > 0) {
     console.log(
       `\n${blocked.length} table(s) cannot be restored from this artifact: ${blocked
@@ -234,6 +242,12 @@ async function main() {
     console.log(
       "Postgres would reject those rows with a NOT NULL violation. Fix the export (see the hints above) or re-run with --skip-unrestorable to load everything else.",
     );
+    if (strictManifestSkips && unexpectedBlocked.length > 0) {
+      console.error(
+        `\nStrict restore refuses unplanned skips: ${unexpectedBlocked.map((p) => p.table).join(", ")}. Nothing was changed.`,
+      );
+      process.exit(3);
+    }
     if (apply && !skipUnrestorable) {
       console.error("\nAborting before any write. Nothing was changed.");
       process.exit(3);
@@ -357,7 +371,7 @@ async function main() {
   const bucketsDir = path.join(dirArg, "buckets");
   if (existsSync(bucketsDir)) {
     console.log(
-      "\nStorage: blob bytes are not in this artifact. Re-upload them from the Storage backup, then compare each bucket's object count with total_objects in buckets/*.manifest.json.",
+      "\nStorage: this row-only command does not restore blob bytes. Use recovery:restore for the complete encrypted bundle and verified object restore.",
     );
   }
   console.log(

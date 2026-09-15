@@ -56,6 +56,9 @@ const EXPECTED_SITES = [
   "app/api/reveal/[jobId]/output/route.ts::svc::revealed",
   // service client injected by the caller (cron + /retention action)
   "lib/retention.ts::svc::<dynamic:bucket>",
+  // offline recovery CLI constructs this client from SUPABASE_SERVICE_ROLE_KEY
+  "scripts/create-recovery-bundle.ts::svc::<dynamic:bucket>",
+  "scripts/restore-recovery-bundle.ts::restoreSvc::<dynamic:bucket>",
 ];
 
 /**
@@ -69,6 +72,10 @@ const INJECTED_SERVICE_CLIENTS: Record<string, string[]> = {
   // authorizeRevealJob() returns { job, svc } with svc = createServiceClient()
   // (lib/reveal-job-access.ts:19).
   "app/api/reveal/[jobId]/output/route.ts": ["svc"],
+  // create-recovery-bundle validates and requires the service-role env key
+  // immediately before constructing this client.
+  "scripts/create-recovery-bundle.ts": ["svc"],
+  "scripts/restore-recovery-bundle.ts": ["restoreSvc"],
 };
 
 type Site = { file: string; receiver: string; bucket: string; service: boolean };

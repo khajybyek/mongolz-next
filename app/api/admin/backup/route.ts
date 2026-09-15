@@ -369,7 +369,7 @@ export async function GET(request: Request) {
           secrets:
             "webhooks.url + signing secret and push_subscriptions endpoint/keys are credentials and are excluded — those two tables are reference-only.",
           storage_bytes:
-            "Only object paths are listed. Restore the encrypted blobs from the Supabase Storage backup / PITR or an offline mirror.",
+            "Only object paths are listed in this ZIP. scripts/create-recovery-bundle.ts seals every DB file and referenced Storage object into an offline bundle with a separate key escrow.",
         },
       },
       null,
@@ -438,18 +438,20 @@ export async function GET(request: Request) {
       "  • TOTP seeds, recovery-code hashes, passkeys — operators re-enrol 2FA.",
       "  • webhooks.url + signing secret, push_subscriptions endpoint/p256dh/auth —",
       "    those two tables are reference-only; recreate the destinations by hand.",
-      "  • Storage blob bytes — buckets/*.manifest.json lists the paths and the total",
-      "    per bucket so a restore can be checked for completeness.",
+      "  • Storage blob bytes — buckets/*.manifest.json lists paths and totals only.",
+      "    Use the complete recovery command below to create an encrypted offline mirror.",
       ...(unrestorable.length
         ? ["", "Tables that cannot be restored from THIS artifact:", ...unrestorable.map((u) => `  • ${u}`)]
         : []),
       "",
-      "To restore (full drill: docs/RUNBOOK.md §3):",
-      "  1. Recreate the schema:  npx supabase db push --linked",
-      "  2. Recreate the auth users (Supabase Dashboard invite, or auth-schema PITR)",
-      "  3. Load rows:            npx tsx scripts/restore-from-backup.ts <dir> --apply",
-      "  4. Re-upload the encrypted blobs from the Storage backup, then verify with",
-      "     npm run backup:verify and compare the counts in buckets/*.manifest.json",
+      "Complete recovery (full drill: docs/RUNBOOK.md §3):",
+      "  1. Create the offline mirror immediately after extraction:",
+      "     npm run recovery:create -- <this-dir> <bundle-dir> --key-escrow=<separate-file>",
+      "  2. Store bundle, key escrow and RECOVERY_ESCROW_PASSPHRASE separately.",
+      "  3. Apply schema and recreate auth users in a DIFFERENT Supabase project.",
+      "  4. Validate only: npm run recovery:restore -- <bundle-dir> --key-escrow=<file>",
+      "  5. Restore + verify: add --apply. It restores rows and Storage bytes, checks",
+      "     every checksum/decrypt/count, and writes a recovery report + audit row.",
     ].join("\n"),
   );
 

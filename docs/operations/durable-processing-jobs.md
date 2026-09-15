@@ -30,6 +30,6 @@ Output objects are named `<job_id>/<attempt_token>.mp4`. An old worker therefore
 
 ## Verification and remaining operational checks
 
-Automated tests cover encrypted input reconstruction across worker/store recreation, lost final responses, a database outage during acceptance, missing chunks, ownership, cancellation versus commit, timeout/non-EOF failure, delivery retry without rerender, lease expiry/reclaim and stale-worker fencing. `supabase/tests/durable_processing_jobs.test.sql` executes the actual lease RPCs with rollback in an isolated database.
+Automated tests recreate both the upload store and worker after an interrupted processing task, then recover the encrypted input from the persistent directory and the job state from the database. They also cover lost final responses, a database outage during acceptance, missing chunks, ownership, cancellation versus commit, timeout/non-EOF failure, delivery retry without rerender, lease expiry/reclaim and stale-worker fencing. `supabase/tests/durable_processing_jobs.test.sql` executes the actual lease RPCs with rollback in an isolated database.
 
 Before production sign-off, perform a staging restart during upload processing and during an approved reveal, verify one stable recording/result, and confirm mount persistence across a replacement container. Exercise a temporary Storage outage and let the delivery queue drain. These changes do not claim that such production/staging crash tests have already been run.

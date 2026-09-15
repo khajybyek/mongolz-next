@@ -550,9 +550,34 @@ export const T = {
   },
   backup_download: { mn: "Backup татах (ZIP)", en: "Download backup (ZIP)", kr: "백업 다운로드 (ZIP)" },
   backup_warning: {
-    mn: "⚠ Blob bytes ZIP-д ороогүй — зөвхөн manifest. AES-256-GCM encrypted recordings нь Supabase Storage point-in-time backup-аар хадгалагдана.",
-    en: "⚠ Blob bytes are NOT included — only manifests. AES-256-GCM encrypted recordings are preserved via Supabase Storage point-in-time backup.",
-    kr: "⚠ Blob 바이트는 포함되지 않음 — 매니페스트만 포함됩니다. AES-256-GCM 암호화 녹화는 Supabase Storage point-in-time 백업으로 보존됩니다.",
+    mn: "⚠ Browser-оос татах ZIP-д blob bytes орохгүй. Доорх бүрэн recovery ажиллагаа Storage файлуудыг тусдаа шифрлэсэн bundle-д хуулна.",
+    en: "⚠ The browser ZIP does not contain blob bytes. The full recovery procedure below mirrors Storage files into a separately encrypted bundle.",
+    kr: "⚠ 브라우저 ZIP에는 blob 바이트가 없습니다. 아래의 전체 복구 절차는 Storage 파일을 별도의 암호화된 번들로 복사합니다.",
+  },
+  backup_recovery_title: {
+    mn: "Бүрэн disaster recovery",
+    en: "Complete disaster recovery",
+    kr: "전체 재해 복구",
+  },
+  backup_recovery_body: {
+    mn: "DB өгөгдөл болон бүх Storage файл recovery bundle дотроо давхар шифрлэгдэнэ. Bundle, key escrow, passphrase гурвыг тусдаа байршилд хадгална.",
+    en: "Database data and every Storage file are independently encrypted inside the recovery bundle. Store the bundle, key escrow and passphrase in three separate locations.",
+    kr: "DB 데이터와 모든 Storage 파일은 복구 번들 안에서 별도로 암호화됩니다. 번들, 키 에스크로, 암호를 서로 다른 세 곳에 보관하세요.",
+  },
+  backup_recovery_export: {
+    mn: "TOTP дахин баталгаажуулж, biometric embedding-тэй ZIP татна.",
+    en: "Re-verify with TOTP and download a ZIP with biometric embeddings.",
+    kr: "TOTP로 재인증한 후 생체 임베딩이 포함된 ZIP을 다운로드합니다.",
+  },
+  backup_recovery_separate: {
+    mn: "Операторын recovery ажиллагаа DB ба Storage файлуудыг шифрлэж, тайлах түлхүүрүүдийг passphrase хамгаалалттай тусдаа escrow болгоно.",
+    en: "The operator recovery procedure encrypts DB and Storage files and creates a separate passphrase-protected escrow for decrypt keys.",
+    kr: "운영자 복구 절차는 DB와 Storage 파일을 암호화하고 복호화 키용 별도 암호 보호 에스크로를 생성합니다.",
+  },
+  backup_recovery_verify: {
+    mn: "Сэргээх ажиллагаа эх source-оос өөр project шаардаж, бичихээс өмнө checksum ба decrypt-ийг, дараа нь row/object бүрийг шалган audit-д бүртгэнэ.",
+    en: "Restore requires a project different from the source, checks checksums and decryption before writing, then verifies every row and object and records the drill in the audit log.",
+    kr: "복원은 원본과 다른 프로젝트만 허용하며 쓰기 전 체크섬과 복호화를 확인한 뒤 모든 행과 객체를 검증하고 감사 로그에 기록합니다.",
   },
 
   // ── Live RTC ──
