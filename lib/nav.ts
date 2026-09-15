@@ -42,6 +42,7 @@ import {
   KeyRound,
   UserRoundCheck,
   BriefcaseBusiness,
+  ServerCog,
   type LucideIcon,
 } from "lucide-react";
 import type { TranslationKey } from "@/lib/i18n/translations";
@@ -97,6 +98,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/grid", icon: LayoutGrid, labelKey: "nav_grid", keywords: ["multi camera", "2x2", "3x3"] },
       { href: "/wall", icon: MonitorPlay, labelKey: "nav_wall", keywords: ["kiosk", "monitor"] },
       { href: "/cameras", icon: Cctv, labelKey: "nav_cameras", adminOnly: true, keywords: ["rtsp", "usb"] },
+      { href: "/edge-agents", icon: ServerCog, labelKey: "nav_edge_agents", adminOnly: true, keywords: ["device", "gateway", "offline queue", "raspberry pi"] },
       { href: "/alerts-live", icon: Bell, labelKey: "nav_alerts_live", adminOnly: true, keywords: ["realtime", "live"] },
       { href: "/review", icon: ClipboardCheck, labelKey: "nav_review", adminOnly: true, keywords: ["label", "queue", "manual"] },
       { href: "/jobs", icon: ListTodo, labelKey: "nav_jobs", keywords: ["queue", "background", "reveal", "upload"] },

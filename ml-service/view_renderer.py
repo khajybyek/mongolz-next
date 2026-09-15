@@ -306,7 +306,13 @@ def discard_partial(path: str) -> None:
         log.warning("could not remove partial render %s: %s", path, exc)
 
 
-def render_blurred_view(input_mp4: str, output_mp4: str, engine=None) -> int:
+def render_blurred_view(
+    input_mp4: str,
+    output_mp4: str,
+    engine=None,
+    start_sec: float | None = None,
+    end_sec: float | None = None,
+) -> int:
     """Read ``input_mp4`` → mask every face → write ``output_mp4``.
 
     Returns the number of frames processed. Raises ``RuntimeError`` on input,
@@ -317,7 +323,7 @@ def render_blurred_view(input_mp4: str, output_mp4: str, engine=None) -> int:
     ``asyncio.to_thread`` so it does not stall the event loop.
     """
     try:
-        return _render(input_mp4, output_mp4, engine)
+        return _render(input_mp4, output_mp4, engine, start_sec, end_sec)
     except BaseException:
         # A short file must not outlive the failure that produced it — the
         # endpoint also unlinks its `.part`, this makes the function's own
@@ -326,7 +332,13 @@ def render_blurred_view(input_mp4: str, output_mp4: str, engine=None) -> int:
         raise
 
 
-def _render(input_mp4: str, output_mp4: str, engine=None) -> int:
+def _render(
+    input_mp4: str,
+    output_mp4: str,
+    engine=None,
+    start_sec: float | None = None,
+    end_sec: float | None = None,
+) -> int:
     cap = cv2.VideoCapture(input_mp4)
     if not cap.isOpened():
         raise RuntimeError(f"input MP4 open failed: {input_mp4}")
@@ -338,6 +350,19 @@ def _render(input_mp4: str, output_mp4: str, engine=None) -> int:
     if w <= 0 or h <= 0:
         cap.release()
         raise RuntimeError(f"input MP4 has invalid dimensions: {w}x{h}")
+
+    bounded = start_sec is not None or end_sec is not None
+    if bounded:
+        if start_sec is None or end_sec is None or start_sec < 0 or end_sec <= start_sec:
+            cap.release()
+            raise RuntimeError("clip range is invalid")
+        if end_sec - start_sec > 300:
+            cap.release()
+            raise RuntimeError("clip range exceeds 300 seconds")
+        cap.set(cv2.CAP_PROP_POS_MSEC, start_sec * 1000.0)
+        max_frames = max(1, int(round((end_sec - start_sec) * fps)))
+    else:
+        max_frames = None
 
     encoder = subprocess.Popen(
         [
@@ -373,6 +398,8 @@ def _render(input_mp4: str, output_mp4: str, engine=None) -> int:
     try:
         try:
             while True:
+                if max_frames is not None and frame_count >= max_frames:
+                    break
                 ok, frame = cap.read()
                 if not ok or frame is None:
                     break
@@ -415,3 +442,31 @@ def _render(input_mp4: str, output_mp4: str, engine=None) -> int:
         sweep_view_cache()
 
     return frame_count
+
+
+def render_blurred_frame(input_mp4: str, at_sec: float, engine=None) -> bytes:
+    """Return one fully masked JPEG frame for an evidence package."""
+    if at_sec < 0:
+        raise RuntimeError("frame timestamp is invalid")
+    cap = cv2.VideoCapture(input_mp4)
+    try:
+        if not cap.isOpened():
+            raise RuntimeError("input MP4 open failed")
+        cap.set(cv2.CAP_PROP_POS_MSEC, at_sec * 1000.0)
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            raise RuntimeError("evidence frame is unavailable")
+        masker = FaceMasker(
+            engine,
+            haar_scale=_HAAR_SCALE,
+            haar_neighbors=_HAAR_MIN_NEIGHBORS,
+            haar_min_size=_HAAR_MIN_SIZE,
+            pad_ratio=_PAD_RATIO,
+        )
+        masked = masker.mask(frame)
+        encoded, jpeg = cv2.imencode(".jpg", masked, [cv2.IMWRITE_JPEG_QUALITY, 88])
+        if not encoded:
+            raise RuntimeError("evidence frame encoding failed")
+        return jpeg.tobytes()
+    finally:
+        cap.release()

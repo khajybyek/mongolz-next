@@ -32,9 +32,9 @@ export async function POST(request: NextRequest) {
       query_embedding: vectorParam(embedding),
       match_threshold: filters.threshold,
       match_limit: filters.limit,
-      p_camera_id: filters.cameraId,
-      p_from: filters.from,
-      p_to: filters.to,
+      p_camera_id: filters.cameraId ?? undefined,
+      p_from: filters.from ?? undefined,
+      p_to: filters.to ?? undefined,
     });
     if (error) return NextResponse.json({ error: "search_unavailable" }, { status: 503 });
 

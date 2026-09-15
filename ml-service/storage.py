@@ -219,6 +219,98 @@ class SupabaseStorage:
             self.client = create_client(url, key)
             log.info("Supabase client ready")
 
+    # ── Edge agents ───────────────────────────────────────────
+    def upsert_edge_agent(
+        self,
+        *,
+        agent_id: str,
+        name: str,
+        camera_id: str,
+        version: str,
+        state: str,
+        queue_depth: int,
+        oldest_queued_at: str | None,
+        sent_total: int,
+        failed_total: int,
+        last_error: str | None,
+    ) -> bool:
+        """Publish sanitized device health. Camera URLs and spool keys never
+        enter the cloud status row or application logs."""
+        if not self.client:
+            raise RuntimeError("Supabase client is not configured")
+        camera = (
+            self.client.table("cameras")
+            .select("enabled")
+            .eq("id", camera_id)
+            .maybe_single()
+            .execute()
+        )
+        if not camera or not camera.data:
+            raise RuntimeError("Camera is not registered")
+        capture_enabled = bool(camera.data.get("enabled"))
+        row = {
+            "id": agent_id,
+            "name": name[:120],
+            "camera_id": camera_id,
+            "capture_enabled": capture_enabled,
+            "version": version[:40],
+            "state": state if state in {"online", "degraded"} else "degraded",
+            "queue_depth": max(0, int(queue_depth)),
+            "oldest_queued_at": oldest_queued_at,
+            "sent_total": max(0, int(sent_total)),
+            "failed_total": max(0, int(failed_total)),
+            "last_error": (last_error or "")[:500] or None,
+            "last_seen_at": _iso_now(),
+            "updated_at": _iso_now(),
+        }
+        result = self.client.table("edge_agents").upsert(row, on_conflict="id").execute()
+        if not result.data:
+            raise RuntimeError("Database did not acknowledge edge heartbeat")
+        return capture_enabled
+
+    def get_edge_event(self, event_id: str) -> dict[str, Any] | None:
+        if not self.client:
+            raise RuntimeError("Supabase client is not configured")
+        result = (
+            self.client.table("edge_ingest_events")
+            .select("id,agent_id,camera_id,payload_sha256,face_count,received_at")
+            .eq("id", event_id)
+            .maybe_single()
+            .execute()
+        )
+        return result.data if result else None
+
+    def insert_edge_event(
+        self,
+        *,
+        event_id: str,
+        agent_id: str,
+        camera_id: str,
+        captured_at: str,
+        payload_sha256: str,
+        face_count: int,
+    ) -> dict[str, Any]:
+        """Record the durable acknowledgement for one selected frame.
+
+        The event id is supplied by the encrypted edge outbox and is the
+        primary key, so a lost HTTP acknowledgement can be retried without
+        creating another event.
+        """
+        if not self.client:
+            raise RuntimeError("Supabase client is not configured")
+        row = {
+            "id": event_id,
+            "agent_id": agent_id,
+            "camera_id": camera_id,
+            "captured_at": captured_at,
+            "payload_sha256": payload_sha256,
+            "face_count": max(0, int(face_count)),
+        }
+        result = self.client.table("edge_ingest_events").insert(row).execute()
+        if not result.data:
+            raise RuntimeError("Database did not acknowledge edge event")
+        return result.data[0]
+
     # ── Suspects ──────────────────────────────────────────────
     async def match_suspects(
         self, embedding: list[float], threshold: float = 0.45, limit: int = 5

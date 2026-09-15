@@ -104,6 +104,22 @@ class TestRenderBlurredView:
                 str(tmp_path / "out.mp4"),
             )
 
+    def test_evidence_range_and_representative_frame_are_bounded(self, tmp_path):
+        source = str(tmp_path / "source.mp4")
+        output = str(tmp_path / "clip.mp4")
+        _make_synthetic_mp4(source, frames=45, fps=15)
+        written = view_renderer.render_blurred_view(source, output, None, 1.0, 2.0)
+        assert written == 15
+        frame = view_renderer.render_blurred_frame(source, 1.5)
+        decoded = cv2.imdecode(np.frombuffer(frame, dtype=np.uint8), cv2.IMREAD_COLOR)
+        assert decoded is not None and decoded.shape[:2] == (240, 320)
+
+    def test_evidence_clip_cannot_exceed_five_minutes(self, tmp_path):
+        source = str(tmp_path / "source.mp4")
+        _make_synthetic_mp4(source)
+        with pytest.raises(RuntimeError, match="exceeds 300 seconds"):
+            view_renderer.render_blurred_view(source, str(tmp_path / "clip.mp4"), None, 0, 301)
+
     def test_zero_dim_input_raises(self, tmp_path):
         """Empty file masquerading as MP4 → RuntimeError, not silent corruption.
 

@@ -1689,6 +1689,7 @@ export const T = {
   nav_privacy: { mn: "Хувийн мэдээлэл (GDPR)", en: "Privacy (GDPR)", kr: "개인정보 (GDPR)" },
   nav_eval: { mn: "ML үнэлгээ", en: "ML evaluation", kr: "ML 평가" },
   nav_edge_detect: { mn: "Browser ONNX демо", en: "Edge detect (ONNX)", kr: "엣지 감지 (ONNX)" },
+  nav_edge_agents: { mn: "Edge төхөөрөмжүүд", en: "Edge devices", kr: "엣지 장치" },
   nav_thresholds: { mn: "Threshold тохируулга", en: "Thresholds", kr: "임계값 조정" },
   nav_zk_reveal: { mn: "ZK reveal (PoC)", en: "ZK reveal (PoC)", kr: "ZK 공개 (PoC)" },
   header_search: { mn: "Хайх…", en: "Search…", kr: "검색…" },
@@ -2367,6 +2368,7 @@ export const T = {
   ret_res_audit_log: { mn: "Аудит лог", en: "Audit log", kr: "감사 로그" },
   ret_res_reveal_jobs: { mn: "Ил болгох ажлууд", en: "Reveal jobs", kr: "공개 작업" },
   ret_res_reveal_outputs: { mn: "Ил болгосон файлууд", en: "Reveal outputs", kr: "공개 결과 파일" },
+  ret_res_edge_ingest_events: { mn: "Edge хүргэлтийн бүртгэл", en: "Edge delivery records", kr: "엣지 전송 기록" },
   ret_legal_hold: { mn: "хуулийн хориг", en: "legal hold", kr: "법적 보존" },
   ret_note: {
     mn: "Аудит лог анхдагчаар идэвхгүй (хуулийн хориг) — зөвхөн хуулийн зөвлөгөөний дагуу асаана. Бусад нөөцийн хугацааг өөрчилвөл маргаашийн cron цэвэрлэгээнд хүчин төгөлдөр болно.",

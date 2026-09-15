@@ -26,6 +26,8 @@ function refresh(id?: string) {
   if (id) revalidatePath(`/incidents/${id}`);
   revalidatePath("/alerts");
   revalidatePath("/search");
+  revalidatePath("/playback");
+  revalidatePath("/retention");
 }
 
 export async function createIncidentAction(input: {
@@ -49,10 +51,10 @@ export async function createIncidentAction(input: {
     const supabase = await createClient();
     const { data, error } = await supabase.rpc("create_incident", {
       p_title: title,
-      p_description: description,
+      p_description: description ?? undefined,
       p_priority: input.priority,
-      p_assignee_id: assigneeId,
-      p_alert_id: alertId,
+      p_assignee_id: assigneeId ?? undefined,
+      p_alert_id: alertId ?? undefined,
     });
     if (error || !data || !UUID_RE.test(data)) return failed(error);
     refresh(data);
@@ -90,11 +92,11 @@ export async function updateIncidentAction(input: {
       p_incident_id: input.id,
       p_expected_updated_at: input.expectedUpdatedAt,
       p_title: title,
-      p_description: description,
+      p_description: description ?? "",
       p_status: input.status,
       p_priority: input.priority,
-      p_assignee_id: assigneeId,
-      p_note: note,
+      p_assignee_id: assigneeId ?? undefined,
+      p_note: note ?? undefined,
     });
     if (error || data !== input.id) return failed(error);
     refresh(input.id);
@@ -130,4 +132,61 @@ export async function attachAlertToIncidentAction(incidentId: string, alertId: s
 
 export async function attachFaceToIncidentAction(incidentId: string, faceId: string) {
   return attach("face", incidentId, faceId);
+}
+
+export async function attachRecordingToIncidentAction(input: {
+  incidentId: string;
+  recordingId: string;
+  startSec: number;
+  endSec: number;
+  note?: string;
+  legalHold: boolean;
+}): Promise<IncidentActionResult> {
+  await requireAdmin();
+  const note = input.note?.trim() || null;
+  if (!UUID_RE.test(input.incidentId) || !UUID_RE.test(input.recordingId) ||
+      !Number.isFinite(input.startSec) || !Number.isFinite(input.endSec) ||
+      input.startSec < 0 || input.endSec <= input.startSec ||
+      input.endSec - input.startSec > 300 || (note?.length ?? 0) > 1000) {
+    return { error: "invalid" };
+  }
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("attach_incident_recording", {
+      p_incident_id: input.incidentId,
+      p_recording_id: input.recordingId,
+      p_clip_start_sec: input.startSec,
+      p_clip_end_sec: input.endSec,
+      p_note: note ?? undefined,
+      p_legal_hold: input.legalHold,
+    });
+    if (error || !data || !UUID_RE.test(data)) return failed(error);
+    refresh(input.incidentId);
+    return { ok: true, id: data };
+  } catch {
+    return { error: "unavailable" };
+  }
+}
+
+export async function setEvidenceHoldAction(input: {
+  incidentId: string;
+  evidenceId: string;
+  legalHold: boolean;
+}): Promise<IncidentActionResult> {
+  await requireAdmin();
+  if (!UUID_RE.test(input.incidentId) || !UUID_RE.test(input.evidenceId)) {
+    return { error: "invalid" };
+  }
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("set_incident_recording_hold", {
+      p_evidence_id: input.evidenceId,
+      p_legal_hold: input.legalHold,
+    });
+    if (error || data !== input.evidenceId) return failed(error);
+    refresh(input.incidentId);
+    return { ok: true, id: input.evidenceId };
+  } catch {
+    return { error: "unavailable" };
+  }
 }

@@ -19,11 +19,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY agent.py .
 
 # Run as non-root to satisfy on-prem hardening checklists.
-RUN useradd --create-home --shell /bin/false agent && chown -R agent:agent /agent
+RUN useradd --create-home --shell /bin/false agent \
+    && mkdir -p /var/lib/mongolz-edge \
+    && chown -R agent:agent /agent /var/lib/mongolz-edge
 USER agent
 
-# Health probe — `import cv2` is the load-bearing dependency.
+# Health probe checks the running loop timestamp, not only an import.
 HEALTHCHECK --interval=60s --timeout=10s --start-period=10s --retries=2 \
-    CMD python -c "import cv2; print('ok')" || exit 1
+    CMD python agent.py --healthcheck || exit 1
 
 CMD ["python", "-u", "agent.py"]

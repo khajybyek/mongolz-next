@@ -25,6 +25,7 @@ const LABELS: Record<string, { key: TranslationKey; warn?: boolean }> = {
   audit_log: { key: "ret_res_audit_log", warn: true },
   reveal_jobs: { key: "ret_res_reveal_jobs" },
   reveal_outputs: { key: "ret_res_reveal_outputs" },
+  edge_ingest_events: { key: "ret_res_edge_ingest_events" },
 };
 
 export default async function RetentionPage() {

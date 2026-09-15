@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useState, useTransition, type FormEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { BriefcaseBusiness, Link2, Loader2, Plus, Save } from "lucide-react";
+import { BriefcaseBusiness, Download, Film, Link2, Loader2, LockKeyhole, Plus, Save, UnlockKeyhole } from "lucide-react";
 import { useT } from "@/lib/i18n/client";
 import { incidentCopy, incidentPriorityLabel, incidentStatusLabel } from "@/lib/incident-copy";
 import { INCIDENT_PRIORITIES, INCIDENT_STATUSES } from "@/lib/incidents";
 import { useToast } from "@/components/ui/toast";
+import { TotpPrompt } from "@/components/totp-prompt";
 import {
   attachAlertToIncidentAction,
+  attachRecordingToIncidentAction,
   createIncidentAction,
+  setEvidenceHoldAction,
   updateIncidentAction,
   type IncidentActionResult,
 } from "./actions";
@@ -17,6 +20,7 @@ import type { Incident, IncidentPriority, IncidentStatus } from "@/lib/database.
 
 export interface AdminOption { id: string; email: string; full_name: string | null }
 export interface AlertOption { id: string; label: string }
+export interface RecordingOption { id: string; label: string; durationSec: number | null }
 
 function errorMessage(result: Exclude<IncidentActionResult, { ok: true }>, copy: ReturnType<typeof incidentCopy>) {
   return result.error === "conflict" ? copy.conflict : result.error === "invalid" ? copy.invalid : copy.unavailable;
@@ -208,5 +212,146 @@ export function AttachAlertForm({ incidentId, alerts }: { incidentId: string; al
         {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}{copy.attachAlert}
       </button>
     </form>
+  );
+}
+
+export function AttachRecordingForm({ incidentId, recordings }: { incidentId: string; recordings: RecordingOption[] }) {
+  const { lang } = useT();
+  const copy = incidentCopy(lang);
+  const { toast } = useToast();
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [recordingId, setRecordingId] = useState("");
+  const [startSec, setStartSec] = useState("0");
+  const [endSec, setEndSec] = useState("30");
+  const [note, setNote] = useState("");
+  const [legalHold, setLegalHold] = useState(true);
+
+  function choose(id: string) {
+    setRecordingId(id);
+    const duration = recordings.find((recording) => recording.id === id)?.durationSec;
+    setStartSec("0");
+    setEndSec(String(Math.max(0.1, Math.min(duration ?? 30, 30))));
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    startTransition(async () => {
+      const result = await attachRecordingToIncidentAction({
+        incidentId,
+        recordingId,
+        startSec: Number(startSec),
+        endSec: Number(endSec),
+        note,
+        legalHold,
+      });
+      if ("error" in result) {
+        toast({ title: errorMessage(result, copy), tone: "danger" });
+        return;
+      }
+      setRecordingId("");
+      setNote("");
+      toast({ title: copy.recordingAttachedOk, tone: "success" });
+      router.refresh();
+    });
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-3 rounded-xl border border-border bg-bg-secondary/40 p-3">
+      <div>
+        <label className="label" htmlFor="evidence-recording">{copy.chooseRecording}</label>
+        <select id="evidence-recording" className="select" value={recordingId} onChange={(event) => choose(event.target.value)} required>
+          <option value="">{copy.chooseRecording}</option>
+          {recordings.map((recording) => <option key={recording.id} value={recording.id}>{recording.label}</option>)}
+        </select>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div><label className="label" htmlFor="clip-start">{copy.clipStart}</label><input id="clip-start" className="input" type="number" min="0" max="86400" step="0.1" value={startSec} onChange={(event) => setStartSec(event.target.value)} required /></div>
+        <div><label className="label" htmlFor="clip-end">{copy.clipEnd}</label><input id="clip-end" className="input" type="number" min="0.1" max="86400" step="0.1" value={endSec} onChange={(event) => setEndSec(event.target.value)} required /></div>
+      </div>
+      <p className="text-xs text-text-muted">{copy.maxClip}</p>
+      <div><label className="label" htmlFor="evidence-note">{copy.note} · {copy.optional}</label><textarea id="evidence-note" className="input resize-y" rows={2} maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} /></div>
+      <label className="flex cursor-pointer items-start gap-2.5 text-xs text-text-soft">
+        <input className="mt-0.5 accent-accent" type="checkbox" checked={legalHold} onChange={(event) => setLegalHold(event.target.checked)} />
+        <span><strong className="block text-text">{copy.legalHold}</strong>{copy.legalHoldHelp}</span>
+      </label>
+      <button type="submit" className="btn-secondary" disabled={pending || !recordingId}>
+        {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}{copy.attachRecording}
+      </button>
+    </form>
+  );
+}
+
+export function EvidenceHoldButton({ incidentId, evidenceId, legalHold }: { incidentId: string; evidenceId: string; legalHold: boolean }) {
+  const { lang } = useT();
+  const copy = incidentCopy(lang);
+  const { toast } = useToast();
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  return (
+    <button type="button" className="btn-ghost btn-sm" disabled={pending} onClick={() => startTransition(async () => {
+      const result = await setEvidenceHoldAction({ incidentId, evidenceId, legalHold: !legalHold });
+      if ("error" in result) toast({ title: errorMessage(result, copy), tone: "danger" });
+      else { toast({ title: copy.holdUpdatedOk, tone: "success" }); router.refresh(); }
+    })}>
+      {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : legalHold ? <UnlockKeyhole className="h-3.5 w-3.5" /> : <LockKeyhole className="h-3.5 w-3.5" />}
+      {legalHold ? copy.releaseHold : copy.applyHold}
+    </button>
+  );
+}
+
+export function EvidenceExportButton({ incidentId }: { incidentId: string }) {
+  const { lang } = useT();
+  const copy = incidentCopy(lang);
+  const [busy, setBusy] = useState(false);
+  const [needsTotp, setNeedsTotp] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const retryRef = useRef(false);
+
+  async function download() {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/incidents/${incidentId}/evidence-package`, { cache: "no-store" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        if (body?.error === "REAUTH_REQUIRED") {
+          retryRef.current = true;
+          setNeedsTotp(true);
+          return;
+        }
+        throw new Error(body?.error ?? copy.exportFailed);
+      }
+      const blob = await response.blob();
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = `incident-${incidentId.slice(0, 8)}-${Date.now()}.zip`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : copy.exportFailed);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="space-y-2">
+        <button type="button" className="btn-primary w-full sm:w-auto" disabled={busy} onClick={() => void download()}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{busy ? copy.exporting : copy.packageExport}
+        </button>
+        <p className="max-w-2xl text-xs leading-relaxed text-text-muted">{copy.exportHelp}</p>
+        {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+      </div>
+      <TotpPrompt
+        open={needsTotp}
+        onClose={() => { setNeedsTotp(false); retryRef.current = false; }}
+        onSuccess={() => { setNeedsTotp(false); if (retryRef.current) { retryRef.current = false; void download(); } }}
+      />
+    </>
   );
 }

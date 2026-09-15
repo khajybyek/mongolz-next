@@ -18,6 +18,13 @@ const en = {
   searchFilters: "Search scope", threshold: "Minimum similarity", resultLimit: "Maximum results", kst: "Dates use Asia/Seoul (UTC+9).",
   uploadProbe: "Reference face image", searchAndFilter: "Search evidence", searchInvalid: "Check the camera, dates, similarity, and result limit.",
   eventCreated: "Incident created", eventUpdated: "Incident updated", eventNote: "Note added", eventAlert: "Alert attached", eventFace: "Face evidence attached",
+  recordingEvidence: "Recording evidence", noRecordingEvidence: "No recording clips attached", attachRecording: "Attach recording clip", chooseRecording: "Choose a recording",
+  clipStart: "Start (seconds)", clipEnd: "End (seconds)", maxClip: "Up to 5 minutes per clip.", legalHold: "Protect with legal hold",
+  legalHoldHelp: "Held recordings and their face records are excluded from retention deletion.", holdActive: "Legal hold active", holdReleased: "Hold released",
+  applyHold: "Apply hold", releaseHold: "Release hold", packageExport: "Download evidence package", exporting: "Building package…",
+  exportHelp: "ZIP includes masked clips and images, case metadata, access history, and SHA-256 checksums.",
+  eventRecording: "Recording evidence attached", eventHold: "Evidence hold changed", eventPackage: "Evidence package exported",
+  recordingAttachedOk: "Recording evidence attached.", holdUpdatedOk: "Evidence hold updated.", exportFailed: "Evidence package could not be created.",
 };
 type Copy = typeof en;
 
@@ -38,6 +45,13 @@ const mn: Copy = {
   searchFilters: "Хайлтын хүрээ", threshold: "Доод төстэй байдал", resultLimit: "Үр дүнгийн дээд тоо", kst: "Огноо: Asia/Seoul (UTC+9).",
   uploadProbe: "Хайх нүүрний зураг", searchAndFilter: "Нотолгоо хайх", searchInvalid: "Камер, огноо, төстэй байдал болон үр дүнгийн тоог шалгана уу.",
   eventCreated: "Хэрэг үүсгэсэн", eventUpdated: "Хэрэг шинэчилсэн", eventNote: "Тэмдэглэл нэмсэн", eventAlert: "Сэрэмжлүүлэг холбосон", eventFace: "Нүүрний нотолгоо хавсаргасан",
+  recordingEvidence: "Бичлэгийн нотолгоо", noRecordingEvidence: "Бичлэгийн хэсэг хавсаргаагүй", attachRecording: "Бичлэгийн хэсэг хавсаргах", chooseRecording: "Бичлэг сонгох",
+  clipStart: "Эхлэх секунд", clipEnd: "Дуусах секунд", maxClip: "Нэг хэсэг 5 минут хүртэл байна.", legalHold: "Хадгалалтын хамгаалалт тавих",
+  legalHoldHelp: "Хамгаалалттай бичлэг болон нүүрний мөрийг retention устгахгүй.", holdActive: "Хадгалалтын хамгаалалттай", holdReleased: "Хамгаалалтыг цуцалсан",
+  applyHold: "Хамгаалалт тавих", releaseHold: "Хамгаалалт цуцлах", packageExport: "Нотолгооны багц татах", exporting: "Багц бэлдэж байна…",
+  exportHelp: "ZIP-д масктай clip ба зураг, хэргийн мэдээлэл, хандалтын түүх, SHA-256 checksum орно.",
+  eventRecording: "Бичлэгийн нотолгоо хавсаргасан", eventHold: "Хадгалалтын хамгаалалт өөрчилсөн", eventPackage: "Нотолгооны багц татсан",
+  recordingAttachedOk: "Бичлэгийн нотолгоог хавсаргалаа.", holdUpdatedOk: "Хадгалалтын хамгаалалтыг шинэчиллээ.", exportFailed: "Нотолгооны багц үүсгэж чадсангүй.",
 };
 
 const kr: Copy = {
@@ -57,6 +71,13 @@ const kr: Copy = {
   searchFilters: "검색 범위", threshold: "최소 유사도", resultLimit: "최대 결과 수", kst: "날짜 기준: Asia/Seoul (UTC+9).",
   uploadProbe: "기준 얼굴 이미지", searchAndFilter: "증거 검색", searchInvalid: "카메라, 날짜, 유사도와 결과 수를 확인하세요.",
   eventCreated: "사건 생성", eventUpdated: "사건 수정", eventNote: "메모 추가", eventAlert: "알림 연결", eventFace: "얼굴 증거 첨부",
+  recordingEvidence: "녹화 증거", noRecordingEvidence: "첨부된 녹화 구간 없음", attachRecording: "녹화 구간 첨부", chooseRecording: "녹화 선택",
+  clipStart: "시작(초)", clipEnd: "종료(초)", maxClip: "구간당 최대 5분입니다.", legalHold: "보존 보호 적용",
+  legalHoldHelp: "보호된 녹화와 얼굴 기록은 보존 기간 삭제에서 제외됩니다.", holdActive: "보존 보호 중", holdReleased: "보호 해제됨",
+  applyHold: "보호 적용", releaseHold: "보호 해제", packageExport: "증거 패키지 다운로드", exporting: "패키지 생성 중…",
+  exportHelp: "ZIP에는 마스킹된 영상과 이미지, 사건 메타데이터, 접근 기록, SHA-256 체크섬이 포함됩니다.",
+  eventRecording: "녹화 증거 첨부", eventHold: "증거 보존 보호 변경", eventPackage: "증거 패키지 내보냄",
+  recordingAttachedOk: "녹화 증거를 첨부했습니다.", holdUpdatedOk: "증거 보존 보호를 변경했습니다.", exportFailed: "증거 패키지를 만들지 못했습니다.",
 };
 
 export function incidentCopy(lang: Lang): Copy { return { mn, en, kr }[lang]; }

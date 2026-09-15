@@ -16,6 +16,7 @@ const updateSchema = z.object({
     "alerts",
     "reveal_jobs",
     "reveal_outputs",
+    "edge_ingest_events",
   ]),
   retention_days: z.coerce.number().int().min(1).max(36500),
   enabled: z

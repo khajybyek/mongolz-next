@@ -127,6 +127,14 @@ beforeEach(() => {
       { id: "a2", screenshot_path: null },
     ],
     reveal_jobs: [{ id: "j1", output_path: "reveal/j1.mp4" }],
+    incidents: [{ id: "i1", title: "Gate review" }],
+    incident_alerts: [{ incident_id: "i1", alert_id: "a1" }],
+    incident_faces: [{ incident_id: "i1", face_id: "f1" }],
+    incident_events: [{ id: 1, incident_id: "i1", event_type: "created" }],
+    incident_recordings: [{ id: "ir1", incident_id: "i1", recording_id: "r1", recording_filename: "r1.mp4", recording_started_at: "2026-09-15T00:00:00Z", clip_start_sec: 0, clip_end_sec: 10 }],
+    incident_evidence_exports: [{ id: "ie1", incident_id: "i1", manifest_sha256: "a".repeat(64), file_count: 3, package_bytes: 500 }],
+    edge_agents: [{ id: "ea1", name: "Gate A", camera_id: "c1", version: "1.0.0" }],
+    edge_ingest_events: [{ id: "ee1", agent_id: "ea1", camera_id: "c1", captured_at: "2026-09-15T00:00:00Z", payload_sha256: "b".repeat(64), face_count: 1 }],
     webhooks: [{ id: "w1", name: "slack", kind: "slack" }],
     push_subscriptions: [{ id: "p1", user_id: "u1" }],
     alert_rules: [],
@@ -148,6 +156,8 @@ describe("GET /api/admin/backup — column allow-lists", () => {
     expect(dumped("faces")).toContain("image_path");
     expect(dumped("suspects")).not.toContain("embedding");
     expect(dumped("faces")).not.toContain("embedding");
+    expect(dumped("incident_recordings")).toBe("*");
+    expect(dumped("edge_ingest_events")).toBe("*");
   });
 
   it("never exports auth material or outbound secrets", async () => {

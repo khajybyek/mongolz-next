@@ -54,13 +54,13 @@ describe("lib/nav", () => {
     expect(NAV_GROUPS[0].items.map((item) => item.href)).toEqual([
       "/dashboard", "/live", "/playback", "/alerts", "/incidents", "/search", "/analytics",
     ]);
-    expect(allItems).toHaveLength(44);
+    expect(allItems).toHaveLength(45);
   });
 
   it("keeps the operator surfaces together and viewer-accessible", () => {
     const monitoring = NAV_GROUPS.find((group) => group.id === "monitoring");
     expect(monitoring?.items.map((item) => item.href)).toEqual([
-      "/grid", "/wall", "/cameras", "/alerts-live", "/review", "/jobs",
+      "/grid", "/wall", "/cameras", "/edge-agents", "/alerts-live", "/review", "/jobs",
     ]);
     for (const href of ["/grid", "/wall"]) {
       const item = monitoring?.items.find((i) => i.href === href);

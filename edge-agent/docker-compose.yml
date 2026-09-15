@@ -6,8 +6,13 @@ services:
     network_mode: host  # required for LAN RTSP access on Linux
     env_file:
       - .env
+    volumes:
+      - mongolz-edge-data:/var/lib/mongolz-edge
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "5"
+
+volumes:
+  mongolz-edge-data:

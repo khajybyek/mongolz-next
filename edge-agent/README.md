@@ -1,79 +1,74 @@
-# MONGOLZ edge agent
+# MONGOLZ Edge Agent
 
-Lightweight Python agent that runs on a small box (Raspberry Pi 5, Intel
-NUC, Mini PC) inside the customer's LAN to scale the system past
-~5 concurrent cloud-fed RTSP streams.
+The edge agent runs beside a CCTV camera on a Raspberry Pi, Intel NUC, or
+small Linux computer. RTSP credentials stay on that device. It samples the
+local stream, gates on motion and face presence, and sends only selected JPEG
+frames to the cloud ML service.
 
-## Why an edge agent?
+## Delivery and outage behavior
 
-```
-WITHOUT edge agent (current):                WITH edge agent (this):
+Every selected frame is AES-256-GCM encrypted into a persistent local outbox
+before the first network request. Each item has a stable event UUID and SHA-256
+checksum. If the internet, tunnel, Railway service, or database is unavailable,
+the encrypted item remains on disk and retries with bounded exponential
+backoff. The cloud event UUID is the idempotency key, so a lost response cannot
+create a second event. Files leave the outbox only after a durable cloud
+acknowledgement.
 
-[CCTV] ─RTSP─► [Cloud Railway ML]            [CCTV] ─RTSP LAN─► [Pi 5]
-        every frame, raw bytes                                    │
-                                                       ◀───frames-of-interest only───▶
-                                              POST /detect → [Cloud Railway ML]
-```
+The agent sends a sanitized heartbeat containing device name, camera ID,
+queue depth, oldest pending timestamp, delivery totals, and a short error code.
+It never sends the RTSP URL, spool key, token, or queued frame bytes as status
+metadata. Administrators can see this status on `/edge-agents`.
 
-| Concern | Cloud-only | Edge agent |
-|---|---|---|
-| Public-internet bandwidth/camera | ≈ 1 Mbps continuous | ≈ 0.05 Mbps avg |
-| Camera RTSP credentials | Sent to cloud | Stay on LAN |
-| Cloud ML CPU/camera | full 30 FPS | only motion + face frames |
-| Practical limit | ~5 cameras / Railway dyno | ~50 cameras / dyno |
+The default 2 GiB outbox is a hard bound. When it fills, new capture pauses
+while delivery keeps retrying; old evidence is never silently evicted.
 
-The agent is the standard Verkada / Eufy / Reolink pattern: on-prem
-appliance handles the noisy work, cloud only sees frames-of-interest.
-
-## Pipeline inside the agent
-
-1. **Open RTSP** over LAN with OpenCV `cv2.VideoCapture`.
-2. **Sample** one frame every `SAMPLE_INTERVAL_SEC` (default 1.0 s); keep
-   the buffer drained between samples to avoid stale frames.
-3. **Motion gate** — mean absolute pixel diff (8-bit grey) against the
-   previous sample. Skip if `< MOTION_THRESHOLD` (default 8.0).
-4. **Face presence gate** — Haar frontal-face cascade (ships with
-   OpenCV). Skip if zero detections.
-5. **Upload** — POST JPEG (quality 80) + `camera_id` to the cloud ML
-   service `/detect` endpoint. Exponential backoff on errors.
-
-InsightFace ArcFace / RetinaFace stay in the cloud — the agent intentionally
-runs only the cheap Haar pre-filter so a $50 Pi 5 can keep up.
-
-## Run
+## Install
 
 ```bash
 cd edge-agent
-cp .env.example .env       # fill in RTSP_URL, ML_SERVICE_TOKEN, CAMERA_ID
-docker compose up -d
+cp .env.example .env
+uuidgen                         # use once for AGENT_ID
+openssl rand -base64 32         # use once for EDGE_SPOOL_KEY
+docker compose up -d --build
 docker compose logs -f
 ```
 
-Stop with `docker compose down`.
+Set `CAMERA_ID` to an enabled camera UUID from MONGOLZ and keep `AGENT_ID` and
+`EDGE_SPOOL_KEY` stable across upgrades. The named Docker volume preserves the
+encrypted queue across container replacements.
 
-## Hardware sizing
+Stop with `docker compose down`. Do not add `-v` unless you intentionally want
+to remove the pending encrypted queue.
 
-| Box | Cameras handled (1 FPS sample, motion + face) |
-|---|---|
-| Raspberry Pi 5 (4 GB) | 4 |
-| Intel NUC i3 | 12 |
-| Mini PC i5 + Coral USB | 30 |
+## Pipeline
 
-## Local dev (no Docker)
+1. Open RTSP over the camera LAN.
+2. Sample one frame every `SAMPLE_INTERVAL_SEC` and drain stale frames.
+3. Skip frames below `MOTION_THRESHOLD`.
+4. Skip frames without a Haar face candidate.
+5. Encrypt the selected JPEG to the persistent outbox.
+6. Deliver to `/edge/detect`; retry until the event UUID is acknowledged.
+7. Send `/edge/heartbeat` every 30 seconds for device status.
+
+InsightFace remains in the cloud. The edge device only performs the cheap Haar
+gate, so a Raspberry Pi 5 can serve several cameras when each camera has its own
+agent container.
+
+## Local run
 
 ```bash
-cd edge-agent
-python3 -m venv venv && source venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-export $(cat .env | xargs)
-python agent.py
+python -u agent.py
 ```
 
-## Security notes
+`python agent.py --healthcheck` returns nonzero when the main loop has not
+updated its local health file for three minutes.
 
-* `.env` is in `.gitignore` — rotate `ML_SERVICE_TOKEN` if it ever leaks.
-* Container runs as non-root user `agent`.
-* The Pi/NUC should be on its own VLAN with outbound 443 to
-  `*.up.railway.app` and inbound RTSP from camera subnet only.
-* Frames uploaded to the cloud are **already JPEG-encoded** — raw pixel
-  buffers never leave the agent.
+## Network policy
+
+Place the device on a camera VLAN. Allow inbound RTSP only from the camera
+subnet and outbound HTTPS only to the configured ML service. Rotate
+`ML_SERVICE_TOKEN` and `EDGE_SPOOL_KEY` if either leaves the device.

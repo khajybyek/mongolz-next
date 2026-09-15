@@ -93,6 +93,10 @@ export type Incident = Omit<Tables<"incidents">, "status" | "priority"> & {
   priority: IncidentPriority;
 };
 export type IncidentEvent = Tables<"incident_events">;
+export type IncidentRecording = Tables<"incident_recordings">;
+export type IncidentEvidenceExport = Tables<"incident_evidence_exports">;
+export type EdgeAgent = Tables<"edge_agents">;
+export type EdgeIngestEvent = Tables<"edge_ingest_events">;
 
 // ── RPC results ───────────────────────────────────────────────────────
 type Fn<N extends keyof Database["public"]["Functions"]> =

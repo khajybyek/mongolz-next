@@ -105,3 +105,6 @@ jobs:
           ML_SERVICE_TOKEN: test-token
           ML_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
           HLS_DIR: /tmp/mongolz-hls
+
+      - name: Run edge-agent durability tests
+        run: pytest -v --tb=short edge-agent/tests

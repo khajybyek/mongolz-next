@@ -7,10 +7,30 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.5"
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -392,6 +412,110 @@ export type Database = {
           },
         ]
       }
+      edge_agents: {
+        Row: {
+          camera_id: string
+          capture_enabled: boolean
+          created_at: string
+          failed_total: number
+          id: string
+          last_error: string | null
+          last_seen_at: string
+          name: string
+          oldest_queued_at: string | null
+          queue_depth: number
+          sent_total: number
+          state: string
+          updated_at: string
+          version: string
+        }
+        Insert: {
+          camera_id: string
+          capture_enabled?: boolean
+          created_at?: string
+          failed_total?: number
+          id: string
+          last_error?: string | null
+          last_seen_at?: string
+          name: string
+          oldest_queued_at?: string | null
+          queue_depth?: number
+          sent_total?: number
+          state?: string
+          updated_at?: string
+          version: string
+        }
+        Update: {
+          camera_id?: string
+          capture_enabled?: boolean
+          created_at?: string
+          failed_total?: number
+          id?: string
+          last_error?: string | null
+          last_seen_at?: string
+          name?: string
+          oldest_queued_at?: string | null
+          queue_depth?: number
+          sent_total?: number
+          state?: string
+          updated_at?: string
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "edge_agents_camera_id_fkey"
+            columns: ["camera_id"]
+            isOneToOne: false
+            referencedRelation: "cameras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      edge_ingest_events: {
+        Row: {
+          agent_id: string
+          camera_id: string
+          captured_at: string
+          face_count: number
+          id: string
+          payload_sha256: string
+          received_at: string
+        }
+        Insert: {
+          agent_id: string
+          camera_id: string
+          captured_at: string
+          face_count: number
+          id: string
+          payload_sha256: string
+          received_at?: string
+        }
+        Update: {
+          agent_id?: string
+          camera_id?: string
+          captured_at?: string
+          face_count?: number
+          id?: string
+          payload_sha256?: string
+          received_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "edge_ingest_events_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "edge_agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "edge_ingest_events_camera_id_fkey"
+            columns: ["camera_id"]
+            isOneToOne: false
+            referencedRelation: "cameras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       faces: {
         Row: {
           bbox: Json | null
@@ -562,6 +686,54 @@ export type Database = {
           },
         ]
       }
+      incident_evidence_exports: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          created_by_email: string | null
+          file_count: number
+          id: string
+          incident_id: string
+          manifest_sha256: string
+          package_bytes: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          created_by_email?: string | null
+          file_count: number
+          id?: string
+          incident_id: string
+          manifest_sha256: string
+          package_bytes: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          created_by_email?: string | null
+          file_count?: number
+          id?: string
+          incident_id?: string
+          manifest_sha256?: string
+          package_bytes?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_evidence_exports_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_evidence_exports_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incidents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       incident_faces: {
         Row: {
           added_at: string
@@ -601,6 +773,86 @@ export type Database = {
             columns: ["incident_id"]
             isOneToOne: false
             referencedRelation: "incidents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      incident_recordings: {
+        Row: {
+          added_at: string
+          added_by: string | null
+          camera_name: string | null
+          clip_end_sec: number
+          clip_start_sec: number
+          hold_released_at: string | null
+          hold_released_by: string | null
+          id: string
+          incident_id: string
+          legal_hold: boolean
+          note: string | null
+          recording_filename: string
+          recording_id: string | null
+          recording_started_at: string
+        }
+        Insert: {
+          added_at?: string
+          added_by?: string | null
+          camera_name?: string | null
+          clip_end_sec: number
+          clip_start_sec: number
+          hold_released_at?: string | null
+          hold_released_by?: string | null
+          id?: string
+          incident_id: string
+          legal_hold?: boolean
+          note?: string | null
+          recording_filename: string
+          recording_id?: string | null
+          recording_started_at: string
+        }
+        Update: {
+          added_at?: string
+          added_by?: string | null
+          camera_name?: string | null
+          clip_end_sec?: number
+          clip_start_sec?: number
+          hold_released_at?: string | null
+          hold_released_by?: string | null
+          id?: string
+          incident_id?: string
+          legal_hold?: boolean
+          note?: string | null
+          recording_filename?: string
+          recording_id?: string | null
+          recording_started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_recordings_added_by_fkey"
+            columns: ["added_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_recordings_hold_released_by_fkey"
+            columns: ["hold_released_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_recordings_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incidents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_recordings_recording_id_fkey"
+            columns: ["recording_id"]
+            isOneToOne: false
+            referencedRelation: "recordings"
             referencedColumns: ["id"]
           },
         ]
@@ -1518,6 +1770,17 @@ export type Database = {
         Args: { p_face_id: string; p_incident_id: string }
         Returns: string
       }
+      attach_incident_recording: {
+        Args: {
+          p_clip_end_sec: number
+          p_clip_start_sec: number
+          p_incident_id: string
+          p_legal_hold?: boolean
+          p_note?: string
+          p_recording_id: string
+        }
+        Returns: string
+      }
       camera_anomaly_scores: {
         Args: { p_baseline_days?: number; p_window_hours?: number }
         Returns: {
@@ -1584,9 +1847,9 @@ export type Database = {
       }
       create_incident: {
         Args: {
-          p_alert_id?: string | null
-          p_assignee_id?: string | null
-          p_description?: string | null
+          p_alert_id?: string
+          p_assignee_id?: string
+          p_description?: string
           p_priority?: string
           p_title: string
         }
@@ -1633,6 +1896,15 @@ export type Database = {
           p_camera_name: string
           p_observed: number
           p_z: number
+        }
+        Returns: string
+      }
+      log_incident_evidence_export: {
+        Args: {
+          p_file_count: number
+          p_incident_id: string
+          p_manifest_sha256: string
+          p_package_bytes: number
         }
         Returns: string
       }
@@ -1694,9 +1966,9 @@ export type Database = {
         Args: {
           match_limit?: number
           match_threshold?: number
-          p_camera_id?: string | null
-          p_from?: string | null
-          p_to?: string | null
+          p_camera_id?: string
+          p_from?: string
+          p_to?: string
           query_embedding: string
         }
         Returns: {
@@ -1711,6 +1983,10 @@ export type Database = {
           recording_id: string
           similarity: number
         }[]
+      }
+      set_incident_recording_hold: {
+        Args: { p_evidence_id: string; p_legal_hold: boolean }
+        Returns: string
       }
       settle_retention_deletions: {
         Args: { p_error?: string; p_ids: string[]; p_lease_token: string }
@@ -1746,11 +2022,11 @@ export type Database = {
       }
       update_incident: {
         Args: {
-          p_assignee_id?: string | null
-          p_description: string | null
+          p_assignee_id?: string
+          p_description: string
           p_expected_updated_at: string
           p_incident_id: string
-          p_note?: string | null
+          p_note?: string
           p_priority: string
           p_status: string
           p_title: string
@@ -1800,12 +2076,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1829,11 +2105,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1854,11 +2130,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1879,11 +2155,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1896,11 +2172,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never) = never,
+    : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1910,6 +2186,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       alert_label: ["true_positive", "false_positive", "unknown"],

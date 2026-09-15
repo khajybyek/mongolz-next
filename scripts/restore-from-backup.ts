@@ -54,6 +54,14 @@ const ORDER = [
   "alert_rules",
   "alerts",
   "reveal_jobs",
+  "incidents",
+  "incident_alerts",
+  "incident_faces",
+  "incident_events",
+  "incident_recordings",
+  "incident_evidence_exports",
+  "edge_agents",
+  "edge_ingest_events",
   "webhooks",
   "camera_permissions",
   "masking_schedules",
@@ -63,7 +71,11 @@ const ORDER = [
   "audit_log",
 ] as const;
 
-const PK: Record<string, string> = { retention_policies: "resource" };
+const PK: Record<string, string> = {
+  retention_policies: "resource",
+  incident_alerts: "incident_id,alert_id",
+  incident_faces: "incident_id,face_id",
+};
 
 /**
  * NOT NULL columns with no database default — a row missing any of these is
@@ -80,6 +92,14 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   alert_rules: ["name"],
   alerts: ["suspect_name", "similarity"],
   reveal_jobs: ["recording_id", "method"],
+  incidents: ["title"],
+  incident_alerts: ["incident_id", "alert_id"],
+  incident_faces: ["incident_id", "face_id"],
+  incident_events: ["incident_id", "event_type"],
+  incident_recordings: ["incident_id", "recording_filename", "recording_started_at", "clip_start_sec", "clip_end_sec"],
+  incident_evidence_exports: ["incident_id", "manifest_sha256", "file_count", "package_bytes"],
+  edge_agents: ["id", "name", "camera_id", "version"],
+  edge_ingest_events: ["id", "agent_id", "camera_id", "captured_at", "payload_sha256", "face_count"],
   webhooks: ["name", "kind", "url"],
   camera_permissions: ["user_id", "camera_id"],
   masking_schedules: ["camera_id", "starts_at", "ends_at", "window_mode"],
@@ -234,6 +254,13 @@ async function main() {
     clusters: ["faces"],
     alerts: ["suspects", "faces"],
     reveal_jobs: ["recordings", "suspects", "faces"],
+    incident_alerts: ["incidents", "alerts"],
+    incident_faces: ["incidents", "faces"],
+    incident_events: ["incidents"],
+    incident_recordings: ["incidents", "recordings"],
+    incident_evidence_exports: ["incidents"],
+    edge_agents: ["cameras"],
+    edge_ingest_events: ["edge_agents", "cameras"],
   };
   const unavailable = new Set(
     plans.filter((p) => !p.present || p.missing.length > 0).map((p) => p.table),
@@ -265,7 +292,11 @@ async function main() {
       continue;
     }
 
-    const rows = [...p.rows];
+    // incident_events.id is GENERATED ALWAYS and has no inbound references.
+    // Let PostgreSQL assign fresh IDs while preserving the immutable events.
+    const rows = p.table === "incident_events"
+      ? p.rows.map(({ id: _identity, ...row }) => row)
+      : [...p.rows];
     if (p.table === "audit_log") {
       const { count } = await svc.from("audit_log").select("id", { count: "exact", head: true });
       if ((count ?? 0) > 0) {

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Activity, Bell, BriefcaseBusiness, Camera, Clock, Search, UserRound } from "lucide-react";
+import { Activity, Bell, BriefcaseBusiness, Camera, Clock, Download, Film, LockKeyhole, Search, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Empty } from "@/components/ui/empty";
@@ -13,7 +13,16 @@ import { incidentCopy, incidentPriorityLabel, incidentStatusLabel } from "@/lib/
 import { incidentPriorityVariant, incidentStatusVariant, isIncidentPriority, isIncidentStatus } from "@/lib/incidents";
 import { recordingFaceHref, UUID_RE } from "@/lib/workflow-query";
 import { workflowCopy } from "@/lib/workflow-copy";
-import { AttachAlertForm, IncidentUpdateForm, type AdminOption, type AlertOption } from "../incident-forms";
+import {
+  AttachAlertForm,
+  AttachRecordingForm,
+  EvidenceExportButton,
+  EvidenceHoldButton,
+  IncidentUpdateForm,
+  type AdminOption,
+  type AlertOption,
+  type RecordingOption,
+} from "../incident-forms";
 import type { Incident } from "@/lib/database.types";
 
 type LinkedAlert = {
@@ -30,6 +39,18 @@ type LinkedFace = {
     recordings: { filename: string } | null; cameras: { name: string } | null;
   } | null;
 };
+type LinkedRecording = {
+  id: string;
+  recording_id: string | null;
+  recording_filename: string;
+  camera_name: string | null;
+  recording_started_at: string;
+  clip_start_sec: number;
+  clip_end_sec: number;
+  note: string | null;
+  legal_hold: boolean;
+  added_at: string;
+};
 
 function eventLabel(type: string, copy: ReturnType<typeof incidentCopy>) {
   if (type === "created") return copy.eventCreated;
@@ -37,6 +58,9 @@ function eventLabel(type: string, copy: ReturnType<typeof incidentCopy>) {
   if (type === "note_added") return copy.eventNote;
   if (type === "alert_attached") return copy.eventAlert;
   if (type === "face_attached") return copy.eventFace;
+  if (type === "recording_attached") return copy.eventRecording;
+  if (type === "hold_changed") return copy.eventHold;
+  if (type === "package_exported") return copy.eventPackage;
   return type;
 }
 
@@ -49,13 +73,16 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
   const workflow = workflowCopy(lang);
   const supabase = await createClient();
 
-  const [incidentRes, adminRes, linkedAlertRes, linkedFaceRes, eventRes, recentAlertRes] = await Promise.all([
+  const [incidentRes, adminRes, linkedAlertRes, linkedFaceRes, linkedRecordingRes, exportRes, eventRes, recentAlertRes, recentRecordingRes] = await Promise.all([
     supabase.from("incidents").select("*").eq("id", id).maybeSingle(),
     supabase.from("profiles").select("id,email,full_name").eq("role", "admin").order("email"),
     supabase.from("incident_alerts").select("added_at, alert:alerts(id,suspect_id,suspect_name,camera_id,camera_name,similarity,created_at,state,face_id)").eq("incident_id", id).order("added_at", { ascending: false }),
     supabase.from("incident_faces").select("added_at, face:faces(id,filename,crop_sealed,detected_at,recording_id,recordings:recordings(filename),cameras:cameras(name))").eq("incident_id", id).order("added_at", { ascending: false }),
+    supabase.from("incident_recordings").select("id,recording_id,recording_filename,camera_name,recording_started_at,clip_start_sec,clip_end_sec,note,legal_hold,added_at").eq("incident_id", id).order("added_at", { ascending: false }),
+    supabase.from("incident_evidence_exports").select("id,manifest_sha256,file_count,package_bytes,created_by_email,created_at").eq("incident_id", id).order("created_at", { ascending: false }).limit(5),
     supabase.from("incident_events").select("id,event_type,detail,actor_email,created_at").eq("incident_id", id).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(300),
     supabase.from("alerts").select("id,suspect_name,camera_name,created_at").order("created_at", { ascending: false }).limit(100),
+    supabase.from("recordings").select("id,filename,camera_name,duration_sec,started_at,capture_status").eq("capture_status", "ready").order("started_at", { ascending: false }).limit(100),
   ]);
 
   if (!incidentRes.data) notFound();
@@ -64,10 +91,16 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
   const admins = (adminRes.data ?? []) as AdminOption[];
   const linkedAlerts = (linkedAlertRes.data ?? []) as unknown as LinkedAlert[];
   const linkedFaces = (linkedFaceRes.data ?? []) as unknown as LinkedFace[];
+  const linkedRecordings = (linkedRecordingRes.data ?? []) as unknown as LinkedRecording[];
   const linkedAlertIds = new Set(linkedAlerts.map((row) => row.alert?.id).filter(Boolean));
   const alertOptions: AlertOption[] = (recentAlertRes.data ?? [])
     .filter((alert) => !linkedAlertIds.has(alert.id))
     .map((alert) => ({ id: alert.id, label: `${alert.suspect_name} · ${alert.camera_name ?? "—"} · ${formatDate(alert.created_at)}` }));
+  const recordingOptions: RecordingOption[] = (recentRecordingRes.data ?? []).map((recording) => ({
+    id: recording.id,
+    label: `${recording.camera_name ?? "—"} · ${formatDate(recording.started_at)} · ${recording.filename}`,
+    durationSec: recording.duration_sec,
+  }));
   const assignee = admins.find((admin) => admin.id === incident.assignee_id);
 
   return (
@@ -109,6 +142,45 @@ export default async function IncidentDetailPage({ params }: { params: Promise<{
                     {alert.suspect_id && <Link href={`/suspects/${alert.suspect_id}` as never} className="btn-ghost btn-sm shrink-0">{copy.details}</Link>}
                   </div>
                 ))}
+              </div>
+            )}
+          </section>
+
+          <section className="card space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h2 className="section-title flex items-center gap-2"><Film className="h-4 w-4 text-info" />{copy.recordingEvidence} <Badge>{linkedRecordings.length}</Badge></h2>
+              {linkedRecordings.length > 0 && <EvidenceExportButton incidentId={id} />}
+            </div>
+            <AttachRecordingForm incidentId={id} recordings={recordingOptions} />
+            {linkedRecordings.length === 0 ? <Empty size="compact" icon={Film} message={copy.noRecordingEvidence} /> : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {linkedRecordings.map((item) => (
+                  <article key={item.id} className="rounded-xl border border-border p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-text">{item.recording_filename}</p>
+                        <p className="mt-1 text-xs text-text-muted">{item.camera_name ?? "—"} · {formatDate(item.recording_started_at)}</p>
+                      </div>
+                      <Badge variant={item.legal_hold ? "warning" : "muted"}>
+                        {item.legal_hold && <LockKeyhole className="mr-1 h-3 w-3" />}{item.legal_hold ? copy.holdActive : copy.holdReleased}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-xs font-medium text-text-soft">{Number(item.clip_start_sec).toFixed(1)}s – {Number(item.clip_end_sec).toFixed(1)}s</p>
+                    {item.note && <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-text-muted">{item.note}</p>}
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {item.recording_id && <Link href={`/playback/${item.recording_id}` as never} className="btn-secondary btn-sm">{workflow.openRecording}</Link>}
+                      <EvidenceHoldButton incidentId={id} evidenceId={item.id} legalHold={item.legal_hold} />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+            {(exportRes.data ?? []).length > 0 && (
+              <div className="border-t border-border pt-3">
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-text-soft"><Download className="h-3.5 w-3.5" />{copy.eventPackage}</p>
+                <ul className="space-y-1 text-2xs text-text-muted">
+                  {(exportRes.data ?? []).map((item) => <li key={item.id} className="break-all">{formatDate(item.created_at)} · {item.file_count} files · SHA-256 {item.manifest_sha256.slice(0, 16)}…</li>)}
+                </ul>
               </div>
             )}
           </section>

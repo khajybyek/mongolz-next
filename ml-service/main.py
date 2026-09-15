@@ -20,6 +20,7 @@ Deploy:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import io
 import logging
@@ -32,6 +33,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Any
 from uuid import UUID, uuid4
+from datetime import datetime, timezone
 
 # Local-д ажиллахад .env файлыг автоматаар уншуулна
 try:
@@ -51,6 +53,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from face_engine import FaceEngine
 from camera_worker import CameraManager
@@ -66,7 +69,7 @@ from anti_spoof import detect_spoof
 from embedding_fusion import FrameEmbedding, fuse_weighted_mean, fuse_median, cosine_similarity
 from tcp_forward import tunnel_status
 from telemetry import init_telemetry
-from view_renderer import render_blurred_view
+from view_renderer import render_blurred_frame, render_blurred_view
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("mongolz-ml")
@@ -327,6 +330,185 @@ async def detect_endpoint(file: UploadFile = File(...)):
             }
             for f in faces
         ]
+    }
+
+
+# ── Durable edge delivery ─────────────────────────────────────
+_EDGE_AGENT_VERSION = "1.0.0"
+
+
+def _edge_uuid(value: str, field: str) -> str:
+    try:
+        return str(UUID(value))
+    except (ValueError, TypeError):
+        raise HTTPException(400, f"invalid {field}")
+
+
+def _edge_captured_at(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError
+        parsed = parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "invalid captured_at")
+    # A broken device clock must not poison the operator timeline. Offline
+    # queues may legitimately arrive much later, so reject only future values.
+    age = (datetime.now(timezone.utc) - parsed).total_seconds()
+    if age < -300:
+        raise HTTPException(400, "captured_at outside accepted range")
+    return parsed.isoformat()
+
+
+async def _publish_edge_status(
+    *, agent_id: str, agent_name: str, camera_id: str, version: str,
+    state: str, queue_depth: int, oldest_queued_at: str | None,
+    sent_total: int, failed_total: int, last_error: str | None,
+) -> bool:
+    if not storage or not storage.client:
+        raise HTTPException(503, "service not ready")
+    if queue_depth < 0 or sent_total < 0 or failed_total < 0:
+        raise HTTPException(400, "invalid edge counters")
+    if oldest_queued_at:
+        oldest_queued_at = _edge_captured_at(oldest_queued_at)
+    try:
+        return await asyncio.to_thread(
+            storage.upsert_edge_agent,
+            agent_id=agent_id,
+            name=(agent_name.strip() or "edge-agent")[:120],
+            camera_id=camera_id,
+            version=(version.strip() or _EDGE_AGENT_VERSION)[:40],
+            state=state,
+            queue_depth=queue_depth,
+            oldest_queued_at=oldest_queued_at,
+            sent_total=sent_total,
+            failed_total=failed_total,
+            last_error=last_error,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.warning("edge heartbeat rejected (%s): %s", agent_id[:8], type(exc).__name__)
+        raise HTTPException(400, "edge device or camera is not registered")
+
+
+@app.post("/edge/heartbeat", dependencies=[Depends(require_token)])
+async def edge_heartbeat_endpoint(
+    agent_id: str = Form(...),
+    agent_name: str = Form(...),
+    camera_id: str = Form(...),
+    version: str = Form(_EDGE_AGENT_VERSION),
+    state: str = Form("online"),
+    queue_depth: int = Form(0),
+    oldest_queued_at: str | None = Form(None),
+    sent_total: int = Form(0),
+    failed_total: int = Form(0),
+    last_error: str | None = Form(None),
+):
+    agent_id = _edge_uuid(agent_id, "agent_id")
+    camera_id = _edge_uuid(camera_id, "camera_id")
+    capture_enabled = await _publish_edge_status(
+        agent_id=agent_id, agent_name=agent_name, camera_id=camera_id,
+        version=version, state=state, queue_depth=queue_depth,
+        oldest_queued_at=oldest_queued_at, sent_total=sent_total,
+        failed_total=failed_total, last_error=last_error,
+    )
+    return {"ok": True, "agent_id": agent_id, "capture_enabled": capture_enabled}
+
+
+@app.post("/edge/detect", dependencies=[Depends(require_token)])
+async def edge_detect_endpoint(
+    file: UploadFile = File(...),
+    event_id: str = Form(...),
+    agent_id: str = Form(...),
+    agent_name: str = Form(...),
+    camera_id: str = Form(...),
+    captured_at: str = Form(...),
+    payload_sha256: str = Form(...),
+    version: str = Form(_EDGE_AGENT_VERSION),
+    queue_depth: int = Form(0),
+    oldest_queued_at: str | None = Form(None),
+    sent_total: int = Form(0),
+    failed_total: int = Form(0),
+):
+    """Accept one frame from an encrypted edge outbox.
+
+    The UUID primary key is the delivery key. A retry after a lost response
+    receives the original acknowledgement without running inference twice.
+    Only counts and integrity metadata are retained; the JPEG and biometric
+    embeddings are discarded after inference.
+    """
+    if not face_engine or not storage or not storage.client:
+        raise HTTPException(503, "service not ready")
+    event_id = _edge_uuid(event_id, "event_id")
+    agent_id = _edge_uuid(agent_id, "agent_id")
+    camera_id = _edge_uuid(camera_id, "camera_id")
+    captured_at = _edge_captured_at(captured_at)
+    if not re.fullmatch(r"[0-9a-f]{64}", payload_sha256):
+        raise HTTPException(400, "invalid payload_sha256")
+
+    image_bytes = await file.read()
+    if not image_bytes or len(image_bytes) > _MAX_IMAGE_BYTES:
+        raise HTTPException(400, "image missing or too large")
+    actual_sha256 = hashlib.sha256(image_bytes).hexdigest()
+    if not hmac.compare_digest(actual_sha256, payload_sha256):
+        raise HTTPException(400, "payload checksum mismatch")
+
+    capture_enabled = await _publish_edge_status(
+        agent_id=agent_id, agent_name=agent_name, camera_id=camera_id,
+        version=version, state="online", queue_depth=queue_depth,
+        oldest_queued_at=oldest_queued_at, sent_total=sent_total,
+        failed_total=failed_total, last_error=None,
+    )
+    try:
+        existing = await asyncio.to_thread(storage.get_edge_event, event_id)
+    except Exception as exc:
+        log.warning("edge event lookup failed (%s): %s", event_id[:8], type(exc).__name__)
+        raise HTTPException(503, "edge event registry unavailable")
+    if existing:
+        same_delivery = (
+            existing.get("agent_id") == agent_id
+            and existing.get("camera_id") == camera_id
+            and existing.get("payload_sha256") == payload_sha256
+        )
+        if not same_delivery:
+            raise HTTPException(409, "event_id already belongs to another payload")
+        return {
+            "ok": True, "event_id": event_id,
+            "face_count": int(existing.get("face_count") or 0),
+            "duplicate": True,
+            "capture_enabled": capture_enabled,
+        }
+
+    faces = await asyncio.to_thread(_detect_or_400, image_bytes)
+    try:
+        await asyncio.to_thread(
+            storage.insert_edge_event,
+            event_id=event_id, agent_id=agent_id, camera_id=camera_id,
+            captured_at=captured_at, payload_sha256=payload_sha256,
+            face_count=len(faces),
+        )
+    except Exception as exc:
+        # A concurrent retry can win the INSERT after our lookup. Accept it
+        # only when every immutable delivery field matches.
+        try:
+            existing = await asyncio.to_thread(storage.get_edge_event, event_id)
+        except Exception:
+            existing = None
+        if existing and existing.get("agent_id") == agent_id \
+           and existing.get("camera_id") == camera_id \
+           and existing.get("payload_sha256") == payload_sha256:
+            return {
+                "ok": True, "event_id": event_id,
+                "face_count": int(existing.get("face_count") or 0),
+                "duplicate": True,
+                "capture_enabled": capture_enabled,
+            }
+        log.warning("edge event persist failed (%s): %s", event_id[:8], type(exc).__name__)
+        raise HTTPException(503, "edge event was not durably acknowledged")
+    return {
+        "ok": True, "event_id": event_id, "face_count": len(faces),
+        "duplicate": False, "capture_enabled": capture_enabled,
     }
 
 
@@ -726,7 +908,104 @@ async def render_view_endpoint(recording_id: str):
     # Fast path — cache hit
     if os.path.exists(cache_path) and os.path.getsize(cache_path) > 1000:
         return FileResponse(cache_path, media_type="video/mp4")
+    return await _render_view_cold(recording_id, cache_path)
 
+
+async def _evidence_recording_blob(recording_id: str) -> tuple[bytes, int | None]:
+    """Load the best available recording source for a fully masked export."""
+    if not storage or not storage.client:
+        raise HTTPException(503, "service not ready")
+    try:
+        result = await asyncio.to_thread(
+            lambda: storage.client.table("recordings")
+            .select("original_path,storage_path,has_original,duration_sec,capture_status")
+            .eq("id", recording_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception as exc:
+        log.warning("evidence: recording lookup failed (%s): %s", recording_id[:8], type(exc).__name__)
+        raise HTTPException(500, "recording lookup failed")
+    row = result.data if result else None
+    if not row:
+        raise HTTPException(404, "recording not found")
+    if row.get("capture_status") != "ready":
+        raise HTTPException(409, "recording is not ready")
+    path = row.get("original_path") if row.get("has_original") else row.get("storage_path")
+    if not path:
+        raise HTTPException(404, "recording source unavailable")
+    try:
+        def _download() -> bytes:
+            body = storage.client.storage.from_("recordings").download(path)
+            return decrypt_bytes(body, recording_id=recording_id) if str(path).endswith(".enc") else body
+        blob = await asyncio.to_thread(_download)
+    except Exception as exc:
+        log.warning("evidence: source preparation failed (%s): %s", recording_id[:8], type(exc).__name__)
+        raise HTTPException(500, "recording source unavailable")
+    return blob, int(row["duration_sec"]) if row.get("duration_sec") is not None else None
+
+
+def _evidence_range(start_sec: float, end_sec: float, duration_sec: int | None) -> tuple[float, float]:
+    if start_sec < 0 or end_sec <= start_sec or end_sec - start_sec > 300:
+        raise HTTPException(400, "invalid evidence range")
+    if duration_sec is not None and end_sec > duration_sec + 0.25:
+        raise HTTPException(400, "evidence range exceeds recording")
+    return float(start_sec), float(end_sec)
+
+
+@app.get("/recording/{recording_id}/evidence-clip", dependencies=[Depends(require_token)])
+async def evidence_clip_endpoint(recording_id: str, start_sec: float, end_sec: float):
+    """Render the selected interval with every face masked."""
+    if not _UUID_RE.match(recording_id):
+        raise HTTPException(400, "invalid recording_id")
+    blob, duration = await _evidence_recording_blob(recording_id)
+    start_sec, end_sec = _evidence_range(start_sec, end_sec, duration)
+    work = tempfile.mkdtemp(prefix="mongolz-evidence-")
+    input_mp4 = os.path.join(work, "source.mp4")
+    output_mp4 = os.path.join(work, "masked-clip.mp4")
+    try:
+        with open(input_mp4, "wb") as handle:
+            handle.write(blob)
+        async with _render_semaphore:
+            await asyncio.to_thread(
+                render_blurred_view, input_mp4, output_mp4, face_engine, start_sec, end_sec
+            )
+        if not os.path.isfile(output_mp4) or os.path.getsize(output_mp4) < 1000:
+            raise RuntimeError("empty clip")
+    except Exception as exc:
+        shutil.rmtree(work, ignore_errors=True)
+        log.warning("evidence: clip render failed (%s): %s", recording_id[:8], type(exc).__name__)
+        raise HTTPException(500, "evidence clip render failed")
+    return FileResponse(
+        output_mp4,
+        media_type="video/mp4",
+        filename=f"{recording_id}-masked.mp4",
+        background=BackgroundTask(shutil.rmtree, work, ignore_errors=True),
+    )
+
+
+@app.get("/recording/{recording_id}/evidence-frame", dependencies=[Depends(require_token)])
+async def evidence_frame_endpoint(recording_id: str, at_sec: float):
+    """Return one masked representative JPEG for an evidence package."""
+    if not _UUID_RE.match(recording_id):
+        raise HTTPException(400, "invalid recording_id")
+    blob, duration = await _evidence_recording_blob(recording_id)
+    if at_sec < 0 or (duration is not None and at_sec > duration + 0.25):
+        raise HTTPException(400, "invalid evidence timestamp")
+    try:
+        with tempfile.TemporaryDirectory(prefix="mongolz-evidence-frame-") as work:
+            input_mp4 = os.path.join(work, "source.mp4")
+            with open(input_mp4, "wb") as handle:
+                handle.write(blob)
+            async with _render_semaphore:
+                jpeg = await asyncio.to_thread(render_blurred_frame, input_mp4, at_sec, face_engine)
+    except Exception as exc:
+        log.warning("evidence: frame render failed (%s): %s", recording_id[:8], type(exc).__name__)
+        raise HTTPException(500, "evidence frame render failed")
+    return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+
+
+async def _render_view_cold(recording_id: str, cache_path: str):
     # Cold path — derive under per-recording lock so a thundering herd of
     # concurrent requests only does the work once.
     async with _get_view_lock(recording_id):

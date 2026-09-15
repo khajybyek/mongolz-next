@@ -82,6 +82,17 @@ const TABLES: Record<string, TableSpec> = {
     biometric: "query_embedding, query_embeddings, reference_sealed",
     note: "query embeddings are the biometric probe of a reveal request (nullable — a restore succeeds without them).",
   },
+  incidents: { columns: "*" },
+  incident_alerts: { columns: "*", pk: "incident_id" },
+  incident_faces: { columns: "*", pk: "incident_id" },
+  incident_events: {
+    columns: "*",
+    note: "The restore tool regenerates this identity key; no table references incident_events.id.",
+  },
+  incident_recordings: { columns: "*" },
+  incident_evidence_exports: { columns: "*" },
+  edge_agents: { columns: "*" },
+  edge_ingest_events: { columns: "*" },
   webhooks: {
     columns:
       "id, name, kind, enabled, events, last_fired_at, last_status, fail_count, created_by, created_at",
