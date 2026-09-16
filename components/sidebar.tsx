@@ -34,6 +34,7 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
   const drawerRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const compactToggleRef = useRef<HTMLButtonElement>(null);
+  const previousPathnameRef = useRef(pathname);
   useModalFocus({ open: mobileNavOpen, onClose: () => setMobileNavOpen(false), ref: drawerRef, initialFocusRef: closeRef });
 
   const activeGroupId = useMemo(() => groups.find((group) =>
@@ -54,7 +55,14 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
     if (activeGroupId) setCollapsed((previous) => ({ ...previous, [activeGroupId]: false }));
   }, [activeGroupId, pathname]);
 
-  useEffect(() => { setMobileNavOpen(false); }, [pathname, setMobileNavOpen]);
+  useEffect(() => {
+    // Close the drawer after a real navigation. Running this unconditionally
+    // on mount can race a fast tap on the More button and immediately undo it.
+    if (previousPathnameRef.current !== pathname) {
+      previousPathnameRef.current = pathname;
+      setMobileNavOpen(false);
+    }
+  }, [pathname, setMobileNavOpen]);
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 1024px)");
     function onResize() { if (desktop.matches) setMobileNavOpen(false); }

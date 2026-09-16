@@ -44,7 +44,7 @@ export function LiveCameraView({ cameras }: { cameras: Camera[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="card flex items-center gap-2 p-2 w-fit">
+      <div className="card grid w-full grid-cols-2 gap-2 p-2 min-[520px]:flex min-[520px]:w-fit min-[520px]:items-center">
         <ModeBtn current={mode} value="device" disabled={recordingBusy} onClick={setMode} icon={Laptop}>
           {t("live_mode_device")}
         </ModeBtn>
@@ -89,7 +89,7 @@ function ModeBtn({
       disabled={disabled}
       onClick={() => onClick(value)}
       aria-pressed={active}
-      className={cn("btn-sm", active ? "btn-secondary text-accent" : "btn-ghost text-text-soft")}
+      className={cn("btn-sm w-full min-w-0 justify-center min-[520px]:w-auto", active ? "btn-secondary text-accent" : "btn-ghost text-text-soft")}
     >
       <Icon className="w-4 h-4" />
       {children}

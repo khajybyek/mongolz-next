@@ -51,7 +51,10 @@ export async function setPreTotpCookie(userId: string): Promise<void> {
   const store = await cookies();
   store.set(COOKIE_NAME, value, {
     httpOnly: true,
-    secure: true,
+    // Local Safari/WebKit rejects a Secure cookie served over plain HTTP,
+    // which made the second login step impossible to exercise in development.
+    // Production is HTTPS-only, so the cookie remains Secure there.
+    secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
     path: "/",
     maxAge: TTL_SECONDS,

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "bash scripts/build-next.sh",
     "start": "next start",
     "lint": "eslint .",
     "lint:db": "supabase db lint --linked",

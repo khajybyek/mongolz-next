@@ -10,14 +10,14 @@ create type reveal_method as enum ('upload', 'suspect', 'detected_face');
 create type reveal_status as enum ('queued', 'processing', 'completed', 'failed');
 
 create table public.reveal_jobs (
-  id              uuid primary key default uuid_generate_v4(),
+  id              uuid primary key default extensions.uuid_generate_v4(),
   recording_id    uuid not null references public.recordings(id) on delete cascade,
 
   method          reveal_method not null,
   -- Эх сурвалжийн өгөгдөл (method-аас хамаарч 1 нь дүүрнэ):
   suspect_id      uuid references public.suspects(id) on delete set null,
   face_id         uuid references public.faces(id) on delete set null,
-  query_embedding vector(512),  -- "upload" method-д photo-аас тооцсон
+  query_embedding extensions.vector(512),  -- "upload" method-д photo-аас тооцсон
 
   threshold       real not null default 0.45 check (threshold between 0.3 and 0.85),
 

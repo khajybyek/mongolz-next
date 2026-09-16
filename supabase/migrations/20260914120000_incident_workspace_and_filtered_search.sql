@@ -323,17 +323,17 @@ begin
   end if;
   return query
     select f.id, f.filename, f.image_path, f.detected_at,
-           (1 - (f.embedding <=> query_embedding))::double precision,
+           (1 - (f.embedding OPERATOR(extensions.<=>) query_embedding))::double precision,
            case when r.id is null then null else f.recording_id end,
            f.camera_id, r.filename, c.name, f.crop_sealed
     from public.faces f
     left join public.recordings r on r.id = f.recording_id
     left join public.cameras c on c.id = f.camera_id
-    where 1 - (f.embedding <=> query_embedding) > match_threshold
+    where 1 - (f.embedding OPERATOR(extensions.<=>) query_embedding) > match_threshold
       and (p_camera_id is null or f.camera_id = p_camera_id)
       and (p_from is null or f.detected_at >= p_from)
       and (p_to is null or f.detected_at < p_to)
-    order by f.embedding <=> query_embedding, f.detected_at desc, f.id
+    order by f.embedding OPERATOR(extensions.<=>) query_embedding, f.detected_at desc, f.id
     limit match_limit;
 end;
 $$;

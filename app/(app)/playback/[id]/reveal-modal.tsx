@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { FaceThumb } from "@/components/face-thumb";
 import { revealScopeCopy, REVEAL_REASON_MIN, REVEAL_REASON_MAX } from "@/lib/reveal-scope";
 import { useT } from "@/lib/i18n/client";
+import { useModalFocus } from "@/lib/use-modal-focus";
 
 interface Suspect {
   id: string;
@@ -64,6 +65,8 @@ export function RevealModal({
   onClose: () => void;
 }) {
   const { t, lang } = useT();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  useModalFocus({ open: true, onClose, ref: dialogRef });
   const copy = revealScopeCopy[lang];
   const hasInitial = (initialFaceIds?.length ?? 0) > 0;
 
@@ -251,16 +254,23 @@ export function RevealModal({
 
   return (
     <div
+      data-modal-backdrop
       className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top,0px))] pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
       onClick={onClose}
     >
       <div
-        className="bg-bg-secondary border border-text-muted/10 rounded-2xl w-full max-w-2xl max-h-[90vh] max-h-[90dvh] overflow-y-auto overscroll-contain"
+        ref={dialogRef}
+        data-reveal-modal
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reveal-modal-title"
+        tabIndex={-1}
+        className="bg-bg-secondary border border-text-muted/10 rounded-2xl w-full max-w-2xl max-h-[90vh] max-h-[90dvh] overflow-y-auto overscroll-contain outline-none"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-2 p-4 sm:p-5 border-b border-text-muted/5">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-2 border-b border-text-muted/5 bg-bg-secondary/95 p-4 backdrop-blur sm:p-5">
           <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-            <h2 className="min-w-0 font-semibold flex items-center gap-2">
+            <h2 id="reveal-modal-title" className="min-w-0 font-semibold flex items-center gap-2">
               <Lock className="w-4 h-4 text-accent" />
               {t("pb_modal_title")}
             </h2>

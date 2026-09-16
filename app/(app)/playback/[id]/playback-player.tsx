@@ -210,44 +210,45 @@ export function PlaybackPlayer({
       {isAdmin && (
         <>
           {/* Action bar */}
-          <div className="card mt-3 flex items-center gap-3">
-            <MousePointerClick className="w-5 h-5 text-accent shrink-0" />
-            <div className="flex-1 text-xs text-text-soft leading-relaxed">
-              {selectMode ? (
-                <>
-                  <span className="text-success font-medium">{t("pb_select_mode_active")}</span>{" "}
-                  {t("pb_select_mode_hint")}{" "}
-                  <span className="text-accent font-bold">{selectedIds.size}</span>{" "}
-                  {t("pb_people")}
-                </>
-              ) : (
-                <>
-                  {t("pb_idle_hint")}
-                </>
-              )}
+          <div data-playback-actions className="card mt-3 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 items-start gap-3 sm:flex-1 sm:items-center">
+              <MousePointerClick className="mt-0.5 h-5 w-5 shrink-0 text-accent sm:mt-0" />
+              <div className="min-w-0 flex-1 text-xs leading-relaxed text-text-soft">
+                {selectMode ? (
+                  <>
+                    <span className="text-success font-medium">{t("pb_select_mode_active")}</span>{" "}
+                    {t("pb_select_mode_hint")}{" "}
+                    <span className="text-accent font-bold">{selectedIds.size}</span>{" "}
+                    {t("pb_people")}
+                  </>
+                ) : (
+                  <>{t("pb_idle_hint")}</>
+                )}
+              </div>
             </div>
 
-            {!selectMode ? (
-              <>
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+              {!selectMode ? (
+                <>
                 <button
                   onClick={() => setSelectMode(true)}
-                  className="btn-ghost btn-sm shrink-0"
+                  className="btn-ghost btn-sm min-w-0 justify-center sm:shrink-0"
                   disabled={detectedFaces.length === 0}
                   title={detectedFaces.length === 0 ? t("pb_no_faces") : t("pb_select_many_title")}
                 >
                   <ListChecks className="w-3.5 h-3.5" />
                   {t("pb_select_mode_btn")}
                 </button>
-                <button onClick={openManual} className="btn-primary btn-sm shrink-0">
+                <button onClick={openManual} className="btn-primary btn-sm min-w-0 justify-center sm:shrink-0">
                   <Eye className="w-3.5 h-3.5" />
                   {t("pb_reveal_btn")}
                 </button>
-              </>
-            ) : (
-              <>
+                </>
+              ) : (
+                <>
                 <button
                   onClick={exitSelectMode}
-                  className="btn-ghost btn-sm shrink-0"
+                  className="btn-ghost btn-sm min-w-0 justify-center sm:shrink-0"
                 >
                   <X className="w-3.5 h-3.5" />
                   {t("pb_cancel_btn")}
@@ -255,19 +256,20 @@ export function PlaybackPlayer({
                 <button
                   onClick={openSelected}
                   disabled={selectedIds.size === 0}
-                  className="btn-primary btn-sm shrink-0"
+                  className="btn-primary btn-sm min-w-0 justify-center sm:shrink-0"
                 >
                   <Eye className="w-3.5 h-3.5" />
                   {t("pb_reveal_btn")} {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}
                 </button>
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
 
           {/* Сонгох горим идэвхтэй үед бүх нүүрний жагсаалт картан хэлбэрээр */}
           {selectMode && detectedFaces.length > 0 && (
             <div className="card mt-3">
-              <div className="flex items-center justify-between mb-2">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="section-title">
                   {t("pb_all_faces_title")} ({detectedFaces.length}) — {t("pb_click_to_select")}
                 </h3>

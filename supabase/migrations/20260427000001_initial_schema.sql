@@ -3,11 +3,11 @@
 --  PostgreSQL 15 + pgvector (512-dim ArcFace embeddings)
 -- ════════════════════════════════════════════════════════════════
 
-create extension if not exists "uuid-ossp";
 -- Supabase hosts pgvector in `extensions` (including on production). Keeping
 -- the same schema on a fresh local database makes later schema-qualified
 -- HNSW opclasses portable across both environments.
 create schema if not exists extensions;
+create extension if not exists "uuid-ossp" with schema extensions;
 create extension if not exists vector with schema extensions;
 create extension if not exists pgcrypto;
 
@@ -55,7 +55,7 @@ create trigger on_auth_user_created
 -- 2. cameras  — IP CCTV-нүүд
 -- ════════════════════════════════════════════════════════════════
 create table public.cameras (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default extensions.uuid_generate_v4(),
   name        text not null,
   url         text not null,
   cam_type    text not null default 'rtsp' check (cam_type in ('rtsp', 'http', 'usb', 'webcam')),
@@ -70,32 +70,32 @@ create index cameras_enabled_idx on public.cameras(enabled);
 -- 3. suspects  — Сэжигтэн (зураг + ArcFace embedding)
 -- ════════════════════════════════════════════════════════════════
 create table public.suspects (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default extensions.uuid_generate_v4(),
   name        text not null,
   image_path  text not null,           -- supabase storage path: suspects/<id>.jpg
-  embedding   vector(512) not null,    -- pgvector — Python ML service-ээс ирнэ
+  embedding   extensions.vector(512) not null,    -- pgvector — Python ML service-ээс ирнэ
   notes       text,
   created_at  timestamptz not null default now(),
   created_by  uuid references public.profiles(id) on delete set null
 );
 
 create index suspects_embedding_idx on public.suspects
-  using ivfflat (embedding vector_cosine_ops) with (lists = 100);
+  using ivfflat (embedding extensions.vector_cosine_ops) with (lists = 100);
 
 -- ════════════════════════════════════════════════════════════════
 -- 4. faces  — Илрүүлсэн нүүрнүүд
 -- ════════════════════════════════════════════════════════════════
 create table public.faces (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default extensions.uuid_generate_v4(),
   filename    text not null unique,
   image_path  text not null,           -- supabase storage path: faces/<filename>
-  embedding   vector(512) not null,
+  embedding   extensions.vector(512) not null,
   camera_id   uuid references public.cameras(id) on delete set null,
   detected_at timestamptz not null default now()
 );
 
 create index faces_embedding_idx on public.faces
-  using ivfflat (embedding vector_cosine_ops) with (lists = 200);
+  using ivfflat (embedding extensions.vector_cosine_ops) with (lists = 200);
 create index faces_detected_at_idx on public.faces(detected_at desc);
 create index faces_camera_id_idx on public.faces(camera_id);
 
@@ -103,7 +103,7 @@ create index faces_camera_id_idx on public.faces(camera_id);
 -- 5. alerts  — Сэжигтэн тааралт ирвэл
 -- ════════════════════════════════════════════════════════════════
 create table public.alerts (
-  id              uuid primary key default uuid_generate_v4(),
+  id              uuid primary key default extensions.uuid_generate_v4(),
   suspect_id      uuid not null references public.suspects(id) on delete cascade,
   suspect_name    text not null,
   face_id         uuid references public.faces(id) on delete set null,
@@ -121,7 +121,7 @@ create index alerts_suspect_id_idx on public.alerts(suspect_id);
 -- 6. recordings  — Бичлэгүүд
 -- ════════════════════════════════════════════════════════════════
 create table public.recordings (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default extensions.uuid_generate_v4(),
   filename      text not null unique,
   storage_path  text not null,         -- supabase storage path: recordings/<filename>
   duration_sec  integer,
@@ -170,7 +170,7 @@ create index clusters_cluster_id_idx on public.clusters(cluster_id);
 -- HELPER: Сэжигтэн хайх — pgvector cosine similarity
 -- ════════════════════════════════════════════════════════════════
 create or replace function public.match_suspects(
-  query_embedding vector(512),
+  query_embedding extensions.vector(512),
   match_threshold float default 0.45,
   match_limit int default 5
 )
@@ -186,15 +186,15 @@ as $$
     s.id,
     s.name,
     s.image_path,
-    1 - (s.embedding <=> query_embedding) as similarity
+    1 - (s.embedding OPERATOR(extensions.<=>) query_embedding) as similarity
   from public.suspects s
-  where 1 - (s.embedding <=> query_embedding) > match_threshold
-  order by s.embedding <=> query_embedding
+  where 1 - (s.embedding OPERATOR(extensions.<=>) query_embedding) > match_threshold
+  order by s.embedding OPERATOR(extensions.<=>) query_embedding
   limit match_limit;
 $$;
 
 create or replace function public.match_faces(
-  query_embedding vector(512),
+  query_embedding extensions.vector(512),
   match_threshold float default 0.50,
   match_limit int default 50
 )
@@ -212,10 +212,10 @@ as $$
     f.filename,
     f.image_path,
     f.detected_at,
-    1 - (f.embedding <=> query_embedding) as similarity
+    1 - (f.embedding OPERATOR(extensions.<=>) query_embedding) as similarity
   from public.faces f
-  where 1 - (f.embedding <=> query_embedding) > match_threshold
-  order by f.embedding <=> query_embedding
+  where 1 - (f.embedding OPERATOR(extensions.<=>) query_embedding) > match_threshold
+  order by f.embedding OPERATOR(extensions.<=>) query_embedding
   limit match_limit;
 $$;
 

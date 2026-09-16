@@ -202,7 +202,7 @@ $$;
 
 -- ── 7. RPCs: close the implicit PUBLIC grant ──────────────────────────────
 -- `REVOKE … FROM anon` is a no-op while PUBLIC still holds EXECUTE.
-revoke execute on function public.match_faces(vector, double precision, integer) from public, anon;
-revoke execute on function public.match_suspects(vector, double precision, integer) from public, anon;
+revoke execute on function public.match_faces(extensions.vector, double precision, integer) from public, anon;
+revoke execute on function public.match_suspects(extensions.vector, double precision, integer) from public, anon;
 revoke execute on function public.verify_audit_chain() from public, anon;
 alter default privileges in schema public revoke execute on functions from public;

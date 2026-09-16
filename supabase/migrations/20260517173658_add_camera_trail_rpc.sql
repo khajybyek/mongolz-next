@@ -29,7 +29,7 @@ AS $$
     f.camera_id,
     c.name AS camera_name,
     f.detected_at,
-    (1 - (f.embedding <=> s.embedding))::real AS similarity,
+    (1 - (f.embedding OPERATOR(extensions.<=>) s.embedding))::real AS similarity,
     f.image_path,
     f.bbox,
     f.recording_id
@@ -37,7 +37,7 @@ AS $$
   CROSS JOIN source s
   LEFT JOIN public.cameras c ON c.id = f.camera_id
   WHERE f.embedding IS NOT NULL
-    AND (1 - (f.embedding <=> s.embedding)) >= p_threshold
+    AND (1 - (f.embedding OPERATOR(extensions.<=>) s.embedding)) >= p_threshold
     AND f.detected_at BETWEEN (s.anchor_ts - make_interval(hours => p_window_hours))
                           AND (s.anchor_ts + make_interval(hours => p_window_hours))
   ORDER BY f.detected_at ASC

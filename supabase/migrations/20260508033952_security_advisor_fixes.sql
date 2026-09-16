@@ -48,8 +48,8 @@ create view public.top_suspects
 alter function public.is_admin()                     set search_path = public, pg_catalog;
 alter function public.current_user_role()            set search_path = public, pg_catalog;
 alter function public.handle_new_user()              set search_path = public, pg_catalog;
-alter function public.match_faces(vector, float, int) set search_path = public, extensions, pg_catalog;
-alter function public.match_suspects(vector, float, int) set search_path = public, extensions, pg_catalog;
+alter function public.match_faces(extensions.vector, float, int) set search_path = public, extensions, pg_catalog;
+alter function public.match_suspects(extensions.vector, float, int) set search_path = public, extensions, pg_catalog;
 alter function public.faces_in_recording(uuid)       set search_path = public, extensions, pg_catalog;
 alter function public.audit_log_hash_trigger()       set search_path = public, extensions, pg_catalog;
 alter function public.audit_log_immutable()          set search_path = public, pg_catalog;

@@ -17,10 +17,12 @@ export function MobileTabbar({ role, lang }: { role: Role; lang: Lang }) {
   const pathname = usePathname();
   const { mobileNavOpen, setMobileNavOpen } = useShell();
   const [editing, setEditing] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const tabs = mobileTabs(role);
   const moreActive = !tabs.some((tab) => isActivePath(pathname, tab.href));
 
   useEffect(() => {
+    setHydrated(true);
     const isTextEntry = (node: Element | null) =>
       node instanceof HTMLTextAreaElement ||
       node instanceof HTMLSelectElement ||
@@ -45,6 +47,7 @@ export function MobileTabbar({ role, lang }: { role: Role; lang: Lang }) {
     <nav
       aria-label={t("nav_mobile_navigation", lang)}
       data-mobile-tabbar
+      data-hydrated={hydrated ? "true" : "false"}
       data-editing={editing ? "true" : "false"}
       className={cn(
         "lg:hidden fixed bottom-[max(0.75rem,env(safe-area-inset-bottom,0px))] left-[max(0.75rem,env(safe-area-inset-left,0px))] right-[max(0.75rem,env(safe-area-inset-right,0px))] z-30 rounded-2xl border border-border-strong bg-surface/95 shadow-[0_8px_32px_rgb(0_0_0/0.16)] backdrop-blur-xl transition-[transform,opacity] duration-200 motion-reduce:transition-none",

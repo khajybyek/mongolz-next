@@ -26,10 +26,20 @@ jwt_expiry = 3600
 enable_signup = false
 
 [auth.email]
-# Email provider-ийг enable байлгана (CLI бичлэг false бол signin ч disable болдог)
+# Keep the email/password provider available for existing accounts. New
+# accounts are still blocked globally by auth.enable_signup=false and are
+# provisioned with the service-role admin API.
 enable_signup = true
 double_confirm_changes = true
-enable_confirmations = false
+enable_confirmations = true
+secure_password_change = true
+
+[auth.mfa]
+max_enrolled_factors = 10
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
 
 [storage]
 enabled = true
