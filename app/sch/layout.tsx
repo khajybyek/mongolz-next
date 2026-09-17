@@ -24,8 +24,8 @@ export default async function SchLayout({ children }: { children: React.ReactNod
         <HeaderOffset headerId="sch-header" />
         <div className="page-safe-gutter mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-3 gap-y-2 py-2 sm:justify-between pt-[calc(0.5rem+env(safe-area-inset-top,0px))] sm:py-3 sm:pt-[calc(0.75rem+env(safe-area-inset-top,0px))]">
           <Link href={"/sch" as Route} className="order-1 mr-auto flex min-h-11 items-center gap-3 rounded-lg sm:mr-0" aria-label={c.brand}>
-            {/* University mark: blue on transparent, so it sits on a white plate in the dark theme. */}
-            <span className="inline-flex items-center rounded-lg bg-white px-2 py-1 dark:ring-1 dark:ring-white/10">
+            {/* Both marks sit directly on the header — no plate — side by side. */}
+            <span className="inline-flex items-center gap-2 sm:gap-3">
               <Image
                 src="/sch/sch-logo.png"
                 alt="순천향대학교 · Soon Chun Hyang University"
@@ -33,6 +33,14 @@ export default async function SchLayout({ children }: { children: React.ReactNod
                 height={199}
                 priority
                 className="h-5 w-auto min-[380px]:h-6 sm:h-9"
+              />
+              <Image
+                src="/sch/smis-logo.png"
+                alt="SMIS"
+                width={512}
+                height={512}
+                priority
+                className="h-6 w-6 min-[380px]:h-8 min-[380px]:w-8 sm:h-11 sm:w-11"
               />
             </span>
             <span className="hidden flex-col leading-tight md:flex">
@@ -48,7 +56,7 @@ export default async function SchLayout({ children }: { children: React.ReactNod
 
           <div className="order-2 flex shrink-0 items-center gap-1.5 sm:order-3 sm:gap-2">
             {/* Narrower language buttons on phones so the mark, languages and theme share one row. */}
-            <LanguageSwitcher current={lang} className="[&_button]:min-w-10 [&_button]:px-2 sm:[&_button]:min-w-11 sm:[&_button]:px-2.5" />
+            <LanguageSwitcher current={lang} className="[&_button]:min-w-9 [&_button]:px-1.5 min-[380px]:[&_button]:min-w-10 min-[380px]:[&_button]:px-2 sm:[&_button]:min-w-11 sm:[&_button]:px-2.5" />
             <ThemeToggle />
           </div>
         </div>
