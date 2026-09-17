@@ -452,7 +452,10 @@ def test_tunnel_down_reports_backend_and_boot_reason(monkeypatch, tmp_path):
     assert tun["reason"] == "tailnet backend Stopped (tailscale up exited 1)"
     assert tun["boot"] == "tailscale up exited 1"
     # Never a key, host, port or URL.
-    blob = repr(tun)
+    # `checked_at` is a wall-clock timestamp whose digits can spell any
+    # substring ("...32.555493" contains "5554"), so it is dropped before the
+    # leak checks — they are about the tunnel fields, not the clock.
+    blob = repr({k: v for k, v in tun.items() if k != "checked_at"})
     assert "tskey" not in blob and "SECRET" not in blob
     assert "192.168" not in blob and "5554" not in blob
 
