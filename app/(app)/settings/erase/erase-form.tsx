@@ -7,7 +7,7 @@ import { useT } from "@/lib/i18n/client";
 
 interface Props {
   email: string;
-  role: "admin" | "viewer" | "auditor";
+  role: "admin" | "viewer" | "auditor" | "organiser";
   totpEnabled: boolean;
 }
 

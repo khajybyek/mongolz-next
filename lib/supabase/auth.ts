@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { schOrganiserVerdict } from "@/lib/sch/access";
 import { NextResponse } from "next/server";
 import { createClient } from "./server";
 import {
@@ -156,6 +157,18 @@ export async function requireAdmin(opts: AdminOptions = {}): Promise<AuthCtx> {
   return ctx;
 }
 
+/**
+ * SCH Esports console: admin (second factor required) or the organiser role
+ * (tournament-only, no TOTP requirement). See lib/sch/access.ts.
+ */
+export async function requireSchOrganiser(): Promise<AuthCtx> {
+  const ctx = await requireUser();
+  const verdict = schOrganiserVerdict(ctx.profile);
+  if (verdict === "forbidden") redirect("/dashboard?error=forbidden");
+  if (verdict === "totp_required") redirect("/settings?force_totp=1");
+  return ctx;
+}
+
 export async function requireAdminOrAuditor(): Promise<AuthCtx> {
   const ctx = await requireUser();
   if (ctx.profile.role !== "admin" && ctx.profile.role !== "auditor") {
@@ -198,6 +211,19 @@ export async function requireAdminApi(): Promise<ApiAuthResult> {
     return { error: NextResponse.json({ error: "forbidden: admin only" }, { status: 403 }) };
   }
   if (!r.profile.totp_enabled) {
+    return { error: NextResponse.json({ error: "totp_required" }, { status: 403 }) };
+  }
+  return r;
+}
+
+export async function requireSchOrganiserApi(): Promise<ApiAuthResult> {
+  const r = await apiSession({ allowAuditor: true });
+  if (isAuthErr(r)) return r;
+  const verdict = schOrganiserVerdict(r.profile);
+  if (verdict === "forbidden") {
+    return { error: NextResponse.json({ error: "forbidden: organiser or admin only" }, { status: 403 }) };
+  }
+  if (verdict === "totp_required") {
     return { error: NextResponse.json({ error: "totp_required" }, { status: 403 }) };
   }
   return r;

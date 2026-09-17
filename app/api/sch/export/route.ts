@@ -9,7 +9,7 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server";
-import { isAuthErr, requireAdminApi } from "@/lib/supabase/auth";
+import { isAuthErr, requireSchOrganiserApi } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { csvCell } from "@/lib/csv";
 import { SCH_GAME_LABEL, isSchGame, referenceCode } from "@/lib/sch/schema";
@@ -41,7 +41,7 @@ const HEADER = [
 ] as const;
 
 export async function GET(request: NextRequest) {
-  const auth = await requireAdminApi();
+  const auth = await requireSchOrganiserApi();
   if (isAuthErr(auth)) return auth.error;
 
   const gameParam = request.nextUrl.searchParams.get("game");

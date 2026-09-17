@@ -3,7 +3,7 @@
 /**
  * SCH Esports organiser console — server actions.
  *
- * Every mutation: admin + second factor (`requireAdmin`), input validated
+ * Every mutation: admin with second factor or the organiser role (`requireSchOrganiser`), input validated
  * with zod / the guards in `lib/sch/schema.ts`, data written through the
  * RLS client (admin policies + the mfa restrictive policy apply), one
  * `audit_log` row through the service client, then `revalidatePath`.
@@ -14,7 +14,7 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
-import { requireAdmin, type AuthCtx } from "@/lib/supabase/auth";
+import { requireSchOrganiser, type AuthCtx } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { UUID_RE } from "@/lib/workflow-query";
 import {
@@ -77,7 +77,7 @@ export async function setRegistrationStatusAction(input: {
   id: string;
   status: string;
 }): Promise<SchActionResult> {
-  const ctx = await requireAdmin();
+  const ctx = await requireSchOrganiser();
   if (!UUID_RE.test(input?.id ?? "") || !isSchStatus(input?.status) || !ORGANISER_STATUSES.includes(input.status)) {
     return { error: "invalid" };
   }
@@ -131,7 +131,7 @@ export async function setCheckInAction(input: {
   id: string;
   checkedIn: boolean;
 }): Promise<SchActionResult> {
-  const ctx = await requireAdmin();
+  const ctx = await requireSchOrganiser();
   if (!UUID_RE.test(input?.id ?? "") || typeof input?.checkedIn !== "boolean") return { error: "invalid" };
   const id = input.id.toLowerCase();
   try {
@@ -156,7 +156,7 @@ export async function setRegistrationNoteAction(input: {
   id: string;
   note: string;
 }): Promise<SchActionResult> {
-  const ctx = await requireAdmin();
+  const ctx = await requireSchOrganiser();
   const parsed = z
     .object({
       id: z.string().regex(UUID_RE),
@@ -185,7 +185,7 @@ export async function setRegistrationNoteAction(input: {
 }
 
 export async function deleteRegistrationAction(input: { id: string }): Promise<SchActionResult> {
-  const ctx = await requireAdmin();
+  const ctx = await requireSchOrganiser();
   if (!UUID_RE.test(input?.id ?? "")) return { error: "invalid" };
   const id = input.id.toLowerCase();
   try {
@@ -278,7 +278,7 @@ const settingsSchema = z.object({
 export type SchEventSettingsInput = z.input<typeof settingsSchema>;
 
 export async function updateEventSettingsAction(input: SchEventSettingsInput): Promise<SchActionResult> {
-  const ctx = await requireAdmin();
+  const ctx = await requireSchOrganiser();
   const parsed = settingsSchema.safeParse(input);
   if (!parsed.success) return { error: "invalid" };
   const v = parsed.data;
@@ -373,7 +373,7 @@ export async function saveTeamsAction(input: {
   seed: number;
   playerIds: string[];
 }): Promise<SchActionResult> {
-  const ctx = await requireAdmin();
+  const ctx = await requireSchOrganiser();
   const parsed = saveTeamsSchema.safeParse(input);
   if (!parsed.success) return { error: "invalid" };
   const game = parsed.data.game as SchGame;
@@ -452,7 +452,7 @@ export async function setTeamsPublishedAction(input: {
   game: string;
   published: boolean;
 }): Promise<SchActionResult> {
-  const ctx = await requireAdmin();
+  const ctx = await requireSchOrganiser();
   if (!isSchGame(input?.game) || typeof input?.published !== "boolean") return { error: "invalid" };
   const game: SchGame = input.game;
   try {
@@ -509,7 +509,7 @@ type OrphanRpcClient = {
  * client because the bucket has no storage policy by design.
  */
 export async function sweepOrphanReceiptsAction(): Promise<SchSweepResult> {
-  const ctx = await requireAdmin();
+  const ctx = await requireSchOrganiser();
   try {
     // Service role: the receipts bucket has no storage policy (20260917110000).
     const svc = createServiceClient();

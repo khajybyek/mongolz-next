@@ -54,7 +54,7 @@ import type { TranslationKey } from "@/lib/i18n/translations";
  * every surface agrees on labels, icons and role visibility.
  */
 
-export type Role = "admin" | "viewer" | "auditor";
+export type Role = "admin" | "viewer" | "auditor" | "organiser";
 
 export interface NavItem {
   href: string;
@@ -64,6 +64,8 @@ export interface NavItem {
   shortLabelKey?: TranslationKey;
   adminOnly?: boolean;
   auditorAllowed?: boolean;
+  /** The tournament-only organiser role sees just these. */
+  organiserAllowed?: boolean;
   /** Extra search terms for the command palette. */
   keywords?: string[];
 }
@@ -125,7 +127,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Wrench,
     items: [
       { href: "/users", icon: UserCog, labelKey: "nav_users", adminOnly: true, keywords: ["roles", "admin", "viewer"] },
-      { href: "/sch/admin", icon: Trophy, labelKey: "nav_sch", adminOnly: true, keywords: ["esports", "tournament", "chuseok", "registration", "teams"] },
+      { href: "/sch/admin", icon: Trophy, labelKey: "nav_sch", adminOnly: true, organiserAllowed: true, keywords: ["esports", "tournament", "chuseok", "registration", "teams"] },
       { href: "/reveal-approvals", icon: ShieldCheck, labelKey: "nav_reveal_approvals", adminOnly: true, keywords: ["unblur", "4-eyes", "approve"] },
       { href: "/audit", icon: ScrollText, labelKey: "nav_audit", shortLabelKey: "tab_audit", adminOnly: true, auditorAllowed: true, keywords: ["log", "hash chain"] },
       { href: "/privacy-zones", icon: Lock, labelKey: "nav_zones", adminOnly: true, keywords: ["mask", "zone"] },
@@ -178,6 +180,7 @@ const MOBILE_TAB_HREFS = ["/dashboard", "/live", "/playback", "/alerts", "/analy
 export function isItemVisible(item: NavItem, role: Role): boolean {
   if (role === "admin") return true;
   if (role === "auditor") return item.auditorAllowed === true;
+  if (role === "organiser") return item.organiserAllowed === true;
   return !item.adminOnly;
 }
 

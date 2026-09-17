@@ -3,7 +3,7 @@
  *
  * `sch-receipts` is a private bucket with no storage policy at all, so the
  * only way a payment screenshot reaches a browser is through here: admin +
- * second factor (`requireAdminApi`), the registration row read through the
+ * second factor (`requireSchOrganiserApi`), the registration row read through the
  * RLS client (the mfa restrictive policy applies), the object fetched with
  * the service role and streamed inline with the stored mime. Every view is
  * one `SCH_RECEIPT_VIEWED` ledger row carrying the registration id only —
@@ -12,7 +12,7 @@
 
 import { isIP } from "node:net";
 import { NextResponse, type NextRequest } from "next/server";
-import { isAuthErr, requireAdminApi } from "@/lib/supabase/auth";
+import { isAuthErr, requireSchOrganiserApi } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { UUID_RE } from "@/lib/workflow-query";
 import {
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest, ctx: { params: Promise<{ id: str
   }
   const id = raw.toLowerCase();
 
-  const auth = await requireAdminApi();
+  const auth = await requireSchOrganiserApi();
   if (isAuthErr(auth)) return auth.error;
 
   const supabase = await createClient();

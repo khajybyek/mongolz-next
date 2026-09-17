@@ -1,4 +1,5 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { ORGANISER_HOME, organiserPathAllowed } from "@/lib/sch/access";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/database.generated";
 import { flag } from "@/lib/flags";
@@ -186,6 +187,15 @@ export async function updateSession(request: NextRequest) {
           const url = request.nextUrl.clone();
           url.pathname = "/settings";
           url.search = "?force_totp=1";
+          return NextResponse.redirect(url);
+        }
+
+        // Organiser allow-list: the SCH Esports console (+ own GDPR page).
+        // Everything else — dashboard, cameras, faces — bounces to /sch/admin.
+        if (prof?.role === "organiser" && !organiserPathAllowed(path)) {
+          const url = request.nextUrl.clone();
+          url.pathname = ORGANISER_HOME;
+          url.search = "";
           return NextResponse.redirect(url);
         }
 

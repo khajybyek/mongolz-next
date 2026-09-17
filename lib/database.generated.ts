@@ -2230,7 +2230,7 @@ export type Database = {
         | "failed"
         | "rejected"
       suspect_privacy_tier: "vip" | "standard" | "relaxed"
-      user_role: "admin" | "viewer" | "auditor"
+      user_role: "admin" | "viewer" | "auditor" | "organiser"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2369,7 +2369,7 @@ export const Constants = {
         "rejected",
       ],
       suspect_privacy_tier: ["vip", "standard", "relaxed"],
-      user_role: ["admin", "viewer", "auditor"],
+      user_role: ["admin", "viewer", "auditor", "organiser"],
     },
   },
 } as const

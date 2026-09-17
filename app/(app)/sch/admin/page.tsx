@@ -6,7 +6,7 @@ import { Empty } from "@/components/ui/empty";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { createClient } from "@/lib/supabase/server";
-import { requireAdmin } from "@/lib/supabase/auth";
+import { requireSchOrganiser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { formatDate } from "@/lib/utils";
 import { kstStartOfDayISO, readMfaOk, type RpcCapableClient } from "@/lib/metrics";
@@ -60,7 +60,7 @@ function relName(value: unknown): string | null {
 }
 
 export default async function SchAdminPage() {
-  await requireAdmin();
+  await requireSchOrganiser();
   const { lang } = await getT();
   const copy = schAdminCopy(lang);
   const supabase = await createClient();

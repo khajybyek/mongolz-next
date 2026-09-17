@@ -43,6 +43,10 @@ describe("lib/nav", () => {
     const auditor = visibleNavGroups("auditor").flatMap((g) => g.items.map((i) => i.href));
     expect(auditor).toEqual(["/audit"]);
 
+    // The tournament organiser sees only the SCH console.
+    const organiser = visibleNavGroups("organiser").flatMap((g) => g.items.map((i) => i.href));
+    expect(organiser).toEqual(["/sch/admin"]);
+
     const admin = visibleNavGroups("admin").flatMap((g) => g.items);
     expect(admin.length).toBe(allItems.length);
   });

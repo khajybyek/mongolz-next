@@ -159,6 +159,7 @@ export const T = {
   role_admin: { mn: "Админ", en: "Admin", kr: "관리자" },
   role_viewer: { mn: "Хянагч", en: "Viewer", kr: "뷰어" },
   role_auditor: { mn: "Аудитор", en: "Auditor", kr: "감사자" },
+  role_organiser: { mn: "Зохион байгуулагч", en: "Organiser", kr: "주최자" },
 
   // ── AI page ──
   ai_subtitle: {
@@ -2416,6 +2417,7 @@ export const T = {
   },
   users_role_viewer_opt: { mn: "Viewer (зөвхөн харах)", en: "Viewer (read-only)", kr: "뷰어 (읽기 전용)" },
   users_role_auditor_opt: { mn: "Auditor (зөвхөн аудит лог)", en: "Auditor (audit log only)", kr: "감사자 (감사 로그 전용)" },
+  users_role_organiser_opt: { mn: "Зохион байгуулагч (зөвхөн SCH тэмцээн, 2FA шаардахгүй)", en: "Organiser (SCH tournament only, no 2FA required)", kr: "주최자 (SCH 대회 전용, 2FA 불필요)" },
   users_role_admin_opt: { mn: "Admin (бүрэн эрх)", en: "Admin (full access)", kr: "관리자 (전체 권한)" },
 
   // /reveal-approvals — decisions table.

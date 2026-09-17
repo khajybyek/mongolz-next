@@ -9,7 +9,7 @@ import { useT } from "@/lib/i18n/client";
 interface Props {
   email: string;
   enabled: boolean;
-  role: "admin" | "viewer" | "auditor";
+  role: "admin" | "viewer" | "auditor" | "organiser";
 }
 
 export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
