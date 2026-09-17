@@ -2120,6 +2120,10 @@ export type Database = {
           recording_id: string
         }[]
       }
+      release_incident_recording_hold: {
+        Args: { p_actor: string; p_evidence_id: string }
+        Returns: string
+      }
       retention_queue_health: { Args: never; Returns: Json }
       review_face: {
         Args: { p_face_id: string; p_label: string }
@@ -2153,10 +2157,6 @@ export type Database = {
           recording_id: string
           similarity: number
         }[]
-      }
-      release_incident_recording_hold: {
-        Args: { p_actor: string; p_evidence_id: string }
-        Returns: string
       }
       set_incident_recording_hold: {
         Args: { p_evidence_id: string; p_legal_hold: boolean }
