@@ -10,6 +10,7 @@ import {
   grantCameraPermissionAction,
   revokeCameraPermissionAction,
 } from "./actions";
+import { StepUpForm } from "@/components/step-up-form";
 
 export const dynamic = "force-dynamic";
 
@@ -140,7 +141,7 @@ export default async function CameraPermissionsPage({
         </div>
 
         <div className="space-y-4">
-          <form action={grantCameraPermissionAction} className="card space-y-3">
+          <StepUpForm action={grantCameraPermissionAction} className="card space-y-3">
             <h3 className="text-sm font-semibold">{t("perm_grant_title")}</h3>
             <input type="hidden" name="camera_id" value={camera.id} />
             <select name="user_id" required className="input text-sm">
@@ -158,7 +159,7 @@ export default async function CameraPermissionsPage({
             <button type="submit" className="btn-primary w-full text-sm">
               {t("perm_grant")}
             </button>
-          </form>
+          </StepUpForm>
         </div>
       </div>
     </>

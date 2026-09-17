@@ -659,6 +659,78 @@ No Telegram on an outage usually means the vault secrets are missing
 
 ---
 
+## 5a. Admin-privilege hardening — operator follow-ups (2026-09-17 review)
+
+Shipped in code: factor-bound step-up cookie (a password step-up no longer opens
+TOTP gates), operator allow-list in `requireUserApi()`, mandatory session pin for
+the organiser role, step-up on retention / legal-hold release / camera-permission
+grant / camera enable / consent off, super-admin-only admin creation, server-written
+push subscriptions, `security_event` notifications. The items below need an operator.
+
+1. **Deploy order.** Push the app → wait for the Vercel deploy → then apply
+   `supabase/migrations/20260917150000_admin_privilege_hardening.sql`
+   (`npx supabase db push --linked`, then `npm run gen:types`). The reverse order
+   breaks "enable push notifications", camera add/edit/toggle and legal-hold release
+   until the app is live (the new app writes `cameras`, `retention_policies`,
+   `camera_permissions` and push/passkey rows with the service role and falls back to
+   the old hold RPC while `release_incident_recording_hold` does not exist yet).
+   **The migration is not optional:** until it is applied a password-only token can
+   still delete passkeys, any user token can plant a push endpoint, and a stolen admin
+   session can PATCH `retention_policies` / `cameras`, POST `camera_permissions`,
+   DELETE `recordings|faces|alerts` and release a legal hold straight through
+   PostgREST — skipping every step-up, audit row and notification added in the app.
+   Verify after applying (expect only `SELECT`, plus `UPDATE`/`INSERT` on alerts/faces/recordings):
+   `select table_name, string_agg(privilege_type, ',') from information_schema.role_table_grants where table_schema='public' and grantee='authenticated' and table_name in ('retention_policies','camera_permissions','cameras','recordings','faces','alerts','push_subscriptions','webauthn_credentials') group by 1;`
+   Then redeploy both
+   edge functions: `npx supabase functions deploy telegram-alerts --project-ref <ref>`
+   (new `security_event` kind — until redeployed these messages render as a blank
+   suspect alert) and `... deploy claude-analysis` (refuses password-only tokens,
+   reads context under the caller's RLS).
+2. **E-mail-minted sessions pass the data-tier MFA gate (OPEN — high).**
+   `POST /auth/v1/otp` / `/auth/v1/recover` for an EXISTING admin yields a session
+   whose `amr` is `otp`/`recovery`; `private.mfa_ok()` only refuses `amr=[password]`,
+   and it cannot tell these from the sessions the app itself mints after TOTP /
+   passkey (same `generateLink + verifyOtp` mechanism). It was deliberately NOT
+   tightened in code: any stricter rule risks refusing the app's own sessions (the
+   2026-09-08 lock-out). Until the TOTP seed is migrated to Supabase-native MFA
+   (`aal2`) do all of:
+   - Supabase Dashboard → Authentication → Hooks → **Send Email hook** that drops
+     `magiclink`, `recovery`, `email_change` and `reauthentication` mails (the app
+     never sends e-mail: it uses admin `generateLink`, which is unaffected). With no
+     mail delivered, a mailbox holder cannot obtain the token.
+   - Authentication → Rate limits → e-mail sent per hour = the minimum.
+   - Admin mailboxes (both admins + super admin) must have their own 2FA.
+   - Weekly: `select s.user_id, c.authentication_method, c.created_at from auth.mfa_amr_claims c join auth.sessions s on s.id = c.session_id where c.authentication_method in ('magiclink','recovery') order by c.created_at desc limit 20;`
+     — a row without a LOGIN / PASSKEY_LOGIN audit row in the same minute is an incident
+     (the app's own logins show as `otp`).
+3. **Edge agent uses the master `ML_SERVICE_TOKEN` (OPEN — medium, latent:
+   `edge_agents` has 0 rows).** Do not deploy an agent on a customer LAN until the ML
+   service accepts a per-agent ingest token on `/edge/*` only. If one must be
+   deployed first: treat the device as holding the master key — full-disk encryption,
+   no shared accounts, and rotate `ML_SERVICE_TOKEN` (Railway + Vercel, see Key
+   Rotation) the moment the device leaves your control. Not changed in this pass:
+   it needs coordinated `ml-service/` + `edge-agent/` changes and a Railway redeploy.
+4. **ML Python dependencies are unhashed (OPEN — medium).** `ml-service/requirements.txt`
+   uses `>=` ranges and the Dockerfile installs without `--require-hashes`. Generate a
+   lock on a Linux/py3.11 machine matching the image:
+   `pip-compile --generate-hashes -o requirements.lock requirements.txt`, switch the
+   Dockerfile to `pip install --require-hashes -r requirements.lock`, point CI's
+   `pip-audit` at the lock, and verify a Railway build BEFORE removing the old path.
+   Not done here: a lock generated on macOS would pin wrong wheels (onnxruntime,
+   insightface, opencv) and break the Railway build.
+5. **Tailscale auth key.** Use an ephemeral, tagged, single-purpose key and rotate it;
+   the current one is invalid anyway (`tunnel.state = "down"`).
+6. **Known residual — direct PostgREST writes by a stolen admin session.** After the
+   migration, a TOTP-minted admin token can still write, without step-up, the tables
+   the app itself writes with the user token: at least `suspects`, `alert_rules`, `webhooks`,
+   `privacy_zones` and `alerts` (UPDATE only). None
+   of these destroys evidence or widens who sees unmasked video, but a planted webhook
+   or suspect is possible; `/webhooks` and `/suspects` list every row. Closing it means
+   moving those actions to the service role and revoking DML the same way.
+7. **Known residual.** Viewer/auditor accounts with TOTP cannot step up (the step-up
+   routes are admin-only), so they cannot disable TOTP or enrol a passkey themselves;
+   an admin resets them. Unchanged by this pass.
+
 ## 6. Contacts (capstone scope)
 
 | Role | Contact |

@@ -8,6 +8,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
 import { isRevealLevel } from "@/lib/reveal-authority";
 import { getT } from "@/lib/i18n/server";
+import { scheduleSecurityEvent } from "@/lib/notify";
 
 type ActionError = { error: string };
 type ActionOk = { ok: true };
@@ -18,6 +19,17 @@ async function audit(action: string, detail: string, user_id: string, user_email
   const h = await headers();
   const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
   await svc.from("audit_log").insert({ action, detail, user_id, user_email, ip });
+}
+
+/**
+ * Ledger row + real-time notice to the other admins / ops chat. User
+ * management is exactly what a stolen admin session would do first, and with
+ * two admins a 4-eyes rule could deadlock — so the control is step-up (TOTP
+ * factor) + audit + somebody else finding out while it can still be undone.
+ */
+async function auditAndNotify(action: string, detail: string, ctx: AuthCtx) {
+  await audit(action, detail, ctx.user.id, ctx.user.email);
+  scheduleSecurityEvent({ action, actorId: ctx.user.id, actorEmail: ctx.user.email, detail });
 }
 
 /**
@@ -106,6 +118,21 @@ export async function createUserAction(formData: FormData): Promise<ActionError 
   const { email, password, full_name, role } = parsed.data;
   const svc = createServiceClient();
 
+  // The 4-eyes reveal rule needs two HUMANS. An ordinary admin who can mint a
+  // second admin — with a password they chose and a TOTP they enrol on their
+  // own phone — approves their own reveal requests. Only the (single,
+  // DB-locked) super admin may create an admin account.
+  if (role === "admin" && !ctx.profile.is_super_admin) {
+    await auditDenied("USER_CREATE_DENIED", `non-super admin tried to create admin ${email}`, ctx);
+    scheduleSecurityEvent({
+      action: "USER_CREATE_DENIED",
+      actorId: ctx.user.id,
+      actorEmail: ctx.user.email,
+      detail: "attempt to create an admin account",
+    });
+    return { error: t("users_err_admin_super_only") };
+  }
+
   // A new account must never start with authority its creator does not hold.
   // Without this the ceiling on setRevealLevelAction is decorative: a level-5
   // admin could mint an admin whose profile defaults to reveal_level 0 and
@@ -147,11 +174,10 @@ export async function createUserAction(formData: FormData): Promise<ActionError 
     return { error: `Profile create failed: ${profileErr.message}` };
   }
 
-  await audit(
+  await auditAndNotify(
     "USER_CREATE",
     `created ${email} (${role}, reveal_level ${reveal_level})`,
-    ctx.user.id,
-    ctx.user.email,
+    ctx,
   );
   revalidatePath("/users");
   return { ok: true };
@@ -179,6 +205,23 @@ export async function changeRoleAction(formData: FormData): Promise<ActionError 
   }
 
   const svc = createServiceClient();
+
+  // Same rule as createUserAction: promoting an account whose password the
+  // caller set (or can reset) is a second admin controlled by one person.
+  if (parsed.data.role === "admin" && !ctx.profile.is_super_admin) {
+    await auditDenied(
+      "USER_ROLE_CHANGE_DENIED",
+      `non-super admin tried to promote ${parsed.data.user_id} to admin`,
+      ctx,
+    );
+    scheduleSecurityEvent({
+      action: "USER_ROLE_CHANGE_DENIED",
+      actorId: ctx.user.id,
+      actorEmail: ctx.user.email,
+      detail: `attempt to promote ${parsed.data.user_id} to admin`,
+    });
+    return { error: t("users_err_admin_super_only") };
+  }
 
   // Promotion is the other door into the authority hierarchy: an existing
   // viewer carries the column default (0 = director), so a restricted admin
@@ -238,12 +281,11 @@ export async function changeRoleAction(formData: FormData): Promise<ActionError 
 
   if (error) return { error: error.message };
 
-  await audit(
+  await auditAndNotify(
     "USER_ROLE_CHANGE",
     `${target?.email ?? parsed.data.user_id} → ${parsed.data.role}` +
       (patch.reveal_level !== undefined ? ` (reveal_level pinned to ${patch.reveal_level})` : ""),
-    ctx.user.id,
-    ctx.user.email,
+    ctx,
   );
   revalidatePath("/users");
   return { ok: true };
@@ -356,11 +398,10 @@ export async function setRevealLevelAction(
     .eq("id", parsed.data.user_id);
   if (error) return { error: error.message };
 
-  await audit(
+  await auditAndNotify(
     "USER_REVEAL_LEVEL",
     `${target.email ?? parsed.data.user_id} → reveal_level ${parsed.data.reveal_level} (was ${targetLevel}, by L${caller.level})`,
-    ctx.user.id,
-    ctx.user.email,
+    ctx,
   );
   revalidatePath("/users");
   return { ok: true };
@@ -448,11 +489,10 @@ export async function deleteUserAction(formData: FormData): Promise<ActionError 
     }
   }
 
-  await audit(
+  await auditAndNotify(
     "USER_DELETE",
     `deleted ${target?.email ?? parsed.data.user_id}`,
-    ctx.user.id,
-    ctx.user.email,
+    ctx,
   );
   revalidatePath("/users");
   return { ok: true };
@@ -478,12 +518,33 @@ export async function resetPasswordAction(formData: FormData): Promise<ActionErr
   const svc = createServiceClient();
   const { data: target } = await svc
     .from("profiles")
-    .select("email, role, is_super_admin, reveal_level")
+    .select("email, role, is_super_admin, reveal_level, totp_enabled")
     .eq("id", parsed.data.user_id)
     .single();
 
   if (target?.is_super_admin) {
     return { error: t("users_err_super_admin_password") };
+  }
+
+  // Sibling of the "only the super admin creates admins" rule: an admin who
+  // has not enrolled TOTP yet is protected by the password alone, so resetting
+  // it hands the caller a second admin identity (sign in, enrol TOTP on their
+  // own phone, approve their own reveal). Admins WITH TOTP stay resettable —
+  // the new password is useless without their authenticator — so an ordinary
+  // emergency reset is never blocked; the super admin can always do this one.
+  if (target?.role === "admin" && !target.totp_enabled && !ctx.profile.is_super_admin) {
+    await auditDenied(
+      "USER_PASSWORD_RESET_DENIED",
+      `non-super admin tried to reset TOTP-less admin ${target.email ?? parsed.data.user_id}`,
+      ctx,
+    );
+    scheduleSecurityEvent({
+      action: "USER_PASSWORD_RESET_DENIED",
+      actorId: ctx.user.id,
+      actorEmail: ctx.user.email,
+      detail: "attempt to reset the password of an admin without a second factor",
+    });
+    return { error: t("users_err_reset_admin_no_totp") };
   }
 
   // A password reset is account takeover with extra steps: without this, a
@@ -511,11 +572,16 @@ export async function resetPasswordAction(formData: FormData): Promise<ActionErr
   });
   if (error) return { error: error.message };
 
-  await audit(
+  // New credentials, clean slate: notification channels registered under the
+  // old ones (possibly by whoever made the reset necessary) are dropped.
+  try {
+    await svc.from("push_subscriptions").delete().eq("user_id", parsed.data.user_id);
+  } catch {}
+
+  await auditAndNotify(
     "USER_PASSWORD_RESET",
     `reset password for ${target?.email ?? parsed.data.user_id}`,
-    ctx.user.id,
-    ctx.user.email,
+    ctx,
   );
   return { ok: true };
 }

@@ -16,6 +16,7 @@ import {
 } from "./actions";
 import { cn, formatDate } from "@/lib/utils";
 import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
+import { StepUpForm } from "@/components/step-up-form";
 
 function displayCameraUrl(stored: string): string {
   try {
@@ -201,7 +202,7 @@ export default async function CamerasPage() {
                     </div>
                   )}
                   <code className="text-xs text-text-muted break-all">{c.url}</code>
-                  <form action={toggleConsentAction} className="mt-2">
+                  <StepUpForm action={toggleConsentAction} className="mt-2">
                     <input type="hidden" name="id" value={c.id} />
                     <input
                       type="hidden"
@@ -214,7 +215,7 @@ export default async function CamerasPage() {
                     >
                       {c.consent_required ? t("consent_on") : t("consent_off")}
                     </button>
-                  </form>
+                  </StepUpForm>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <Link
@@ -235,13 +236,13 @@ export default async function CamerasPage() {
                     mode="edit"
                     camera={{ id: c.id, name: c.name, url: c.url, cam_type: c.cam_type }}
                   />
-                  <form action={toggleCameraAction}>
+                  <StepUpForm action={toggleCameraAction}>
                     <input type="hidden" name="id" value={c.id} />
                     <input type="hidden" name="enabled" value={String(!c.enabled)} />
                     <button type="submit" className="btn-icon" title={t("cam_toggle_tip")}>
                       <Power className="w-3.5 h-3.5" />
                     </button>
-                  </form>
+                  </StepUpForm>
                   <DeleteWithTotp
                     id={c.id}
                     action={deleteCameraAction}

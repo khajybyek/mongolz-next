@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BellRing, BellOff, Trash2, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useT } from "@/lib/i18n/client";
+import { TotpPrompt } from "@/components/totp-prompt";
 
 type Sub = {
   id: string;
@@ -32,6 +33,9 @@ export function PushSettings() {
   const [busy, setBusy] = useState<"enroll" | "test" | string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  // Admins must present the second factor before a new notification channel
+  // is registered; on REAUTH_REQUIRED the prompt opens and enrolment retries.
+  const [needsTotp, setNeedsTotp] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -91,6 +95,10 @@ export function PushSettings() {
         }),
       });
       const postJson = await post.json();
+      if (post.status === 403 && postJson?.error === "REAUTH_REQUIRED") {
+        setNeedsTotp(true);
+        return;
+      }
       if (!post.ok) throw new Error(postJson?.error ?? t("set_push_subscribe_failed"));
       setSuccess(t("push_status_enabled"));
       await refresh();
@@ -148,6 +156,14 @@ export function PushSettings() {
 
   return (
     <div className="card space-y-3">
+      <TotpPrompt
+        open={needsTotp}
+        onClose={() => setNeedsTotp(false)}
+        onSuccess={() => {
+          setNeedsTotp(false);
+          void enroll();
+        }}
+      />
       <div className="flex items-start gap-2">
         <BellRing className="w-4 h-4 mt-0.5 text-accent" />
         <div className="min-w-0">

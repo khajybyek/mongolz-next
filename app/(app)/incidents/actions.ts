@@ -2,13 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/supabase/auth";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { isIncidentPriority, isIncidentStatus } from "@/lib/incidents";
 import { UUID_RE } from "@/lib/workflow-query";
+import { ensureFreshReauth } from "@/lib/auth/step-up";
+import { scheduleSecurityEvent } from "@/lib/notify";
 
 export type IncidentActionResult =
   | { ok: true; id: string }
-  | { error: "invalid" | "conflict" | "unavailable" };
+  | { error: "invalid" | "conflict" | "unavailable" | "REAUTH_REQUIRED" };
 
 function nullableUuid(value: unknown): string | null | undefined {
   if (value === null || value === undefined || value === "") return null;
@@ -173,17 +175,60 @@ export async function setEvidenceHoldAction(input: {
   evidenceId: string;
   legalHold: boolean;
 }): Promise<IncidentActionResult> {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   if (!UUID_RE.test(input.incidentId) || !UUID_RE.test(input.evidenceId)) {
     return { error: "invalid" };
   }
+  // A legal hold is the one thing sweep_retention() respects. RELEASING it is
+  // the first step of destroying pinned evidence, so it needs the second
+  // factor and is pushed to the other admins; applying a hold is the safe
+  // direction and stays one click.
+  if (input.legalHold === false) {
+    const reauth = await ensureFreshReauth(ctx.user.id);
+    if (reauth) return reauth;
+  }
   try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.rpc("set_incident_recording_hold", {
-      p_evidence_id: input.evidenceId,
-      p_legal_hold: input.legalHold,
-    });
+    let data: string | null = null;
+    let error: { code?: string; message?: string } | null = null;
+    if (input.legalHold === false) {
+      // Release runs with the service role and an explicit actor: migration
+      // 20260917150000 makes the user-callable RPC refuse a release, so a
+      // stolen session cannot POST /rest/v1/rpc/set_incident_recording_hold
+      // with its own token and skip the step-up above.
+      const released = await createServiceClient().rpc("release_incident_recording_hold", {
+        p_evidence_id: input.evidenceId,
+        p_actor: ctx.user.id,
+      });
+      data = released.data;
+      error = released.error;
+      // PGRST202 = function not deployed yet (app ships before the migration).
+      // Until then the old RPC still accepts a release; use it so the feature
+      // never breaks in the deploy window.
+      if (error?.code === "PGRST202") {
+        const legacy = await (await createClient()).rpc("set_incident_recording_hold", {
+          p_evidence_id: input.evidenceId,
+          p_legal_hold: false,
+        });
+        data = legacy.data;
+        error = legacy.error;
+      }
+    } else {
+      const applied = await (await createClient()).rpc("set_incident_recording_hold", {
+        p_evidence_id: input.evidenceId,
+        p_legal_hold: true,
+      });
+      data = applied.data;
+      error = applied.error;
+    }
     if (error || data !== input.evidenceId) return failed(error);
+    if (input.legalHold === false) {
+      scheduleSecurityEvent({
+        action: "EVIDENCE_HOLD_RELEASED",
+        actorId: ctx.user.id,
+        actorEmail: ctx.user.email,
+        detail: `incident=${input.incidentId} evidence=${input.evidenceId}`,
+      });
+    }
     refresh(input.incidentId);
     return { ok: true, id: input.evidenceId };
   } catch {

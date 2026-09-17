@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { requireAdmin, requireUser } from "@/lib/supabase/auth";
+import { requireAdmin, requireOperator } from "@/lib/supabase/auth";
 import { mlActiveCameras, mlStartCamera, mlStopCamera } from "@/lib/ml-client";
 import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { issueStreamTicket } from "@/lib/stream-ticket";
@@ -79,7 +79,7 @@ export async function stopCameraAction(cameraId: string) {
 }
 
 export async function getStreamTicketAction(cameraId: string): Promise<string> {
-  const { user } = await requireUser();
+  const { user } = await requireOperator();
   return issueStreamTicket(user.id, cameraId);
 }
 
@@ -97,7 +97,7 @@ export interface ActiveCamerasResult {
  * learn about cameras they can already list.
  */
 export async function getActiveCamerasAction(): Promise<ActiveCamerasResult> {
-  await requireUser();
+  await requireOperator();
   const active = await mlActiveCameras();
   if (active === null) return { reachable: false, ids: [] };
   const ids = active.map((c) => c.camera_id).filter((id) => UUID_RE.test(id));

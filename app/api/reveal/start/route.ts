@@ -16,8 +16,10 @@ export async function POST(request: NextRequest) {
   if (isAuthErr(auth)) return auth.error;
   const ctx = auth;
 
-  // Step-up auth шалгах
-  if (!(await hasFreshReauth(ctx.user.id))) {
+  // Step-up auth шалгах. A password step-up is enough to REQUEST a reveal:
+  // nothing is decrypted until a second admin approves, and approval demands
+  // the TOTP factor (reveal-approvals/actions.ts).
+  if (!(await hasFreshReauth(ctx.user.id, { allowPassword: true }))) {
     return NextResponse.json(
       { error: "REAUTH_REQUIRED", message: "Нууц үгээ дахин оруулна уу" },
       { status: 401 }

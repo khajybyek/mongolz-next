@@ -20,6 +20,7 @@
  * without any network or Supabase access.
  */
 
+import { after } from "next/server";
 import { dispatchEvent, type RevealEventPayload, type RevealRequestedEventPayload } from "@/lib/webhooks";
 import { sendPushToAdminsExcept, sendPushToUser, type PushPayload } from "@/lib/push";
 
@@ -66,6 +67,30 @@ export interface TelegramRevealDecided {
   reason: string | null;
   decided_at: string;
 }
+
+/**
+ * An admin-level change that a stolen session would make: second-factor
+ * changes, user management, retention / legal-hold, camera permissions.
+ * The audit row records it; this tells the OTHER admins while it can still
+ * be stopped. `action` is the audit_log action name, `detail` the same
+ * id-only detail string the ledger row carries.
+ */
+export interface SecurityEventInput {
+  action: string;
+  actorId: string;
+  actorEmail: string | null | undefined;
+  detail?: string | null;
+}
+
+export interface TelegramSecurityEvent {
+  kind: "security_event";
+  action: string;
+  actor_email: string | null;
+  detail: string | null;
+  at: string;
+}
+
+export const AUDIT_PATH = "/audit";
 
 /** Recording ids are UUIDs; the first 8 chars are enough to find one in /jobs. */
 export function shortId(id: string): string {
@@ -158,6 +183,28 @@ export function buildRevealDecisionTelegramPayload(
   };
 }
 
+export function buildSecurityEventPush(input: SecurityEventInput): PushPayload {
+  return {
+    title: `Security change · ${input.action}`,
+    body: `${input.actorEmail ?? "unknown"}${input.detail ? ` — ${input.detail}` : ""}`.slice(0, 240),
+    url: `${AUDIT_PATH}?action=${encodeURIComponent(input.action)}`,
+    tag: `mongolz-security-${input.action}`,
+  };
+}
+
+export function buildSecurityEventTelegramPayload(
+  input: SecurityEventInput,
+  now: Date = new Date(),
+): TelegramSecurityEvent {
+  return {
+    kind: "security_event",
+    action: input.action,
+    actor_email: input.actorEmail ?? null,
+    detail: input.detail ? input.detail.slice(0, 300) : null,
+    at: now.toISOString(),
+  };
+}
+
 // ── delivery ────────────────────────────────────────────────────────────────
 
 /**
@@ -165,7 +212,9 @@ export function buildRevealDecisionTelegramPayload(
  * function accepts a gateway-verified service_role bearer). Missing env is
  * treated like any other delivery failure — logged, not thrown.
  */
-export async function postTelegram(body: TelegramRevealRequested | TelegramRevealDecided): Promise<boolean> {
+export async function postTelegram(
+  body: TelegramRevealRequested | TelegramRevealDecided | TelegramSecurityEvent,
+): Promise<boolean> {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!base || !key) {
@@ -231,4 +280,31 @@ export async function notifyRevealDecision(input: RevealDecisionInput & { record
     tasks.push(attempt("push", () => sendPushToUser(requesterId, buildRevealDecisionPush(input))));
   }
   await Promise.all(tasks);
+}
+
+/**
+ * Real-time notice of a destructive / privilege-relevant change. Pushes go to
+ * every admin EXCEPT the actor (the super admin is an admin, so is covered);
+ * Telegram reaches the shared ops chat. Best-effort like every other fan-out:
+ * never throws, schedule it through `after()`.
+ */
+export async function notifySecurityEvent(input: SecurityEventInput): Promise<void> {
+  const now = new Date();
+  await Promise.all([
+    attempt("push", () => sendPushToAdminsExcept(input.actorId, buildSecurityEventPush(input))),
+    attempt("telegram", () => postTelegram(buildSecurityEventTelegramPayload(input, now))),
+  ]);
+}
+
+/**
+ * `after()` needs a request scope; unit tests and scripts have none. Falls
+ * back to fire-and-forget so a notification can never fail the action.
+ */
+export function scheduleSecurityEvent(input: SecurityEventInput): void {
+  const run = () => notifySecurityEvent(input).catch(() => undefined);
+  try {
+    after(run);
+  } catch {
+    void run();
+  }
 }

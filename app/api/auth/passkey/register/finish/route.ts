@@ -4,6 +4,7 @@ import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { finishRegistration } from "@/lib/auth/webauthn";
 import { hasFreshReauth } from "@/lib/auth/step-up";
+import { scheduleSecurityEvent } from "@/lib/notify";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
 
 /**
@@ -48,6 +49,14 @@ export async function POST(request: NextRequest) {
         ip,
       });
     } catch {}
+    // A passkey is a durable password-less, TOTP-less login. Tell the other
+    // admins the moment one appears so a planted credential is caught.
+    scheduleSecurityEvent({
+      action: "PASSKEY_ENROLL",
+      actorId: auth.user.id,
+      actorEmail: auth.user.email,
+      detail: `new passkey on ${auth.profile.role} account ${auth.user.id}`,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e) {

@@ -659,7 +659,7 @@ describe("updateEventSettingsAction", () => {
     });
 
     expectLedgerClean(["SCH_EVENT_UPDATED"]);
-    expect(audits[0].detail).toBe("open=true deadline=2026-09-20T09:00:00.000Z fee_krw=5000 fee_mnt=12000 published=none");
+    expect(audits[0].detail).toBe("open=true deadline=2026-09-20T09:00:00.000Z fee_krw=5000 fee_mnt=12000 published=none payment_info_changed=false");
     // Bank details and the organiser's contact are not ledger material either.
     expect(String(audits[0].detail)).not.toContain("Toss");
     expect(String(audits[0].detail)).not.toContain("organiser");

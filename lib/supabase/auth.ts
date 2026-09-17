@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { schOrganiserVerdict } from "@/lib/sch/access";
+import { ORGANISER_HOME, schOrganiserVerdict } from "@/lib/sch/access";
 import { NextResponse } from "next/server";
 import { createClient } from "./server";
 import {
@@ -23,6 +23,14 @@ export type ApiAuthOptions = {
    * — streams, uploads, push, playback — is operator (admin | viewer) scope.
    */
   allowAuditor?: boolean;
+  /**
+   * Own-account scope: every authenticated role (admin, viewer, auditor AND
+   * the tournament-only organiser) may call this endpoint. Same meaning as
+   * `allowAuditor` — the older name is kept for existing callers. Without it
+   * the helper is an explicit operator allow-list (admin | viewer), mirroring
+   * private.is_operator() at the data tier.
+   */
+  ownAccount?: boolean;
 };
 
 export type AdminOptions = {
@@ -48,8 +56,9 @@ type SessionState =
  * pin cookie. A Supabase session obtained any other way — e.g. straight from
  * the public password grant with a phished password — has none, so for users
  * with TOTP enabled the cookie is *mandatory*: it is the proof the session
- * went through the second factor. Users without TOTP (viewer/auditor) keep
- * back-compat for cookie-less legacy sessions. A pin that exists but does
+ * went through the second factor. The TOTP-less organiser role is held to the
+ * same rule. Other users without TOTP (viewer/auditor) keep back-compat for
+ * cookie-less legacy sessions. A pin that exists but does
  * not match (other network/UA, tampered, expired) is always rejected.
  *
  * Missing signing configuration or an internal verification error blocks the
@@ -71,7 +80,14 @@ async function pinVerdict(
   if (pin.ok) return { ok: true };
   switch (pin.reason) {
     case "no-cookie":
-      return profile.totp_enabled ? { ok: false, reason: "no-cookie" } : { ok: true };
+      // The organiser works WITHOUT a second factor (owner decision), so the
+      // pin is the only proof its session came through our login form rather
+      // than straight from the public password grant with a phished password.
+      // The role was created after every login flow started binding a pin, so
+      // there are no legacy cookie-less organiser sessions to keep alive.
+      return profile.totp_enabled || profile.role === "organiser"
+        ? { ok: false, reason: "no-cookie" }
+        : { ok: true };
     default:
       return { ok: false, reason: pin.reason };
   }
@@ -147,6 +163,19 @@ export async function requireUser(): Promise<AuthCtx> {
   return s.ctx;
 }
 
+/**
+ * Operator scope (admin | viewer) for pages and Server Actions. Server
+ * Actions are dispatched by action id, so the middleware's page allow-list
+ * for the auditor / organiser roles does not cover them — the action itself
+ * has to refuse.
+ */
+export async function requireOperator(): Promise<AuthCtx> {
+  const ctx = await requireUser();
+  if (ctx.profile.role === "organiser") redirect(ORGANISER_HOME as never);
+  if (ctx.profile.role !== "admin" && ctx.profile.role !== "viewer") redirect("/audit");
+  return ctx;
+}
+
 export async function requireAdmin(opts: AdminOptions = {}): Promise<AuthCtx> {
   const ctx = await requireUser();
   if (ctx.profile.role !== "admin") redirect("/dashboard?error=admin-only");
@@ -192,9 +221,19 @@ async function apiSession(opts: ApiAuthOptions): Promise<ApiAuthResult> {
   if (s.kind === "pin-rejected") {
     return { error: NextResponse.json({ error: "session_invalid" }, { status: 401 }) };
   }
-  if (s.ctx.profile.role === "auditor" && !opts.allowAuditor) {
+  const role = s.ctx.profile.role;
+  const ownAccount = opts.allowAuditor === true || opts.ownAccount === true;
+  if (!ownAccount && role === "auditor") {
     return {
       error: NextResponse.json({ error: "forbidden: auditor scope is /audit only" }, { status: 403 }),
+    };
+  }
+  // Explicit allow-list, not "anyone but the auditor": a role added later
+  // (the organiser, which works WITHOUT a second factor) must not inherit
+  // operator-scope routes — uploads into the ML pipeline, push, streams.
+  if (!ownAccount && role !== "admin" && role !== "viewer") {
+    return {
+      error: NextResponse.json({ error: "forbidden: operator scope only" }, { status: 403 }),
     };
   }
   return s.ctx;

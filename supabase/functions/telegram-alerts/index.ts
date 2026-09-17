@@ -37,11 +37,24 @@ interface UptimePayload {
   checked_at: string;
 }
 
-type Payload = AlertPayload | RevealRequestedPayload | RevealDecidedPayload | UptimePayload;
+/**
+ * Posted by lib/notify.ts#notifySecurityEvent for admin-level changes a stolen
+ * session would make (2FA changes, user management, retention, permissions).
+ */
+interface SecurityEventPayload {
+  kind: "security_event";
+  action: string;
+  actor_email: string | null;
+  detail?: string | null;
+  at?: string;
+}
+
+type Payload = SecurityEventPayload | AlertPayload | RevealRequestedPayload | RevealDecidedPayload | UptimePayload;
 
 const TELEGRAM_API = "https://api.telegram.org";
 const APPROVALS_URL = "https://aicctv.dev/reveal-approvals";
 const JOBS_URL = "https://aicctv.dev/jobs";
+const AUDIT_URL = "https://aicctv.dev/audit";
 
 function escapeMarkdown(text: string | null | undefined): string {
   return String(text ?? "—").replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, "\\$&");
@@ -168,12 +181,27 @@ function uptimeMessage(p: UptimePayload): string {
   );
 }
 
+function securityEventMessage(p: SecurityEventPayload): string {
+  const detail = p.detail ? `📝 *Дэлгэрэнгүй:* ${escapeMarkdown(p.detail)}\n` : "";
+  return (
+    `🛡 *MONGOLZ аюулгүй байдлын өөрчлөлт*\n\n` +
+    `⚙️ *Үйлдэл:* \`${String(p.action ?? "").replace(/[`\\]/g, "\\$&")}\`\n` +
+    `👤 *Хийсэн:* ${escapeMarkdown(p.actor_email)}\n` +
+    detail +
+    `🕐 *Цаг:* ${escapeMarkdown(formatKst(p.at))}\n\n` +
+    `Та өөрөө хийгээгүй бол session\\-аа шалгаж, нууц үгээ солино уу\\.\n` +
+    `👉 ${mdLink("Audit log", AUDIT_URL)}`
+  );
+}
+
 function buildMessage(payload: Payload): string {
   switch (payload.kind) {
     case "reveal_requested":
       return revealRequestedMessage(payload);
     case "reveal_decided":
       return revealDecidedMessage(payload);
+    case "security_event":
+      return securityEventMessage(payload);
     case "ml_down":
     case "ml_recovered":
       return uptimeMessage(payload);

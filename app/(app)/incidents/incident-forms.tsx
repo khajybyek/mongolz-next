@@ -288,15 +288,24 @@ export function EvidenceHoldButton({ incidentId, evidenceId, legalHold }: { inci
   const { toast } = useToast();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  // Releasing a hold needs a fresh TOTP step-up; the prompt opens on
+  // REAUTH_REQUIRED and the same change is retried after a correct code.
+  const [needsTotp, setNeedsTotp] = useState(false);
+  const submit = () => startTransition(async () => {
+    const result = await setEvidenceHoldAction({ incidentId, evidenceId, legalHold: !legalHold });
+    if ("error" in result) {
+      if (result.error === "REAUTH_REQUIRED") { setNeedsTotp(true); return; }
+      toast({ title: errorMessage(result, copy), tone: "danger" });
+    } else { toast({ title: copy.holdUpdatedOk, tone: "success" }); router.refresh(); }
+  });
   return (
-    <button type="button" className="btn-ghost btn-sm" disabled={pending} onClick={() => startTransition(async () => {
-      const result = await setEvidenceHoldAction({ incidentId, evidenceId, legalHold: !legalHold });
-      if ("error" in result) toast({ title: errorMessage(result, copy), tone: "danger" });
-      else { toast({ title: copy.holdUpdatedOk, tone: "success" }); router.refresh(); }
-    })}>
-      {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : legalHold ? <UnlockKeyhole className="h-3.5 w-3.5" /> : <LockKeyhole className="h-3.5 w-3.5" />}
-      {legalHold ? copy.releaseHold : copy.applyHold}
-    </button>
+    <>
+      <TotpPrompt open={needsTotp} onClose={() => setNeedsTotp(false)} onSuccess={() => { setNeedsTotp(false); submit(); }} />
+      <button type="button" className="btn-ghost btn-sm" disabled={pending} onClick={submit}>
+        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : legalHold ? <UnlockKeyhole className="h-3.5 w-3.5" /> : <LockKeyhole className="h-3.5 w-3.5" />}
+        {legalHold ? copy.releaseHold : copy.applyHold}
+      </button>
+    </>
   );
 }
 

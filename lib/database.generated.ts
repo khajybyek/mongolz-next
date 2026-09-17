@@ -2154,6 +2154,10 @@ export type Database = {
           similarity: number
         }[]
       }
+      release_incident_recording_hold: {
+        Args: { p_actor: string; p_evidence_id: string }
+        Returns: string
+      }
       set_incident_recording_hold: {
         Args: { p_evidence_id: string; p_legal_hold: boolean }
         Returns: string

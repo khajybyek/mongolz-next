@@ -33,19 +33,44 @@ export function getRpConfig(host: string | null) {
   };
 }
 
-/** Persist a fresh challenge so /register/finish can verify it. */
+/**
+ * Persist a fresh challenge so the matching /finish can verify it.
+ *
+ * `register` runs inside an authenticated, stepped-up session, so replacing
+ * the previous challenge is fine. `auth` is requested ANONYMOUSLY: deleting
+ * the siblings there let anyone who knows an e-mail keep wiping the victim's
+ * in-flight challenge in a loop, so their passkey login — the phishing
+ * resistant escape hatch — failed for as long as the loop ran. Auth
+ * challenges therefore coexist; /finish consumes the exact one the
+ * authenticator signed. Only expired rows (and a flood beyond the cap) go.
+ */
+const MAX_LIVE_AUTH_CHALLENGES = 50;
+
 export async function storeChallenge(
   user_id: string,
   challenge: string,
   kind: "register" | "auth",
 ): Promise<void> {
   const svc = createServiceClient();
-  // Best-effort cleanup of expired rows for this user (no cron needed).
-  await svc
-    .from("webauthn_challenges")
-    .delete()
-    .eq("user_id", user_id)
-    .eq("kind", kind);
+  if (kind === "register") {
+    await svc.from("webauthn_challenges").delete().eq("user_id", user_id).eq("kind", kind);
+  } else {
+    await svc
+      .from("webauthn_challenges")
+      .delete()
+      .eq("user_id", user_id)
+      .eq("kind", kind)
+      .lt("expires_at", new Date().toISOString());
+    const { data: live } = await svc
+      .from("webauthn_challenges")
+      .select("id")
+      .eq("user_id", user_id)
+      .eq("kind", kind)
+      .order("created_at", { ascending: false })
+      .range(MAX_LIVE_AUTH_CHALLENGES - 1, MAX_LIVE_AUTH_CHALLENGES + 200);
+    const stale = (live ?? []).map((r) => r.id);
+    if (stale.length > 0) await svc.from("webauthn_challenges").delete().in("id", stale);
+  }
   await svc.from("webauthn_challenges").insert({
     user_id,
     challenge,
@@ -53,25 +78,41 @@ export async function storeChallenge(
   });
 }
 
-/** Consume a stored challenge: returns the value and deletes the row. */
+/**
+ * Consume a stored challenge: returns the value and deletes the row. With
+ * `challenge` given, only that exact server-issued value matches (single-use).
+ */
 export async function consumeChallenge(
   user_id: string,
   kind: "register" | "auth",
+  challenge?: string,
 ): Promise<string | null> {
   const svc = createServiceClient();
-  const { data } = await svc
+  let query = svc
     .from("webauthn_challenges")
     .select("id, challenge, expires_at")
     .eq("user_id", user_id)
-    .eq("kind", kind)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+    .eq("kind", kind);
+  if (challenge !== undefined) query = query.eq("challenge", challenge);
+  const { data } = await query.order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (!data) return null;
   // Single-use: delete regardless of whether it's expired.
   await svc.from("webauthn_challenges").delete().eq("id", data.id);
   if (new Date(data.expires_at).getTime() < Date.now()) return null;
   return data.challenge;
+}
+
+/** The challenge the authenticator signed, read from clientDataJSON (base64url JSON). */
+export function challengeFromClientData(clientDataJSON: unknown): string | null {
+  if (typeof clientDataJSON !== "string" || clientDataJSON.length > 4096) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(clientDataJSON, "base64url").toString("utf8")) as { challenge?: unknown };
+    return typeof parsed.challenge === "string" && parsed.challenge.length > 0 && parsed.challenge.length <= 512
+      ? parsed.challenge
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function buildRegistrationOptions(args: {
@@ -150,7 +191,13 @@ export async function finishAuthentication(args: {
   response: AuthenticationResponseJSON;
 }) {
   const rp = getRpConfig(args.host);
-  const expectedChallenge = await consumeChallenge(args.user_id, "auth");
+  // Look the challenge up by the value the authenticator actually signed, so
+  // a newer challenge requested by someone else cannot invalidate this one.
+  // It still has to be a row WE issued for THIS user, unexpired, single-use.
+  const signedChallenge = challengeFromClientData(args.response?.response?.clientDataJSON);
+  const expectedChallenge = signedChallenge
+    ? await consumeChallenge(args.user_id, "auth", signedChallenge)
+    : null;
   if (!expectedChallenge) {
     throw new Error("Challenge expired or missing — start over");
   }

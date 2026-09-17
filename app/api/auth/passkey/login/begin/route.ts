@@ -1,15 +1,64 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { headers } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/server";
-import { buildAuthenticationOptions } from "@/lib/auth/webauthn";
-import { checkLoginRateLimit } from "@/lib/rate-limit";
+import { buildAuthenticationOptions, getRpConfig } from "@/lib/auth/webauthn";
+import { generateAuthenticationOptions } from "@simplewebauthn/server";
+import { checkLoginRateLimit, checkRateLimit, rateLimitResponse, type RateLimitOptions } from "@/lib/rate-limit";
+import { pickHmacSecret } from "@/lib/auth/hmac-secret";
+import { hmacSign } from "@/lib/auth/hmac";
+
+/**
+ * `begin` is anonymous and used to be free (the login buckets are only
+ * PEEKED here, by design — charging them would let anyone lock an account).
+ * A dedicated per-IP budget bounds challenge floods without touching the
+ * victim's login budget.
+ */
+const PASSKEY_BEGIN_LIMIT: RateLimitOptions = {
+  name: "passkey_begin_ip",
+  action: "PASSKEY_BEGIN",
+  windowSec: 15 * 60,
+  max: 30,
+};
+
+/**
+ * Same 200 shape for "unknown e-mail" and "no passkeys" as for a real
+ * account, so the route is not an oracle for which admins are worth
+ * attacking. The decoy is deterministic per identifier (HMAC), nothing is
+ * stored, and /finish can never succeed for it.
+ */
+async function decoyOptions(identifier: string, host: string | null) {
+  const secret = pickHmacSecret("REAUTH_COOKIE_SECRET", "SUPABASE_SERVICE_ROLE_KEY");
+  if (!secret) return null;
+  const hex = hmacSign(secret, "mongolz-passkey-decoy:v1", identifier, "hex");
+  const userHandle = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+  const credentialId = hmacSign(secret, "mongolz-passkey-decoy-cred:v1", identifier, "base64url").slice(0, 27);
+  const rpID = getRpConfig(host).rpId;
+  const opts = await generateAuthenticationOptions({
+    rpID,
+    timeout: 60_000,
+    userVerification: "required",
+    allowCredentials: [{ id: credentialId, transports: ["internal", "hybrid"] }],
+  });
+  return { ...opts, user_handle: userHandle };
+}
+
+async function unavailable(identifier: string, host: string | null) {
+  try {
+    const decoy = await decoyOptions(identifier, host);
+    if (decoy) return NextResponse.json(decoy);
+  } catch {
+    /* fall through to the generic refusal */
+  }
+  return NextResponse.json({ error: "passkey login unavailable" }, { status: 400 });
+}
 
 /**
  * Step 1 of passkey login. Caller is anonymous (not yet logged in).
  *
  * Body: { email: string } — supports the same email-or-username syntax as
- * password login. If the user has no enrolled passkeys we return a generic
- * 400 to avoid leaking which accounts have passkey-only login.
+ * password login. Unknown accounts and accounts without passkeys get decoy
+ * options in the same 200 shape, so the route does not reveal which accounts
+ * have a passkey.
  *
  * Returns `PublicKeyCredentialRequestOptions` for `navigator.credentials.get()`
  * plus a `user_handle` (the user's id) that the client passes back to
@@ -26,6 +75,10 @@ export async function POST(request: NextRequest) {
   const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? null;
 
+  // Charged (never refunded): every call mints and stores a challenge.
+  const beginRl = await checkRateLimit(ip ?? "unknown", PASSKEY_BEGIN_LIMIT);
+  if (!beginRl.ok) return rateLimitResponse(beginRl);
+
   const svc = createServiceClient();
   // Resolve username → email first, so the throttle counts the canonical
   // address the password flow uses rather than whatever was typed.
@@ -35,7 +88,7 @@ export async function POST(request: NextRequest) {
       p_username: rawIdentifier,
     });
     if (typeof resolved !== "string" || !resolved) {
-      return NextResponse.json({ error: "passkey login unavailable" }, { status: 400 });
+      return unavailable(rawIdentifier, host);
     }
     email = resolved.toLowerCase();
   }
@@ -60,8 +113,8 @@ export async function POST(request: NextRequest) {
     .eq("email", email)
     .single();
   if (!profile) {
-    // Generic error — don't leak whether the email exists.
-    return NextResponse.json({ error: "passkey login unavailable" }, { status: 400 });
+    // Don't leak whether the email exists.
+    return unavailable(rawIdentifier, host);
   }
 
   try {
@@ -72,6 +125,7 @@ export async function POST(request: NextRequest) {
     // Return options + the user_handle so /finish doesn't have to re-resolve.
     return NextResponse.json({ ...opts, user_handle: profile.id });
   } catch {
-    return NextResponse.json({ error: "passkey login unavailable" }, { status: 400 });
+    // No passkeys enrolled (or options could not be built) — same decoy.
+    return unavailable(rawIdentifier, host);
   }
 }

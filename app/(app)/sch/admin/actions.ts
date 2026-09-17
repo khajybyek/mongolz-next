@@ -31,6 +31,7 @@ import {
   type SchStatus,
 } from "@/lib/sch/schema";
 import { drawTeams, type DrawPlayer } from "@/lib/sch/teams";
+import { scheduleSecurityEvent } from "@/lib/notify";
 
 export type SchActionResult =
   | { ok: true }
@@ -239,7 +240,14 @@ export async function deleteRegistrationAction(input: { id: string }): Promise<S
       }
     }
 
-    await audit("SCH_REGISTRATION_DELETED", `registration=${id} game=${row.game} submission=${row.submission_id}`, ctx);
+    const deletedDetail = `registration=${id} game=${row.game} submission=${row.submission_id}`;
+    await audit("SCH_REGISTRATION_DELETED", deletedDetail, ctx);
+    scheduleSecurityEvent({
+      action: "SCH_REGISTRATION_DELETED",
+      actorId: ctx.user.id,
+      actorEmail: ctx.user.email,
+      detail: `role=${ctx.profile.role} ${deletedDetail}`,
+    });
     refreshAdmin();
     if (row.team_id) revalidatePath("/sch/teams");
     return { ok: true };
@@ -300,7 +308,7 @@ export async function updateEventSettingsAction(input: SchEventSettingsInput): P
     const supabase = await createClient();
     const { data: before } = await supabase
       .from("sch_event")
-      .select("registration_open, teams_published")
+      .select("registration_open, teams_published, payment_info")
       .eq("id", 1)
       .maybeSingle();
 
@@ -340,11 +348,22 @@ export async function updateEventSettingsAction(input: SchEventSettingsInput): P
     if (!updated) return { error: "conflict" };
 
     const published = SCH_GAMES.filter((g) => v.teams_published[g]).join(",") || "none";
-    await audit(
-      "SCH_EVENT_UPDATED",
-      `open=${v.registration_open} deadline=${v.registration_deadline ?? "none"} fee_krw=${v.fee_krw} fee_mnt=${v.fee_mnt} published=${published}`,
-      ctx,
-    );
+    // The payment details are what registrants send money to — the one field
+    // a hijacked (TOTP-less) organiser session would change. The ledger says
+    // whether it changed (never the account numbers), and the admins are told
+    // in real time.
+    const paymentChanged =
+      JSON.stringify(before?.payment_info ?? null) !== JSON.stringify(v.payment_info ?? null);
+    const eventDetail = `open=${v.registration_open} deadline=${v.registration_deadline ?? "none"} fee_krw=${v.fee_krw} fee_mnt=${v.fee_mnt} published=${published} payment_info_changed=${paymentChanged}`;
+    await audit("SCH_EVENT_UPDATED", eventDetail, ctx);
+    if (paymentChanged) {
+      scheduleSecurityEvent({
+        action: "SCH_PAYMENT_INFO_CHANGED",
+        actorId: ctx.user.id,
+        actorEmail: ctx.user.email,
+        detail: `role=${ctx.profile.role} ${eventDetail}`,
+      });
+    }
     const publishedBefore = publishedMap(before?.teams_published);
     const publishChanged = SCH_GAMES.some((g) => publishedBefore[g] !== v.teams_published[g]);
     if (publishChanged) {

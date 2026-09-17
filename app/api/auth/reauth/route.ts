@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     const svc = createServiceClient();
     await svc.from("audit_log").insert({
       action: "REAUTH_OK",
-      detail: `TTL ${REAUTH_TTL_MIN}m`,
+      detail: `TTL ${REAUTH_TTL_MIN}m (factor=password)`,
       user_id: ctx.user.id,
       user_email: ctx.user.email,
     });
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
 
   let cookieValue: string;
   try {
-    cookieValue = buildReauthCookieValue(ctx.user.id, expiresAt);
+    cookieValue = buildReauthCookieValue(ctx.user.id, expiresAt, "password");
   } catch (err) {
     // REAUTH_COOKIE_SECRET is fail-closed in production (lib/auth/hmac-secret.ts).
     // Fail loud: Sentry + audit row + a stable code the client translates.
@@ -114,5 +114,5 @@ export async function GET() {
   if (isAuthErr(authGet)) return NextResponse.json({ valid: false }, { status: 401 });
 
   const fresh = await getFreshReauth(authGet.user.id);
-  return NextResponse.json({ valid: Boolean(fresh), expires_at: fresh?.expiresAt ?? null });
+  return NextResponse.json({ valid: Boolean(fresh), factor: fresh?.factor ?? null, expires_at: fresh?.expiresAt ?? null });
 }

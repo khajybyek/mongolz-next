@@ -2,12 +2,24 @@
 
 import { revalidatePath } from "next/cache";
 import { getT } from "@/lib/i18n/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { protectCameraUrlForStorage , unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
 import { mlTestCamera, type CameraTestResult, mlStopCamera } from "@/lib/ml-client";
 import type { CameraType } from "@/lib/database.types";
+
+/**
+ * Every write to public.cameras goes through the service role, AFTER
+ * requireAdmin() and (where the change widens capture or drops a privacy
+ * control) the TOTP step-up above it. Migration 20260917150000 revokes
+ * INSERT/UPDATE/DELETE on the table from `authenticated`: otherwise a stolen
+ * admin session could PATCH /rest/v1/cameras with its own token and skip the
+ * step-up, the audit row and the ML stop these actions perform.
+ */
+function cameraWriter() {
+  return createServiceClient();
+}
 
 const ALLOWED_CAM_TYPES = ["rtsp", "http", "usb", "webcam", "demo"] as const satisfies readonly CameraType[];
 type CamType = (typeof ALLOWED_CAM_TYPES)[number];
@@ -80,7 +92,7 @@ export async function addCameraAction(
     return { error: t("cam_err_key_missing") };
   }
 
-  const supabase = await createClient();
+  const supabase = cameraWriter();
   const { error } = await supabase
     .from("cameras")
     .insert({ name, url: encryptedUrl, cam_type: camType, created_by: user.id });
@@ -117,7 +129,7 @@ export async function deleteCameraAction(
     return { error: t("cam_stop_pending") };
   }
 
-  const supabase = await createClient();
+  const supabase = cameraWriter();
   const { error } = await supabase.from("cameras").delete().eq("id", id);
   if (error) return { error: error.message };
 
@@ -135,7 +147,9 @@ export async function deleteCameraAction(
   return { ok: true };
 }
 
-export async function toggleCameraAction(formData: FormData): Promise<void> {
+export async function toggleCameraAction(
+  formData: FormData,
+): Promise<{ error: string } | { ok: true } | void> {
   const { user } = await requireAdmin();
   const { t } = await getT();
   const id = String(formData.get("id") ?? "");
@@ -143,7 +157,15 @@ export async function toggleCameraAction(formData: FormData): Promise<void> {
 
   if (!UUID_RE.test(id)) return;
 
-  const supabase = await createClient();
+  // Turning a camera ON widens what is captured and streamed, so it needs the
+  // second factor like updateCameraAction. Turning one OFF only narrows it and
+  // stays one click.
+  if (enabled) {
+    const reauth = await ensureFreshReauth(user.id);
+    if (reauth) return reauth;
+  }
+
+  const supabase = cameraWriter();
   const { error } = await supabase.from("cameras").update({ enabled }).eq("id", id);
   if (error) return;
   if (!enabled) {
@@ -192,7 +214,7 @@ export async function updateCameraAction(
     return { error: t("cam_err_key_missing") };
   }
 
-  const supabase = await createClient();
+  const supabase = cameraWriter();
   const { data: before } = await supabase.from("cameras").select("url, cam_type").eq("id", id).maybeSingle();
   const { error } = await supabase
     .from("cameras")
@@ -253,9 +275,16 @@ export async function toggleConsentAction(formData: FormData) {
   const { user } = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const required = String(formData.get("required") ?? "false") === "true";
-  if (!id) return;
+  if (!UUID_RE.test(id)) return;
 
-  const supabase = await createClient();
+  // Dropping the consent requirement removes a privacy control — second
+  // factor first. Switching it ON is the safe direction and needs none.
+  if (!required) {
+    const reauth = await ensureFreshReauth(user.id);
+    if (reauth) return reauth;
+  }
+
+  const supabase = cameraWriter();
   await supabase.from("cameras").update({ consent_required: required }).eq("id", id);
 
   try {

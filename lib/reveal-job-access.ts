@@ -27,7 +27,7 @@ export async function authorizeRevealJob(jobId: string) {
   if (!canReadRevealOutput(authority.level, job.reveal_level)) {
     return { error: NextResponse.json({ error: "REVEAL_FORBIDDEN" }, { status: 403 }) };
   }
-  if (job.status === "completed" && job.output_path && !(await hasFreshReauth(auth.user.id))) {
+  if (job.status === "completed" && job.output_path && !(await hasFreshReauth(auth.user.id, { allowPassword: true }))) {
     return { error: NextResponse.json({ error: "REAUTH_REQUIRED" }, { status: 401, headers: REVEAL_PRIVATE_HEADERS }) };
   }
   return { job, svc };

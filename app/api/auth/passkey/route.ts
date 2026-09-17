@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { hasFreshReauth } from "@/lib/auth/step-up";
+import { scheduleSecurityEvent } from "@/lib/notify";
 
 /**
  * GET /api/auth/passkey
@@ -75,6 +76,12 @@ export async function DELETE(request: NextRequest) {
       ip,
     });
   } catch {}
+  scheduleSecurityEvent({
+    action: "PASSKEY_DELETE",
+    actorId: auth.user.id,
+    actorEmail: auth.user.email,
+    detail: `credential ${id} removed from account ${auth.user.id}`,
+  });
 
   return NextResponse.json({ ok: true });
 }

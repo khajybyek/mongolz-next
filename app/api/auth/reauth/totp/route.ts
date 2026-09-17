@@ -9,9 +9,9 @@ const REAUTH_TTL_MIN = 15;
 
 /**
  * TOTP-based step-up reauthentication for sensitive admin operations
- * (user CRUD, etc). Sets the same `mongolz-reauth` cookie as the
- * password-based endpoint — downstream code uses `requireFreshReauth()`
- * without caring which factor was presented.
+ * (user CRUD, etc). Sets the `mongolz-reauth` cookie with factor = "totp" —
+ * the only factor `hasFreshReauth()` accepts by default. The password route
+ * mints a weaker cookie that only the reveal-request flow accepts.
  *
  * The throttle is spent BEFORE the code is verified (`checkTotpCode`, shared
  * with every other TOTP endpoint), so concurrent guesses cannot all slip
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
 
   let cookieValue: string;
   try {
-    cookieValue = buildReauthCookieValue(ctx.user.id, expiresAt);
+    cookieValue = buildReauthCookieValue(ctx.user.id, expiresAt, "totp");
   } catch (err) {
     // REAUTH_COOKIE_SECRET is fail-closed in production (lib/auth/hmac-secret.ts).
     // Fail loud: Sentry + audit row + a stable code the client translates.

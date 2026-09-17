@@ -7,6 +7,7 @@ import { formatDate } from "@/lib/utils";
 import { getT } from "@/lib/i18n/server";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import { updateRetentionAction, runSweepAction } from "./actions";
+import { StepUpForm } from "@/components/step-up-form";
 
 export const dynamic = "force-dynamic";
 
@@ -57,18 +58,18 @@ export default async function RetentionPage() {
           {queue.pending > 0 && <p className="helper">{copy.retry}</p>}
         </> : <p role="alert" className="text-danger">{copy.unavailable}</p>}
       </section>
-      <form action={runSweepAction} className="mt-3 mb-6">
+      <StepUpForm action={runSweepAction} className="mt-3 mb-6">
         <button type="submit" className="btn-secondary">
           <RefreshCw className="w-3.5 h-3.5" />
           {t("run_sweep")}
         </button>
-      </form>
+      </StepUpForm>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {policies.map((p) => {
           const meta = LABELS[p.resource];
           return (
-            <form
+            <StepUpForm
               key={p.resource}
               action={updateRetentionAction}
               className="card space-y-3"
@@ -123,7 +124,7 @@ export default async function RetentionPage() {
               <button type="submit" className="btn-primary w-full">
                 {t("save")}
               </button>
-            </form>
+            </StepUpForm>
           );
         })}
       </div>

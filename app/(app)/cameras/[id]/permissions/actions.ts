@@ -5,6 +5,10 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
+import { ensureFreshReauth } from "@/lib/auth/step-up";
+import { scheduleSecurityEvent } from "@/lib/notify";
+
+type ActionResult = { error: string } | { ok: true };
 
 const addSchema = z.object({
   camera_id: z.string().uuid(),
@@ -25,14 +29,22 @@ async function audit(action: string, detail: string, userId: string, userEmail: 
   });
 }
 
-export async function grantCameraPermissionAction(formData: FormData): Promise<void> {
+/**
+ * A camera_permissions row is what lets a non-admin stream the UNMASKED live
+ * feed (since 2026-09-08), so granting one is a disclosure decision: it needs
+ * the second factor, not just a (possibly stolen) session. Revoking only ever
+ * narrows access and stays one click, so a defender is never slowed down.
+ */
+export async function grantCameraPermissionAction(formData: FormData): Promise<ActionResult> {
   const ctx = await requireAdmin();
+  const reauth = await ensureFreshReauth(ctx.user.id);
+  if (reauth) return reauth;
   const parsed = addSchema.safeParse({
     camera_id: formData.get("camera_id"),
     user_id: formData.get("user_id"),
     permission: formData.get("permission") || "view",
   });
-  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Invalid input");
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
   const svc = createServiceClient();
   const { error } = await svc
@@ -41,15 +53,13 @@ export async function grantCameraPermissionAction(formData: FormData): Promise<v
       { ...parsed.data, created_by: ctx.user.id },
       { onConflict: "camera_id,user_id,permission" },
     );
-  if (error) throw new Error(error.message);
+  if (error) return { error: "grant failed" };
 
-  await audit(
-    "CAM_PERM_GRANT",
-    `camera=${parsed.data.camera_id} user=${parsed.data.user_id} perm=${parsed.data.permission}`,
-    ctx.user.id,
-    ctx.user.email,
-  );
+  const detail = `camera=${parsed.data.camera_id} user=${parsed.data.user_id} perm=${parsed.data.permission}`;
+  await audit("CAM_PERM_GRANT", detail, ctx.user.id, ctx.user.email);
+  scheduleSecurityEvent({ action: "CAM_PERM_GRANT", actorId: ctx.user.id, actorEmail: ctx.user.email, detail });
   revalidatePath(`/cameras/${parsed.data.camera_id}/permissions`);
+  return { ok: true };
 }
 
 export async function revokeCameraPermissionAction(formData: FormData): Promise<void> {
@@ -59,9 +69,22 @@ export async function revokeCameraPermissionAction(formData: FormData): Promise<
   if (!id.success || !cameraId.success) throw new Error("Invalid id");
 
   const svc = createServiceClient();
-  const { error } = await svc.from("camera_permissions").delete().eq("id", id.data);
+  // Delete and read back in one statement: once the row is gone nothing else
+  // can say WHO lost access to WHICH camera, and the ledger has to.
+  const { data: removed, error } = await svc
+    .from("camera_permissions")
+    .delete()
+    .eq("id", id.data)
+    .select("camera_id, user_id, permission");
   if (error) throw new Error(error.message);
 
-  await audit("CAM_PERM_REVOKE", `perm row ${id.data}`, ctx.user.id, ctx.user.email);
+  const row = removed?.[0];
+  const detail = row
+    ? `camera=${row.camera_id} user=${row.user_id} perm=${row.permission} (row ${id.data})`
+    : `perm row ${id.data} (already gone)`;
+  await audit("CAM_PERM_REVOKE", detail, ctx.user.id, ctx.user.email);
+  if (row) {
+    scheduleSecurityEvent({ action: "CAM_PERM_REVOKE", actorId: ctx.user.id, actorEmail: ctx.user.email, detail });
+  }
   revalidatePath(`/cameras/${cameraId.data}/permissions`);
 }

@@ -82,6 +82,26 @@ ${(ctx.recentAlerts ?? []).map((a: any) => `- ${a.suspect_name} (${Math.round(a.
 - Өнөөдрийн alert: ${ctx.todayAlerts}`;
 }
 
+/**
+ * True when the (gateway-verified) JWT proves nothing but a password.
+ * Mirrors private.mfa_ok(): only an amr made up ENTIRELY of "password"
+ * entries is refused; anything unreadable fails open, so the sessions the app
+ * mints after TOTP / passkey (amr = otp) are never turned away.
+ */
+function passwordOnlyToken(token: string): boolean {
+  try {
+    const part = token.split(".")[1] ?? "";
+    const claims = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/")));
+    const amr = claims?.amr;
+    if (!Array.isArray(amr) || amr.length === 0) return false;
+    return amr.every((e: unknown) =>
+      (typeof e === "string" ? e : (e as { method?: unknown })?.method) === "password",
+    );
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -107,12 +127,24 @@ Deno.serve(async (req) => {
   // ── Role шалгах ──
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, totp_enabled")
     .eq("id", user.id)
     .single();
 
   if (profile?.role !== "admin") {
     return new Response(JSON.stringify({ error: "admin only" }), { status: 403 });
+  }
+
+  // ── Second factor ──
+  // This function is reachable straight from the internet with any valid
+  // user JWT, bypassing the Next proxy (requireAdminApi). A token from the
+  // public password grant (amr = [password]) must not read alert data: same
+  // rule the app (totp_required) and the data tier (private.mfa_ok) apply.
+  if (!profile.totp_enabled) {
+    return new Response(JSON.stringify({ error: "totp_required" }), { status: 403 });
+  }
+  if (passwordOnlyToken(authHeader.slice(7))) {
+    return new Response(JSON.stringify({ error: "second factor required" }), { status: 403 });
   }
 
   // ── Body уншиx + validation ──
@@ -135,11 +167,30 @@ Deno.serve(async (req) => {
     .slice(-MAX_HISTORY)
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) }));
 
-  // ── DB-ээс контекст цуглуулах (service-role-оор) ──
-  const svc = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-  );
+  // ── DB-ээс контекст цуглуулах ──
+  // With the CALLER's token, not the service role: RLS (admin policies + the
+  // RESTRICTIVE "second factor required" policies) decides what this request
+  // may see, so the function can never hand out more than PostgREST would.
+  const svc = supabase;
+
+  // Leave a trace BEFORE the data is read or the model is called (it used to
+  // be written only after a successful answer, so a failed or aborted call
+  // that had already pulled the context left nothing). Service role is used
+  // for this insert ONLY.
+  try {
+    const ledger = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+    await ledger.from("audit_log").insert({
+      action: "AI_ANALYSIS",
+      detail: `mode=${body.mode}`,
+      user_id: user.id,
+      user_email: user.email ?? null,
+    });
+  } catch {
+    /* best effort */
+  }
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -251,14 +302,6 @@ Deno.serve(async (req) => {
   if (claudeData.stop_reason === "refusal") {
     return new Response(JSON.stringify({ error: "Claude энэ хүсэлтэд хариулахаас татгалзлаа." }), { status: 422 });
   }
-
-  // ── Audit log ──
-  await svc.from("audit_log").insert({
-    action: "AI_ANALYSIS",
-    detail: `mode=${body.mode}`,
-    user_id: user.id,
-    user_email: user.email,
-  });
 
   return new Response(
     JSON.stringify({

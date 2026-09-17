@@ -24,12 +24,19 @@ type Row = {
   role: string;
   reveal_level: unknown;
   is_super_admin: boolean;
+  totp_enabled?: boolean;
 };
 
 type Payload = { data: unknown; error: { message: string } | null; count?: number };
 
 const state = {
   actor: DIRECTOR,
+  /**
+   * What the session says about the actor. Creating / promoting an ADMIN is
+   * super-admin-only (2026-09-17); the hierarchy tests below exercise the
+   * reveal-level ceiling independently of that rule, so they act as super.
+   */
+  actorIsSuper: true,
   profiles: [] as Row[],
   readErrorIds: new Set<string>(),
   readThrowIds: new Set<string>(),
@@ -46,6 +53,7 @@ const writes = {
 
 function seed() {
   state.actor = DIRECTOR;
+  state.actorIsSuper = true;
   state.readErrorIds = new Set();
   state.readThrowIds = new Set();
   state.createUserError = null;
@@ -83,11 +91,17 @@ jest.mock("@/lib/supabase/auth", () => ({
     const row = state.profiles.find((p) => p.id === state.actor);
     return {
       user: { id: state.actor, email: row?.email ?? "actor@test" },
-      profile: { id: state.actor, role: "admin" },
+      profile: { id: state.actor, role: "admin", is_super_admin: state.actorIsSuper },
     };
   }),
 }));
 jest.mock("@/lib/auth/step-up", () => ({ ensureFreshReauth: jest.fn(async () => null) }));
+const securityEvents: Array<{ action: string; actorId: string; detail?: string | null }> = [];
+jest.mock("@/lib/notify", () => ({
+  scheduleSecurityEvent: (e: { action: string; actorId: string; detail?: string | null }) => {
+    securityEvents.push(e);
+  },
+}));
 jest.mock("@/lib/supabase/server", () => {
   const client = () => ({
     from: (table: string) => ({
@@ -182,6 +196,47 @@ function deniedAudits(action: string) {
 beforeEach(() => {
   jest.clearAllMocks();
   seed();
+  securityEvents.length = 0;
+});
+
+describe("admin accounts are minted by the super admin only (4-eyes needs two humans)", () => {
+  it("refuses an ordinary admin creating an admin, before any account exists", async () => {
+    state.actorIsSuper = false;
+    const res = await create();
+    expect(res).toEqual({ error: T.users_err_admin_super_only.mn });
+    expect(writes.createdUsers).toHaveLength(0);
+    expect(writes.upserts).toHaveLength(0);
+    expect(deniedAudits("USER_CREATE_DENIED")).toHaveLength(1);
+    expect(securityEvents.map((e) => e.action)).toEqual(["USER_CREATE_DENIED"]);
+  });
+
+  it("refuses an ordinary admin promoting anyone to admin", async () => {
+    state.actorIsSuper = false;
+    const res = await promote(VIEWER);
+    expect(res).toEqual({ error: T.users_err_admin_super_only.mn });
+    expect(writes.updates).toHaveLength(0);
+    expect(deniedAudits("USER_ROLE_CHANGE_DENIED")).toHaveLength(1);
+  });
+
+  it("still lets an ordinary admin create non-admin roles and demote", async () => {
+    state.actorIsSuper = false;
+    expect(await create({ role: "viewer" })).toEqual({ ok: true });
+    expect(await promote(VIEWER, "auditor")).toEqual({ ok: true });
+  });
+
+  it("lets the super admin create an admin and tells the other admins", async () => {
+    expect(await create()).toEqual({ ok: true });
+    expect(securityEvents).toEqual([
+      expect.objectContaining({ action: "USER_CREATE", actorId: DIRECTOR }),
+    ]);
+  });
+
+  it("pushes a notice for delete and password reset (ids/emails only, no secrets)", async () => {
+    expect(await remove(VIEWER)).toEqual({ ok: true });
+    expect(await resetPassword(VIEWER)).toEqual({ ok: true });
+    expect(securityEvents.map((e) => e.action)).toEqual(["USER_DELETE", "USER_PASSWORD_RESET"]);
+    expect(JSON.stringify(securityEvents)).not.toContain("another long secret");
+  });
 });
 
 describe("setRevealLevelAction — nobody grants themselves authority", () => {
@@ -402,6 +457,22 @@ describe("takeover paths obey the same hierarchy", () => {
     expect(await remove(L3)).toEqual({ ok: true });
     expect(await resetPassword(L3)).toEqual({ ok: true });
     expect(writes.deletedUsers).toEqual([L3]);
+  });
+
+  it("an ordinary admin cannot reset an admin who has no second factor yet (would mint a second approver)", async () => {
+    state.actor = DIRECTOR;
+    state.actorIsSuper = false;
+    expect(await resetPassword(L3)).toEqual({ error: T.users_err_reset_admin_no_totp.mn });
+    expect(deniedAudits("USER_PASSWORD_RESET_DENIED")).toHaveLength(1);
+    expect(securityEvents.map((e) => e.action)).toEqual(["USER_PASSWORD_RESET_DENIED"]);
+
+    // With TOTP enrolled the new password alone opens nothing — still allowed.
+    state.profiles.find((p) => p.id === L3)!.totp_enabled = true;
+    expect(await resetPassword(L3)).toEqual({ ok: true });
+    // Non-admin targets are unaffected, and the super admin can always do it.
+    expect(await resetPassword(VIEWER)).toEqual({ ok: true });
+    state.actorIsSuper = true;
+    expect(await resetPassword(L5)).toEqual({ ok: true });
   });
 
   it("keeps the last-admin, self and super-admin guards", async () => {
