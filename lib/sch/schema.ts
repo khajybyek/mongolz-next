@@ -29,6 +29,24 @@ export const SCH_DEFAULT_GAME_DATES: Record<SchGame, string> = {
 
 export const SCH_TEAM_SIZE = 5;
 
+/**
+ * Organiser-editable texts as seeded by the migrations (Mongolian). While a
+ * value still equals its seed, the public pages show a translation for en/kr;
+ * once the organiser edits it, their text is shown in every language.
+ */
+export const SCH_SEED_TEXT = {
+  title: "Chuseok 2026 SCH Esport тэмцээн",
+  intro:
+    "Тэмцээн 9/25 – 9/27-ний хооронд болно.\n" +
+    "Бүх оюутныг тэгш оролцоогоор хангаж, илүү сонирхолтой, нөхөрсөг өрсөлдөөнийг бүрдүүлэхийн тулд оролцогчдыг rank-д нь үндэслэн багуудын түвшинг аль болох тэнцвэртэй байхаар тооцож, багийн хуваарилалтыг random байдлаар хийнэ.\n" +
+    "Төлбөрөө төлсөн тохиолдолд л бүртгэл баталгаажна.",
+  payment:
+    "Солонгос данс: 토스뱅크 1001-9949-6201\n" +
+    "Монгол данс: 450004000409071526 ХХБ\n" +
+    "Гүйлгээний утга дээр өөрийн бүтэн нэрээ оруулна уу.",
+} as const;
+export type SchSeedTextKind = keyof typeof SCH_SEED_TEXT;
+
 /** Payment receipts: private bucket, uploaded through a signed URL. */
 export const SCH_RECEIPT_BUCKET = "sch-receipts";
 export const RECEIPT_MAX_BYTES = 10 * 1024 * 1024;

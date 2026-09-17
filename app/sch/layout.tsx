@@ -1,7 +1,7 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
 import { Gamepad2, Users } from "lucide-react";
-import { MongolzLogo } from "@/components/logo";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getServerLang } from "@/lib/i18n/server";
@@ -20,9 +20,19 @@ export default async function SchLayout({ children }: { children: React.ReactNod
     <div className="relative flex min-h-svh flex-col bg-gradient-hero">
       <header className="sticky top-0 z-30 border-b border-border bg-bg/80 backdrop-blur-xl">
         <div className="page-safe-gutter mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-2 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))]">
-          <Link href="/" className="flex min-h-11 items-center gap-3 rounded-lg" aria-label={c.backHome}>
-            <MongolzLogo size={34} />
-            <span className="flex flex-col leading-tight">
+          <Link href={"/sch" as Route} className="flex min-h-11 items-center gap-3 rounded-lg" aria-label={c.brand}>
+            {/* University mark: blue on transparent, so it sits on a white plate in the dark theme. */}
+            <span className="inline-flex items-center rounded-lg bg-white px-2 py-1 dark:ring-1 dark:ring-white/10">
+              <Image
+                src="/sch/sch-logo.png"
+                alt="순천향대학교 · Soon Chun Hyang University"
+                width={1000}
+                height={199}
+                priority
+                className="h-8 w-auto sm:h-9"
+              />
+            </span>
+            <span className="hidden flex-col leading-tight min-[420px]:flex">
               <span className="text-sm font-bold tracking-[0.08em]">{c.brand}</span>
               <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-text-muted">Chuseok 2026</span>
             </span>

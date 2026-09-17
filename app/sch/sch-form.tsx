@@ -59,7 +59,7 @@ import {
 import { SCH_DRAFT_KEY, parseDraft, serialiseDraft, type SchDraftUpload } from "@/lib/sch/draft";
 import { accountNumber } from "@/lib/sch/submit";
 import { prepareReceiptUpload, submitSchRegistration, type SubmitSchResult } from "./actions";
-import { formatAmount, formatGameDate, schCopy, type SchCopy } from "./sch-copy";
+import { formatAmount, formatGameDate, schCopy, type SchCopy, localizeEventText } from "./sch-copy";
 
 /* ─────────────────────────── types ─────────────────────────── */
 
@@ -996,7 +996,7 @@ function SuccessPanel({
       <div className="mt-5">
         <span className="label">{c.successPay}</span>
         <p className="whitespace-pre-line rounded-xl border border-border bg-surface-elevated/60 px-4 py-3 text-sm leading-relaxed text-text">
-          {result.paymentInfo ?? c.paymentTba}
+          {localizeEventText(result.paymentInfo, "payment", lang) ?? c.paymentTba}
         </p>
       </div>
 

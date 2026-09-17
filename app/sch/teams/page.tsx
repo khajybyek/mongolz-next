@@ -11,7 +11,7 @@ import { SCH_DRAW_STATUSES, SCH_GAMES, SCH_GAME_LABEL, SCH_TEAM_SIZE, type SchGa
 import { strengthLabel } from "@/lib/sch/teams";
 import { createServiceClient } from "@/lib/supabase/server";
 import { readSchEvent } from "../actions";
-import { formatGameDate, schCopy } from "../sch-copy";
+import { formatGameDate, localizeEventText, schCopy } from "../sch-copy";
 
 export const dynamic = "force-dynamic";
 
@@ -92,7 +92,7 @@ export default async function SchTeamsPage() {
         <div>
           <div className="mb-3 inline-flex items-center gap-2.5 text-xs font-semibold tracking-wide text-accent">
             <span className="h-px w-6 bg-accent" aria-hidden />
-            {event.title}
+            {localizeEventText(event.title, "title", lang) ?? event.title}
           </div>
           <h1 className="text-3xl font-semibold tracking-tight text-text sm:text-4xl">{c.teamsTitle}</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-text-muted">{c.teamsSubtitle}</p>

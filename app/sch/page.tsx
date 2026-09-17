@@ -8,7 +8,7 @@ import { formatDate } from "@/lib/utils";
 import { SCH_GAMES, SCH_GAME_LABEL } from "@/lib/sch/schema";
 import { readSchEvent } from "./actions";
 import { SchForm } from "./sch-form";
-import { formatAmount, formatGameDate, SCH_GAME_TONE, schCopy } from "./sch-copy";
+import { formatAmount, formatGameDate, localizeEventText, SCH_GAME_TONE, schCopy } from "./sch-copy";
 
 export const dynamic = "force-dynamic";
 
@@ -19,17 +19,23 @@ const TONE_CLASS = {
   info: "bg-info-soft text-info border-info/20",
 } as const;
 
-export const metadata: Metadata = {
-  title: "SCH Esports · Chuseok 2026",
-  description: "Chuseok 2026 SCH Esport тэмцээний бүртгэл — Mobile Legends, CS2, Dota 2.",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const c = schCopy(await getServerLang());
+  return {
+    title: "SCH Esports · Chuseok 2026",
+    description: c.metaDescription,
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function SchRegistrationPage() {
   const lang = await getServerLang();
   const c = schCopy(lang);
   const event = await readSchEvent();
   const anyTeams = SCH_GAMES.some((g) => event.teamsPublished[g]);
+  const title = localizeEventText(event.title, "title", lang) ?? event.title;
+  const intro = localizeEventText(event.intro, "intro", lang);
+  const paymentInfo = localizeEventText(event.paymentInfo, "payment", lang);
 
   return (
     <>
@@ -41,7 +47,7 @@ export default async function SchRegistrationPage() {
             {c.eyebrow}
           </div>
           <h1 className="text-balance text-[2.1rem] font-semibold leading-[1.12] tracking-[-0.04em] text-gradient-soft sm:text-5xl">
-            {event.title}
+            {title}
           </h1>
 
           <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -83,13 +89,15 @@ export default async function SchRegistrationPage() {
                 </dd>
               </div>
             </div>
-            <div className="flex items-start gap-3 rounded-xl border border-border bg-surface/70 p-4">
-              <span className="icon-tile h-9 w-9"><MessageCircle className="h-4 w-4" aria-hidden /></span>
-              <div className="min-w-0">
-                <dt className="text-xs font-medium text-text-muted">{c.contact}</dt>
-                <dd className="mt-0.5 break-words text-sm text-text">{event.contact ?? "—"}</dd>
+            {event.contact && (
+              <div className="flex items-start gap-3 rounded-xl border border-border bg-surface/70 p-4">
+                <span className="icon-tile h-9 w-9"><MessageCircle className="h-4 w-4" aria-hidden /></span>
+                <div className="min-w-0">
+                  <dt className="text-xs font-medium text-text-muted">{c.contact}</dt>
+                  <dd className="mt-0.5 break-words text-sm text-text">{event.contact}</dd>
+                </div>
               </div>
-            </div>
+            )}
           </dl>
 
           {anyTeams && (
@@ -108,7 +116,7 @@ export default async function SchRegistrationPage() {
             <h2 id="sch-rules" className="text-base font-semibold tracking-tight text-text">{c.rules}</h2>
           </div>
           <p className="whitespace-pre-line text-sm leading-relaxed text-text-soft">
-            {event.intro ?? c.successRule}
+            {intro ?? c.successRule}
           </p>
           <div className="mt-5 flex items-start gap-2 border-t border-border pt-4 text-xs leading-5 text-text-muted">
             <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -136,7 +144,7 @@ export default async function SchRegistrationPage() {
             lang={lang}
             feeKrw={event.feeKrw}
             feeMnt={event.feeMnt}
-            paymentInfo={event.paymentInfo}
+            paymentInfo={paymentInfo}
             gameDates={event.gameDates}
           />
         ) : (

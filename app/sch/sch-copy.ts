@@ -7,9 +7,19 @@
  * Pure module: no I/O, safe to import from server and client components.
  */
 import type { Lang } from "@/lib/i18n/translations";
-import type { SchGame } from "@/lib/sch/schema";
+import { SCH_SEED_TEXT, type SchGame, type SchSeedTextKind } from "@/lib/sch/schema";
 
 const en = {
+  eventTitle: "Chuseok 2026 SCH Esports Tournament",
+  eventIntro:
+    "The tournament runs 25–27 September.\n" +
+    "So that every student gets a fair chance and the competition stays fun and friendly, players are balanced by rank and the teams are drawn at random.\n" +
+    "A registration is confirmed only once the fee has been paid.",
+  eventPayment:
+    "Korean account: Toss Bank 1001-9949-6201\n" +
+    "Mongolian account: 450004000409071526 (TDB)\n" +
+    "Write your full name in the transfer memo.",
+  metaDescription: "Registration for the Chuseok 2026 SCH Esports tournament — Mobile Legends, CS2, Dota 2.",
   brand: "SCH Esports",
   eyebrow: "Chuseok 2026 · Mongolian students at SCH",
   navRegister: "Register",
@@ -127,6 +137,16 @@ const en = {
 export type SchCopy = typeof en;
 
 const mn: SchCopy = {
+  eventTitle: "Chuseok 2026 SCH Esport тэмцээн",
+  eventIntro:
+    "Тэмцээн 9/25 – 9/27-ний хооронд болно.\n" +
+    "Бүх оюутныг тэгш оролцоогоор хангаж, илүү сонирхолтой, нөхөрсөг өрсөлдөөнийг бүрдүүлэхийн тулд оролцогчдыг rank-д нь үндэслэн багуудын түвшинг аль болох тэнцвэртэй байхаар тооцож, багийн хуваарилалтыг random байдлаар хийнэ.\n" +
+    "Төлбөрөө төлсөн тохиолдолд л бүртгэл баталгаажна.",
+  eventPayment:
+    "Солонгос данс: 토스뱅크 1001-9949-6201\n" +
+    "Монгол данс: 450004000409071526 ХХБ\n" +
+    "Гүйлгээний утга дээр өөрийн бүтэн нэрээ оруулна уу.",
+  metaDescription: "Chuseok 2026 SCH Esport тэмцээний бүртгэл — Mobile Legends, CS2, Dota 2.",
   brand: "SCH Esports",
   eyebrow: "Chuseok 2026 · SCH-ийн монгол оюутнууд",
   navRegister: "Бүртгүүлэх",
@@ -243,6 +263,16 @@ const mn: SchCopy = {
 };
 
 const kr: SchCopy = {
+  eventTitle: "추석 2026 SCH e스포츠 대회",
+  eventIntro:
+    "대회는 9월 25일부터 27일까지 진행됩니다.\n" +
+    "모든 학생이 공평하게 참여하고 더 재미있고 우호적인 경쟁이 되도록, 참가자의 랭크를 기준으로 팀 전력을 최대한 균형 있게 맞춰 무작위로 팀을 배정합니다.\n" +
+    "참가비를 납부한 경우에만 등록이 확정됩니다.",
+  eventPayment:
+    "한국 계좌: 토스뱅크 1001-9949-6201\n" +
+    "몽골 계좌: 450004000409071526 (TDB, 몽골무역개발은행)\n" +
+    "송금 메모(입금자명)에 본인의 성명을 입력해 주세요.",
+  metaDescription: "추석 2026 SCH e스포츠 대회 등록 — Mobile Legends, CS2, Dota 2.",
   brand: "SCH Esports",
   eyebrow: "추석 2026 · SCH 몽골 유학생",
   navRegister: "등록",
@@ -388,4 +418,25 @@ export function formatGameDate(iso: string | null | undefined, lang: Lang): stri
 /** Thousands separators, identical on server and client (en-US grouping). */
 export function formatAmount(n: number): string {
   return Math.round(n).toLocaleString("en-US");
+}
+
+const KIND_KEY: Record<SchSeedTextKind, "eventTitle" | "eventIntro" | "eventPayment"> = {
+  title: "eventTitle",
+  intro: "eventIntro",
+  payment: "eventPayment",
+};
+
+function foldWhitespace(v: string): string {
+  return v.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Organiser texts (`sch_event.title` / `intro` / `payment_info`) are stored in
+ * one language. While a value still equals the seeded Mongolian text, en/kr
+ * readers get the translation; anything the organiser changed is shown as-is.
+ */
+export function localizeEventText(value: string | null | undefined, kind: SchSeedTextKind, lang: Lang): string | null {
+  if (value == null) return null;
+  if (lang === "mn") return value;
+  return foldWhitespace(value) === foldWhitespace(SCH_SEED_TEXT[kind]) ? schCopy(lang)[KIND_KEY[kind]] : value;
 }
