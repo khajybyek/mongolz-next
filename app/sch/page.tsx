@@ -117,7 +117,7 @@ export default async function SchRegistrationPage() {
             <span className="icon-tile h-9 w-9"><Trophy className="h-4 w-4" aria-hidden /></span>
             <h2 id="sch-rules" className="text-base font-semibold tracking-tight text-text">{c.rules}</h2>
           </div>
-          <p className="whitespace-pre-line text-sm leading-relaxed text-text-soft">
+          <p className="whitespace-pre-line text-justify text-sm leading-relaxed text-text-soft [text-align-last:left] hyphens-auto">
             {intro ?? c.successRule}
           </p>
           <div className="mt-5 flex items-start gap-2 border-t border-border pt-4 text-xs leading-5 text-text-muted">
