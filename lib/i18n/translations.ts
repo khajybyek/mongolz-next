@@ -1715,6 +1715,7 @@ export const T = {
   nav_eval: { mn: "ML үнэлгээ", en: "ML evaluation", kr: "ML 평가" },
   nav_edge_detect: { mn: "Browser ONNX демо", en: "Edge detect (ONNX)", kr: "엣지 감지 (ONNX)" },
   nav_edge_agents: { mn: "Edge төхөөрөмжүүд", en: "Edge devices", kr: "엣지 장치" },
+  nav_sch: { mn: "SCH Esports тэмцээн", en: "SCH Esports", kr: "SCH e스포츠 대회" },
   nav_thresholds: { mn: "Threshold тохируулга", en: "Thresholds", kr: "임계값 조정" },
   nav_zk_reveal: { mn: "ZK reveal (PoC)", en: "ZK reveal (PoC)", kr: "ZK 공개 (PoC)" },
   header_search: { mn: "Хайх…", en: "Search…", kr: "검색…" },

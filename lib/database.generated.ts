@@ -7,30 +7,10 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -1403,6 +1383,189 @@ export type Database = {
           },
         ]
       }
+      sch_event: {
+        Row: {
+          contact: string | null
+          fee_krw: number
+          fee_mnt: number
+          game_dates: Json
+          id: number
+          intro: string | null
+          payment_info: string | null
+          registration_deadline: string | null
+          registration_open: boolean
+          teams_published: Json
+          title: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          contact?: string | null
+          fee_krw?: number
+          fee_mnt?: number
+          game_dates?: Json
+          id?: number
+          intro?: string | null
+          payment_info?: string | null
+          registration_deadline?: string | null
+          registration_open?: boolean
+          teams_published?: Json
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          contact?: string | null
+          fee_krw?: number
+          fee_mnt?: number
+          game_dates?: Json
+          id?: number
+          intro?: string | null
+          payment_info?: string | null
+          registration_deadline?: string | null
+          registration_open?: boolean
+          teams_published?: Json
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sch_event_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sch_registrations: {
+        Row: {
+          answers: Json
+          checked_in_at: string | null
+          created_at: string
+          email: string
+          facebook: string
+          full_name: string
+          game: string
+          id: string
+          in_game_id: string | null
+          ip_hash: string | null
+          notes: string | null
+          paid_at: string | null
+          phone: string | null
+          rank_label: string | null
+          rank_score: number
+          receipt_bytes: number | null
+          receipt_mime: string | null
+          receipt_path: string | null
+          roles: string[]
+          status: string
+          submission_id: string
+          team_id: string | null
+          updated_at: string
+          user_agent: string | null
+        }
+        Insert: {
+          answers?: Json
+          checked_in_at?: string | null
+          created_at?: string
+          email: string
+          facebook: string
+          full_name: string
+          game: string
+          id?: string
+          in_game_id?: string | null
+          ip_hash?: string | null
+          notes?: string | null
+          paid_at?: string | null
+          phone?: string | null
+          rank_label?: string | null
+          rank_score?: number
+          receipt_bytes?: number | null
+          receipt_mime?: string | null
+          receipt_path?: string | null
+          roles?: string[]
+          status?: string
+          submission_id: string
+          team_id?: string | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Update: {
+          answers?: Json
+          checked_in_at?: string | null
+          created_at?: string
+          email?: string
+          facebook?: string
+          full_name?: string
+          game?: string
+          id?: string
+          in_game_id?: string | null
+          ip_hash?: string | null
+          notes?: string | null
+          paid_at?: string | null
+          phone?: string | null
+          rank_label?: string | null
+          rank_score?: number
+          receipt_bytes?: number | null
+          receipt_mime?: string | null
+          receipt_path?: string | null
+          roles?: string[]
+          status?: string
+          submission_id?: string
+          team_id?: string | null
+          updated_at?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sch_registrations_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "sch_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sch_teams: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          game: string
+          id: string
+          name: string
+          seed: number
+          strength: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          game: string
+          id?: string
+          name: string
+          seed: number
+          strength?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          game?: string
+          id?: string
+          name?: string
+          seed?: number
+          strength?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sch_teams_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suspects: {
         Row: {
           created_at: string
@@ -1962,6 +2125,13 @@ export type Database = {
         Args: { p_face_id: string; p_label: string }
         Returns: string
       }
+      sch_orphan_receipts: {
+        Args: { p_limit?: number; p_older_than_hours?: number }
+        Returns: {
+          created_at: string
+          name: string
+        }[]
+      }
       search_faces_filtered: {
         Args: {
           match_limit?: number
@@ -2076,12 +2246,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2105,11 +2275,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2130,11 +2300,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2155,11 +2325,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2172,11 +2342,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2186,9 +2356,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       alert_label: ["true_positive", "false_positive", "unknown"],

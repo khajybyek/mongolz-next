@@ -33,6 +33,8 @@ const PUBLIC_EXACT = new Set([
   "/", // Public capstone landing page (home)
   "/robots.txt", // SEO crawler hint — must be reachable unauthenticated
   "/sitemap.xml", // SEO sitemap — must be reachable unauthenticated
+  "/sch", // SCH Esports public registration (Chuseok 2026)
+  "/sch/teams", // Published team rosters — public, names + in-game ids only
 ]);
 
 type CookieItem = { name: string; value: string; options?: CookieOptions };

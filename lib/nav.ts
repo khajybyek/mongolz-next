@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  Trophy,
   Video,
   Search,
   UserSearch,
@@ -124,6 +125,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Wrench,
     items: [
       { href: "/users", icon: UserCog, labelKey: "nav_users", adminOnly: true, keywords: ["roles", "admin", "viewer"] },
+      { href: "/sch/admin", icon: Trophy, labelKey: "nav_sch", adminOnly: true, keywords: ["esports", "tournament", "chuseok", "registration", "teams"] },
       { href: "/reveal-approvals", icon: ShieldCheck, labelKey: "nav_reveal_approvals", adminOnly: true, keywords: ["unblur", "4-eyes", "approve"] },
       { href: "/audit", icon: ScrollText, labelKey: "nav_audit", shortLabelKey: "tab_audit", adminOnly: true, auditorAllowed: true, keywords: ["log", "hash chain"] },
       { href: "/privacy-zones", icon: Lock, labelKey: "nav_zones", adminOnly: true, keywords: ["mask", "zone"] },

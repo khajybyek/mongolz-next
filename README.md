@@ -158,6 +158,30 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 
 ---
 
+### SCH Esports registration (`/sch`)
+
+`mongolz.dev/sch` (same app as aicctv.dev) replaces the Google Form for the
+Chuseok 2026 SCH Esports tournament. Public, no login: one submission =
+one person + one entry per chosen game (Mobile Legends / CS2 / Dota 2, each
+with the game's own rank ladder, roles and id fields), fee × games, the bank
+accounts from `sch_event.payment_info`, and a **required payment receipt**
+that the browser uploads straight to the private `sch-receipts` bucket
+through a signed upload URL (Vercel caps request bodies at 4.5 MB). The
+server action re-validates with `lib/sch/schema.ts`, verifies the object,
+rate-limits per IP (separate mint/submit buckets), and writes all rows of a
+submission in one atomic insert. `/sch/teams` shows published rosters —
+names, masked in-game ids, ranks and roles only.
+
+Organiser console `/sch/admin` (admin + second factor): per-game tabs,
+search/status filters, receipt lightbox next to *Mark paid*, check-in,
+notes, CSV export, event settings (open/close, deadline, fees, bank details,
+dates, publish switches), the balanced random team draw
+(`lib/sch/teams.ts`: seeded shuffle → snake draft → bounded local search on
+strength spread, then role collisions; paid players only; re-draw/save/
+publish) and an orphan-receipt sweep. Every mutation writes an `audit_log`
+row carrying ids only. Tables: `sch_event`, `sch_registrations`, `sch_teams`
+(migrations `20260917100000`, `20260917110000`, `20260917120000`).
+
 ## Security model
 
 | Layer | Mechanism |

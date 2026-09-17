@@ -54,7 +54,7 @@ describe("lib/nav", () => {
     expect(NAV_GROUPS[0].items.map((item) => item.href)).toEqual([
       "/dashboard", "/live", "/playback", "/alerts", "/incidents", "/search", "/analytics",
     ]);
-    expect(allItems).toHaveLength(45);
+    expect(allItems).toHaveLength(46);
   });
 
   it("keeps the operator surfaces together and viewer-accessible", () => {
