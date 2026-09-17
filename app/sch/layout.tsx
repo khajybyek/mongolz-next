@@ -1,11 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { Route } from "next";
-import { Gamepad2, Users } from "lucide-react";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getServerLang } from "@/lib/i18n/server";
 import { HeaderOffset } from "./header-offset";
+import { SchNav } from "./sch-nav";
 import { schCopy } from "./sch-copy";
 
 /**
@@ -22,8 +22,8 @@ export default async function SchLayout({ children }: { children: React.ReactNod
       {/* The header's live height feeds `--sch-header-h` (see header-offset.tsx) so in-page anchors clear it on phones too. */}
       <header id="sch-header" className="sticky top-0 z-30 border-b border-border bg-bg/80 backdrop-blur-xl">
         <HeaderOffset headerId="sch-header" />
-        <div className="page-safe-gutter mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-1.5 py-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] sm:gap-y-2 sm:py-3 sm:pt-[calc(0.75rem+env(safe-area-inset-top,0px))]">
-          <Link href={"/sch" as Route} className="flex min-h-11 items-center gap-3 rounded-lg" aria-label={c.brand}>
+        <div className="page-safe-gutter mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-3 gap-y-2 py-2 sm:justify-between pt-[calc(0.5rem+env(safe-area-inset-top,0px))] sm:py-3 sm:pt-[calc(0.75rem+env(safe-area-inset-top,0px))]">
+          <Link href={"/sch" as Route} className="order-1 mr-auto flex min-h-11 items-center gap-3 rounded-lg sm:mr-0" aria-label={c.brand}>
             {/* University mark: blue on transparent, so it sits on a white plate in the dark theme. */}
             <span className="inline-flex items-center rounded-lg bg-white px-2 py-1 dark:ring-1 dark:ring-white/10">
               <Image
@@ -32,28 +32,23 @@ export default async function SchLayout({ children }: { children: React.ReactNod
                 width={1000}
                 height={199}
                 priority
-                className="h-8 w-auto sm:h-9"
+                className="h-5 w-auto min-[380px]:h-6 sm:h-9"
               />
             </span>
-            <span className="hidden flex-col leading-tight min-[420px]:flex">
+            <span className="hidden flex-col leading-tight md:flex">
               <span className="text-sm font-bold tracking-[0.08em]">{c.brand}</span>
               <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-text-muted">Chuseok 2026</span>
             </span>
           </Link>
 
-          <nav aria-label={c.brand} className="order-3 flex w-full items-center gap-1 border-t border-border pt-1.5 sm:order-none sm:w-auto sm:border-0 sm:pt-0">
-            <Link href={"/sch" as Route} className="btn-ghost btn-sm">
-              <Gamepad2 className="h-3.5 w-3.5" aria-hidden />
-              {c.navRegister}
-            </Link>
-            <Link href={"/sch/teams" as Route} className="btn-ghost btn-sm">
-              <Users className="h-3.5 w-3.5" aria-hidden />
-              {c.navTeams}
-            </Link>
-          </nav>
+          {/* Phones: the nav takes its own centred row under the mark; wider screens keep one row. */}
+          <div className="order-3 flex w-full justify-center sm:order-2 sm:w-auto">
+            <SchNav register={c.navRegister} teams={c.navTeams} label={c.brand} />
+          </div>
 
-          <div className="flex items-center gap-2">
-            <LanguageSwitcher current={lang} />
+          <div className="order-2 flex shrink-0 items-center gap-1.5 sm:order-3 sm:gap-2">
+            {/* Narrower language buttons on phones so the mark, languages and theme share one row. */}
+            <LanguageSwitcher current={lang} className="[&_button]:min-w-10 [&_button]:px-2 sm:[&_button]:min-w-11 sm:[&_button]:px-2.5" />
             <ThemeToggle />
           </div>
         </div>

@@ -151,6 +151,26 @@ function toggle<T>(list: readonly T[], value: T): T[] {
  * resolved type even when the browser reported none. Resolves on a 2xx,
  * rejects otherwise; progress is reported as 0–100.
  */
+/**
+ * One production run showed the server storing the rows within a second
+ * while the browser waited on the action response for over a minute. A
+ * response that never arrives must not strand the registrant on a
+ * spinner: after the deadline the step is reported as "unavailable" — the
+ * answers and the uploaded receipt stay, and a re-submit with the same
+ * submission id is answered by the server as a replay of the stored rows.
+ */
+const PREPARE_TIMEOUT_MS = 30_000;
+const SUBMIT_TIMEOUT_MS = 60_000;
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | { error: "unavailable" }> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve({ error: "unavailable" }), ms);
+    work.then(
+      (v) => { window.clearTimeout(timer); resolve(v); },
+      () => { window.clearTimeout(timer); resolve({ error: "unavailable" }); },
+    );
+  });
+}
+
 function uploadReceipt(signedUrl: string, file: File, mime: ReceiptUploadMime, onProgress: (pct: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -378,7 +398,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
         }
         if (!prepared.current) {
           setPhase("preparing");
-          const r = await prepareReceiptUpload({ mime, bytes: file.size });
+          const r = await withTimeout(prepareReceiptUpload({ mime, bytes: file.size }), PREPARE_TIMEOUT_MS);
           if ("error" in r) { setServerError({ error: r.error }); setPhase("idle"); return; }
           prepared.current = { submissionId: r.submissionId, path: r.path, signedUrl: r.signedUrl };
         }
@@ -396,7 +416,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
       }
 
       setPhase("submitting");
-      const res = await submitSchRegistration({
+      const res = await withTimeout(submitSchRegistration({
         submission_id: prepared.current!.submissionId,
         receipt_path: uploadedPath.current,
         person: {
@@ -407,7 +427,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
         },
         entries: buildEntries(),
         website,
-      });
+      }), SUBMIT_TIMEOUT_MS);
       if ("error" in res) {
         if (res.error === "receipt_missing") {
           // The object is not there. Start from a fresh submission id: a
@@ -485,7 +505,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
 
   return (
     <form onSubmit={onSubmit} noValidate className="mx-auto max-w-3xl space-y-6" aria-busy={busy}>
-      <div>
+      <div className="text-center sm:text-left">
         <h2 className="text-2xl font-semibold tracking-tight text-text">{c.formTitle}</h2>
         <p className="mt-1.5 text-sm text-text-muted">{c.formHint}</p>
       </div>

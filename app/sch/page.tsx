@@ -40,8 +40,9 @@ export default async function SchRegistrationPage() {
   return (
     <>
       {/* ── Hero ── */}
-      <section className="grid items-start gap-8 pb-10 pt-10 md:grid-cols-[1.15fr_1fr] md:pt-16 lg:gap-12">
-        <div className="animate-fade-in-up">
+      <section className="grid items-start gap-8 pb-10 pt-8 md:grid-cols-[1.15fr_1fr] md:pt-16 lg:gap-12">
+        {/* Phones read this centred; from `sm` up the hero is left-aligned beside the rules card. */}
+        <div className="animate-fade-in-up text-center sm:text-left">
           <div className="mb-5 inline-flex items-center gap-2.5 text-xs font-semibold tracking-wide text-accent">
             <span className="h-px w-6 bg-accent" aria-hidden />
             {c.eyebrow}
@@ -50,7 +51,7 @@ export default async function SchRegistrationPage() {
             {title}
           </h1>
 
-          <div className="mt-6 flex flex-wrap items-center gap-2">
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
             <Badge variant={event.isOpen ? "success" : "danger"} dot>
               {event.isOpen ? c.openBadge : c.closedBadge}
             </Badge>
@@ -63,22 +64,23 @@ export default async function SchRegistrationPage() {
           </div>
 
           {/* Game / date chips */}
-          <ul className="mt-7 grid grid-cols-1 gap-2 sm:grid-cols-3" aria-label={c.schedule}>
+          {/* Three compact tiles side by side on phones; icon + text rows from `sm` up. */}
+          <ul className="mt-7 grid grid-cols-3 gap-2" aria-label={c.schedule}>
             {SCH_GAMES.map((g) => (
-              <li key={g} className="card flex items-center gap-3 p-3.5">
-                <span className={`icon-tile h-10 w-10 ${TONE_CLASS[SCH_GAME_TONE[g]]}`}>
+              <li key={g} className="card flex flex-col items-center gap-2 p-3 text-center sm:flex-row sm:items-center sm:gap-3 sm:p-3.5 sm:text-left">
+                <span className={`icon-tile h-9 w-9 sm:h-10 sm:w-10 ${TONE_CLASS[SCH_GAME_TONE[g]]}`}>
                   <Gamepad2 className="h-4 w-4" aria-hidden />
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-sm font-semibold leading-tight text-text">{SCH_GAME_LABEL[g]}</span>
-                  <span className="block text-xs text-text-muted">{formatGameDate(event.gameDates[g], lang)}</span>
+                  <span className="block text-[13px] font-semibold leading-tight text-text sm:text-sm">{SCH_GAME_LABEL[g]}</span>
+                  <span className="block text-[11px] text-text-muted sm:text-xs">{formatGameDate(event.gameDates[g], lang)}</span>
                 </span>
               </li>
             ))}
           </ul>
 
-          <dl className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="flex items-start gap-3 rounded-xl border border-border bg-surface/70 p-4">
+          <dl className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-surface/70 p-4 text-center sm:flex-row sm:items-start sm:gap-3 sm:text-left">
               <span className="icon-tile h-9 w-9"><Coins className="h-4 w-4" aria-hidden /></span>
               <div className="min-w-0">
                 <dt className="text-xs font-medium text-text-muted">{c.fee} · {c.feePerGame}</dt>
@@ -90,7 +92,7 @@ export default async function SchRegistrationPage() {
               </div>
             </div>
             {event.contact && (
-              <div className="flex items-start gap-3 rounded-xl border border-border bg-surface/70 p-4">
+              <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-surface/70 p-4 text-center sm:flex-row sm:items-start sm:gap-3 sm:text-left">
                 <span className="icon-tile h-9 w-9"><MessageCircle className="h-4 w-4" aria-hidden /></span>
                 <div className="min-w-0">
                   <dt className="text-xs font-medium text-text-muted">{c.contact}</dt>
@@ -111,7 +113,7 @@ export default async function SchRegistrationPage() {
 
         {/* Rules card */}
         <aside className="card-glass animate-fade-in-up p-6 sm:p-7" style={{ animationDelay: "120ms" }} aria-labelledby="sch-rules">
-          <div className="mb-3 flex items-center gap-2.5">
+          <div className="mb-3 flex items-center justify-center gap-2.5 sm:justify-start">
             <span className="icon-tile h-9 w-9"><Trophy className="h-4 w-4" aria-hidden /></span>
             <h2 id="sch-rules" className="text-base font-semibold tracking-tight text-text">{c.rules}</h2>
           </div>

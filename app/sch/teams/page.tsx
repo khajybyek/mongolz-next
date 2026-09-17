@@ -94,7 +94,7 @@ export default async function SchTeamsPage() {
 
   return (
     <div className="pt-10 md:pt-14">
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-8 flex flex-col gap-4 text-center sm:flex-row sm:items-end sm:justify-between sm:text-left">
         <div>
           <div className="mb-3 inline-flex items-center gap-2.5 text-xs font-semibold tracking-wide text-accent">
             <span className="h-px w-6 bg-accent" aria-hidden />
@@ -103,7 +103,7 @@ export default async function SchTeamsPage() {
           <h1 className="text-3xl font-semibold tracking-tight text-text sm:text-4xl">{c.teamsTitle}</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-text-muted">{c.teamsSubtitle}</p>
         </div>
-        <Link href={"/sch" as Route} className="btn-secondary btn-sm self-start sm:self-auto">
+        <Link href={"/sch" as Route} className="btn-secondary btn-sm self-center sm:self-auto">
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
           {c.navRegister}
         </Link>
