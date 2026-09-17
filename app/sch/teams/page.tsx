@@ -8,7 +8,7 @@ import { getServerLang } from "@/lib/i18n/server";
 import { log } from "@/lib/log";
 import { maskSteam } from "@/lib/sch/format";
 import { SCH_DRAW_STATUSES, SCH_GAMES, SCH_GAME_LABEL, SCH_TEAM_SIZE, type SchGame } from "@/lib/sch/schema";
-import { strengthLabel } from "@/lib/sch/teams";
+import { strengthLabel, teamStrength } from "@/lib/sch/teams";
 import { createServiceClient } from "@/lib/supabase/server";
 import { readSchEvent } from "../actions";
 import { formatGameDate, localizeEventText, schCopy } from "../sch-copy";
@@ -21,7 +21,8 @@ export const metadata: Metadata = {
 };
 
 /** Public projection — never email, phone, Facebook or the receipt. */
-type Member = { id: string; full_name: string; in_game_id: string | null; rank_label: string | null; roles: string[] };
+type Member = { id: string; full_name: string; in_game_id: string | null; rank_label: string | null; rank_score: number; roles: string[] };
+/** `strength` is the sum over `members` as listed — not the draw-time `sch_teams.strength`. */
 type Team = { id: string; game: SchGame; name: string; seed: number; strength: number; members: Member[] };
 
 type TeamsLoad = { byGame: Map<SchGame, Team[]>; failed: boolean };
@@ -50,7 +51,7 @@ async function loadTeams(games: SchGame[]): Promise<TeamsLoad> {
 
     const members = await svc
       .from("sch_registrations")
-      .select("id, full_name, in_game_id, rank_label, roles, team_id")
+      .select("id, full_name, in_game_id, rank_label, rank_score, roles, team_id")
       .in("team_id", rows.map((t) => t.id))
       .in("status", [...SCH_DRAW_STATUSES])
       .order("rank_score", { ascending: false })
@@ -61,14 +62,19 @@ async function loadTeams(games: SchGame[]): Promise<TeamsLoad> {
     for (const m of members.data ?? []) {
       if (!m.team_id) continue;
       const list = memberByTeam.get(m.team_id) ?? [];
-      list.push({ id: m.id, full_name: m.full_name, in_game_id: m.in_game_id, rank_label: m.rank_label, roles: m.roles ?? [] });
+      list.push({ id: m.id, full_name: m.full_name, in_game_id: m.in_game_id, rank_label: m.rank_label, rank_score: m.rank_score, roles: m.roles ?? [] });
       memberByTeam.set(m.team_id, list);
     }
     for (const t of rows) {
       const game = t.game as SchGame;
       if (!games.includes(game)) continue;
       const list = byGame.get(game) ?? [];
-      list.push({ id: t.id, game, name: t.name, seed: t.seed, strength: t.strength, members: memberByTeam.get(t.id) ?? [] });
+      // `sch_teams.strength` is written once at draw time; a player withdrawn
+      // afterwards leaves the roster but not that number, so the card would
+      // show an average over people it no longer lists. Derive it here.
+      const members = memberByTeam.get(t.id) ?? [];
+      const strength = teamStrength(members.map((m) => ({ id: m.id, name: m.full_name, score: m.rank_score, roles: m.roles })));
+      list.push({ id: t.id, game, name: t.name, seed: t.seed, strength, members });
       byGame.set(game, list);
     }
   } catch (err) {
@@ -112,13 +118,17 @@ export default async function SchTeamsPage() {
           {gamesWithTeams.map((g) => {
             const teams = teamsByGame.get(g) ?? [];
             const maxStrength = Math.max(1, ...teams.map((t) => t.strength));
+            const playerCount = teams.reduce((n, t) => n + t.members.length, 0);
             return (
               <section key={g} aria-labelledby={`sch-teams-${g}`}>
                 <div className="mb-4 flex flex-wrap items-center gap-3">
                   <span className="icon-tile h-10 w-10"><Gamepad2 className="h-4 w-4" aria-hidden /></span>
                   <div>
                     <h2 id={`sch-teams-${g}`} className="text-xl font-semibold tracking-tight text-text">{SCH_GAME_LABEL[g]}</h2>
-                    <p className="text-xs text-text-muted">{formatGameDate(event.gameDates[g], lang)} · {teams.length} × {SCH_TEAM_SIZE}</p>
+                    <p className="text-xs text-text-muted">
+                      {formatGameDate(event.gameDates[g], lang)} · {teams.length} {c.teamsWord} · {playerCount} {c.players}
+                      {playerCount !== teams.length * SCH_TEAM_SIZE && ` (${teams.length} × ${SCH_TEAM_SIZE})`}
+                    </p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">

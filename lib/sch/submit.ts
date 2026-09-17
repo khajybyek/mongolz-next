@@ -34,6 +34,76 @@ export const SCH_SUBMIT_LIMIT = {
   max: SCH_LIMITS.submitPerHourPerIp * SCH_NAT_FACTOR,
 } as const;
 
+/* ─────────────────────────── rate limit verdict ─────────────────────────── */
+
+export type RateVerdict = "ok" | "limited" | "unavailable";
+
+/**
+ * `checkRateLimit()` fails closed when the counter cannot be reached and
+ * signals that with `count: -1` (lib/rate-limit.ts). That refusal must not
+ * be shown to a registrant as "you personally tried too often — wait an
+ * hour": the database is down, their answers are fine, and the honest
+ * message is "temporarily unavailable, try again in a moment".
+ */
+export function rateLimitVerdict(rl: { ok: boolean; count: number } | null | undefined): RateVerdict {
+  if (!rl) return "unavailable";
+  if (rl.ok) return "ok";
+  return rl.count < 0 ? "unavailable" : "limited";
+}
+
+/* ─────────────────────────── invalid → form field ─────────────────────────── */
+
+/** Keys of the public form's inline errors that a server-side rejection can name. */
+export type SchFieldKey =
+  | "full_name" | "email" | "facebook"
+  | "games"
+  | "ml_rank" | "ml_roles" | "ml_id"
+  | "cs2_steam" | "cs2_faceit"
+  | "dota_roles" | "dota_rank" | "dota_steam"
+  | "receipt";
+
+const PERSON_FIELDS: Record<string, SchFieldKey> = { full_name: "full_name", email: "email", facebook: "facebook" };
+const ENTRY_FIELDS: Record<SchGame, Record<string, SchFieldKey>> = {
+  mobile_legends: { rank: "ml_rank", roles: "ml_roles", in_game_id: "ml_id" },
+  cs2: { steam_url: "cs2_steam", faceit: "cs2_faceit" },
+  dota2: { roles: "dota_roles", rank: "dota_rank", steam_url: "dota_steam" },
+};
+
+/**
+ * Translate zod issue paths from `schSubmissionSchema` into the form's
+ * field keys so the registrant sees WHICH answer was rejected instead of a
+ * generic "some answers were rejected". `input` is the raw (unvalidated)
+ * payload — only `entries[i].game` is read from it, to know which game
+ * section an entry issue belongs to. Unknown paths are dropped; the result
+ * is de-duplicated and in schema order.
+ */
+export function invalidFields(
+  issues: readonly { path: readonly (string | number)[] }[],
+  input: unknown,
+): SchFieldKey[] {
+  const entries = (input as { entries?: unknown } | null)?.entries;
+  const gameAt = (i: number): SchGame | null => {
+    const e = Array.isArray(entries) ? (entries[i] as { game?: unknown } | null) : null;
+    return e && isSchGame(e.game) ? e.game : null;
+  };
+  const out = new Set<SchFieldKey>();
+  for (const issue of issues) {
+    const [head, second, third] = issue.path;
+    if (head === "person" && typeof second === "string" && PERSON_FIELDS[second]) out.add(PERSON_FIELDS[second]);
+    else if (head === "receipt_path") out.add("receipt");
+    else if (head === "entries") {
+      if (typeof second !== "number") {
+        out.add("games");
+        continue;
+      }
+      const game = gameAt(second);
+      const key = game && typeof third === "string" ? ENTRY_FIELDS[game][third] : undefined;
+      out.add(key ?? "games");
+    }
+  }
+  return [...out];
+}
+
 /* ─────────────────────────── insert errors ─────────────────────────── */
 
 export type InsertErrorInfo = {

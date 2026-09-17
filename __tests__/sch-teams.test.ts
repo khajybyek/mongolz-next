@@ -6,6 +6,7 @@ import {
   strengthLabel,
   strengthSpread,
   teamName,
+  teamStrength,
   totalRoleCollisions,
   type DrawPlayer,
 } from "@/lib/sch/teams";
@@ -25,6 +26,28 @@ function fixture(count = 25): DrawPlayer[] {
 }
 
 const rosterIds = (r: ReturnType<typeof drawTeams>) => r.teams.map((t) => t.players.map((p) => p.id));
+
+describe("teamStrength (roster-derived)", () => {
+  it("sums the listed members' clamped scores, so the card describes the roster it shows", () => {
+    // The pages derive strength from the members they list instead of the
+    // draw-time `sch_teams.strength`: reject one player and both the sum
+    // and the average follow the roster instead of rising.
+    const five: DrawPlayer[] = [
+      { id: "a", name: "A", score: 80, roles: [] },
+      { id: "b", name: "B", score: 70, roles: [] },
+      { id: "c", name: "C", score: 60, roles: [] },
+      { id: "d", name: "D", score: 50, roles: [] },
+      { id: "e", name: "E", score: 40, roles: [] },
+    ];
+    expect(teamStrength(five)).toBe(300);
+    expect(strengthLabel(teamStrength(five), five.length)).toBe(60);
+    const four = five.filter((p) => p.id !== "c");
+    expect(teamStrength(four)).toBe(240);
+    expect(strengthLabel(teamStrength(four), four.length)).toBe(60); // not 300 / 4 = 75
+    expect(teamStrength([])).toBe(0);
+    expect(teamStrength([{ id: "x", name: "X", score: 250, roles: [] }, { id: "y", name: "Y", score: -5, roles: [] }])).toBe(100);
+  });
+});
 
 describe("mulberry32", () => {
   it("is deterministic per seed and yields values in [0, 1)", () => {

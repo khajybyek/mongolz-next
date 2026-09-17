@@ -8,7 +8,9 @@
  * player-typed text). One `SCH_REGISTRATIONS_EXPORTED` ledger row per export.
  */
 
+import { isIP } from "node:net";
 import { NextResponse, type NextRequest } from "next/server";
+import { log } from "@/lib/log";
 import { isAuthErr, requireSchOrganiserApi } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { csvCell } from "@/lib/csv";
@@ -116,15 +118,21 @@ async function logExport(
   request: NextRequest,
 ): Promise<void> {
   try {
-    const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
-    await createServiceClient().from("audit_log").insert({
+    // `audit_log.ip` is inet: an unparsable header value would reject the
+    // whole ledger row, so only a real address is stored (as the receipt
+    // viewer route does).
+    const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "";
+    const ip = isIP(forwarded) ? forwarded : null;
+    const { error } = await createServiceClient().from("audit_log").insert({
       action: "SCH_REGISTRATIONS_EXPORTED",
       detail: `game=${game} rows=${rows}`,
       user_id: user.id,
       user_email: user.email,
       ip,
     });
-  } catch {
-    // Best effort — the export already happened.
+    if (error) log.error("sch export audit row rejected", { error: error.message });
+  } catch (err) {
+    // Best effort — the export already happened — but never silently.
+    log.exception("sch export audit row failed", err);
   }
 }

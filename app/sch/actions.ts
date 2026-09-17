@@ -25,6 +25,7 @@ import {
   SCH_GAMES,
   SCH_RECEIPT_BUCKET,
   isReceiptMime,
+  isReceiptUploadMime,
   isSchGame,
   receiptPath,
   registrationRow,
@@ -32,7 +33,16 @@ import {
   type ReceiptMime,
   type SchGame,
 } from "@/lib/sch/schema";
-import { SCH_PREPARE_LIMIT, SCH_SUBMIT_LIMIT, classifyInsertError, replayOutcome } from "@/lib/sch/submit";
+import {
+  SCH_PREPARE_LIMIT,
+  SCH_SUBMIT_LIMIT,
+  classifyInsertError,
+  invalidFields,
+  rateLimitVerdict,
+  replayOutcome,
+  type RateVerdict,
+  type SchFieldKey,
+} from "@/lib/sch/submit";
 
 /* ─────────────────────────── event ─────────────────────────── */
 
@@ -139,17 +149,23 @@ async function requestContext() {
 }
 
 /**
- * true when this IP may proceed; spends one unit of `budget`. The mint step
- * and the submit step have separate buckets (lib/sch/submit.ts), so one
- * registration costs one unit of each — never two of the same.
+ * Spends one unit of `budget` for this IP and says whether it may proceed.
+ * The mint step and the submit step have separate buckets
+ * (lib/sch/submit.ts), so one registration costs one unit of each — never
+ * two of the same.
+ *
+ * Three answers, not two: "limited" is the registrant's own doing and is
+ * told as such; "unavailable" means the counter could not be consulted
+ * (database outage — `checkRateLimit` fails closed with `count: -1`, or the
+ * call threw). Both refuse, but the second must be reported as a service
+ * problem so nobody is told to wait an hour for a fault that is not theirs.
  */
-async function withinRateLimit(ipHash: string, budget: RateBudget): Promise<boolean> {
+async function withinRateLimit(ipHash: string, budget: RateBudget): Promise<RateVerdict> {
   try {
-    const rl = await checkRateLimit(`sch:${ipHash}`, budget);
-    return rl.ok;
+    return rateLimitVerdict(await checkRateLimit(`sch:${ipHash}`, budget));
   } catch (err) {
     log.exception("sch rate limit check threw", err);
-    return false;
+    return "unavailable";
   }
 }
 
@@ -167,7 +183,8 @@ export type PrepareReceiptResult =
 export async function prepareReceiptUpload(input: unknown): Promise<PrepareReceiptResult> {
   const mime = (input as { mime?: unknown } | null)?.mime;
   const bytes = (input as { bytes?: unknown } | null)?.bytes;
-  if (!isReceiptMime(mime)) return { error: "invalid" };
+  // Upload allow-list, not the stored-mime list: HEIC is only kept for legacy rows.
+  if (!isReceiptUploadMime(mime)) return { error: "invalid" };
   if (typeof bytes !== "number" || !Number.isInteger(bytes) || bytes <= 0 || bytes > RECEIPT_MAX_BYTES) {
     return { error: "invalid" };
   }
@@ -176,13 +193,22 @@ export async function prepareReceiptUpload(input: unknown): Promise<PrepareRecei
   if (!event.isOpen) return { error: "closed" };
 
   const { ipHash } = await requestContext();
-  if (!(await withinRateLimit(ipHash, SCH_PREPARE_LIMIT))) return { error: "rate_limited" };
+  const verdict = await withinRateLimit(ipHash, SCH_PREPARE_LIMIT);
+  if (verdict === "limited") return { error: "rate_limited" };
+  if (verdict === "unavailable") return { error: "unavailable" };
 
   const submissionId = randomUUID().toLowerCase();
   const path = receiptPath(submissionId, mime);
   try {
     const svc = createServiceClient();
-    const { data, error } = await svc.storage.from(SCH_RECEIPT_BUCKET).createSignedUploadUrl(path);
+    // `upsert: true` is carried INSIDE the signed token (storage-js only
+    // sends x-upsert to the mint endpoint when asked here; the header the
+    // browser adds to its PUT is ignored). Without it a retry after a PUT
+    // whose response was lost answers 409 forever. The path is server-chosen
+    // and single-purpose, so overwriting the same object is safe.
+    const { data, error } = await svc.storage
+      .from(SCH_RECEIPT_BUCKET)
+      .createSignedUploadUrl(path, { upsert: true });
     if (error || !data?.token || !data.signedUrl) {
       log.error("sch receipt signed upload url failed", { error: error?.message ?? "empty" });
       return { error: "unavailable" };
@@ -206,7 +232,9 @@ export type SubmitSchResult =
       paymentInfo: string | null;
     }
   | { error: "duplicate"; game: SchGame }
-  | { error: "invalid" | "closed" | "rate_limited" | "receipt_missing" | "conflict" | "unavailable" };
+  /** `fields` names the rejected answers (form keys) when the issue paths allow it. */
+  | { error: "invalid"; fields?: SchFieldKey[] }
+  | { error: "closed" | "rate_limited" | "receipt_missing" | "conflict" | "unavailable" };
 
 type Verified = { mime: ReceiptMime; bytes: number };
 type ReceiptCheck = { ok: true; receipt: Verified } | { ok: false; reason: "missing" | "unavailable" };
@@ -273,7 +301,10 @@ async function removeReceipt(svc: ReturnType<typeof createServiceClient>, path: 
  */
 export async function submitSchRegistration(input: unknown): Promise<SubmitSchResult> {
   const parsed = schSubmissionSchema.safeParse(input);
-  if (!parsed.success) return { error: "invalid" };
+  if (!parsed.success) {
+    const fields = invalidFields(parsed.error.issues, input);
+    return fields.length > 0 ? { error: "invalid", fields } : { error: "invalid" };
+  }
   const { submission_id: submissionId, receipt_path: path, person, entries } = parsed.data;
 
   const svc = createServiceClient();
@@ -315,9 +346,11 @@ export async function submitSchRegistration(input: unknown): Promise<SubmitSchRe
     }
 
     const { ipHash, userAgent } = await requestContext();
-    // Over the limit: the receipt stays — "try again in an hour" must not
-    // mean "upload the screenshot again".
-    if (!(await withinRateLimit(ipHash, SCH_SUBMIT_LIMIT))) return { error: "rate_limited" };
+    // Refused either way, the receipt stays — neither "try again in an hour"
+    // nor "try again in a moment" may mean "upload the screenshot again".
+    const verdict = await withinRateLimit(ipHash, SCH_SUBMIT_LIMIT);
+    if (verdict === "limited") return { error: "rate_limited" };
+    if (verdict === "unavailable") return { error: "unavailable" };
 
     // The receipt must already be in the bucket under this submission's folder.
     const check = await verifyReceipt(svc, path);

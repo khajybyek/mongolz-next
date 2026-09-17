@@ -3,12 +3,14 @@ import {
   DOTA_RANKS,
   ML_RANKS,
   RECEIPT_MAX_BYTES,
+  RECEIPT_UPLOAD_MIMES,
   RECEIPT_PATH_RE,
   SCH_DRAW_STATUSES,
   SCH_GAMES,
   UUID_V4_RE,
   cs2PremierScore,
   isReceiptMime,
+  isReceiptUploadMime,
   isSchGame,
   isSchStatus,
   rankScore,
@@ -125,6 +127,21 @@ describe("guards", () => {
     expect(isReceiptMime(42)).toBe(false);
     expect(isReceiptMime(null)).toBe(false);
     expect(RECEIPT_MAX_BYTES).toBe(10 * 1024 * 1024);
+  });
+
+  it("upload mimes exclude HEIC while the stored-mime list keeps it for legacy rows", () => {
+    // No browser but Safari decodes HEIC, so the organiser could never view
+    // such a receipt; new uploads are JPG/PNG/WebP only (iOS converts).
+    expect([...RECEIPT_UPLOAD_MIMES]).toEqual(["image/jpeg", "image/png", "image/webp"]);
+    for (const m of RECEIPT_UPLOAD_MIMES) {
+      expect(isReceiptUploadMime(m)).toBe(true);
+      expect(isReceiptMime(m)).toBe(true);
+    }
+    expect(isReceiptUploadMime("image/heic")).toBe(false);
+    expect(isReceiptMime("image/heic")).toBe(true);
+    expect(isReceiptUploadMime("image/gif")).toBe(false);
+    expect(isReceiptUploadMime("constructor")).toBe(false);
+    expect(isReceiptUploadMime(null)).toBe(false);
   });
 
   it("UUID_V4_RE matches canonical uuids in either case", () => {

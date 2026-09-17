@@ -11,9 +11,11 @@
  * carry ids only, never a registrant's name, email or phone.
  */
 
+import { isIP } from "node:net";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
+import { log } from "@/lib/log";
 import { requireSchOrganiser, type AuthCtx } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { UUID_RE } from "@/lib/workflow-query";
@@ -46,16 +48,23 @@ const SWEEP_BATCH = 200;
 async function audit(action: string, detail: string, ctx: AuthCtx): Promise<void> {
   try {
     const h = await headers();
-    const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
-    await createServiceClient().from("audit_log").insert({
+    // `audit_log.ip` is inet: an unparsable forwarded-for value would reject
+    // the whole ledger row, so only a literal address is stored (same guard
+    // as the receipt viewer route).
+    const forwarded = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "";
+    const ip = isIP(forwarded) ? forwarded : null;
+    const { error } = await createServiceClient().from("audit_log").insert({
       action,
       detail: detail.slice(0, 500),
       user_id: ctx.user.id,
       user_email: ctx.user.email,
       ip,
     });
-  } catch {
-    // The ledger must never turn a finished write into a client error.
+    if (error) log.error("sch audit row rejected", { action, error: error.message });
+  } catch (err) {
+    // The ledger must never turn a finished write into a client error —
+    // but a dropped row must at least be visible in the logs.
+    log.exception("sch audit row failed", err, { action });
   }
 }
 
@@ -209,12 +218,17 @@ export async function deleteRegistrationAction(input: { id: string }): Promise<S
 
     // The receipt is shared by every row of the submission (one screenshot
     // for the total); drop the object only once the last row is gone.
+    // A count that could not be read (`error` set, `count` null) is NOT
+    // "no rows left": a sibling row of a multi-game submission may still
+    // reference the object. On doubt the image stays; an orphan is picked up
+    // later by sweepOrphanReceiptsAction, a deleted receipt is gone for good.
     if (row.receipt_path) {
-      const { count } = await supabase
+      const { count, error: countError } = await supabase
         .from("sch_registrations")
         .select("id", { count: "exact", head: true })
         .eq("submission_id", row.submission_id);
-      if ((count ?? 0) === 0) {
+      if (countError) log.warn("sch receipt sibling count failed — keeping the object", { error: countError.message });
+      if (!countError && count === 0) {
         try {
           // Service role: the receipts bucket has no storage policy (20260917110000).
           const svc = createServiceClient();

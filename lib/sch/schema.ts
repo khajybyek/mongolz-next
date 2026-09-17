@@ -59,6 +59,18 @@ export const RECEIPT_MIME_EXT = {
 export type ReceiptMime = keyof typeof RECEIPT_MIME_EXT;
 export const isReceiptMime = (v: unknown): v is ReceiptMime =>
   typeof v === "string" && Object.prototype.hasOwnProperty.call(RECEIPT_MIME_EXT, v);
+
+/**
+ * Types a NEW receipt may be uploaded as. HEIC is deliberately absent: no
+ * browser except Safari can decode it, so the organiser could never see a
+ * HEIC receipt in the console lightbox. Leaving it out of the form's
+ * `accept` list makes iOS hand over a JPEG instead. `RECEIPT_MIME_EXT` keeps
+ * "image/heic" so rows stored before this change still validate and stream.
+ */
+export const RECEIPT_UPLOAD_MIMES = ["image/jpeg", "image/png", "image/webp"] as const satisfies readonly ReceiptMime[];
+export type ReceiptUploadMime = (typeof RECEIPT_UPLOAD_MIMES)[number];
+export const isReceiptUploadMime = (v: unknown): v is ReceiptUploadMime =>
+  typeof v === "string" && (RECEIPT_UPLOAD_MIMES as readonly string[]).includes(v);
 export const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const RECEIPT_PATH_RE = /^submissions\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/receipt\.(jpg|png|webp|heic)$/;
 export function receiptPath(submissionId: string, mime: ReceiptMime): string {

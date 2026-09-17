@@ -138,7 +138,13 @@ export default async function SchRegistrationPage() {
       )}
 
       {/* ── Form / closed ── */}
-      <section id="sch-form" className="scroll-mt-24 border-t border-border pt-10 md:pt-12">
+      {/* scroll-margin follows the sticky header's measured height (layout.tsx → header-offset.tsx):
+          on a phone it is three rows tall and a fixed margin left the heading underneath it. */}
+      <section
+        id="sch-form"
+        className="border-t border-border pt-10 md:pt-12"
+        style={{ scrollMarginTop: "calc(var(--sch-header-h, 4.5rem) + 1rem)" }}
+      >
         {event.isOpen ? (
           <SchForm
             lang={lang}

@@ -20,6 +20,7 @@ import {
   referenceCode,
   type SchGame,
 } from "@/lib/sch/schema";
+import { teamStrength } from "@/lib/sch/teams";
 import { schAdminCopy } from "./admin-copy";
 import { ReceiptSweepButton } from "./receipt-sweep-button";
 import { RegistrationsTable, type SchAdminRow } from "./registrations-table";
@@ -162,13 +163,16 @@ export default async function SchAdminPage() {
   const savedTeams: Record<SchGame, SavedTeamView[]> = { mobile_legends: [], cs2: [], dota2: [] };
   for (const t of teamsRes.data ?? []) {
     if (!isSchGame(t.game)) continue;
+    const players = (membersByTeam.get(t.id) ?? []).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
     savedTeams[t.game].push({
       id: t.id,
       name: t.name,
       seed: t.seed,
-      strength: t.strength,
+      // Not `t.strength`: that is the draw-time sum and survives a member
+      // being rejected/waitlisted. The card must describe the roster it shows.
+      strength: teamStrength(players),
       created_at: t.created_at,
-      players: (membersByTeam.get(t.id) ?? []).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)),
+      players,
     });
   }
 

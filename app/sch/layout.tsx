@@ -5,6 +5,7 @@ import { Gamepad2, Users } from "lucide-react";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getServerLang } from "@/lib/i18n/server";
+import { HeaderOffset } from "./header-offset";
 import { schCopy } from "./sch-copy";
 
 /**
@@ -18,8 +19,10 @@ export default async function SchLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="relative flex min-h-svh flex-col bg-gradient-hero">
-      <header className="sticky top-0 z-30 border-b border-border bg-bg/80 backdrop-blur-xl">
-        <div className="page-safe-gutter mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-2 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))]">
+      {/* The header's live height feeds `--sch-header-h` (see header-offset.tsx) so in-page anchors clear it on phones too. */}
+      <header id="sch-header" className="sticky top-0 z-30 border-b border-border bg-bg/80 backdrop-blur-xl">
+        <HeaderOffset headerId="sch-header" />
+        <div className="page-safe-gutter mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-1.5 py-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] sm:gap-y-2 sm:py-3 sm:pt-[calc(0.75rem+env(safe-area-inset-top,0px))]">
           <Link href={"/sch" as Route} className="flex min-h-11 items-center gap-3 rounded-lg" aria-label={c.brand}>
             {/* University mark: blue on transparent, so it sits on a white plate in the dark theme. */}
             <span className="inline-flex items-center rounded-lg bg-white px-2 py-1 dark:ring-1 dark:ring-white/10">
@@ -38,7 +41,7 @@ export default async function SchLayout({ children }: { children: React.ReactNod
             </span>
           </Link>
 
-          <nav aria-label={c.brand} className="order-3 flex w-full items-center gap-1 border-t border-border pt-2 sm:order-none sm:w-auto sm:border-0 sm:pt-0">
+          <nav aria-label={c.brand} className="order-3 flex w-full items-center gap-1 border-t border-border pt-1.5 sm:order-none sm:w-auto sm:border-0 sm:pt-0">
             <Link href={"/sch" as Route} className="btn-ghost btn-sm">
               <Gamepad2 className="h-3.5 w-3.5" aria-hidden />
               {c.navRegister}

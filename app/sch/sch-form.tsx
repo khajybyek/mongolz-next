@@ -51,13 +51,14 @@ import {
   SCH_GAMES,
   SCH_GAME_LABEL,
   SCH_LIMITS,
-  isReceiptMime,
+  isReceiptUploadMime,
   referenceCode,
-  type ReceiptMime,
+  schPersonSchema,
+  type ReceiptUploadMime,
   type SchGame,
 } from "@/lib/sch/schema";
 import { SCH_DRAFT_KEY, parseDraft, serialiseDraft, type SchDraftUpload } from "@/lib/sch/draft";
-import { accountNumber } from "@/lib/sch/submit";
+import { accountNumber, type SchFieldKey } from "@/lib/sch/submit";
 import { prepareReceiptUpload, submitSchRegistration, type SubmitSchResult } from "./actions";
 import { formatAmount, formatGameDate, schCopy, type SchCopy, localizeEventText } from "./sch-copy";
 
@@ -72,13 +73,8 @@ interface Props {
 }
 
 type Phase = "idle" | "preparing" | "uploading" | "submitting";
-type ErrorKey =
-  | "full_name" | "email" | "facebook"
-  | "games"
-  | "ml_rank" | "ml_roles" | "ml_id"
-  | "cs2_steam" | "cs2_faceit"
-  | "dota_roles" | "dota_rank" | "dota_steam"
-  | "receipt" | "consent";
+/** Every inline error the form can show: the server-nameable fields plus the consent line. */
+type ErrorKey = SchFieldKey | "consent";
 type Errors = Partial<Record<ErrorKey, string>>;
 type ServerError = Exclude<SubmitSchResult, { ok: true }> | { error: "upload" };
 type Success = Extract<SubmitSchResult, { ok: true }>;
@@ -89,18 +85,59 @@ const ERROR_ORDER: ErrorKey[] = [
   "dota_roles", "dota_rank", "dota_steam", "receipt", "consent",
 ];
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * The e-mail rule is the server's own (`schPersonSchema`), not a look-alike
+ * regex: a looser client check let addresses such as `a@b.c` or a Cyrillic
+ * local part pass here, upload the receipt, and then fail the submit as a
+ * generic "invalid" with no field highlighted.
+ */
+const emailSchema = schPersonSchema.shape.email;
+const emailOk = (value: string): boolean => emailSchema.safeParse(value).success;
 const STEAM_RE = /^(https?:\/\/)?(www\.)?steamcommunity\.com\/(id|profiles)\/[A-Za-z0-9_\-.]+\/?$/i;
-const EXT_MIME: Record<string, ReceiptMime> = {
-  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heic",
-};
-const ACCEPT = "image/jpeg,image/png,image/webp,image/heic,.jpg,.jpeg,.png,.webp,.heic";
+/**
+ * No HEIC: nothing but Safari decodes it, so the organiser could never open
+ * the receipt in the console. With HEIC absent from `accept`, iOS converts a
+ * camera photo to JPEG before handing it over.
+ */
+const EXT_MIME: Record<string, ReceiptUploadMime> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
+const ACCEPT = "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp";
 
-/** Browsers report an empty type for HEIC (and some camera JPGs). */
-function resolveMime(file: File): ReceiptMime | null {
-  if (isReceiptMime(file.type)) return file.type;
+/** Message per server-named field, for a rejection the client check did not catch. */
+const FIELD_MESSAGE: Record<SchFieldKey, Exclude<keyof SchCopy, "weekdays">> = {
+  full_name: "errName", email: "errEmail", facebook: "errFacebook", games: "errGames",
+  ml_rank: "errRank", ml_roles: "errRoles", ml_id: "errRequired",
+  cs2_steam: "errSteam", cs2_faceit: "errRequired",
+  dota_roles: "errRoles", dota_rank: "errRank", dota_steam: "errSteam",
+  receipt: "errReceiptAgain",
+};
+
+/** Some camera JPGs are reported with an empty type — fall back to the extension. */
+function resolveMime(file: File): ReceiptUploadMime | null {
+  if (isReceiptUploadMime(file.type)) return file.type;
   const ext = file.name.toLowerCase().split(".").pop() ?? "";
   return EXT_MIME[ext] ?? null;
+}
+
+/** id of the description an `aria-describedby` should point at: the error when shown, else the hint. */
+function describedBy(id: string, error?: string, hint?: string): string | undefined {
+  return error ? `${id}-error` : hint ? `${id}-hint` : undefined;
+}
+
+/**
+ * Bring the first invalid field into view and move focus onto its control
+ * (the input itself; the first chip of a chip group; the file input or the
+ * consent checkbox). Called for a submit only — never while correcting.
+ */
+function focusInvalid(key: ErrorKey): void {
+  const anchor = document.getElementById(`sch-${key}`);
+  if (!anchor) return;
+  anchor.scrollIntoView({ block: "center", behavior: "smooth" });
+  const control =
+    key === "receipt" ? document.getElementById("sch-receipt-input")
+    : key === "consent" ? document.getElementById("sch-consent-input")
+    : anchor.matches("input, select, textarea") ? anchor
+    : anchor.querySelector<HTMLElement>("button, input");
+  control?.focus({ preventScroll: true });
 }
 
 function toggle<T>(list: readonly T[], value: T): T[] {
@@ -111,10 +148,10 @@ function toggle<T>(list: readonly T[], value: T): T[] {
  * PUT the receipt to the signed upload URL the server minted. Mirrors what
  * `storage.uploadToSignedUrl` sends for a raw body (x-upsert, cache-control,
  * content-type, anon api key) so the bucket's MIME allow-list sees the
- * resolved type even when the browser reported none (HEIC). Resolves on a
- * 2xx, rejects otherwise; progress is reported as 0–100.
+ * resolved type even when the browser reported none. Resolves on a 2xx,
+ * rejects otherwise; progress is reported as 0–100.
  */
-function uploadReceipt(signedUrl: string, file: File, mime: ReceiptMime, onProgress: (pct: number) => void): Promise<void> {
+function uploadReceipt(signedUrl: string, file: File, mime: ReceiptUploadMime, onProgress: (pct: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", signedUrl, true);
@@ -123,9 +160,10 @@ function uploadReceipt(signedUrl: string, file: File, mime: ReceiptMime, onProgr
       xhr.setRequestHeader("apikey", anonKey);
       xhr.setRequestHeader("authorization", `Bearer ${anonKey}`);
     }
-    // The path is server-chosen and single-purpose, so overwriting is safe —
-    // and it is what makes a retry work when a PUT landed but its response
-    // never reached the browser (plain "false" would answer 409 forever).
+    // Same header the SDK sends. The overwrite permission itself lives in
+    // the token (prepareReceiptUpload mints it with `upsert: true`), which
+    // is what makes a retry work when a PUT landed but its response never
+    // reached the browser — this header alone would still answer 409.
     xhr.setRequestHeader("x-upsert", "true");
     xhr.setRequestHeader("cache-control", "max-age=3600");
     xhr.setRequestHeader("content-type", mime);
@@ -156,6 +194,13 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
   const [website, setWebsite] = useState("");
 
   const [errors, setErrors] = useState<Errors>({});
+  /**
+   * Which field a SUBMIT left invalid first, with a sequence so a repeated
+   * submit on the same field re-triggers. Inline corrections never set it,
+   * so fixing a chip cannot yank the page back to an earlier error.
+   */
+  const [focusTarget, setFocusTarget] = useState<{ key: ErrorKey; seq: number } | null>(null);
+  const focusSeq = useRef(0);
   const [serverError, setServerError] = useState<ServerError | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [success, setSuccess] = useState<Success | null>(null);
@@ -186,10 +231,19 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
   }, [receipt]);
 
   useEffect(() => {
-    const first = ERROR_ORDER.find((k) => errors[k]);
-    if (!first) return;
-    document.getElementById(`sch-${first}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [errors]);
+    // Runs after the errors have rendered, so the focused control's
+    // aria-describedby already points at an existing message.
+    if (focusTarget) focusInvalid(focusTarget.key);
+  }, [focusTarget]);
+
+  /** Show `e` as the inline errors of a submit attempt and move to the first one. */
+  function reportErrors(e: Errors): boolean {
+    setErrors(e);
+    const first = ERROR_ORDER.find((k) => e[k]);
+    if (!first) return false;
+    setFocusTarget({ key: first, seq: ++focusSeq.current });
+    return true;
+  }
 
   /* ── draft: restore once on mount, then mirror every change ── */
   useEffect(() => {
@@ -245,7 +299,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
     const e: Errors = {};
     const name = person.full_name.trim();
     if (name.length < SCH_LIMITS.name.min || name.length > SCH_LIMITS.name.max) e.full_name = c.errName;
-    if (!EMAIL_RE.test(person.email.trim()) || person.email.trim().length > 254) e.email = c.errEmail;
+    if (!emailOk(person.email)) e.email = c.errEmail;
     const fb = person.facebook.trim();
     if (fb.length < SCH_LIMITS.facebook.min || fb.length > SCH_LIMITS.facebook.max) e.facebook = c.errFacebook;
     if (games.length === 0) e.games = c.errGames;
@@ -306,9 +360,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
   async function onSubmit(ev: FormEvent<HTMLFormElement>) {
     ev.preventDefault();
     if (busy) return;
-    const e = validate();
-    setErrors(e);
-    if (Object.keys(e).some((k) => e[k as ErrorKey])) {
+    if (reportErrors(validate())) {
       setServerError(null);
       return;
     }
@@ -367,6 +419,13 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
           // Nothing more can be done with this submission id.
           forgetUpload();
           setServerError(res);
+        } else if (res.error === "invalid" && res.fields?.length) {
+          // The server named the rejected answers: highlight them like a
+          // client-side miss instead of the generic "some answers were rejected".
+          const named: Errors = {};
+          for (const key of res.fields) named[key] = c[FIELD_MESSAGE[key]];
+          reportErrors(named);
+          setServerError(null);
         } else {
           // rate_limited / duplicate / invalid / unavailable: the server kept
           // the receipt, so the retry only re-submits — no second upload.
@@ -450,6 +509,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
             value={person.full_name}
             onChange={(e) => setPerson({ ...person, full_name: e.target.value })}
             aria-invalid={Boolean(errors.full_name)}
+            aria-describedby={describedBy("sch-full_name", errors.full_name, c.fullNameHint)}
             disabled={busy}
           />
         </Field>
@@ -467,6 +527,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
             value={person.email}
             onChange={(e) => setPerson({ ...person, email: e.target.value })}
             aria-invalid={Boolean(errors.email)}
+            aria-describedby={describedBy("sch-email", errors.email)}
             disabled={busy}
           />
         </Field>
@@ -482,6 +543,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
             value={person.facebook}
             onChange={(e) => setPerson({ ...person, facebook: e.target.value })}
             aria-invalid={Boolean(errors.facebook)}
+            aria-describedby={describedBy("sch-facebook", errors.facebook, c.facebookHint)}
             disabled={busy}
           />
         </Field>
@@ -503,7 +565,14 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
 
       {/* ── 2. Games ── */}
       <Section step={2} title={c.stepGames} hint={c.gamesHint}>
-        <div id="sch-games" role="group" aria-label={c.stepGames} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div
+          id="sch-games"
+          role="group"
+          aria-label={c.stepGames}
+          aria-invalid={Boolean(errors.games)}
+          aria-describedby={errors.games ? "sch-games-error" : undefined}
+          className="grid grid-cols-1 gap-2 sm:grid-cols-3"
+        >
           {SCH_GAMES.map((g) => {
             const on = games.includes(g);
             return (
@@ -532,7 +601,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
             );
           })}
         </div>
-        {errors.games && <p className="helper-error">{errors.games}</p>}
+        {errors.games && <p id="sch-games-error" className="helper-error">{errors.games}</p>}
 
         {games.includes("mobile_legends") && (
           <GameSection label={SCH_GAME_LABEL.mobile_legends} date={formatGameDate(gameDates.mobile_legends, lang)}>
@@ -568,6 +637,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
                 value={ml.in_game_id}
                 onChange={(e) => setMl({ ...ml, in_game_id: e.target.value })}
                 aria-invalid={Boolean(errors.ml_id)}
+                aria-describedby={describedBy("sch-ml_id", errors.ml_id, c.mlIdHint)}
                 disabled={busy}
               />
             </Field>
@@ -584,6 +654,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
                 className="input"
                 value={cs2.premier_rank}
                 onChange={(e) => setCs2({ ...cs2, premier_rank: e.target.value })}
+                aria-describedby={describedBy("sch-cs2_premier", undefined, c.cs2PremierHint)}
                 disabled={busy}
               />
             </Field>
@@ -600,6 +671,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
                 value={cs2.steam_url}
                 onChange={(e) => setCs2({ ...cs2, steam_url: e.target.value })}
                 aria-invalid={Boolean(errors.cs2_steam)}
+                aria-describedby={describedBy("sch-cs2_steam", errors.cs2_steam, c.steamHint)}
                 disabled={busy}
               />
             </Field>
@@ -654,6 +726,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
                 value={dota.steam_url}
                 onChange={(e) => setDota({ ...dota, steam_url: e.target.value })}
                 aria-invalid={Boolean(errors.dota_steam)}
+                aria-describedby={describedBy("sch-dota_steam", errors.dota_steam, c.steamHint)}
                 disabled={busy}
               />
             </Field>
@@ -696,7 +769,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
             className="sr-only"
             disabled={busy}
             onChange={(e) => onPickFile(e.target.files?.[0] ?? null)}
-            aria-describedby="sch-receipt-hint"
+            aria-describedby={errors.receipt ? "sch-receipt-error" : "sch-receipt-hint"}
             aria-invalid={Boolean(errors.receipt)}
           />
           {receipt || restoredUpload ? (
@@ -713,6 +786,8 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
                 )}
               </div>
               <div className="min-w-0 flex-1">
+                {/* Same id as the empty-state hint, so the input's description never dangles. */}
+                <span id="sch-receipt-hint" className="sr-only">{c.receiptHint}</span>
                 <div className="truncate text-sm font-medium text-text">{receipt?.name ?? restoredUpload?.name}</div>
                 <div className="text-xs text-text-muted">{(((receipt?.size ?? restoredUpload?.size) ?? 0) / (1024 * 1024)).toFixed(2)} MB</div>
                 {uploadedOk && (
@@ -747,7 +822,7 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
               <span id="sch-receipt-hint" className="text-xs text-text-muted">{c.receiptHint}</span>
             </label>
           )}
-          {errors.receipt && <p className="helper-error">{errors.receipt}</p>}
+          {errors.receipt && <p id="sch-receipt-error" className="helper-error">{errors.receipt}</p>}
         </div>
       </Section>
 
@@ -755,16 +830,18 @@ export function SchForm({ lang, feeKrw, feeMnt, paymentInfo, gameDates }: Props)
       <div id="sch-consent" className="space-y-4">
         <label className="flex cursor-pointer items-start gap-3 text-sm leading-relaxed text-text-soft">
           <input
+            id="sch-consent-input"
             type="checkbox"
             className="mt-1 h-4 w-4 shrink-0 accent-[rgb(var(--accent))]"
             checked={consent}
             onChange={(e) => { setConsent(e.target.checked); setErrors((p) => ({ ...p, consent: undefined })); }}
             aria-invalid={Boolean(errors.consent)}
+            aria-describedby={errors.consent ? "sch-consent-error" : undefined}
             disabled={busy}
           />
           <span>{c.consent}</span>
         </label>
-        {errors.consent && <p className="helper-error -mt-2">{errors.consent}</p>}
+        {errors.consent && <p id="sch-consent-error" className="helper-error -mt-2">{errors.consent}</p>}
 
         {/* Honeypot: real browsers leave it empty. */}
         <div className="absolute -left-[9999px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
@@ -829,7 +906,8 @@ function Field({
         {optional && <span className="ml-1.5 text-xs font-normal text-text-muted">({optional})</span>}
       </label>
       {children}
-      {error ? <p className="helper-error">{error}</p> : hint ? <p className="helper">{hint}</p> : null}
+      {/* Ids match `describedBy(id, …)` so the control announces its own message. */}
+      {error ? <p id={`${id}-error`} className="helper-error">{error}</p> : hint ? <p id={`${id}-hint`} className="helper">{hint}</p> : null}
     </div>
   );
 }
@@ -850,7 +928,13 @@ function ChoiceGroup({
   disabled?: boolean;
 }) {
   return (
-    <div id={id} role={single ? "radiogroup" : "group"} aria-labelledby={`${id}-label`}>
+    <div
+      id={id}
+      role={single ? "radiogroup" : "group"}
+      aria-labelledby={`${id}-label`}
+      aria-invalid={Boolean(error)}
+      aria-describedby={error ? `${id}-error` : undefined}
+    >
       <span id={`${id}-label`} className="label">
         {label}
         {required && <span className="ml-1 text-danger" aria-hidden>*</span>}
@@ -880,7 +964,7 @@ function ChoiceGroup({
           );
         })}
       </div>
-      {error && <p className="helper-error">{error}</p>}
+      {error && <p id={`${id}-error`} className="helper-error">{error}</p>}
     </div>
   );
 }

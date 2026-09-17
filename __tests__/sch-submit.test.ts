@@ -4,6 +4,8 @@ import {
   SCH_SUBMIT_LIMIT,
   accountNumber,
   classifyInsertError,
+  invalidFields,
+  rateLimitVerdict,
   replayOutcome,
 } from "@/lib/sch/submit";
 import {
@@ -14,7 +16,82 @@ import {
   serialiseDraft,
   type SchDraft,
 } from "@/lib/sch/draft";
-import { SCH_LIMITS, receiptPath } from "@/lib/sch/schema";
+import { SCH_LIMITS, receiptPath, schSubmissionSchema } from "@/lib/sch/schema";
+
+describe("rateLimitVerdict", () => {
+  it("passes an allowed attempt through", () => {
+    expect(rateLimitVerdict({ ok: true, count: 3 })).toBe("ok");
+  });
+
+  it("calls a refused attempt with a real count 'limited'", () => {
+    expect(rateLimitVerdict({ ok: false, count: 31 })).toBe("limited");
+    expect(rateLimitVerdict({ ok: false, count: 0 })).toBe("limited");
+  });
+
+  it("reads checkRateLimit's fail-closed signal (count -1) as 'unavailable', not the registrant's fault", () => {
+    expect(rateLimitVerdict({ ok: false, count: -1 })).toBe("unavailable");
+    expect(rateLimitVerdict(null)).toBe("unavailable");
+    expect(rateLimitVerdict(undefined)).toBe("unavailable");
+  });
+});
+
+describe("invalidFields", () => {
+  const SUB = "0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8";
+  const valid = {
+    submission_id: SUB,
+    receipt_path: `submissions/${SUB}/receipt.jpg`,
+    person: { full_name: "Bat Bold", email: "bat@example.com", facebook: "fb.com/bat", phone: "" },
+    entries: [
+      { game: "mobile_legends", rank: "Epic", roles: ["Jungle"], in_game_id: "1 (2)" },
+      { game: "cs2", premier_rank: "", steam_url: "steamcommunity.com/id/bat", faceit: "no" },
+      { game: "dota2", rank: "Herald", roles: ["Position 1 (Carry)"], steam_url: "steamcommunity.com/id/bat" },
+    ],
+    website: "",
+  };
+  const issuesFor = (input: unknown) => {
+    const r = schSubmissionSchema.safeParse(input);
+    if (r.success) throw new Error("expected the input to be rejected");
+    return r.error.issues;
+  };
+
+  it("maps person issues to the form's person keys, in schema order and de-duplicated", () => {
+    const input = { ...valid, person: { full_name: "B", email: "батаа@example.com", facebook: "" } };
+    expect(invalidFields(issuesFor(input), input)).toEqual(["full_name", "email", "facebook"]);
+  });
+
+  it("maps entry issues to the game section they belong to", () => {
+    const input = {
+      ...valid,
+      entries: [
+        { game: "mobile_legends", rank: "Diamond", roles: [], in_game_id: "" },
+        { game: "cs2", premier_rank: "", steam_url: "nope", faceit: "maybe" },
+        { game: "dota2", rank: "Bronze", roles: [], steam_url: "" },
+      ],
+    };
+    expect(invalidFields(issuesFor(input), input)).toEqual([
+      "ml_rank", "ml_roles", "ml_id", "cs2_steam", "cs2_faceit", "dota_roles", "dota_rank", "dota_steam",
+    ]);
+  });
+
+  it("maps array-level entry issues (empty, duplicate game) to 'games' and the receipt mismatch to 'receipt'", () => {
+    const empty = { ...valid, entries: [] };
+    expect(invalidFields(issuesFor(empty), empty)).toEqual(["games"]);
+    const dup = { ...valid, entries: [valid.entries[0], valid.entries[0]] };
+    expect(invalidFields(issuesFor(dup), dup)).toEqual(["games"]);
+    const other = { ...valid, receipt_path: "submissions/ffffffff-ffff-4fff-8fff-ffffffffffff/receipt.jpg" };
+    expect(invalidFields(issuesFor(other), other)).toEqual(["receipt"]);
+  });
+
+  it("drops issues the form cannot point at (honeypot, unknown game, non-object input)", () => {
+    const bot = { ...valid, website: "http://spam" };
+    expect(invalidFields(issuesFor(bot), bot)).toEqual([]);
+    const unknownGame = { ...valid, entries: [{ game: "valorant" }] };
+    // A discriminator miss is reported on the entry itself — nothing finer than "games".
+    expect(invalidFields(issuesFor(unknownGame), unknownGame)).toEqual(["games"]);
+    expect(invalidFields(issuesFor(null), null)).toEqual([]);
+    expect(invalidFields([{ path: ["entries", 0, "steam_url"] }], { entries: "not-an-array" })).toEqual(["games"]);
+  });
+});
 
 describe("rate budgets (campus NAT)", () => {
   it("prepare and submit use separate buckets so one registration costs one unit each", () => {
