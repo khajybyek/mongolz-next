@@ -20,8 +20,10 @@ import {
   referenceCode,
   type SchGame,
 } from "@/lib/sch/schema";
+import { isTrustedReceiptUrl } from "@/lib/sch/import";
 import { teamStrength } from "@/lib/sch/teams";
 import { schAdminCopy } from "./admin-copy";
+import { ImportDialog } from "./import-dialog";
 import { ReceiptSweepButton } from "./receipt-sweep-button";
 import { RegistrationsTable, type SchAdminRow } from "./registrations-table";
 import { SettingsForm, type SchEventView } from "./settings-form";
@@ -71,7 +73,7 @@ export default async function SchAdminPage() {
     supabase
       .from("sch_registrations")
       .select(
-        "id, submission_id, game, full_name, email, facebook, phone, in_game_id, rank_label, rank_score, roles, answers, status, paid_at, checked_in_at, notes, team_id, receipt_path, created_at, team:sch_teams(name)",
+        "id, submission_id, game, full_name, email, facebook, phone, in_game_id, rank_label, rank_score, roles, answers, status, paid_at, checked_in_at, notes, team_id, receipt_path, receipt_url, source, created_at, team:sch_teams(name)",
       )
       .order("created_at", { ascending: false })
       .limit(ROW_CAP),
@@ -118,6 +120,11 @@ export default async function SchAdminPage() {
         notes: r.notes,
         team_name: relName(r.team),
         has_receipt: Boolean(r.receipt_path),
+        // Imported rows carry the Drive link from the form instead of a stored
+        // image; only an https:// link is ever handed to the browser.
+        // Same host / userinfo check the importer applies — the cell becomes a link.
+        receipt_url: typeof r.receipt_url === "string" && isTrustedReceiptUrl(r.receipt_url) ? r.receipt_url : null,
+        source: r.source === "import" ? "import" : "web",
         created_at: r.created_at,
       };
     });
@@ -199,6 +206,7 @@ export default async function SchAdminPage() {
             <a href="/api/sch/export" className="btn-outline" download>
               <Download className="h-4 w-4" aria-hidden />{copy.exportCsv}
             </a>
+            <ImportDialog />
             <ReceiptSweepButton />
             <SettingsForm event={eventView} />
           </>

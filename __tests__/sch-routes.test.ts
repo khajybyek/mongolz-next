@@ -29,6 +29,9 @@ type RegistrationRow = {
   receipt_path: string | null;
   receipt_mime: string | null;
   created_at: string;
+  source: string;
+  receipt_url: string | null;
+  submitted_at: string | null;
   team: { name: string } | { name: string }[] | null;
 };
 
@@ -165,6 +168,9 @@ function baseRow(over: Partial<RegistrationRow> = {}): RegistrationRow {
     receipt_path: `submissions/${SUB}/receipt.png`,
     receipt_mime: "image/png",
     created_at: "2026-09-16T12:00:00.000Z",
+    source: "web",
+    receipt_url: null,
+    submitted_at: null,
     team: { name: "Team 3" },
     ...over,
   };
@@ -304,6 +310,8 @@ describe("GET /api/sch/export", () => {
       "id", "reference", "submission_id", "game", "full_name", "email", "facebook", "phone",
       "in_game_id", "rank_label", "rank_score", "roles", "premier_rank", "faceit", "status",
       "paid_at", "checked_in_at", "team", "notes", "has_receipt", "created_at",
+      // Sheet-import columns are appended so existing column positions stay stable.
+      "source", "receipt_url", "submitted_at",
     ]);
     expect(rows).toHaveLength(2);
 
@@ -330,6 +338,9 @@ describe("GET /api/sch/export", () => {
       notes: "",
       has_receipt: "yes",
       created_at: "2026-09-16T12:00:00.000Z",
+      source: "web",
+      receipt_url: "",
+      submitted_at: "",
     });
     expect(rows[1]).toMatchObject({
       game: "Mobile Legends",
@@ -384,6 +395,28 @@ describe("GET /api/sch/export", () => {
     expect(text).not.toContain("receipt.png");
     expect(text).not.toContain("image/png");
     expect(rows.map((r) => r.has_receipt)).toEqual(["yes", "no", "no"]);
+  });
+
+  it("appends source / receipt_url / submitted_at for sheet imports and neutralises the link cell", async () => {
+    state.rows = [
+      baseRow({
+        source: "import",
+        receipt_path: null,
+        receipt_mime: null,
+        receipt_url: "https://drive.google.com/open?id=abc",
+        submitted_at: "2026-09-17T05:03:22.000Z",
+      }),
+      baseRow({ id: "b4444444-2222-4333-8444-555555555555", source: "import", receipt_path: null, receipt_url: "=cmd|' /C calc'!A0" }),
+    ];
+    const { header, rows } = await csvOf(await callExport());
+    expect(header.slice(-3)).toEqual(["source", "receipt_url", "submitted_at"]);
+    expect(rows[0]).toMatchObject({
+      source: "import",
+      has_receipt: "no",
+      receipt_url: "https://drive.google.com/open?id=abc",
+      submitted_at: "2026-09-17T05:03:22.000Z",
+    });
+    expect(rows[1].receipt_url).toBe("'=cmd|' /C calc'!A0");
   });
 
   it("writes one SCH_REGISTRATIONS_EXPORTED audit row with game + row count, ids only", async () => {

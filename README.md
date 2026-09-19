@@ -182,6 +182,17 @@ publish) and an orphan-receipt sweep. Every mutation writes an `audit_log`
 row carrying ids only. Tables: `sch_event`, `sch_registrations`, `sch_teams`
 (migrations `20260917100000`, `20260917110000`, `20260917120000`).
 
+**Sheet import.** Registrations collected with the original Google Form are
+brought in from `/sch/admin` → *Import sheet*: upload the response sheet
+(Google Sheets → File → Download → CSV or XLSX) or paste the copied cells.
+The browser parses it (`lib/sch/import.ts`, `lib/sch/xlsx.ts`) and guesses the
+column mapping, which the organiser can correct; the server re-validates every
+row with the same zod schemas as the public form, shows a preview (ready /
+partial / already registered / duplicate / invalid), and inserts only the new
+entries with `source = 'import'`, the form's Drive link in `receipt_url` (Google Drive hosts only, no `user:pw@`) and a
+deterministic `submission_id` — so re-uploading the same or a grown sheet only
+adds the new people (migration `20260919100000`).
+
 ## Security model
 
 | Layer | Mechanism |

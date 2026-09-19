@@ -58,7 +58,11 @@ export interface SchAdminRow {
   checked_in_at: string | null;
   notes: string | null;
   team_name: string | null;
+  /** true only for a receipt image stored in the private bucket */
   has_receipt: boolean;
+  /** Drive link from the Google Form (imported rows); https:// or null */
+  receipt_url: string | null;
+  source: "web" | "import";
   created_at: string;
 }
 
@@ -220,6 +224,7 @@ export function RegistrationsTable({ rows }: { rows: SchAdminRow[] }) {
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-2xs text-text-muted">
                         {game === "all" && <Badge variant="muted">{SCH_GAME_LABEL[row.game]}</Badge>}
                         <span className="font-mono">{copy.reference} {row.reference}</span>
+                        {row.source === "import" && <Badge variant="muted" title={copy.formBadgeHint}>{copy.formBadge}</Badge>}
                       </div>
                       {row.notes && (
                         <p className="mt-1 max-w-[16rem] truncate text-2xs text-text-soft" title={row.notes}>
@@ -295,6 +300,16 @@ export function RegistrationsTable({ rows }: { rows: SchAdminRow[] }) {
                           >
                             <Receipt className="h-3.5 w-3.5" aria-hidden />{copy.receipt}
                           </button>
+                        ) : row.receipt_url?.startsWith("https://") ? (
+                          <a
+                            className="btn-outline btn-sm"
+                            href={row.receipt_url}
+                            target="_blank"
+                            rel="noopener noreferrer nofollow"
+                            title={copy.driveReceiptHint}
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" aria-hidden />{copy.driveReceipt}
+                          </a>
                         ) : (
                           <Badge variant="danger"><ImageOff className="h-3 w-3" aria-hidden />{copy.noReceipt}</Badge>
                         )}

@@ -6,6 +6,11 @@
  * the receipt itself is only reachable through the audited viewer route.
  * Cells go through `csvCell()` (formula neutralisation — names and ids are
  * player-typed text). One `SCH_REGISTRATIONS_EXPORTED` ledger row per export.
+ * The last three columns describe sheet imports: `source` (web / import),
+ * `receipt_url` (the external Drive link an imported row carries — also
+ * player-supplied, so it is neutralised like the rest) and `submitted_at`.
+ * New columns are only ever appended: organisers keep spreadsheets keyed on
+ * the column order.
  */
 
 import { isIP } from "node:net";
@@ -40,6 +45,9 @@ const HEADER = [
   "notes",
   "has_receipt",
   "created_at",
+  "source",
+  "receipt_url",
+  "submitted_at",
 ] as const;
 
 export async function GET(request: NextRequest) {
@@ -56,7 +64,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("sch_registrations")
     .select(
-      "id, submission_id, game, full_name, email, facebook, phone, in_game_id, rank_label, rank_score, roles, answers, status, paid_at, checked_in_at, notes, receipt_path, created_at, team:sch_teams(name)",
+      "id, submission_id, game, full_name, email, facebook, phone, in_game_id, rank_label, rank_score, roles, answers, status, paid_at, checked_in_at, notes, receipt_path, created_at, source, receipt_url, submitted_at, team:sch_teams(name)",
     )
     .order("game", { ascending: true })
     .order("created_at", { ascending: true })
@@ -93,6 +101,9 @@ export async function GET(request: NextRequest) {
       notes: r.notes,
       has_receipt: r.receipt_path ? "yes" : "no",
       created_at: r.created_at,
+      source: r.source,
+      receipt_url: r.receipt_url,
+      submitted_at: r.submitted_at,
     };
     return HEADER.map((h) => csvCell(cells[h])).join(",");
   });

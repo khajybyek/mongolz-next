@@ -1459,9 +1459,12 @@ export type Database = {
           receipt_bytes: number | null
           receipt_mime: string | null
           receipt_path: string | null
+          receipt_url: string | null
           roles: string[]
+          source: string
           status: string
           submission_id: string
+          submitted_at: string | null
           team_id: string | null
           updated_at: string
           user_agent: string | null
@@ -1485,9 +1488,12 @@ export type Database = {
           receipt_bytes?: number | null
           receipt_mime?: string | null
           receipt_path?: string | null
+          receipt_url?: string | null
           roles?: string[]
+          source?: string
           status?: string
           submission_id: string
+          submitted_at?: string | null
           team_id?: string | null
           updated_at?: string
           user_agent?: string | null
@@ -1511,9 +1517,12 @@ export type Database = {
           receipt_bytes?: number | null
           receipt_mime?: string | null
           receipt_path?: string | null
+          receipt_url?: string | null
           roles?: string[]
+          source?: string
           status?: string
           submission_id?: string
+          submitted_at?: string | null
           team_id?: string | null
           updated_at?: string
           user_agent?: string | null

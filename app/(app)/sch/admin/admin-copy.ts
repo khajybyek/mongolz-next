@@ -5,6 +5,7 @@
  */
 import type { Lang } from "@/lib/i18n/translations";
 import type { SchStatus } from "@/lib/sch/schema";
+import type { ImportField, ImportIssueCode, SchImportRowState } from "@/lib/sch/import-types";
 
 const en = {
   title: "SCH Esports registrations",
@@ -152,6 +153,57 @@ const en = {
   sweepDone: "{n} orphaned receipt(s) removed.",
   sweepNone: "No orphaned receipts older than 24 hours.",
   teamsPublicHint: "Publishing shows names, in-game ids and ranks on the public teams page — never contact details.",
+  // sheet import
+  formBadge: "Form",
+  formBadgeHint: "Imported from the Google Form response sheet",
+  driveReceipt: "Drive",
+  driveReceiptHint: "Open the receipt link the player attached to the Google Form",
+  importSheet: "Import sheet",
+  impTitle: "Import the Google Form sheet",
+  impDesc: "Every valid row is registered exactly like a web registration. Uploading the same or a grown sheet again only adds the new people.",
+  impStepOf: "Step {n} of 3",
+  impStepFile: "Choose the file",
+  impStepMap: "Match the columns",
+  impStepPreview: "Preview",
+  impFile: "Response sheet (.csv, .tsv, .xlsx)",
+  impFileHint: "Google Sheets → File → Download → Comma-separated values (.csv) or Microsoft Excel (.xlsx).",
+  impPaste: "…or paste the cells",
+  impPasteHint: "Select the cells in Google Sheets (with the header row), copy, and paste them here.",
+  impPasteRead: "Read pasted cells",
+  impReading: "Reading…",
+  impErrUnreadable: "The file could not be read. Download it again as CSV or XLSX.",
+  impErrFileTooLarge: "The file is too large (5 MB at most).",
+  impErrEmpty: "No rows were found in the sheet.",
+  impTruncated: "The sheet has more than {n} rows — only the first {n} were kept. Import the rest as a second file.",
+  impLoaded: "{rows} row(s) · {cols} column(s)",
+  impHasHeader: "The first row holds the column titles",
+  impMapHint: "The columns were matched automatically — correct any that are wrong. A field can belong to one column only; choosing it again moves it.",
+  impColumn: "Column {n}",
+  impNoSample: "(empty)",
+  impMapTo: "Field for {name}",
+  impNeedFields: "Match at least the name, e-mail and Facebook columns.",
+  impStatus: "Status of the imported rows",
+  impStatusHint: "Pending: check each receipt, then mark it paid. Paid: only when every payment in the sheet is already confirmed.",
+  impCheck: "Check",
+  impChecking: "Checking…",
+  impBack: "Back",
+  impColRow: "Row",
+  impColEmail: "E-mail",
+  impColGames: "Games",
+  impColState: "Result",
+  impColIssues: "Problems",
+  impGameExisting: "{game} — already registered",
+  impHasReceipt: "Receipt link",
+  impRows: "{n} row(s)",
+  impEntriesNew: "{n} new registration(s)",
+  impNothingNew: "Nothing new to import — everyone in this sheet is already registered or the rows are invalid.",
+  impCommit: "Import {n} registration(s)",
+  impCommitting: "Importing…",
+  impDone: "{n} registration(s) imported.",
+  impDoneNone: "Nothing new was imported.",
+  impErrInvalid: "The sheet could not be accepted. Check the column matching and try again.",
+  impErrTooLarge: "The sheet is too large to send at once. Split it into smaller files or ignore the columns you do not need.",
+  impIssueForGame: "{game}: {issue}",
 };
 export type SchAdminCopy = typeof en;
 
@@ -292,6 +344,56 @@ const mn: SchAdminCopy = {
   sweepDone: "Эзэнгүй {n} баримтыг устгалаа.",
   sweepNone: "24 цагаас хуучин эзэнгүй баримт алга.",
   teamsPublicHint: "Нийтлэхэд нэр, тоглоомын ID, rank нийтийн багуудын хуудсанд гарна — холбоо барих мэдээлэл хэзээ ч гарахгүй.",
+  formBadge: "Form",
+  formBadgeHint: "Google Form-ын хариултын sheet-ээс оруулсан",
+  driveReceipt: "Drive",
+  driveReceiptHint: "Тоглогчийн Google Form-д хавсаргасан баримтын холбоосыг нээх",
+  importSheet: "Sheet оруулах",
+  impTitle: "Google Form-ын sheet оруулах",
+  impDesc: "Зөв мөр бүр вэбээр бүртгүүлсэнтэй яг адил бүртгэгдэнэ. Ижил эсвэл шинэ мөр нэмэгдсэн sheet-ийг дахин оруулахад зөвхөн шинэ хүмүүс л нэмэгдэнэ.",
+  impStepOf: "Алхам {n} / 3",
+  impStepFile: "Файл сонгох",
+  impStepMap: "Багана тааруулах",
+  impStepPreview: "Урьдчилан харах",
+  impFile: "Хариултын sheet (.csv, .tsv, .xlsx)",
+  impFileHint: "Google Sheets → File → Download → Comma-separated values (.csv) эсвэл Microsoft Excel (.xlsx).",
+  impPaste: "…эсвэл нүднүүдээ хуулж тавих",
+  impPasteHint: "Google Sheets дээр нүднүүдээ (гарчгийн мөртэй нь) сонгоод хуулж, энд буулгана уу.",
+  impPasteRead: "Буулгасныг унших",
+  impReading: "Уншиж байна…",
+  impErrUnreadable: "Файлыг уншиж чадсангүй. CSV эсвэл XLSX хэлбэрээр дахин татна уу.",
+  impErrFileTooLarge: "Файл хэт том байна (дээд тал нь 5 MB).",
+  impErrEmpty: "Sheet-ээс нэг ч мөр олдсонгүй.",
+  impTruncated: "Sheet {n}-с олон мөртэй байна — зөвхөн эхний {n} мөрийг авлаа. Үлдсэнийг хоёр дахь файл болгон оруулна уу.",
+  impLoaded: "{rows} мөр · {cols} багана",
+  impHasHeader: "Эхний мөр нь баганын гарчиг",
+  impMapHint: "Багануудыг автоматаар тааруулсан — буруу байвал засна уу. Нэг талбар зөвхөн нэг баганад харгалзана; дахин сонговол тийшээ шилжинэ.",
+  impColumn: "Багана {n}",
+  impNoSample: "(хоосон)",
+  impMapTo: "{name} баганын талбар",
+  impNeedFields: "Дор хаяж нэр, имэйл, Facebook багануудыг тааруулна уу.",
+  impStatus: "Оруулсан мөрүүдийн төлөв",
+  impStatusHint: "Хүлээгдэж буй: баримт бүрийг шалгаад төлсөн гэж тэмдэглэнэ. Төлсөн: sheet дэх бүх төлбөр аль хэдийн баталгаажсан үед л сонгоно.",
+  impCheck: "Шалгах",
+  impChecking: "Шалгаж байна…",
+  impBack: "Буцах",
+  impColRow: "Мөр",
+  impColEmail: "Имэйл",
+  impColGames: "Тоглоом",
+  impColState: "Үр дүн",
+  impColIssues: "Асуудал",
+  impGameExisting: "{game} — аль хэдийн бүртгэлтэй",
+  impHasReceipt: "Баримтын холбоос",
+  impRows: "{n} мөр",
+  impEntriesNew: "{n} шинэ бүртгэл",
+  impNothingNew: "Оруулах шинэ бүртгэл алга — энэ sheet дэх хүмүүс бүгд бүртгэлтэй, эсвэл мөрүүд алдаатай байна.",
+  impCommit: "{n} бүртгэл оруулах",
+  impCommitting: "Оруулж байна…",
+  impDone: "{n} бүртгэл орлоо.",
+  impDoneNone: "Шинээр юу ч орсонгүй.",
+  impErrInvalid: "Sheet-ийг хүлээн авч чадсангүй. Баганын тааруулалтаа шалгаад дахин оролдоно уу.",
+  impErrTooLarge: "Sheet нэг дор илгээхэд хэт том байна. Жижиг файлуудад хуваах эсвэл хэрэггүй багануудыг «алгасах» болгоно уу.",
+  impIssueForGame: "{game}: {issue}",
 };
 
 const kr: SchAdminCopy = {
@@ -431,6 +533,56 @@ const kr: SchAdminCopy = {
   sweepDone: "미연결 영수증 {n}개를 삭제했습니다.",
   sweepNone: "24시간이 지난 미연결 영수증이 없습니다.",
   teamsPublicHint: "공개하면 이름, 게임 ID, 랭크가 공개 팀 페이지에 표시됩니다 — 연락처는 절대 표시되지 않습니다.",
+  formBadge: "Form",
+  formBadgeHint: "Google Form 응답 시트에서 가져옴",
+  driveReceipt: "Drive",
+  driveReceiptHint: "선수가 Google Form에 첨부한 영수증 링크 열기",
+  importSheet: "시트 가져오기",
+  impTitle: "Google Form 시트 가져오기",
+  impDesc: "유효한 행은 모두 웹 등록과 똑같이 등록됩니다. 같은 시트나 행이 늘어난 시트를 다시 올리면 새 사람만 추가됩니다.",
+  impStepOf: "{n} / 3 단계",
+  impStepFile: "파일 선택",
+  impStepMap: "열 맞추기",
+  impStepPreview: "미리보기",
+  impFile: "응답 시트 (.csv, .tsv, .xlsx)",
+  impFileHint: "Google Sheets → 파일 → 다운로드 → 쉼표로 구분된 값(.csv) 또는 Microsoft Excel(.xlsx).",
+  impPaste: "…또는 셀 붙여넣기",
+  impPasteHint: "Google Sheets에서 셀(머리글 행 포함)을 선택해 복사한 뒤 여기에 붙여넣으세요.",
+  impPasteRead: "붙여넣은 셀 읽기",
+  impReading: "읽는 중…",
+  impErrUnreadable: "파일을 읽을 수 없습니다. CSV 또는 XLSX로 다시 다운로드하세요.",
+  impErrFileTooLarge: "파일이 너무 큽니다 (최대 5 MB).",
+  impErrEmpty: "시트에서 행을 찾지 못했습니다.",
+  impTruncated: "시트에 {n}개가 넘는 행이 있어 처음 {n}개만 유지했습니다. 나머지는 두 번째 파일로 가져오세요.",
+  impLoaded: "{rows}행 · {cols}열",
+  impHasHeader: "첫 행은 열 제목입니다",
+  impMapHint: "열은 자동으로 맞춰졌습니다 — 틀린 부분을 고치세요. 한 필드는 한 열에만 속하며, 다시 선택하면 그 열로 옮겨집니다.",
+  impColumn: "{n}열",
+  impNoSample: "(비어 있음)",
+  impMapTo: "{name} 열의 필드",
+  impNeedFields: "최소한 이름, 이메일, Facebook 열을 맞추세요.",
+  impStatus: "가져온 행의 상태",
+  impStatusHint: "대기: 영수증을 하나씩 확인한 뒤 결제 완료로 표시합니다. 결제 완료: 시트의 모든 결제가 이미 확인된 경우에만 선택하세요.",
+  impCheck: "확인",
+  impChecking: "확인 중…",
+  impBack: "뒤로",
+  impColRow: "행",
+  impColEmail: "이메일",
+  impColGames: "게임",
+  impColState: "결과",
+  impColIssues: "문제",
+  impGameExisting: "{game} — 이미 등록됨",
+  impHasReceipt: "영수증 링크",
+  impRows: "{n}행",
+  impEntriesNew: "새 등록 {n}건",
+  impNothingNew: "가져올 새 등록이 없습니다 — 이 시트의 모든 사람이 이미 등록되었거나 행이 유효하지 않습니다.",
+  impCommit: "{n}건 등록 가져오기",
+  impCommitting: "가져오는 중…",
+  impDone: "{n}건을 등록했습니다.",
+  impDoneNone: "새로 가져온 항목이 없습니다.",
+  impErrInvalid: "시트를 받아들일 수 없습니다. 열 맞추기를 확인하고 다시 시도하세요.",
+  impErrTooLarge: "시트가 한 번에 보내기에 너무 큽니다. 더 작은 파일로 나누거나 필요 없는 열을 무시로 바꾸세요.",
+  impIssueForGame: "{game}: {issue}",
 };
 
 export function schAdminCopy(lang: Lang): SchAdminCopy {
@@ -447,6 +599,76 @@ export function schStatusVariant(status: SchStatus): "accent" | "success" | "war
     case "pending": return "warning";
     case "waitlist": return "info";
     case "rejected": return "danger";
+    default: return "muted";
+  }
+}
+
+// ── Sheet import: field, row-state and issue names (typed records, so a new
+// field or issue code cannot ship without all three languages). ──
+const IMPORT_FIELD_LABEL: Record<Lang, Record<ImportField, string>> = {
+  en: {
+    ignore: "— ignore —", timestamp: "Timestamp", full_name: "Full name", email: "E-mail", facebook: "Facebook",
+    phone: "Phone", game: "Game choice",
+    ml_rank: "Mobile Legends · rank", ml_roles: "Mobile Legends · roles", ml_id: "Mobile Legends · ID",
+    cs2_premier: "CS2 · Premier rank", cs2_steam: "CS2 · Steam URL", cs2_faceit: "CS2 · FACEIT",
+    dota_roles: "Dota 2 · roles", dota_rank: "Dota 2 · MMR medal", dota_steam: "Dota 2 · Steam URL",
+    receipt: "Payment receipt (link)",
+  },
+  mn: {
+    ignore: "— алгасах —", timestamp: "Цагийн тэмдэг", full_name: "Овог нэр", email: "Имэйл", facebook: "Facebook хаяг",
+    phone: "Утасны дугаар", game: "Тоглоомын сонголт",
+    ml_rank: "Mobile Legends · rank", ml_roles: "Mobile Legends · role", ml_id: "Mobile Legends · ID",
+    cs2_premier: "CS2 · Premier rank", cs2_steam: "CS2 · Steam URL", cs2_faceit: "CS2 · FACEIT",
+    dota_roles: "Dota 2 · role", dota_rank: "Dota 2 · MMR medal", dota_steam: "Dota 2 · Steam URL",
+    receipt: "Төлбөрийн баримт (холбоос)",
+  },
+  kr: {
+    ignore: "— 무시 —", timestamp: "타임스탬프", full_name: "이름", email: "이메일", facebook: "Facebook",
+    phone: "전화번호", game: "게임 선택",
+    ml_rank: "Mobile Legends · 랭크", ml_roles: "Mobile Legends · 역할", ml_id: "Mobile Legends · ID",
+    cs2_premier: "CS2 · Premier 랭크", cs2_steam: "CS2 · Steam URL", cs2_faceit: "CS2 · FACEIT",
+    dota_roles: "Dota 2 · 역할", dota_rank: "Dota 2 · MMR 메달", dota_steam: "Dota 2 · Steam URL",
+    receipt: "결제 영수증 (링크)",
+  },
+};
+
+const IMPORT_STATE_LABEL: Record<Lang, Record<SchImportRowState, string>> = {
+  en: { ready: "Ready", partial: "Partly usable", invalid: "Invalid", duplicate_in_file: "Duplicate in the sheet", already_registered: "Already registered" },
+  mn: { ready: "Бэлэн", partial: "Хэсэгчлэн орно", invalid: "Алдаатай", duplicate_in_file: "Sheet дотор давхардсан", already_registered: "Аль хэдийн бүртгэлтэй" },
+  kr: { ready: "준비됨", partial: "일부만 가능", invalid: "유효하지 않음", duplicate_in_file: "시트 내 중복", already_registered: "이미 등록됨" },
+};
+
+const IMPORT_ISSUE_LABEL: Record<Lang, Record<ImportIssueCode, string>> = {
+  en: {
+    missing_name: "name is missing", bad_email: "e-mail is not valid", missing_facebook: "Facebook is missing",
+    no_game: "no game could be recognised", bad_rank: "rank not recognised", bad_roles: "roles not recognised",
+    missing_id: "in-game ID is missing", bad_steam: "Steam profile URL is not valid", bad_faceit: "FACEIT answer not recognised",
+    too_long: "a value is too long", empty_row: "the row is empty",
+  },
+  mn: {
+    missing_name: "нэр алга", bad_email: "имэйл буруу", missing_facebook: "Facebook хаяг алга",
+    no_game: "тоглоомыг таньж чадсангүй", bad_rank: "rank танигдсангүй", bad_roles: "role танигдсангүй",
+    missing_id: "тоглоомын ID алга", bad_steam: "Steam profile URL буруу", bad_faceit: "FACEIT хариулт танигдсангүй",
+    too_long: "утга хэт урт", empty_row: "мөр хоосон",
+  },
+  kr: {
+    missing_name: "이름 없음", bad_email: "이메일이 올바르지 않음", missing_facebook: "Facebook 없음",
+    no_game: "게임을 인식할 수 없음", bad_rank: "랭크를 인식할 수 없음", bad_roles: "역할을 인식할 수 없음",
+    missing_id: "게임 ID 없음", bad_steam: "Steam 프로필 URL이 올바르지 않음", bad_faceit: "FACEIT 답변을 인식할 수 없음",
+    too_long: "값이 너무 김", empty_row: "빈 행",
+  },
+};
+
+export const schImportFieldLabel = (field: ImportField, lang: Lang): string => IMPORT_FIELD_LABEL[lang][field];
+export const schImportStateLabel = (state: SchImportRowState, lang: Lang): string => IMPORT_STATE_LABEL[lang][state];
+export const schImportIssueLabel = (code: ImportIssueCode, lang: Lang): string => IMPORT_ISSUE_LABEL[lang][code];
+
+export function schImportStateVariant(state: SchImportRowState): "success" | "warning" | "danger" | "info" | "muted" {
+  switch (state) {
+    case "ready": return "success";
+    case "partial": return "warning";
+    case "invalid": return "danger";
+    case "already_registered": return "info";
     default: return "muted";
   }
 }
