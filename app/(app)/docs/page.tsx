@@ -92,7 +92,7 @@ const sections = [
       { label: "GET /recording/{id}/view", value: "On-demand masked playback render (ADR 0010), disk-cached" },
       { label: "GET /face/{id}/secure-crop", value: "Sealed face crop decrypted under the caller's reveal_level (ADR 0009)" },
       { label: "POST /cluster", value: "DBSCAN face clustering" },
-      { label: "GET /stream/{id}/index.m3u8", value: "HLS playlist for the live stream (unmasked frames)" },
+      { label: "GET /stream/{id}/index.m3u8", value: "HLS playlist for the face-masked live stream" },
       { label: "POST /eval/*", value: "detection · blur · recognition · compare · bench (GET /eval/system)" },
       { label: "Auth", value: "Every endpoint requires the ML_SERVICE_TOKEN bearer except GET / (the unauthenticated health probe); /docs is disabled in production" },
     ],
@@ -151,7 +151,7 @@ const sections = [
       {
         label: "Masking",
         value:
-          "NOT applied to the live feed — frames reach the HLS writer unmasked. The Cubist mosaic is a playback-time step (GET /recording/{id}/view). Treat /live, /grid and /wall as raw footage",
+          "Applied before every live frame reaches HLS. /live, /grid and /wall receive the same persistent Haar + InsightFace Cubist mask used by playback; encrypted originals remain available only through the authorised, audited reveal flow",
       },
       {
         label: "Access",

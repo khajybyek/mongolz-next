@@ -105,7 +105,7 @@ type Fn<N extends keyof Database["public"]["Functions"]> =
 export type MatchSuspectResult = Fn<"match_suspects">[number];
 export type MatchFaceResult = Fn<"match_faces">[number];
 export type FilteredFaceSearchResult = Omit<
-  Fn<"search_faces_filtered">[number],
+  Fn<"search_faces_filtered_page">[number],
   "camera_id" | "camera_name" | "recording_id" | "recording_filename"
 > & {
   camera_id: string | null;

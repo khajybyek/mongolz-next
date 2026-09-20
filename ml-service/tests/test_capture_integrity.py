@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
+import io
 import json
 from pathlib import Path
 import shutil
@@ -117,6 +118,35 @@ def test_encoder_exit_broken_pipe_and_timeout_are_errors():
     with pytest.raises(RuntimeError, match="timed out"):
         close_encoder(proc)
     proc.terminate.assert_called_once()
+
+def test_live_hls_receives_masked_frame_while_original_stays_unmasked(tmp_path, capture_spool):
+    storage = CaptureStorage()
+    session = new_session(tmp_path, storage)
+    session._is_file_mode = True
+    session.recorded_frames = 1
+    session.segment_duration_sec = 120
+    session.blur_strategy = "on_demand"
+    session._draw_kst_timestamp = Mock()
+    session.beat_if_due = Mock()
+
+    class Pipe:
+        def __init__(self):
+            self.stdin = io.BytesIO()
+
+        @staticmethod
+        def poll():
+            return None
+
+    session.hls = Pipe()
+    session.original_writer = Pipe()
+    session.masker.mask = Mock(return_value=np.full((4, 5, 3), 211, dtype=np.uint8))
+    source = np.full((4, 5, 3), 17, dtype=np.uint8)
+
+    asyncio.run(session._emit_frame(0.1, source))
+
+    session.masker.mask.assert_called_once()
+    assert session.hls.stdin.getvalue() == np.full((4, 5, 3), 211, dtype=np.uint8).tobytes()
+    assert session.original_writer.stdin.getvalue() == source.tobytes()
 
 def test_invalid_or_missing_frames_never_enter_delivery(tmp_path, capture_spool):
     storage = CaptureStorage()

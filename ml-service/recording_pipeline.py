@@ -1,10 +1,10 @@
 """
-RecordingSession — нэг камерны "live + saved-blurred + original" тус бүрийг бичих pipeline.
+RecordingSession — нэг камерны "masked-live + saved-blurred + original" pipeline.
 
 Урсгал
 ------
 RTSP/Webcam frame
-   ├─→ HLS (unblurred, live view-нд)
+   ├─→ HLS (face-masked, live view-нд)
    ├─→ Blurred MP4 (recordings bucket — public-read for admins)
    └─→ Original MP4 (recordings bucket — `has_original=true` тэмдэглэгдсэн, private RLS)
 
@@ -1072,20 +1072,26 @@ class RecordingSession:
             self._last_capacity_check = time.monotonic()
         if not self._is_file_mode and self.recorded_frames / self.fps >= self.segment_duration_sec:
             await self._rotate_segment(source_sec, w, h)
-        frame = source_frame.copy()
+        original = source_frame.copy()
+        # Every live viewer receives the privacy-filtered frame. The same
+        # masking pass feeds the optional legacy baked recording so enabling
+        # it does not double the detector cost. The encrypted original keeps
+        # the unmasked pixels for an authorised, audited reveal path.
+        masked = None
+        if self.hls is not None or self.blur_strategy == "baked":
+            masked = await asyncio.to_thread(self.masker.mask, original.copy())
+            self._draw_kst_timestamp(masked, self.recorded_frames)
         if self.blur_strategy == "baked":
-            blurred = await asyncio.to_thread(self.masker.mask, frame)
-            self._draw_kst_timestamp(blurred, self.recorded_frames)
-            self._write_safe(self.blurred_writer, blurred)
-        self._draw_kst_timestamp(frame, self.recorded_frames)
-        self._write_safe(self.hls, frame)
-        self._write_safe(self.original_writer, frame)
+            self._write_safe(self.blurred_writer, masked)
+        self._write_safe(self.hls, masked)
+        self._draw_kst_timestamp(original, self.recorded_frames)
+        self._write_safe(self.original_writer, original)
         offset = self.recorded_frames / self.fps
         if self.recorded_frames % max(1, round(self.fps)) == 0:
             self.arcface_tasks = [t for t in self.arcface_tasks if not t.done()]
             captured_at = self.capture_started_at + timedelta(seconds=source_sec)
             self.arcface_tasks.append(asyncio.create_task(
-                self._process_arcface(frame, source_offset_sec=offset, captured_at=captured_at)
+                self._process_arcface(original, source_offset_sec=offset, captured_at=captured_at)
             ))
         self.recorded_frames += 1
         self.total_frames += 1

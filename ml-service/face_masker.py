@@ -5,6 +5,7 @@ face_masker
 One face-masking implementation for every path that produces pixels a
 non-authorised viewer can see:
 
+  * the live HLS stream written by ``recording_pipeline``,
   * the baked blurred MP4 written by ``recording_pipeline`` (legacy mode),
   * the on-demand blurred view (``view_renderer``),
   * the non-target faces of a reveal output (``reveal_job``).

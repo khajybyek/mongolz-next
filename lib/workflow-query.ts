@@ -45,3 +45,8 @@ export function recordingFaceHref(recordingId: string | null, faceId: string): s
   return recordingId && UUID_RE.test(recordingId) && UUID_RE.test(faceId)
     ? `/playback/${recordingId}?face=${faceId}` : null;
 }
+
+/** Stable, same-page deep link used by push notifications and mobile alert review. */
+export function alertHref(alertId: string): string | null {
+  return UUID_RE.test(alertId) ? `/alerts#alert-${alertId}` : null;
+}

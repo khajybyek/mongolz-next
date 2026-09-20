@@ -1,4 +1,4 @@
-import { kstLocalToIso, parseSearchFilters } from "@/lib/search-filters";
+import { kstLocalToIso, paginateSearchResults, parseSearchFilters } from "@/lib/search-filters";
 
 describe("face search filters", () => {
   it("converts datetime-local values from KST to UTC", () => {
@@ -12,18 +12,20 @@ describe("face search filters", () => {
       to: "2026-09-14T10:00",
       threshold: "0.63",
       limit: "25",
+      offset: "50",
     })).toEqual({
       cameraId: "123e4567-e89b-12d3-a456-426614174000",
       from: "2026-09-14T00:00:00.000Z",
       to: "2026-09-14T01:00:00.000Z",
       threshold: 0.63,
       limit: 25,
+      offset: 50,
     });
   });
 
   it("uses safe defaults when optional fields are empty", () => {
     expect(parseSearchFilters({})).toEqual({
-      cameraId: null, from: null, to: null, threshold: 0.5, limit: 50,
+      cameraId: null, from: null, to: null, threshold: 0.5, limit: 50, offset: 0,
     });
   });
 
@@ -35,7 +37,18 @@ describe("face search filters", () => {
     { threshold: "NaN" },
     { limit: "101" },
     { limit: "1.5" },
+    { offset: "-1" },
+    { offset: "10001" },
   ])("rejects invalid scope %#", (input) => {
     expect(parseSearchFilters(input)).toBeNull();
+  });
+
+  it("returns one extra row as a continuation signal", () => {
+    expect(paginateSearchResults(["a", "b", "c"], 2, 4)).toEqual({
+      matches: ["a", "b"], hasMore: true, nextOffset: 6,
+    });
+    expect(paginateSearchResults(["a"], 2, 4)).toEqual({
+      matches: ["a"], hasMore: false, nextOffset: null,
+    });
   });
 });

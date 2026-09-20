@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isPushConfigured, sendPushToAllAdmins } from "@/lib/push";
+import { alertHref } from "@/lib/workflow-query";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
       const score = alert.similarity ? Math.round(alert.similarity * 100) : null;
       title = `Match · ${alert.suspect_name ?? "Unknown"}`;
       body = `${alert.camera_name ?? "Camera"}${score !== null ? ` · ${score}%` : ""}`;
-      url = `/alerts#${parsed.data.alert_id}`;
+      url = alertHref(parsed.data.alert_id) ?? "/alerts";
     }
   }
 

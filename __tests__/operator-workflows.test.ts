@@ -1,4 +1,4 @@
-import { archiveFilters, pageHref, pageNumber, recordingFaceHref } from "@/lib/workflow-query";
+import { alertHref, archiveFilters, pageHref, pageNumber, recordingFaceHref } from "@/lib/workflow-query";
 import { CAMERA_FRESH_MS, INGEST_FRESH_MS, isFreshEvidence } from "@/lib/readiness";
 
 const REC = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -26,6 +26,10 @@ describe("archive and investigation navigation", () => {
     expect(recordingFaceHref(null, FACE)).toBeNull();
     expect(recordingFaceHref("../../users", FACE)).toBeNull();
     expect(recordingFaceHref(REC, "?redirect=elsewhere")).toBeNull();
+  });
+  test("push notifications deep-link to a stable alert row", () => {
+    expect(alertHref(FACE)).toBe(`/alerts#alert-${FACE}`);
+    expect(alertHref("../../audit")).toBeNull();
   });
 });
 

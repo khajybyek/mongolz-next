@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition, type FormEvent } from "react";
-import { Search, Loader2, Video, Camera, Clock, Filter, Link2, Check } from "lucide-react";
+import { Search, Loader2, Video, Camera, Clock, Filter, Link2, Check, ChevronDown } from "lucide-react";
 import { FaceThumb } from "@/components/face-thumb";
 import { Empty } from "@/components/ui/empty";
 import { useToast } from "@/components/ui/toast";
@@ -28,6 +28,13 @@ interface Match {
 
 interface Option { id: string; name: string }
 interface IncidentOption { id: string; title: string; status: string }
+interface SearchQuery {
+  cameraId: string;
+  from: string;
+  to: string;
+  threshold: string;
+  limit: string;
+}
 
 export function SearchForm({
   cameras,
@@ -45,23 +52,29 @@ export function SearchForm({
   const [file, setFile] = useState<File | null>(null);
   const [matches, setMatches] = useState<Match[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<SearchQuery | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [incidentId, setIncidentId] = useState(incidents.some((item) => item.id === initialIncidentId) ? initialIncidentId : "");
   const [attached, setAttached] = useState<Set<string>>(new Set());
   const [attachingFace, setAttachingFace] = useState<string | null>(null);
   const [, startAttachTransition] = useTransition();
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function requestPage(query: SearchQuery, offset: number, append: boolean) {
     if (!file) return;
-
-    setLoading(true);
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     setError(null);
-    setMatches(null);
-    setAttached(new Set());
-    const form = new FormData(event.currentTarget);
+    const form = new FormData();
     form.set("file", file);
-
+    form.set("camera_id", query.cameraId);
+    form.set("from", query.from);
+    form.set("to", query.to);
+    form.set("threshold", query.threshold);
+    form.set("limit", query.limit);
+    form.set("offset", String(offset));
     try {
       const res = await fetch("/api/search", { method: "POST", body: form });
       const body = await res.json().catch(() => null);
@@ -69,12 +82,44 @@ export function SearchForm({
         setError(body?.error === "invalid_filters" ? incident.searchInvalid : `${t("search_failed")} (HTTP ${res.status})`);
         return;
       }
-      setMatches(body?.matches ?? []);
+      const incoming = Array.isArray(body?.matches) ? body.matches as Match[] : [];
+      setMatches((current) => {
+        if (!append || !current) return incoming;
+        const seen = new Set(current.map((item) => item.id));
+        return [...current, ...incoming.filter((item) => !seen.has(item.id))];
+      });
+      setHasMore(Boolean(body?.hasMore));
+      setNextOffset(typeof body?.nextOffset === "number" ? body.nextOffset : null);
     } catch {
       setError(t("search_failed"));
     } finally {
-      setLoading(false);
+      if (append) setLoadingMore(false);
+      else setLoading(false);
     }
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!file) return;
+    const form = new FormData(event.currentTarget);
+    const query: SearchQuery = {
+      cameraId: String(form.get("camera_id") ?? ""),
+      from: String(form.get("from") ?? ""),
+      to: String(form.get("to") ?? ""),
+      threshold: String(form.get("threshold") ?? "0.50"),
+      limit: String(form.get("limit") ?? "50"),
+    };
+    setMatches(null);
+    setAttached(new Set());
+    setSearchQuery(query);
+    setHasMore(false);
+    setNextOffset(null);
+    await requestPage(query, 0, false);
+  }
+
+  async function loadMore() {
+    if (!searchQuery || nextOffset === null || loadingMore) return;
+    await requestPage(searchQuery, nextOffset, true);
   }
 
   function attachFace(faceId: string) {
@@ -105,7 +150,14 @@ export function SearchForm({
             id="search-file"
             type="file"
             accept="image/*"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            onChange={(event) => {
+              setFile(event.target.files?.[0] ?? null);
+              setMatches(null);
+              setSearchQuery(null);
+              setHasMore(false);
+              setNextOffset(null);
+              setAttached(new Set());
+            }}
             required
             className="input file:mr-2 file:rounded file:border-0 file:bg-accent/15 file:px-2 file:py-1 file:text-accent"
           />
@@ -156,7 +208,7 @@ export function SearchForm({
           </div>
 
           <div>
-            <h2 className="section-title mb-2">{`${matches.length} ${t("search_matches_suffix")}`}</h2>
+            <h2 className="section-title mb-2">{`${incident.loadedResults}: ${matches.length}`}</h2>
             <p className="mb-3 text-xs text-text-muted">{copy.candidate}</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
               {matches.map((match) => {
@@ -186,6 +238,14 @@ export function SearchForm({
                 );
               })}
             </div>
+            {hasMore && nextOffset !== null && (
+              <div className="mt-5 flex justify-center">
+                <button type="button" className="btn-secondary w-full sm:w-auto" onClick={loadMore} disabled={loadingMore}>
+                  {loadingMore ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronDown className="h-4 w-4" />}
+                  {incident.loadMore}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

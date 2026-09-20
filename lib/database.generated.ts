@@ -2167,6 +2167,29 @@ export type Database = {
           similarity: number
         }[]
       }
+      search_faces_filtered_page: {
+        Args: {
+          match_threshold?: number
+          p_camera_id?: string
+          p_from?: string
+          p_limit?: number
+          p_offset?: number
+          p_to?: string
+          query_embedding: string
+        }
+        Returns: {
+          camera_id: string
+          camera_name: string
+          crop_sealed: boolean
+          detected_at: string
+          filename: string
+          id: string
+          image_path: string
+          recording_filename: string
+          recording_id: string
+          similarity: number
+        }[]
+      }
       set_incident_recording_hold: {
         Args: { p_evidence_id: string; p_legal_hold: boolean }
         Returns: string

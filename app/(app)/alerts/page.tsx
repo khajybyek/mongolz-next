@@ -1,4 +1,4 @@
-import { Download, Bell, Cctv, Clock, RotateCw, FolderPlus } from "lucide-react";
+import { Download, Bell, Cctv, Clock, RotateCw, FolderPlus, PlayCircle } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
@@ -26,6 +26,8 @@ import {
 } from "@/lib/alerts";
 import { AlertStateActions } from "./alert-state-actions";
 import { incidentCopy } from "@/lib/incident-copy";
+import { workflowCopy } from "@/lib/workflow-copy";
+import { recordingFaceHref } from "@/lib/workflow-query";
 
 import type { AlertState } from "@/lib/database.types";
 import type { TranslationKey } from "@/lib/i18n/translations";
@@ -54,6 +56,7 @@ export default async function AlertsPage({
   const { profile } = await requireAdmin();
   const { t, lang } = await getT();
   const incident = incidentCopy(lang);
+  const workflow = workflowCopy(lang);
   const supabase = await createClient();
 
   const sp = (await searchParams) ?? {};
@@ -63,7 +66,7 @@ export default async function AlertsPage({
   let query = supabase
     .from("alerts")
     .select(
-      "id, suspect_id, suspect_name, similarity, screenshot_path, camera_id, camera_name, created_at, state, note, acknowledged_by, acknowledged_at, closed_by, closed_at, match_count, last_seen_at",
+      "id, suspect_id, suspect_name, similarity, screenshot_path, camera_id, camera_name, face_id, face:faces(recording_id), created_at, state, note, acknowledged_by, acknowledged_at, closed_by, closed_at, match_count, last_seen_at",
     )
     .order("created_at", { ascending: false })
     .limit(ROW_CAP);
@@ -248,6 +251,8 @@ export default async function AlertsPage({
               <tbody>
                 {alerts.rows.map((a) => {
                   const state = asAlertState(a.state);
+                  const face = Array.isArray(a.face) ? a.face[0] : a.face;
+                  const playbackHref = a.face_id ? recordingFaceHref(face?.recording_id ?? null, a.face_id) : null;
                   const stateTitle = stateTooltip(state, {
                     ackBy: a.acknowledged_by ? actorEmail.get(a.acknowledged_by) ?? a.acknowledged_by.slice(0, 8) : null,
                     ackAt: a.acknowledged_at,
@@ -257,7 +262,7 @@ export default async function AlertsPage({
                     closeLabel: t("al_close"),
                   });
                   return (
-                    <tr key={a.id}>
+                    <tr key={a.id} id={`alert-${a.id}`} className="scroll-mt-24 target:bg-accent/5">
                       <td>
                         <div className="flex items-center gap-2.5">
                           <div className="w-8 h-8 rounded-full bg-danger-soft border border-danger/20 inline-flex items-center justify-center shrink-0">
@@ -325,6 +330,12 @@ export default async function AlertsPage({
                       </td>
                       <td>
                         <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          {playbackHref && (
+                            <Link href={playbackHref as never} className="btn-secondary btn-sm" title={workflow.openRecording}>
+                              <PlayCircle className="h-3.5 w-3.5" />
+                              {workflow.openRecording}
+                            </Link>
+                          )}
                           <Link href={`/incidents?alert=${a.id}` as never} className="btn-ghost btn-sm" title={incident.createFromAlert}>
                             <FolderPlus className="h-3.5 w-3.5" />
                             {incident.createFromAlert}
