@@ -346,6 +346,7 @@ class SupabaseStorage:
         chain_index: int | None = None,
         embedding_sealed: str | None = None,
         crop_sealed: bool = False,
+        detection_confidence: float | None = None,
         source_offset_sec: float | None = None,
         detected_at: str | None = None,
     ) -> str | None:
@@ -361,6 +362,8 @@ class SupabaseStorage:
         }
         if source_offset_sec is not None:
             row["source_offset_sec"] = source_offset_sec
+        if detection_confidence is not None:
+            row["detection_confidence"] = max(0.0, min(1.0, float(detection_confidence)))
         if detected_at is not None:
             row["detected_at"] = detected_at
         # Hierarchical key fields (ADR 0009) — only set when provided so the

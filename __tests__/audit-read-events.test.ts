@@ -160,7 +160,7 @@ function fakeClient() {
           : { data: state.canSee, error: null };
       }
       if (fn === "camera_trail") return { data: state.trail, error: null };
-      if (fn === "match_faces" || fn === "search_faces_filtered_page") return { data: state.matches, error: null };
+      if (fn === "match_faces" || fn === "search_faces_advanced_page") return { data: state.matches, error: null };
       return { data: null, error: null };
     },
     storage: {

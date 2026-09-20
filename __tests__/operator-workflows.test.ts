@@ -27,8 +27,8 @@ describe("archive and investigation navigation", () => {
     expect(recordingFaceHref("../../users", FACE)).toBeNull();
     expect(recordingFaceHref(REC, "?redirect=elsewhere")).toBeNull();
   });
-  test("push notifications deep-link to a stable alert row", () => {
-    expect(alertHref(FACE)).toBe(`/alerts#alert-${FACE}`);
+  test("push notifications deep-link to the mobile alert workspace", () => {
+    expect(alertHref(FACE)).toBe(`/alerts/${FACE}`);
     expect(alertHref("../../audit")).toBeNull();
   });
 });

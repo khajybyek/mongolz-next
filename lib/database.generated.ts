@@ -496,6 +496,86 @@ export type Database = {
           },
         ]
       }
+      face_search_presets: {
+        Row: {
+          camera_id: string | null
+          created_at: string
+          from_at: string | null
+          id: string
+          incident_id: string | null
+          match_threshold: number
+          min_confidence: number | null
+          name: string
+          recording_status: string | null
+          result_limit: number
+          suspect_id: string | null
+          to_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          camera_id?: string | null
+          created_at?: string
+          from_at?: string | null
+          id?: string
+          incident_id?: string | null
+          match_threshold?: number
+          min_confidence?: number | null
+          name: string
+          recording_status?: string | null
+          result_limit?: number
+          suspect_id?: string | null
+          to_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          camera_id?: string | null
+          created_at?: string
+          from_at?: string | null
+          id?: string
+          incident_id?: string | null
+          match_threshold?: number
+          min_confidence?: number | null
+          name?: string
+          recording_status?: string | null
+          result_limit?: number
+          suspect_id?: string | null
+          to_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "face_search_presets_camera_id_fkey"
+            columns: ["camera_id"]
+            isOneToOne: false
+            referencedRelation: "cameras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "face_search_presets_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incidents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "face_search_presets_suspect_id_fkey"
+            columns: ["suspect_id"]
+            isOneToOne: false
+            referencedRelation: "suspects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "face_search_presets_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       faces: {
         Row: {
           bbox: Json | null
@@ -504,6 +584,7 @@ export type Database = {
           cluster_id: number | null
           crop_sealed: boolean
           detected_at: string
+          detection_confidence: number | null
           embedding: string
           embedding_sealed: string | null
           filename: string
@@ -523,6 +604,7 @@ export type Database = {
           cluster_id?: number | null
           crop_sealed?: boolean
           detected_at?: string
+          detection_confidence?: number | null
           embedding: string
           embedding_sealed?: string | null
           filename: string
@@ -542,6 +624,7 @@ export type Database = {
           cluster_id?: number | null
           crop_sealed?: boolean
           detected_at?: string
+          detection_confidence?: number | null
           embedding?: string
           embedding_sealed?: string | null
           filename?: string
@@ -2143,6 +2226,37 @@ export type Database = {
         Returns: {
           created_at: string
           name: string
+        }[]
+      }
+      search_faces_advanced_page: {
+        Args: {
+          match_threshold?: number
+          p_camera_id?: string
+          p_from?: string
+          p_incident_id?: string
+          p_limit?: number
+          p_min_confidence?: number
+          p_offset?: number
+          p_recording_status?: string
+          p_suspect_id?: string
+          p_to?: string
+          query_embedding: string
+        }
+        Returns: {
+          camera_id: string
+          camera_name: string
+          crop_sealed: boolean
+          detected_at: string
+          detection_confidence: number
+          filename: string
+          id: string
+          image_path: string
+          recording_filename: string
+          recording_id: string
+          recording_status: string
+          similarity: number
+          suspect_id: string
+          suspect_name: string
         }[]
       }
       search_faces_filtered: {

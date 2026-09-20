@@ -13,6 +13,10 @@ describe("face search filters", () => {
       threshold: "0.63",
       limit: "25",
       offset: "50",
+      recordingStatus: "ready",
+      minConfidence: "0.82",
+      suspectId: "223e4567-e89b-12d3-a456-426614174000",
+      incidentId: "323e4567-e89b-12d3-a456-426614174000",
     })).toEqual({
       cameraId: "123e4567-e89b-12d3-a456-426614174000",
       from: "2026-09-14T00:00:00.000Z",
@@ -20,12 +24,17 @@ describe("face search filters", () => {
       threshold: 0.63,
       limit: 25,
       offset: 50,
+      recordingStatus: "ready",
+      minConfidence: 0.82,
+      suspectId: "223e4567-e89b-12d3-a456-426614174000",
+      incidentId: "323e4567-e89b-12d3-a456-426614174000",
     });
   });
 
   it("uses safe defaults when optional fields are empty", () => {
     expect(parseSearchFilters({})).toEqual({
       cameraId: null, from: null, to: null, threshold: 0.5, limit: 50, offset: 0,
+      recordingStatus: null, minConfidence: null, suspectId: null, incidentId: null,
     });
   });
 
@@ -39,6 +48,11 @@ describe("face search filters", () => {
     { limit: "1.5" },
     { offset: "-1" },
     { offset: "10001" },
+    { recordingStatus: "deleted" },
+    { minConfidence: "1.1" },
+    { minConfidence: "NaN" },
+    { suspectId: "not-a-uuid" },
+    { incidentId: "not-a-uuid" },
   ])("rejects invalid scope %#", (input) => {
     expect(parseSearchFilters(input)).toBeNull();
   });

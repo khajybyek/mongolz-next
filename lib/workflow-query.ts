@@ -48,5 +48,5 @@ export function recordingFaceHref(recordingId: string | null, faceId: string): s
 
 /** Stable, same-page deep link used by push notifications and mobile alert review. */
 export function alertHref(alertId: string): string | null {
-  return UUID_RE.test(alertId) ? `/alerts#alert-${alertId}` : null;
+  return UUID_RE.test(alertId) ? `/alerts/${alertId}` : null;
 }

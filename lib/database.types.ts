@@ -105,13 +105,17 @@ type Fn<N extends keyof Database["public"]["Functions"]> =
 export type MatchSuspectResult = Fn<"match_suspects">[number];
 export type MatchFaceResult = Fn<"match_faces">[number];
 export type FilteredFaceSearchResult = Omit<
-  Fn<"search_faces_filtered_page">[number],
-  "camera_id" | "camera_name" | "recording_id" | "recording_filename"
+  Fn<"search_faces_advanced_page">[number],
+  "camera_id" | "camera_name" | "recording_id" | "recording_filename" | "recording_status" | "detection_confidence" | "suspect_id" | "suspect_name"
 > & {
   camera_id: string | null;
   camera_name: string | null;
   recording_id: string | null;
   recording_filename: string | null;
+  recording_status: string | null;
+  detection_confidence: number | null;
+  suspect_id: string | null;
+  suspect_name: string | null;
 };
 
 /** Relative frame coordinates (0–1 ratios) stored in faces.bbox. */

@@ -58,9 +58,10 @@ def cosine(a: np.ndarray, b: np.ndarray) -> float:
 
 
 class FakeFace:
-    def __init__(self, embedding: np.ndarray):
+    def __init__(self, embedding: np.ndarray, confidence: float = 0.91):
         self.embedding = embedding
         self.bbox = (10.0, 10.0, 90.0, 90.0)
+        self.confidence = confidence
 
 
 class FakeEngine:
@@ -157,6 +158,7 @@ def test_face_row_and_uploaded_object_agree(monkeypatch):
     _, uploaded = st.uploads[0]
     assert uploaded == f"{row['image_path']}.enc"
     assert row["crop_sealed"] is True          # the reader must decrypt it
+    assert row["detection_confidence"] == 0.91
     assert st.alerts[0]["face_id"] == "face-1"
 
 

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import { NextRequest } from "next/server";
+import { openEvidenceZip } from "@/lib/evidence-encryption";
 
 const INCIDENT = "00000000-0000-0000-0000-000000000010";
 const RECORDING = "00000000-0000-0000-0000-000000000020";
@@ -25,6 +26,7 @@ class MockQuery {
   select() { return this; }
   eq() { return this; }
   ilike() { return this; }
+  in() { return Promise.resolve({ data: state.rows[this.table] ?? [], error: null }); }
   order() { return Promise.resolve({ data: state.rows[this.table] ?? [], error: null }); }
   maybeSingle() { return Promise.resolve({ data: (state.rows[this.table] ?? [])[0] ?? null, error: null }); }
 }
@@ -36,10 +38,12 @@ jest.mock("@/lib/supabase/server", () => ({
 
 function call() {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { GET } = require("@/app/api/incidents/[id]/evidence-package/route") as {
-    GET: (request: NextRequest, context: { params: Promise<{ id: string }> }) => Promise<Response>;
+  const { POST } = require("@/app/api/incidents/[id]/evidence-package/route") as {
+    POST: (request: NextRequest, context: { params: Promise<{ id: string }> }) => Promise<Response>;
   };
-  return GET(new NextRequest(`http://localhost/api/incidents/${INCIDENT}/evidence-package`), {
+  return POST(new NextRequest(`http://localhost/api/incidents/${INCIDENT}/evidence-package`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ passphrase: "correct horse battery staple" }),
+  }), {
     params: Promise.resolve({ id: INCIDENT }),
   });
 }
@@ -59,6 +63,7 @@ beforeEach(() => {
       note: "Person entered", legal_hold: true, added_at: "2026-09-15T00:01:00Z",
     }],
     incident_alerts: [], incident_faces: [], incident_events: [], audit_log: [],
+    retention_policies: [{ resource: "recordings", retention_days: 90, enabled: true }],
   };
   process.env.NEXT_PUBLIC_ML_SERVICE_URL = "https://ml.example";
   process.env.ML_SERVICE_TOKEN = "secret";
@@ -69,16 +74,20 @@ beforeEach(() => {
   }) as jest.Mock;
 });
 
-it("builds a masked, checksummed ZIP and writes its audit record", async () => {
+it("builds an encrypted masked, checksummed ZIP and writes its audit record", async () => {
   const response = await call();
   expect(response.status).toBe(200);
-  const zip = await JSZip.loadAsync(await response.arrayBuffer());
+  expect(response.headers.get("content-disposition")).toContain(".zip.enc");
+  const opened = openEvidenceZip(new Uint8Array(await response.arrayBuffer()), "correct horse battery staple");
+  expect(opened.header.incident_id).toBe(INCIDENT);
+  const zip = await JSZip.loadAsync(opened.zip);
   expect(zip.file(`clips/01-${EVIDENCE}-masked.mp4`)).not.toBeNull();
   expect(zip.file(`images/01-${EVIDENCE}-masked.jpg`)).not.toBeNull();
   const manifestText = await zip.file("manifest.json")!.async("string");
   const manifest = JSON.parse(manifestText) as { privacy: string; files: Array<{ path: string; sha256: string }> };
   expect(manifest.privacy).toContain("fully masked");
   expect(manifest.files.map((file) => file.path)).toContain("README.txt");
+  expect(manifest.files.map((file) => file.path)).toContain("metadata/retention.json");
   for (const file of manifest.files) {
     const bytes = await zip.file(file.path)!.async("uint8array");
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(file.sha256);
@@ -88,6 +97,14 @@ it("builds a masked, checksummed ZIP and writes its audit record", async () => {
     p_manifest_sha256: createHash("sha256").update(manifestText).digest("hex"),
     p_file_count: manifest.files.length + 2,
   }));
+});
+
+it("rejects a wrong evidence passphrase and detects tampering", async () => {
+  const response = await call();
+  const sealed = new Uint8Array(await response.arrayBuffer());
+  expect(() => openEvidenceZip(sealed, "this is the wrong password")).toThrow();
+  sealed[sealed.length - 1] ^= 1;
+  expect(() => openEvidenceZip(sealed, "correct horse battery staple")).toThrow();
 });
 
 it("requires fresh reauthentication before rendering any media", async () => {

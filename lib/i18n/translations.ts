@@ -1732,7 +1732,7 @@ export const T = {
   skip_to_content: { mn: "Гол хэсэг рүү шилжих", en: "Skip to main content", kr: "본문으로 건너뛰기" },
   staging_not_production: { mn: "ENVIRONMENT — production биш", en: "ENVIRONMENT — not production", kr: "ENVIRONMENT — 프로덕션 아님" },
   rt_match_label: { mn: "Тааралцал", en: "Match", kr: "일치" },
-  rt_see_all: { mn: "Бүх alert харах →", en: "See all alerts →", kr: "전체 알림 보기 →" },
+  rt_see_all: { mn: "Alert нээх →", en: "Open alert →", kr: "알림 열기 →" },
   rt_dismiss: { mn: "Хаах", en: "Close", kr: "닫기" },
   tab_dashboard: { mn: "Самбар", en: "Home", kr: "홈" },
   tab_live: { mn: "Live", en: "Live", kr: "라이브" },

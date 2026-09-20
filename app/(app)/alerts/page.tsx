@@ -1,4 +1,4 @@
-import { Download, Bell, Cctv, Clock, RotateCw, FolderPlus, PlayCircle } from "lucide-react";
+import { Download, Bell, Cctv, Clock, RotateCw, FolderPlus, PlayCircle, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
@@ -330,6 +330,9 @@ export default async function AlertsPage({
                       </td>
                       <td>
                         <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <Link href={`/alerts/${a.id}` as never} className="btn-ghost btn-sm" title={incident.details}>
+                            <ExternalLink className="h-3.5 w-3.5" />{incident.details}
+                          </Link>
                           {playbackHref && (
                             <Link href={playbackHref as never} className="btn-secondary btn-sm" title={workflow.openRecording}>
                               <PlayCircle className="h-3.5 w-3.5" />

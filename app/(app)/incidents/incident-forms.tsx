@@ -8,6 +8,7 @@ import { incidentCopy, incidentPriorityLabel, incidentStatusLabel } from "@/lib/
 import { INCIDENT_PRIORITIES, INCIDENT_STATUSES } from "@/lib/incidents";
 import { useToast } from "@/components/ui/toast";
 import { TotpPrompt } from "@/components/totp-prompt";
+import { Dialog } from "@/components/ui/dialog";
 import {
   attachAlertToIncidentAction,
   attachRecordingToIncidentAction,
@@ -315,13 +316,25 @@ export function EvidenceExportButton({ incidentId }: { incidentId: string }) {
   const [busy, setBusy] = useState(false);
   const [needsTotp, setNeedsTotp] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [passphrase, setPassphrase] = useState("");
+  const [passphraseConfirm, setPassphraseConfirm] = useState("");
   const retryRef = useRef(false);
 
   async function download() {
+    if (passphrase.length < 12 || passphrase !== passphraseConfirm) {
+      setError(copy.passphraseInvalid);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`/api/incidents/${incidentId}/evidence-package`, { cache: "no-store" });
+      const response = await fetch(`/api/incidents/${incidentId}/evidence-package`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ passphrase }),
+        cache: "no-store",
+      });
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         if (body?.error === "REAUTH_REQUIRED") {
@@ -335,11 +348,14 @@ export function EvidenceExportButton({ incidentId }: { incidentId: string }) {
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = href;
-      anchor.download = `incident-${incidentId.slice(0, 8)}-${Date.now()}.zip`;
+      anchor.download = `incident-${incidentId.slice(0, 8)}-${Date.now()}.zip.enc`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(href);
+      setExportOpen(false);
+      setPassphrase("");
+      setPassphraseConfirm("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : copy.exportFailed);
     } finally {
@@ -350,12 +366,32 @@ export function EvidenceExportButton({ incidentId }: { incidentId: string }) {
   return (
     <>
       <div className="space-y-2">
-        <button type="button" className="btn-primary w-full sm:w-auto" disabled={busy} onClick={() => void download()}>
+        <button type="button" className="btn-primary w-full sm:w-auto" disabled={busy} onClick={() => setExportOpen(true)}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{busy ? copy.exporting : copy.packageExport}
         </button>
         <p className="max-w-2xl text-xs leading-relaxed text-text-muted">{copy.exportHelp}</p>
         {error && <p role="alert" className="text-xs text-danger">{error}</p>}
       </div>
+      <Dialog
+        open={exportOpen}
+        onClose={() => { if (!busy) setExportOpen(false); }}
+        title={copy.encryptPackage}
+        size="sm"
+        footer={
+          <>
+            <button type="button" className="btn-secondary" disabled={busy} onClick={() => setExportOpen(false)}>{copy.cancel}</button>
+            <button type="button" className="btn-primary" disabled={busy || passphrase.length < 12 || passphrase !== passphraseConfirm} onClick={() => void download()}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{copy.packageExport}
+            </button>
+          </>
+        }
+      >
+        <p className="mb-4 text-sm leading-relaxed text-text-muted">{copy.passphraseHelp}</p>
+        <div className="space-y-3">
+          <div><label className="label" htmlFor={`evidence-passphrase-${incidentId}`}>{copy.passphrase}</label><input id={`evidence-passphrase-${incidentId}`} type="password" className="input" minLength={12} maxLength={128} autoComplete="new-password" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} /></div>
+          <div><label className="label" htmlFor={`evidence-passphrase-confirm-${incidentId}`}>{copy.passphraseConfirm}</label><input id={`evidence-passphrase-confirm-${incidentId}`} type="password" className="input" minLength={12} maxLength={128} autoComplete="new-password" value={passphraseConfirm} onChange={(event) => setPassphraseConfirm(event.target.value)} /></div>
+        </div>
+      </Dialog>
       <TotpPrompt
         open={needsTotp}
         onClose={() => { setNeedsTotp(false); retryRef.current = false; }}

@@ -1374,6 +1374,7 @@ class RecordingSession:
             chain_index=chain_index,
             embedding_sealed=embedding_sealed,
             crop_sealed=True,
+            detection_confidence=getattr(f, "confidence", None),
             source_offset_sec=source_offset_sec,
             detected_at=captured_at.isoformat() if captured_at is not None else None,
         )

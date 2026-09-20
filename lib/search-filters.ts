@@ -7,7 +7,14 @@ export interface SearchFilterInput {
   threshold?: FormDataEntryValue | null;
   limit?: FormDataEntryValue | null;
   offset?: FormDataEntryValue | null;
+  recordingStatus?: FormDataEntryValue | null;
+  minConfidence?: FormDataEntryValue | null;
+  suspectId?: FormDataEntryValue | null;
+  incidentId?: FormDataEntryValue | null;
 }
+
+export const RECORDING_SEARCH_STATUSES = ["capturing", "ready", "partial", "failed", "unlinked"] as const;
+export type RecordingSearchStatus = (typeof RECORDING_SEARCH_STATUSES)[number];
 
 export interface SearchFilters {
   cameraId: string | null;
@@ -16,6 +23,10 @@ export interface SearchFilters {
   threshold: number;
   limit: number;
   offset: number;
+  recordingStatus: RecordingSearchStatus | null;
+  minConfidence: number | null;
+  suspectId: string | null;
+  incidentId: string | null;
 }
 
 /** Convert a minute-precision datetime-local value to the product's KST zone. */
@@ -42,8 +53,15 @@ export function parseSearchFilters(input: SearchFilterInput): SearchFilters | nu
   const thresholdRaw = text(input.threshold) || "0.5";
   const limitRaw = text(input.limit) || "50";
   const offsetRaw = text(input.offset) || "0";
+  const recordingStatusRaw = text(input.recordingStatus) ?? "";
+  const minConfidenceRaw = text(input.minConfidence) ?? "";
+  const suspectRaw = text(input.suspectId) ?? "";
+  const incidentRaw = text(input.incidentId) ?? "";
 
-  if (cameraRaw && !UUID_RE.test(cameraRaw)) return null;
+  if ((cameraRaw && !UUID_RE.test(cameraRaw))
+      || (suspectRaw && !UUID_RE.test(suspectRaw))
+      || (incidentRaw && !UUID_RE.test(incidentRaw))) return null;
+  if (recordingStatusRaw && !(RECORDING_SEARCH_STATUSES as readonly string[]).includes(recordingStatusRaw)) return null;
   const from = fromRaw ? kstLocalToIso(fromRaw) : null;
   const to = toRaw ? kstLocalToIso(toRaw) : null;
   if ((fromRaw && !from) || (toRaw && !to) || (from && to && from >= to)) return null;
@@ -54,9 +72,23 @@ export function parseSearchFilters(input: SearchFilterInput): SearchFilters | nu
   const threshold = Number(thresholdRaw);
   const limit = Number(limitRaw);
   const offset = Number(offsetRaw);
-  if (threshold < 0.3 || threshold > 0.95 || limit < 1 || limit > 100 || offset > 10000) return null;
+  const minConfidence = minConfidenceRaw === "" ? null : Number(minConfidenceRaw);
+  if (threshold < 0.3 || threshold > 0.95 || limit < 1 || limit > 100 || offset > 10000
+      || (minConfidenceRaw !== "" && (!/^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(minConfidenceRaw)
+        || minConfidence === null || minConfidence < 0 || minConfidence > 1))) return null;
 
-  return { cameraId: cameraRaw || null, from, to, threshold, limit, offset };
+  return {
+    cameraId: cameraRaw || null,
+    from,
+    to,
+    threshold,
+    limit,
+    offset,
+    recordingStatus: (recordingStatusRaw || null) as RecordingSearchStatus | null,
+    minConfidence,
+    suspectId: suspectRaw || null,
+    incidentId: incidentRaw || null,
+  };
 }
 
 export function paginateSearchResults<T>(

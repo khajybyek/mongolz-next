@@ -25,6 +25,7 @@
     "recovery:create": "tsx scripts/create-recovery-bundle.ts",
     "recovery:fixture": "tsx scripts/create-recovery-drill-fixture.ts",
     "recovery:restore": "tsx scripts/restore-recovery-bundle.ts",
+    "evidence:decrypt": "tsx scripts/decrypt-evidence-package.ts",
     "rotate:keys": "tsx scripts/rotate-keys.ts",
     "gen:vapid": "tsx scripts/gen-vapid.ts",
     "test": "jest",

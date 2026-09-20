@@ -5,6 +5,7 @@ import { hasFreshReauth } from "@/lib/auth/step-up";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { UUID_RE } from "@/lib/workflow-query";
+import { sealEvidenceZip } from "@/lib/evidence-encryption";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -48,7 +49,7 @@ async function fetchMedia(url: string, token: string): Promise<Uint8Array> {
   return body;
 }
 
-export async function GET(
+export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -59,6 +60,11 @@ export async function GET(
   }
   const { id } = await context.params;
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "invalid incident id" }, { status: 400 });
+  const requestBody = (await request.json().catch(() => null)) as { passphrase?: unknown } | null;
+  const passphrase = typeof requestBody?.passphrase === "string" ? requestBody.passphrase : "";
+  if (passphrase.length < 12 || passphrase.length > 128) {
+    return NextResponse.json({ error: "passphrase must be 12-128 characters" }, { status: 400 });
+  }
 
   const mlUrl = process.env.NEXT_PUBLIC_ML_SERVICE_URL?.replace(/\/$/, "");
   const mlToken = process.env.ML_SERVICE_TOKEN;
@@ -67,16 +73,17 @@ export async function GET(
   }
 
   const svc = createServiceClient();
-  const [incidentRes, evidenceRes, alertRes, faceRes, activityRes, accessRes] = await Promise.all([
+  const [incidentRes, evidenceRes, alertRes, faceRes, activityRes, accessRes, retentionRes] = await Promise.all([
     svc.from("incidents").select("id,title,description,status,priority,assignee_id,created_by,resolved_by,created_at,updated_at,resolved_at").eq("id", id).maybeSingle(),
     svc.from("incident_recordings").select("id,recording_id,recording_filename,camera_name,recording_started_at,clip_start_sec,clip_end_sec,note,legal_hold,added_at").eq("incident_id", id).order("added_at"),
     svc.from("incident_alerts").select("added_at,alert:alerts(id,suspect_name,camera_name,similarity,state,created_at,last_seen_at,match_count)").eq("incident_id", id).order("added_at"),
     svc.from("incident_faces").select("added_at,face:faces(id,filename,recording_id,camera_id,detected_at,source_offset_sec,crop_sealed)").eq("incident_id", id).order("added_at"),
     svc.from("incident_events").select("id,event_type,detail,actor_id,actor_email,created_at").eq("incident_id", id).order("created_at"),
     svc.from("audit_log").select("id,action,detail,user_id,user_email,ip,created_at").ilike("detail", `%${id}%`).order("created_at"),
+    svc.from("retention_policies").select("resource,retention_days,enabled").in("resource", ["recordings", "faces", "alerts", "audit_log"]),
   ]);
   if (!incidentRes.data) return NextResponse.json({ error: "incident not found" }, { status: 404 });
-  const queryError = [incidentRes, evidenceRes, alertRes, faceRes, activityRes, accessRes].find((result) => result.error)?.error;
+  const queryError = [incidentRes, evidenceRes, alertRes, faceRes, activityRes, accessRes, retentionRes].find((result) => result.error)?.error;
   if (queryError) return NextResponse.json({ error: "evidence metadata unavailable" }, { status: 503 });
 
   const evidence = (evidenceRes.data ?? []) as unknown as EvidenceRow[];
@@ -103,6 +110,11 @@ export async function GET(
     add("metadata/faces.json", safeJson(faceRes.data ?? []));
     add("metadata/activity.json", safeJson(activityRes.data ?? []));
     add("metadata/access-log.json", safeJson(accessRes.data ?? []));
+    add("metadata/retention.json", safeJson({
+      policies: retentionRes.data ?? [],
+      legal_holds: evidence.map((item) => ({ evidence_id: item.id, recording_id: item.recording_id, active: item.legal_hold })),
+      note: "An active legal hold overrides scheduled deletion. The downloaded encrypted package is retained by the receiving organisation's evidence policy.",
+    }));
 
     for (const [index, item] of evidence.entries()) {
       if (!item.recording_id) continue; // released hold; metadata remains verifiable
@@ -145,6 +157,8 @@ export async function GET(
     exported_at: exportedAt,
     exported_by: { id: auth.user.id, email: auth.user.email ?? null },
     privacy: "All included clips and representative images are fully masked.",
+    encryption: "The complete ZIP is wrapped with AES-256-GCM; its key is derived from the operator passphrase using scrypt.",
+    retention: retentionRes.data ?? [],
     legal_hold_items: evidence.filter((item) => item.legal_hold).map((item) => item.id),
     files: checksums,
   });
@@ -154,7 +168,8 @@ export async function GET(
     .map((file) => `${file.sha256}  ${file.path}`)
     .join("\n") + "\n";
   zip.file("SHA256SUMS.txt", sums);
-  const body = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  const zipBody = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  const body = sealEvidenceZip(zipBody, passphrase, { incidentId: id, manifestSha256: manifestSha });
 
   const userClient = await createClient();
   const logged = await userClient.rpc("log_incident_evidence_export", {
@@ -170,8 +185,8 @@ export async function GET(
   const date = exportedAt.slice(0, 10);
   return new NextResponse(body as unknown as BodyInit, {
     headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="incident-${id.slice(0, 8)}-${date}.zip"`,
+      "Content-Type": "application/vnd.mongolz.evidence+octet-stream",
+      "Content-Disposition": `attachment; filename="incident-${id.slice(0, 8)}-${date}.zip.enc"`,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
     },

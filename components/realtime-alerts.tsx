@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Bell, X, AlertTriangle, Check, Loader2 } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
+import { alertHref } from "@/lib/workflow-query";
 
 interface Alert {
   id: string;
@@ -74,13 +76,18 @@ export function RealtimeAlerts({
           // Browser notification
           if (notifPermissionRef.current === "granted") {
             try {
-              new Notification(`🚨 Alert: ${a.suspect_name}`, {
+              const notification = new Notification(`🚨 Alert: ${a.suspect_name}`, {
                 body: `${labels.matchLabel} ${(a.similarity * 100).toFixed(1)}% · ${
                   a.camera_name ?? "Unknown"
                 }`,
                 icon: "/icon.png",
                 tag: a.id,
               });
+              notification.onclick = () => {
+                window.focus();
+                window.location.assign(alertHref(a.id) ?? "/alerts");
+                notification.close();
+              };
             } catch {}
           }
           // Sound (optional)
@@ -167,13 +174,13 @@ export function RealtimeAlerts({
                   )}
                   {labels.ack}
                 </button>
-                <a
-                  href="/alerts"
+                <Link
+                  href={(alertHref(a.id) ?? "/alerts") as never}
                   className="text-[11px] text-accent hover:underline inline-flex items-center gap-1"
                 >
                   <Bell className="w-3 h-3" />
                   {labels.seeAll}
-                </a>
+                </Link>
               </div>
             </div>
             <button
