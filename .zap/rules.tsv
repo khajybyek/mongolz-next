@@ -8,6 +8,8 @@
 #   90004 Cross-Origin-Embedder-Policy — not set: require-corp would block signed Supabase Storage media. COOP + CORP are set (next.config.ts).
 #   10010 Cookie without HttpOnly — mongolz-lang / mongolz-theme are UI preferences read by client code.
 #   10021/10063 on /<hash>/script.js — Vercel Speed Insights asset served by the platform CDN, outside the app's header config.
+#   10035 HSTS on /logo.png and /sw.js — the 200 responses carry HSTS; ZAP sees Vercel's bare `304 Not Modified` for static files, which has no headers at all
+#     (verified with If-None-Match). Browsers keep the cached 200's headers and .dev is HSTS-preloaded. Left visible so a real HSTS regression on a page still shows.
 10202	IGNORE	(Anti-CSRF tokens: forms are Next.js Server Actions — POST-only, Origin/Host checked by the framework, SameSite cookies; no token field by design)
 10098	IGNORE	(Cross-domain misconfiguration: Access-Control-Allow-Origin * is added by the Vercel CDN to public static assets only; no credentialed or API response carries it)
 10031	IGNORE	(User-controllable attribute: /login?next= is passed through sanitizeNextPath() and rendered React-escaped into a hidden input)
