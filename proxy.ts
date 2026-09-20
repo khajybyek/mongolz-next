@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { allowsInsecureMedia, buildCsp } from "@/lib/csp";
 
 // Next.js 16: "middleware" file-convention deprecated → "proxy" болсон.
 // Зөвхөн нэр өөрчлөгдсөн, ажиллагаа хэвээр (auth session refresh + cookie sync).
@@ -14,44 +15,6 @@ function generateNonce(): string {
   return btoa(String.fromCharCode(...bytes));
 }
 
-/**
- * Strict CSP — nonce-based, 'unsafe-inline' / 'unsafe-eval' гүйгээр.
- * Production-д script бүр nonce-той байх ёстой → Next.js inline scripts
- * автоматаар nonce ашиглана (layout-аас headers().get('x-nonce') авч).
- */
-function buildCsp(nonce: string, isDev: boolean): string {
-  // Dev mode-д Next.js Fast Refresh нь eval ашигладаг → 'unsafe-eval' хэрэгтэй.
-  // Production-д 'strict-dynamic' ашиглавал nonce-аас зөвшөөрөгдсөн скриптүүд
-  // дараа нь динамик script-уудыг ачаалах боломжтой (web manifest)
-  // 'wasm-unsafe-eval' нь ONNX Runtime Web (edge-detect page)-д WASM ажиллуулахад шаардлагатай.
-  // WASM нь өөрийн sandbox-той тул eval-аас аюулгүй.
-  const scriptSrc = isDev
-    ? `'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval' 'wasm-unsafe-eval'`
-    : `'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval'`;
-
-  // SSRF / data-exfiltration hardening:
-  //   - `connect-src` HTTPS-only (token leak хаах).
-  //   - `img-src` / `media-src` http: үлдээв — гарын IP webcam (MJPEG / MP4 stream)
-  //     нь тухайн LAN-д HTTP-ээр ажилладаг бөгөөд эдгээр channel-ууд session token
-  //     дамжуулдаггүй (одоор үзэгдэх media data л).
-  return [
-    `default-src 'self'`,
-    `script-src ${scriptSrc}`,
-    `worker-src 'self' blob:`,
-    `style-src 'self' 'unsafe-inline'`,
-    `img-src 'self' data: blob: http: https://*.supabase.co https://*.supabase.in`,
-    `media-src 'self' data: blob: http: https://*.supabase.co https://*.supabase.in https://*.up.railway.app`,
-    `font-src 'self' data:`,
-    `connect-src 'self' https://*.supabase.co https://*.supabase.in https://*.up.railway.app wss://*.supabase.co`,
-    `frame-ancestors 'none'`,
-    `base-uri 'self'`,
-    `form-action 'self'`,
-    `object-src 'none'`,
-    `report-uri /api/csp-report`,
-    `report-to csp-endpoint`,
-  ].join("; ");
-}
-
 const REPORT_TO_HEADER = JSON.stringify({
   group: "csp-endpoint",
   max_age: 10886400,
@@ -61,6 +24,8 @@ const REPORT_TO_HEADER = JSON.stringify({
 export async function proxy(request: NextRequest) {
   const nonce = generateNonce();
   const isDev = process.env.NODE_ENV !== "production";
+  // `http:` images/video only where a hand-typed LAN webcam is rendered.
+  const csp = buildCsp(nonce, { isDev, insecureMedia: allowsInsecureMedia(request.nextUrl.pathname) });
 
   // Auth/session логик
   const baseRes = await updateSession(request);
@@ -72,7 +37,7 @@ export async function proxy(request: NextRequest) {
   // дарж бичих ёсгүй — wall host subdomain rewrite-ийг алдагдуулна.
   const isRewrite = baseRes.headers.has("x-middleware-rewrite");
   if (isRedirect || isRewrite) {
-    baseRes.headers.set("Content-Security-Policy", buildCsp(nonce, isDev));
+    baseRes.headers.set("Content-Security-Policy", csp);
     baseRes.headers.set("Report-To", REPORT_TO_HEADER);
     if (!isDev) {
       baseRes.headers.set(
@@ -100,7 +65,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // CSP + reporting headers
-  response.headers.set("Content-Security-Policy", buildCsp(nonce, isDev));
+  response.headers.set("Content-Security-Policy", csp);
   response.headers.set("Report-To", REPORT_TO_HEADER);
 
   // Defense-in-depth security headers (only in production — dev-д HSTS preload

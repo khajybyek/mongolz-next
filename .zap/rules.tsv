@@ -1,0 +1,23 @@
+# OWASP ZAP baseline — triaged rules for https://aicctv.dev (weekly Security workflow).
+# Format: <plugin id><TAB><IGNORE|WARN|FAIL><TAB>(<why>). Anything not listed keeps ZAP's default (WARN).
+# IGNORE is used ONLY for alerts that were checked by hand and are informational or false positives;
+# real hardening gaps stay visible. Reviewed 2026-09-20 against ZAP report #19.
+#
+# Still reported on purpose (accepted, keep watching):
+#   10055 CSP style-src 'unsafe-inline' — React inline style attributes + runtime <style> injection cannot carry a nonce; scripts stay nonce-bound (lib/csp.ts).
+#   90004 Cross-Origin-Embedder-Policy — not set: require-corp would block signed Supabase Storage media. COOP + CORP are set (next.config.ts).
+#   10010 Cookie without HttpOnly — mongolz-lang / mongolz-theme are UI preferences read by client code.
+#   10021/10063 on /<hash>/script.js — Vercel Speed Insights asset served by the platform CDN, outside the app's header config.
+10202	IGNORE	(Anti-CSRF tokens: forms are Next.js Server Actions — POST-only, Origin/Host checked by the framework, SameSite cookies; no token field by design)
+10098	IGNORE	(Cross-domain misconfiguration: Access-Control-Allow-Origin * is added by the Vercel CDN to public static assets only; no credentialed or API response carries it)
+10031	IGNORE	(User-controllable attribute: /login?next= is passed through sanitizeNextPath() and rendered React-escaped into a hidden input)
+10024	IGNORE	(Sensitive info in URL: /monitoring?o=&p= are the public Sentry org/project ids of the tunnel route, not secrets)
+2	IGNORE	(Private IP disclosure: 192.168.x.x strings are input placeholders for LAN camera URLs in the bundle)
+10027	IGNORE	(Suspicious comments: explanatory comments in the public service worker)
+10094	IGNORE	(Base64 disclosure: hashed asset names, nonces and inlined fonts)
+10109	IGNORE	(Modern web application: informational)
+10111	IGNORE	(Authentication request identified: informational)
+10049	IGNORE	(Storable / cacheable content: informational; authenticated pages are not reachable by the baseline spider)
+10050	IGNORE	(Retrieved from cache: informational)
+10015	IGNORE	(Re-examine cache-control: public probe, manifest, offline page and robots.txt carry nothing private)
+90005	IGNORE	(Sec-Fetch-* headers: these are REQUEST headers the scanner itself does not send)

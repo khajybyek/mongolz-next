@@ -10,6 +10,10 @@ import { withSentryConfig } from "@sentry/nextjs/config";
  *  • Referrer-Policy              — referrer leak protection
  *  • Permissions-Policy           — disable unused powerful APIs
  *  • Strict-Transport-Security    — HTTPS enforcement (HSTS)
+ *  • Cross-Origin-Opener-Policy   — no other origin keeps a window handle (XS-Leaks)
+ *  • Cross-Origin-Resource-Policy — our responses cannot be embedded by other sites
+ *    (Cross-Origin-Embedder-Policy is deliberately NOT set: `require-corp`
+ *    would block the signed Supabase Storage images/video the console shows.)
  *
  * Анхаар: Content-Security-Policy нь `proxy.ts` дотор per-request nonce-той
  * dynamic-аар үүсгэгддэг (unsafe-inline/unsafe-eval гүйгээр).
@@ -26,6 +30,8 @@ const securityHeaders = [
     key: "Strict-Transport-Security",
     value: "max-age=63072000; includeSubDomains; preload",
   },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
 ];
 
 const config: NextConfig = {

@@ -37,7 +37,8 @@ function readCookieTheme(): Theme {
 function writeCookieTheme(t: Theme) {
   if (typeof document === "undefined") return;
   // 1-year persistence, SameSite=Lax (purely UI prefs, no auth value)
-  document.cookie = `${COOKIE}=${t}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${COOKIE}=${t}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax${secure}`;
 }
 
 /**
