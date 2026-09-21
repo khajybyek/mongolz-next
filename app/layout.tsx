@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://aicctv.dev"),
   title: { default: "MONGOLZ Security", template: "%s · MONGOLZ Security" },
   description:
-    "Multi-authority masking + reveal · intelligent network camera & integrated control server. Capstone 2026-01-CD-03-07.",
+    "Development of an Intelligent Network Camera and Integrated Surveillance Server Supporting Multi-Level Access-Based Masking and Restoration. Capstone 2026-01-CD-03-07.",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "MONGOLZ" },
   openGraph: {
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     siteName: "MONGOLZ Security",
     title: "MONGOLZ Security",
     description:
-      "Multi-authority masking + reveal · intelligent network camera & integrated control server.",
+      "Development of an Intelligent Network Camera and Integrated Surveillance Server Supporting Multi-Level Access-Based Masking and Restoration.",
     url: "https://aicctv.dev",
     locale: "mn_MN",
     alternateLocale: ["en_US", "ko_KR"],
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "MONGOLZ Security",
     description:
-      "Multi-authority masking + reveal · intelligent network camera & integrated control server.",
+      "Development of an Intelligent Network Camera and Integrated Surveillance Server Supporting Multi-Level Access-Based Masking and Restoration.",
   },
 };
 

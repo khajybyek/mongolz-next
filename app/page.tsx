@@ -92,9 +92,16 @@ export default async function HomePage() {
         {/* Hero */}
         <section className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-14 items-center pt-12 md:pt-20 pb-12 md:pb-20">
           <div className="text-left animate-fade-in-up">
-            <div className="inline-flex items-center gap-2.5 text-accent text-xs font-semibold tracking-wide mb-6">
-              <span className="w-6 h-px bg-accent" aria-hidden />
-              {t("home_workspace")}
+            <div className="mb-7 rounded-2xl border border-accent/20 bg-accent/[0.045] px-4 py-3.5 shadow-sm sm:px-5">
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-accent sm:text-xs">
+                <ScrollText className="h-3.5 w-3.5" aria-hidden />
+                <span>{t("home_pill")}</span>
+                <span className="text-border-strong" aria-hidden>·</span>
+                <span>{t("home_project_label")}</span>
+              </div>
+              <p className="max-w-2xl text-sm font-medium leading-relaxed text-text-soft text-balance sm:text-base">
+                {t("home_footer_tagline")}
+              </p>
             </div>
             <h1 className="text-[2.35rem] sm:text-5xl xl:text-[3.5rem] font-semibold tracking-[-0.045em] text-gradient-soft leading-[1.13] text-balance">
               {t("home_hero_title")}

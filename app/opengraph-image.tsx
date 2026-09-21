@@ -3,7 +3,7 @@ import { ImageResponse } from "next/og";
 // Next.js 16 deprecated the Edge runtime — switch to nodejs so we keep
 // static OG generation working without the build-time warning.
 export const runtime = "nodejs";
-export const alt = "MONGOLZ Security — Multi-authority masking + reveal";
+export const alt = "MONGOLZ Security — Intelligent Network Camera and Integrated Surveillance Server";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -64,7 +64,7 @@ export default function OpengraphImage() {
             maxWidth: "1000px",
           }}
         >
-          Multi-authority masking + reveal · intelligent network camera & integrated control server
+          Intelligent Network Camera and Integrated Surveillance Server with Multi-Level Access-Based Masking and Restoration
         </div>
         <div
           style={{
