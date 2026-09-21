@@ -51,6 +51,7 @@ function reg(n: number, over: Row = {}): Row {
     receipt_mime: "image/jpeg",
     receipt_bytes: 1234,
     created_at: new Date(Date.UTC(2026, 8, 1, 0, 0, n)).toISOString(),
+    updated_at: "2026-09-10T00:00:00.000Z",
     ...over,
   };
 }
@@ -283,7 +284,9 @@ import {
   setTeamsPublishedAction,
   sweepOrphanReceiptsAction,
   updateEventSettingsAction,
+  updateRegistrationAction,
   type SchEventSettingsInput,
+  type SchRegistrationEditInput,
 } from "@/app/(app)/sch/admin/actions";
 
 /* ───────────────────────── helpers ───────────────────────── */
@@ -325,6 +328,23 @@ function settings(over: Partial<SchEventSettingsInput> = {}): SchEventSettingsIn
   };
 }
 
+function edit(over: Partial<SchRegistrationEditInput> = {}): SchRegistrationEditInput {
+  return {
+    id: rid(1),
+    full_name: "Player 1",
+    email: "player1@example.test",
+    facebook: "fb.com/player1",
+    phone: "+82-10-0000-0001",
+    game: "mobile_legends",
+    in_game_id: "ml-1",
+    rank_label: "Epic",
+    roles: ["Jungle"],
+    premier_rank: "",
+    faceit: "",
+    ...over,
+  };
+}
+
 const BAD_IDS: unknown[] = ["", "not-a-uuid", "../etc/passwd", "a0000000-0000-4000-8000-00000000000g", 42, null, undefined];
 
 beforeEach(() => {
@@ -353,6 +373,7 @@ describe("auth gate", () => {
     await expect(setRegistrationStatusAction({ id: rid(1), status: "paid" })).rejects.toThrow("NEXT_REDIRECT");
     await expect(setCheckInAction({ id: rid(1), checkedIn: true })).rejects.toThrow("NEXT_REDIRECT");
     await expect(setRegistrationNoteAction({ id: rid(1), note: "x" })).rejects.toThrow("NEXT_REDIRECT");
+    await expect(updateRegistrationAction(edit())).rejects.toThrow("NEXT_REDIRECT");
     await expect(deleteRegistrationAction({ id: rid(1) })).rejects.toThrow("NEXT_REDIRECT");
     await expect(updateEventSettingsAction(settings())).rejects.toThrow("NEXT_REDIRECT");
     await expect(saveTeamsAction({ game: "cs2", seed: 1, playerIds: [] })).rejects.toThrow("NEXT_REDIRECT");
@@ -389,12 +410,117 @@ describe("registration id validation", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it.each(BAD_IDS)("edit: %p → invalid without touching the database", async (bad) => {
+    expect(await updateRegistrationAction(edit({ id: bad as string }))).toEqual({ error: "invalid" });
+    expect(calls).toHaveLength(0);
+  });
+
   it("accepts an upper-case uuid and filters by its lower-case form", async () => {
     db.sch_registrations.push(reg(1));
     expect(await setCheckInAction({ id: rid(1).toUpperCase(), checkedIn: true })).toEqual({ ok: true });
     const update = writes()[0];
     expect(update.filters).toEqual([{ kind: "eq", col: "id", value: rid(1) }]);
     expect(row(rid(1))?.checked_in_at).toEqual(expect.any(String));
+  });
+});
+
+/* ───────────────────────── registration edits ───────────────────────── */
+
+describe("updateRegistrationAction", () => {
+  it("corrects personal and Mobile Legends fields, recalculates strength, and audits field names without PII", async () => {
+    db.sch_registrations.push(reg(1));
+
+    expect(await updateRegistrationAction(edit({
+      full_name: "  Corrected Player  ",
+      email: "CORRECTED@EXAMPLE.TEST",
+      facebook: " corrected.facebook ",
+      phone: " 010-1234-5678 ",
+      in_game_id: " corrected-id ",
+      rank_label: "Mythic",
+      roles: ["Roamer", "Mid Lane"],
+    }))).toEqual({ ok: true });
+
+    expect(row(rid(1))).toMatchObject({
+      full_name: "Corrected Player",
+      email: "corrected@example.test",
+      facebook: "corrected.facebook",
+      phone: "010-1234-5678",
+      in_game_id: "corrected-id",
+      rank_label: "Mythic",
+      rank_score: 70,
+      roles: ["Roamer", "Mid Lane"],
+      answers: {},
+    });
+    expectLedgerClean(["SCH_REGISTRATION_EDITED"]);
+    expect(audits[0].detail).toContain(`registration=${rid(1)} game=mobile_legends→mobile_legends fields=`);
+    expect(audits[0].detail).not.toContain("Corrected Player");
+    expect(revalidated()).toEqual(expect.arrayContaining(["/sch/admin", "/sch", "/sch/teams"]));
+  });
+
+  it("changes the game, derives CS2 fields, and clears an incompatible team seat", async () => {
+    db.sch_registrations.push(reg(1, { team_id: tid(1) }));
+
+    expect(await updateRegistrationAction(edit({
+      game: "cs2",
+      in_game_id: "steamcommunity.com/id/corrected-player",
+      rank_label: "",
+      roles: [],
+      premier_rank: "15000",
+      faceit: "yes",
+    }))).toEqual({ ok: true });
+
+    expect(row(rid(1))).toMatchObject({
+      game: "cs2",
+      in_game_id: "https://steamcommunity.com/id/corrected-player",
+      rank_label: "Premier 15000",
+      rank_score: 50,
+      roles: [],
+      answers: { premier_rank: "15000", faceit: "yes" },
+      team_id: null,
+    });
+    expect(String(audits[0].detail)).toContain("game=mobile_legends→cs2");
+    expect(String(audits[0].detail)).toContain("team_id");
+  });
+
+  it.each([
+    { email: "not-an-email" },
+    { game: "valorant" },
+    { rank_label: "Not a rank" },
+    { roles: [] },
+    { in_game_id: "" },
+  ])("rejects an invalid correction %p before reading", async (over) => {
+    db.sch_registrations.push(reg(1));
+    expect(await updateRegistrationAction(edit(over))).toEqual({ error: "invalid" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("returns conflict for a missing row or a concurrent edit and writes no audit", async () => {
+    expect(await updateRegistrationAction(edit({ full_name: "Changed" }))).toEqual({ error: "conflict" });
+
+    db.sch_registrations.push(reg(1));
+    state.faults = [(call) => {
+      if (call.op === "update" && call.table === "sch_registrations") row(rid(1))!.updated_at = "2026-09-11T00:00:00.000Z";
+      return null;
+    }];
+    expect(await updateRegistrationAction(edit({ full_name: "Changed" }))).toEqual({ error: "conflict" });
+    expect(row(rid(1))?.full_name).toBe("Player 1");
+    expect(audits).toHaveLength(0);
+  });
+
+  it("maps a duplicate game/e-mail constraint to conflict", async () => {
+    db.sch_registrations.push(reg(1));
+    state.faults = [(call) => call.op === "update" && call.table === "sch_registrations"
+      ? { code: "23505", message: "duplicate key" }
+      : null];
+    expect(await updateRegistrationAction(edit({ email: "other@example.test" }))).toEqual({ error: "conflict" });
+    expect(audits).toHaveLength(0);
+  });
+
+  it("treats an unchanged save as a successful no-op", async () => {
+    db.sch_registrations.push(reg(1));
+    expect(await updateRegistrationAction(edit())).toEqual({ ok: true });
+    expect(writes()).toHaveLength(0);
+    expect(audits).toHaveLength(0);
   });
 });
 
@@ -1037,6 +1163,7 @@ describe("audit ledger", () => {
     await setRegistrationStatusAction({ id: rid(1), status: "paid" });
     await setCheckInAction({ id: rid(1), checkedIn: true });
     await setRegistrationNoteAction({ id: rid(1), note: "player1@example.test said they paid" });
+    await updateRegistrationAction(edit({ in_game_id: "corrected-id" }));
     await deleteRegistrationAction({ id: rid(2) });
     await updateEventSettingsAction(settings());
     await setTeamsPublishedAction({ game: "cs2", published: true });
@@ -1046,6 +1173,7 @@ describe("audit ledger", () => {
       "SCH_REGISTRATION_STATUS",
       "SCH_REGISTRATION_CHECKIN",
       "SCH_REGISTRATION_NOTE",
+      "SCH_REGISTRATION_EDITED",
       "SCH_REGISTRATION_DELETED",
       "SCH_EVENT_UPDATED",
       "SCH_TEAMS_PUBLISHED",

@@ -11,6 +11,7 @@ import {
   ImageOff,
   Loader2,
   MessageSquareText,
+  Pencil,
   Receipt,
   RotateCcw,
   Search,
@@ -26,7 +27,19 @@ import { Tabs } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { useT } from "@/lib/i18n/client";
 import { cn, formatDate } from "@/lib/utils";
-import { SCH_GAMES, SCH_GAME_LABEL, SCH_LIMITS, SCH_STATUSES, type SchGame, type SchStatus } from "@/lib/sch/schema";
+import {
+  DOTA_RANKS,
+  DOTA_ROLES,
+  FACEIT_OPTIONS,
+  ML_RANKS,
+  ML_ROLES,
+  SCH_GAMES,
+  SCH_GAME_LABEL,
+  SCH_LIMITS,
+  SCH_STATUSES,
+  type SchGame,
+  type SchStatus,
+} from "@/lib/sch/schema";
 import { facebookHref, isSteamUrl, maskSteam } from "@/lib/sch/format";
 import { fill, schAdminCopy, schStatusLabel, schStatusVariant } from "./admin-copy";
 import {
@@ -34,7 +47,9 @@ import {
   setCheckInAction,
   setRegistrationNoteAction,
   setRegistrationStatusAction,
+  updateRegistrationAction,
   type SchActionResult,
+  type SchRegistrationEditInput,
 } from "./actions";
 
 /** Serialisable row the server page hands to the table — no storage paths. */
@@ -72,9 +87,26 @@ type Sort = "newest" | "oldest";
 
 type DialogState =
   | { kind: "receipt"; row: SchAdminRow }
+  | { kind: "edit"; row: SchAdminRow; draft: SchRegistrationEditInput }
   | { kind: "note"; row: SchAdminRow; draft: string }
   | { kind: "delete"; row: SchAdminRow }
   | null;
+
+function editDraft(row: SchAdminRow): SchRegistrationEditInput {
+  return {
+    id: row.id,
+    full_name: row.full_name,
+    email: row.email,
+    facebook: row.facebook,
+    phone: row.phone ?? "",
+    game: row.game,
+    in_game_id: row.in_game_id ?? "",
+    rank_label: row.rank_label ?? "",
+    roles: [...row.roles],
+    premier_rank: row.premier_rank ?? "",
+    faceit: row.faceit ?? "",
+  };
+}
 
 function rankVariant(score: number): "accent" | "success" | "warning" | "info" | "muted" {
   if (score >= 80) return "accent";
@@ -147,6 +179,22 @@ export function RegistrationsTable({ rows }: { rows: SchAdminRow[] }) {
 
   const setStatusFor = (row: SchAdminRow, next: SchStatus, onOk?: () => void) =>
     run(row, () => setRegistrationStatusAction({ id: row.id, status: next }), copy.statusSaved, onOk);
+
+  const setEditDraft = (patch: Partial<SchRegistrationEditInput>) => {
+    setDialog((current) => current?.kind === "edit"
+      ? { ...current, draft: { ...current.draft, ...patch } }
+      : current);
+  };
+
+  const toggleEditRole = (role: string) => {
+    setDialog((current) => {
+      if (current?.kind !== "edit") return current;
+      const roles = current.draft.roles.includes(role)
+        ? current.draft.roles.filter((value) => value !== role)
+        : [...current.draft.roles, role];
+      return { ...current, draft: { ...current.draft, roles } };
+    });
+  };
 
   const closeDialog = () => {
     if (pending) return;
@@ -346,6 +394,9 @@ export function RegistrationsTable({ rows }: { rows: SchAdminRow[] }) {
                         <button type="button" className="btn-ghost btn-sm" onClick={() => setDialog({ kind: "note", row, draft: row.notes ?? "" })} disabled={busy} title={copy.editNote}>
                           <MessageSquareText className="h-3.5 w-3.5" aria-hidden />{copy.editNote}
                         </button>
+                        <button type="button" className="btn-ghost btn-sm" onClick={() => setDialog({ kind: "edit", row, draft: editDraft(row) })} disabled={busy} title={copy.editRegistration}>
+                          <Pencil className="h-3.5 w-3.5" aria-hidden />{copy.editRegistration}
+                        </button>
                         <button type="button" className="btn-ghost btn-sm text-danger" onClick={() => setDialog({ kind: "delete", row })} disabled={busy} title={copy.delete} aria-label={`${copy.delete}: ${row.full_name}`}>
                           <Trash2 className="h-3.5 w-3.5" aria-hidden />
                         </button>
@@ -410,6 +461,171 @@ export function RegistrationsTable({ rows }: { rows: SchAdminRow[] }) {
             <div className="flex flex-wrap items-center gap-2 text-xs text-text-soft">
               <Badge variant={schStatusVariant(dialog.row.status)} dot>{schStatusLabel(dialog.row.status, lang)}</Badge>
               <span className="font-mono">{copy.reference} {dialog.row.reference}</span>
+            </div>
+          </div>
+        )}
+      </Dialog>
+
+      {/* Registration correction */}
+      <Dialog
+        open={dialog?.kind === "edit"}
+        onClose={closeDialog}
+        title={copy.editTitle}
+        description={dialog?.kind === "edit" ? `${dialog.row.full_name} · ${copy.reference} ${dialog.row.reference}` : undefined}
+        size="lg"
+        footer={dialog?.kind === "edit" ? (
+          <>
+            <button type="button" className="btn-secondary" onClick={closeDialog} disabled={pending}>{copy.cancel}</button>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={pending}
+              onClick={() => run(dialog.row, () => updateRegistrationAction(dialog.draft), copy.editSaved, () => setDialog(null))}
+            >
+              {pending && busyId === dialog.row.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Pencil className="h-4 w-4" aria-hidden />}
+              {pending && busyId === dialog.row.id ? copy.saving : copy.save}
+            </button>
+          </>
+        ) : undefined}
+      >
+        {dialog?.kind === "edit" && (
+          <div className="space-y-5">
+            <p className="rounded-lg border border-warning/25 bg-warning-soft p-3 text-xs leading-relaxed text-text-soft">
+              {copy.editHint}
+            </p>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="label">{copy.fullName}</span>
+                <input
+                  className="input"
+                  value={dialog.draft.full_name}
+                  minLength={SCH_LIMITS.name.min}
+                  maxLength={SCH_LIMITS.name.max}
+                  autoComplete="name"
+                  onChange={(e) => setEditDraft({ full_name: e.target.value })}
+                />
+              </label>
+              <label className="block">
+                <span className="label">{copy.email}</span>
+                <input
+                  className="input"
+                  type="email"
+                  value={dialog.draft.email}
+                  maxLength={254}
+                  autoComplete="email"
+                  onChange={(e) => setEditDraft({ email: e.target.value })}
+                />
+              </label>
+              <label className="block">
+                <span className="label">{copy.facebook}</span>
+                <input
+                  className="input"
+                  value={dialog.draft.facebook}
+                  minLength={SCH_LIMITS.facebook.min}
+                  maxLength={SCH_LIMITS.facebook.max}
+                  autoComplete="url"
+                  onChange={(e) => setEditDraft({ facebook: e.target.value })}
+                />
+              </label>
+              <label className="block">
+                <span className="label">{copy.phone} <span className="text-text-muted">({copy.optional})</span></span>
+                <input
+                  className="input"
+                  type="tel"
+                  value={dialog.draft.phone}
+                  maxLength={SCH_LIMITS.phone.max}
+                  autoComplete="tel"
+                  onChange={(e) => setEditDraft({ phone: e.target.value })}
+                />
+              </label>
+            </div>
+
+            <div className="border-t border-border pt-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="label">{copy.game}</span>
+                  <select
+                    className="select"
+                    value={dialog.draft.game}
+                    onChange={(e) => setEditDraft({
+                      game: e.target.value,
+                      in_game_id: "",
+                      rank_label: "",
+                      roles: [],
+                      premier_rank: "",
+                      faceit: "",
+                    })}
+                  >
+                    {SCH_GAMES.map((value) => <option key={value} value={value}>{SCH_GAME_LABEL[value]}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="label">{dialog.draft.game === "mobile_legends" ? copy.inGameId : copy.steamUrl}</span>
+                  <input
+                    className="input"
+                    type={dialog.draft.game === "mobile_legends" ? "text" : "url"}
+                    value={dialog.draft.in_game_id}
+                    maxLength={SCH_LIMITS.inGameId.max}
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    placeholder={dialog.draft.game === "mobile_legends" ? undefined : "https://steamcommunity.com/id/…"}
+                    onChange={(e) => setEditDraft({ in_game_id: e.target.value })}
+                  />
+                </label>
+              </div>
+
+              {dialog.draft.game === "cs2" ? (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="label">{copy.premierRank} <span className="text-text-muted">({copy.optional})</span></span>
+                    <input
+                      className="input"
+                      inputMode="numeric"
+                      value={dialog.draft.premier_rank}
+                      maxLength={SCH_LIMITS.premier.max}
+                      onChange={(e) => setEditDraft({ premier_rank: e.target.value })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="label">{copy.faceit}</span>
+                    <select className="select" value={dialog.draft.faceit} onChange={(e) => setEditDraft({ faceit: e.target.value })}>
+                      <option value="">{copy.choose}</option>
+                      {FACEIT_OPTIONS.map((value) => (
+                        <option key={value} value={value}>{value === "yes" ? copy.faceitYes : copy.faceitNo}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              ) : (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="label">{copy.rank}</span>
+                    <select className="select" value={dialog.draft.rank_label} onChange={(e) => setEditDraft({ rank_label: e.target.value })}>
+                      <option value="">{copy.choose}</option>
+                      {(dialog.draft.game === "mobile_legends" ? ML_RANKS : DOTA_RANKS).map((value) => (
+                        <option key={value} value={value}>{value}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <fieldset>
+                    <legend className="label">{copy.roles}</legend>
+                    <div className="grid gap-2">
+                      {(dialog.draft.game === "mobile_legends" ? ML_ROLES : DOTA_ROLES).map((role) => (
+                        <label key={role} className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 text-sm text-text-soft hover:border-border-strong">
+                          <input
+                            type="checkbox"
+                            className="accent-accent"
+                            checked={dialog.draft.roles.includes(role)}
+                            onChange={() => toggleEditRole(role)}
+                          />
+                          <span>{role}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                </div>
+              )}
             </div>
           </div>
         )}

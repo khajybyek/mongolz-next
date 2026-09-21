@@ -15,6 +15,7 @@ import { isIP } from "node:net";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
+import type { Database, Json } from "@/lib/database.generated";
 import { log } from "@/lib/log";
 import { requireSchOrganiser, type AuthCtx } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
@@ -27,6 +28,9 @@ import {
   SCH_TEAM_SIZE,
   isSchGame,
   isSchStatus,
+  registrationRow,
+  schGameEntrySchema,
+  schPersonSchema,
   type SchGame,
   type SchStatus,
 } from "@/lib/sch/schema";
@@ -40,6 +44,20 @@ export type SchActionResult =
   | { error: "no_teams"; game: SchGame };
 
 export type SchSweepResult = { ok: true; removed: number } | { error: "unavailable" };
+
+export interface SchRegistrationEditInput {
+  id: string;
+  full_name: string;
+  email: string;
+  facebook: string;
+  phone: string;
+  game: string;
+  in_game_id: string;
+  rank_label: string;
+  roles: string[];
+  premier_rank: string;
+  faceit: string;
+}
 
 const MAX_DRAW_PLAYERS = 500;
 /** Receipts younger than this are never swept (see sch_orphan_receipts). */
@@ -82,6 +100,80 @@ function refreshPublic(): void {
 
 /** Organisers move rows between pending / paid / waitlist / rejected. */
 const ORGANISER_STATUSES: readonly SchStatus[] = ["pending", "paid", "waitlist", "rejected"];
+
+/**
+ * Correct a submitted registration from the organiser console. The public
+ * form schemas remain the single source of truth, so an admin cannot save a
+ * combination that the registrant could not have submitted themselves.
+ */
+export async function updateRegistrationAction(input: SchRegistrationEditInput): Promise<SchActionResult> {
+  const ctx = await requireSchOrganiser();
+  if (!UUID_RE.test(input?.id ?? "") || !isSchGame(input?.game)) return { error: "invalid" };
+
+  const person = schPersonSchema.safeParse({
+    full_name: input.full_name,
+    email: input.email,
+    facebook: input.facebook,
+    phone: input.phone,
+  });
+  const entry = schGameEntrySchema.safeParse(
+    input.game === "mobile_legends"
+      ? { game: input.game, rank: input.rank_label, roles: input.roles, in_game_id: input.in_game_id }
+      : input.game === "dota2"
+        ? { game: input.game, rank: input.rank_label, roles: input.roles, steam_url: input.in_game_id }
+        : { game: input.game, premier_rank: input.premier_rank, steam_url: input.in_game_id, faceit: input.faceit },
+  );
+  if (!person.success || !entry.success) return { error: "invalid" };
+
+  const id = input.id.toLowerCase();
+  const gameFields = registrationRow(entry.data);
+  try {
+    const supabase = await createClient();
+    const { data: current, error: readError } = await supabase
+      .from("sch_registrations")
+      .select("id, game, full_name, email, facebook, phone, in_game_id, rank_label, rank_score, roles, answers, team_id, updated_at")
+      .eq("id", id)
+      .maybeSingle();
+    if (readError) return { error: "unavailable" };
+    if (!current) return { error: "conflict" };
+
+    const gameChanged = current.game !== gameFields.game;
+    const patch: Database["public"]["Tables"]["sch_registrations"]["Update"] = {
+      ...person.data,
+      ...gameFields,
+      answers: gameFields.answers as Json,
+      ...(gameChanged && current.team_id ? { team_id: null } : {}),
+    };
+    const comparable = (value: unknown) => JSON.stringify(value ?? null);
+    const changed = Object.keys(patch).filter((key) => {
+      const column = key as keyof typeof patch;
+      return comparable(current[column as keyof typeof current]) !== comparable(patch[column]);
+    });
+    if (changed.length === 0) return { ok: true };
+
+    const { data: updated, error } = await supabase
+      .from("sch_registrations")
+      .update(patch)
+      .eq("id", id)
+      .eq("updated_at", current.updated_at)
+      .select("id")
+      .maybeSingle();
+    if (error) return { error: error.code === "23505" ? "conflict" : "unavailable" };
+    if (!updated) return { error: "conflict" };
+
+    await audit(
+      "SCH_REGISTRATION_EDITED",
+      `registration=${id} game=${current.game}→${gameFields.game} fields=${changed.sort().join(",")}`,
+      ctx,
+    );
+    refreshAdmin();
+    // Names, game ids, ranks and team membership appear on the public roster.
+    refreshPublic();
+    return { ok: true };
+  } catch {
+    return { error: "unavailable" };
+  }
+}
 
 export async function setRegistrationStatusAction(input: {
   id: string;
