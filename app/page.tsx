@@ -93,8 +93,8 @@ export default async function HomePage() {
         <section className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-14 items-center pt-12 md:pt-20 pb-12 md:pb-20">
           <div className="text-left animate-fade-in-up">
             <h1
-              className="break-words hyphens-auto text-justify text-[2rem] font-semibold leading-[1.16] tracking-[-0.035em] text-gradient-soft sm:text-[2.5rem] xl:text-[2.9rem]"
-              style={{ textAlignLast: "left" }}
+              className="break-words hyphens-auto text-justify text-[1.375rem] font-semibold leading-[1.32] tracking-[-0.02em] text-gradient-soft sm:text-[2rem] lg:text-[1.5rem] xl:text-[1.625rem]"
+              style={{ textAlignLast: "left", textJustify: "inter-character" }}
             >
               {t("home_hero_title")}
             </h1>
