@@ -1342,11 +1342,6 @@ export const T = {
     en: "2026-01-CD-03-07",
     kr: "2026-01-CD-03-07",
   },
-  home_project_label: {
-    mn: "Төгсөлтийн төслийн сэдэв",
-    en: "Capstone project",
-    kr: "캡스톤 프로젝트",
-  },
   home_footer_tagline: {
     mn: "Олон түвшний хандалтын эрхэд суурилсан дүрс масклах, сэргээх функц бүхий ухаалаг сүлжээний камер болон нэгдсэн хяналтын серверийн хөгжүүлэлт",
     en: "Development of an Intelligent Network Camera and Integrated Surveillance Server Supporting Multi-Level Access-Based Masking and Restoration",
@@ -1388,9 +1383,9 @@ export const T = {
     kr: "얼굴이 감지된 시간 범위에서만 공개",
   },
   home_hero_title: {
-    mn: "Хувийн нууцыг хадгалсан AI камерын систем",
-    en: "AI surveillance that preserves privacy",
-    kr: "프라이버시를 보호하는 AI 감시 시스템",
+    mn: "Олон түвшний хандалтын эрхэд суурилсан дүрс масклах, сэргээх функц бүхий ухаалаг сүлжээний камер болон нэгдсэн хяналтын серверийн хөгжүүлэлт",
+    en: "Development of an Intelligent Network Camera and Integrated Surveillance Server Supporting Multi-Level Access-Based Masking and Restoration",
+    kr: "다중 권한 마스킹 및 복원이 가능한 지능형 네트워크 카메라 및 통합관제 서버 개발",
   },
   home_hero_body: {
     mn: "MONGOLZ Security нь нүүр илрүүлэлтийг автомат privacy mask-аар хүргэж, эх бичлэгийг AES-256-аар шифрлэн зөвхөн зөвшөөрөгдсөн reveal flow-ор буцаах боломжтой систем юм.",
