@@ -16,7 +16,7 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 
 ### Q3. ML service-ийг яагаад Railway-ээс host хийсэн?
 
-> "FastAPI + InsightFace + OpenCV + FFmpeg — Vercel serverless-ийн 50MB limit-аас давах учир. Container deployment автомат, env-var management цэвэрхэн. **Гэхдээ нэг илэн далангүй зүйл**: Railway service маань одоогоор `us-west2` (АНУ) регионд ажиллаж байна — Supabase (`ap-southeast-1`) болон Vercel (`sin1`) Сингапурт байхад. Тиймээс frame бүр Сингапур → АНУ → Сингапур гэж явдаг: latency-д ~150ms нэмэгддэг, GDPR Art.44 талаас нь бол SG→US дамжуулалт болдог. Үүнийг `docs/COMPLIANCE.md` §2 болон DPIA §D.5-д бүртгэсэн; засах арга нь Railway-г APAC регион руу зөөх. Production бол Kubernetes (EKS / GKE) дээр, storage-тайгаа нэг регионд шилжүүлнэ."
+> "FastAPI + InsightFace + OpenCV + FFmpeg — Vercel serverless-ийн 50MB limit-аас давах учир. Container deployment автомат, env-var management цэвэрхэн. Railway service нь 2026-09-20-оос хойш `asia-southeast1` (Сингапур) регионд ажиллаж байна — Supabase (`ap-southeast-1`), Vercel (`sin1`)-тэй нэг регионд. Өмнө нь `us-west2` (АНУ)-д байсан тул frame бүр Сингапур → АНУ → Сингапур гэж явдаг байсан; тэр дамжуулалт хаагдсаныг `docs/COMPLIANCE.md` §2 болон DPIA §D.5-д бүртгэсэн. Production бол Kubernetes (EKS / GKE) дээр, storage-тайгаа нэг регионд шилжүүлнэ."
 
 ### Q4. Cubist Mosaic algorithm нь яагаад Gaussian Blur-аас илүү вэ?
 
@@ -114,11 +114,11 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 ### Q12. "Korean PIPA compliance?"
 
 > "Same `docs/COMPLIANCE.md` maps to PIPA Articles 15 / 17 / 23 / 28-2 / 28-8 / 29 / 35 / 36 / 39. Three Korean talking points:
-> - 저장된 원본은 암호화되어 있고, 재생 화면은 열람 시점에 비식별화됩니다 (stored original encrypted, playback view anonymised at request time — ADR 0010; the live feed is a separate, unmasked path).
+> - 저장된 원본은 암호화되어 있고, 재생 화면은 열람 시점에 비식별화됩니다 (stored original encrypted, playback view anonymised at request time — ADR 0010; since 2026-09-20 live frames pass through the same detection-based masker).
 > - 원본은 AES-256-GCM 으로 암호화되며, 4-eyes 승인 후에만 복원됩니다 (originals encrypted, 4-eyes reveal).
 > - 권한 변경과 개인정보 열람 경로(복호화·재생·검색·내보내기)는 해시 체인 감사 로그에 기록됩니다 (privileged changes **and the personal-data read paths** in the hash-chained audit log — not page views, not direct PostgREST reads).
 >
-> One thing I volunteer rather than wait to be asked: 국외 이전 (Art. 28-8). Storage is in Singapore, but the ML service that decrypts and embeds faces runs in the United States (`us-west2`). It is recorded in COMPLIANCE.md §2/§4 and DPIA §D.5, and the fix is to move the service to an APAC region."
+> One thing I volunteer rather than wait to be asked: 국외 이전 (Art. 28-8). Storage and the ML service that decrypts and embeds faces are both in Singapore (Railway `asia-southeast1` since 2026-09-20; it ran in `us-west2`, United States, before). For a Korean subject that is still a transfer abroad; it is recorded in COMPLIANCE.md §2/§4 and DPIA §D.5."
 
 ### Q13. "What is the legal basis for processing biometric data?"
 
@@ -159,7 +159,7 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 
 ### Q17. "Why a Vercel-based production?"
 
-> "Vercel (`sin1`) and Supabase (`ap-southeast-1`) are co-located in Singapore, which gives sub-50 ms latency for everything that is only rows and blobs. The Railway ML service is the exception — it sits in `us-west2` (United States), so any request that has to touch face detection pays a trans-Pacific round trip and, more importantly, moves biometric data across a border (COMPLIANCE.md §2, DPIA §D.5). Edge functions give us nonce-based CSP. Auto-deploy on git push for capstone iteration speed. Production launch in a real org would shift to Kubernetes for stricter network policies — and would pin ML to the same region as storage."
+> "Vercel (`sin1`) and Supabase (`ap-southeast-1`) are co-located in Singapore, which gives sub-50 ms latency for everything that is only rows and blobs. Since 2026-09-20 the Railway ML service is in Singapore too (`asia-southeast1`); before that it sat in `us-west2` (United States) and every face-detection request crossed the Pacific (COMPLIANCE.md §2, DPIA §D.5). Edge functions give us nonce-based CSP. Auto-deploy on git push for capstone iteration speed. Production launch in a real org would shift to Kubernetes for stricter network policies — and would pin ML to the same region as storage."
 
 ### Q18. "How many lines of code? How long did it take?"
 

@@ -51,21 +51,20 @@ requires a redeploy, not just an env edit.
 ## Failure-rate monitor
 
 `/api/monitoring/error-rate` counts `LOGIN_FAILED` + `TOTP_LOGIN_FAILED` +
-`LOGIN_BLOCKED` audit rows in the last hour against the preceding 23 hours,
-and on a spike posts to `SLACK_ALERT_WEBHOOK` and writes a `MONITOR_ALARM`
-audit row.
+`LOGIN_BLOCKED` audit rows in the last **24 hours** against the preceding
+**7 days**, and on a spike writes a `MONITOR_ALARM` audit row, pushes every
+admin and posts to Telegram (`lib/notify.ts#notifyOpsAlarm`); it also posts
+to `SLACK_ALERT_WEBHOOK` when that optional channel is configured.
 
-It runs **hourly**, and the recent window is exactly that interval, so every
-minute of the day is examined by exactly one run. (It previously inspected a
-5-minute window once a day — 0.35 % of the day, with the remaining 99.65 %
-unmonitored by anything.) Cost: 24 invocations/day instead of 1, two
-`count(*)` queries each, well under a second — roughly half a minute of
-function time per day. The binding constraint is Vercel's cron *frequency*
-limit: sub-daily schedules require Pro/Enterprise. If the schedule ever has
-to go back to daily, `RECENT_WINDOW_MIN` in
-`app/api/monitoring/error-rate/window.ts` must move with it —
-`__tests__/observability.test.ts` reads `vercel.json` and fails when the two
-disagree.
+It runs **once a day** (`10 2 * * *`, 02:10 UTC) because the project is on
+the Vercel Hobby plan, which refuses any cron that fires more than once a
+day — an hourly schedule fails the whole deployment. The recent window is
+exactly the interval between runs, so every minute of the day is examined by
+one run, but **detection can take up to 24 hours**. For faster detection,
+move to a paid plan and set the schedule and `RECENT_WINDOW_MIN` /
+`BASELINE_WINDOW_MIN` in `app/api/monitoring/error-rate/window.ts` together
+(e.g. hourly with 60 / 23 × 60) — `__tests__/observability.test.ts` reads
+`vercel.json` and fails when the two disagree.
 
 A failed count query now answers 500 (`status: "error"`) instead of
 reporting a green window built on a query that never ran.

@@ -14,7 +14,7 @@ A minute-by-minute walkthrough for the capstone defense. Total runtime: **~8 min
 
 ## Minute 0:00 — Opening (30 s)
 
-Open `https://mongolz.vercel.app/` on a fresh tab (logged out).
+Open `https://aicctv.dev/` on a fresh tab (logged out).
 
 **Script:**
 
@@ -165,7 +165,7 @@ Scroll through some entries, point out audit actions like `USER_CREATE`, `REAUTH
 
 > "Жинхэнэ life-нөхцөл-д энэ нь GDPR Art.30 (records of processing) шаардлагыг хангана. Документатлагдсан DPIA `docs/COMPLIANCE.md` дотор Korean PIPA-ийн дагуу мөн хариулсан."
 
-Open new tab → `mongolz.vercel.app/.well-known/security.txt` → show.
+Open new tab → `aicctv.dev/.well-known/security.txt` → show.
 
 ---
 

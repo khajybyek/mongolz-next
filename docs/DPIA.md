@@ -33,17 +33,20 @@ played back** — the masked view is rendered on demand from the encrypted
 original and never persisted in Storage (ADR 0010); admin-initiated reveal
 workflow with 4-eyes approval to recover original frames of specific subjects.
 
-**Where the mask is *not* applied**: the live HLS feed. Frames go to the live
-writer unmasked (`ml-service/recording_pipeline.py`, "LIVE = unblurred"), so an
-operator watching `/live`, `/grid` or `/wall` sees faces in the clear. That path
-is authenticated, recorded (`STREAM_VIEWED`, refusals as `STREAM_DENIED`) and
-authorised per camera: the camera must be enabled, an admin passes, and every
-other role needs an explicit `camera_permissions` row. The RLS helper
-`user_can_see_camera()` is still default-allow by design, so the rule is
-enforced in the stream route on top of it. `camera_permissions` is empty in the
-current deployment, so no non-admin can watch live video today. The residual
-gap is that the live frames themselves are unmasked — see
-`docs/audits/2026-09-08-full-audit.mn.md`.
+**The live HLS feed** (updated 2026-09-23): since commit `1ff609b` (deployed
+2026-09-20) every ML-captured live frame passes through the same `FaceMasker`
+as the playback view before it reaches the HLS writer, so `/grid`, `/wall` and
+the `/live` CCTV tab show masked faces — admins included. The mask is
+detection-based and best-effort: a face the detector misses is visible live.
+If masking throws, the capture loop stops and is restarted by the supervisor;
+no unmasked frame is written in its place. Unmasked pixels exist only in the
+encrypted original (4-eyes reveal). The `/live` device and phone tabs are
+local browser previews that never reach the ML service and are not masked.
+The live path stays authenticated, recorded (`STREAM_VIEWED`, refusals as
+`STREAM_DENIED`) and authorised per camera (camera enabled; admin, or an
+explicit `camera_permissions` row) as defence in depth against missed
+detections; `camera_permissions` is empty in the current deployment, so no
+non-admin can watch live video today.
 
 **Scope (per-recording typical)**:
 - Resolution 1280×720 @ 15fps
@@ -144,8 +147,8 @@ Documented in detail in `docs/THREAT_MODEL.md` §3 STRIDE matrix. Highlights:
 | Risk | Likelihood | Severity | Mitigation | Residual |
 |---|---|---|---|---|
 | Subject re-identified despite mask | Medium | High | Cubist Voronoi mosaic measured at **SSIM 0.613 ± 0.058** (standard tier, n = 20) vs Gaussian 0.778 and 8×8 pixelation 0.627 — see the measurement note below. Masking is one layer; the originals are encrypted and the reveal path is 4-eyes gated | **Medium** — the mask beats Gaussian clearly, but its margin over pixelation is inside one standard deviation, and no face-recovery rate has been measured |
-| Faces visible unmasked on the live feed | High | High | Live HLS is not masked (§B.1). Access requires an authenticated session, is recorded per view, and is restricted to admins plus holders of an explicit `camera_permissions` grant; the unmasked segments are deleted when the session stops | **Medium** — the audience is now bounded and attributable, but the frames are still unmasked: do not describe live viewing as privacy-preserving |
-| Decrypted biometric data processed outside the storage region | High (by design) | Medium | Recordings are stored in Singapore but decrypted, detected and embedded by the Railway ML service in **`us-west2` (United States)**; transport is TLS 1.3 and the blobs are AES-256-GCM at rest on both ends | **Medium** — an unpapered SG → US transfer of Art. 9 data; see §D.5 |
+| Faces missed by the detector are visible on the live feed | Medium | High | Live HLS frames are masked by the shared `FaceMasker` since 2026-09-20 (§B.1); a missed detection is the residual exposure. Access requires an authenticated session, is recorded per view, and is restricted to admins plus holders of an explicit `camera_permissions` grant; segments are deleted when the session stops | **Low–Medium** — bounded, attributable audience; exposure limited to detector misses (mask strength and miss rate as in the row above) |
+| Decrypted biometric data processed outside the EU | High (by design) | Medium | Storage and the Railway ML service that decrypts, detects and embeds are both in Singapore since 2026-09-20 (`asia-southeast1`; `us-west2` before); transport is TLS 1.3 and the blobs are AES-256-GCM at rest | **Low** — single-region processing; SCCs still needed for EU subjects (Singapore is outside the EU); see §D.5 |
 | Mask bypass via reveal misuse | Low | Critical | 4-eyes approval + step-up TOTP + audit chain + time-bounded scope + watermark on output | Very low |
 | Bystander face captured + revealed | Medium | Medium | Reveal flow targets specific face_id only; everyone else stays masked even after reveal; time-bounded window limits temporal scope | Low |
 | Storage breach | Low | High | AES-256-GCM means breach alone yields ciphertext; HKDF per-recording means single-key compromise affects one file | Very low |
@@ -193,20 +196,20 @@ Reproduce: `cd ml-service && ./venv/bin/python eval/benchmark_mask_algorithms.py
 |---|---|---|
 | Browser → Vercel | Session, UI requests, uploaded frames | Vercel `sin1`, Singapore (`vercel.json`) |
 | Vercel → Supabase | Rows, encrypted blobs, signed URLs | Supabase `ap-southeast-1`, Singapore |
-| Vercel/Supabase → Railway ML | **Decrypted frames, face crops, embeddings** | Railway **`us-west2`, United States** |
+| Vercel/Supabase → Railway ML | **Decrypted frames, face crops, embeddings** | Railway `asia-southeast1`, Singapore (since 2026-09-20; `us-west2`, United States before) |
 | Vercel → Anthropic (Claude) | Alert summaries — text only, no images/embeddings | us-east |
 | App → Sentry | Error events (scrubbed) | us-east |
 
 The third hop is the material one: the ML service holds `ML_ENCRYPTION_KEY`,
-decrypts recordings and computes embeddings, so Art. 9 biometric data is
-processed in the United States even though it is stored in Singapore. Verified
-2026-09-08 from the Railway API (`railway status --json`, `multiRegionConfig`
-for deployment `194b45c0`); earlier revisions of this DPIA and of
-`docs/COMPLIANCE.md` incorrectly recorded it as Singapore.
+decrypts recordings and computes embeddings. Since the 2026-09-20 deployment
+(`d97c4507`, verified 2026-09-23 via `railway status --json` →
+`multiRegionConfig` = `asia-southeast1-eqsg3a`) that processing happens in
+Singapore, where the data is stored. History: the 2026-09-08 check (deployment
+`194b45c0`) found `us-west2` (United States), i.e. an SG → US → SG hop for
+Art. 9 data; that hop no longer exists.
 
-For any EU or Korean subject this needs SCCs (plus a transfer risk assessment
-for Art. 9 data), or the ML service pinned to an APAC region so processing
-follows storage. For the current capstone deployment the only subjects are the
+For any EU subject this still needs SCCs (Singapore is outside the EU); for a
+Korean subject, the Singapore processing is a 국외 이전 under PIPA Art. 28-8. For the current capstone deployment the only subjects are the
 project owner and consenting test subjects, which is why the DPIA does not stop
 here — but the transfer is now on the record.
 
@@ -219,8 +222,8 @@ here — but the transfer is now on the record.
 | Art.15 | Lawful purpose for collection | Documented in §B.1 |
 | Art.17 | Provision to third parties | None — single-deployment architecture |
 | Art.23 | Sensitive data handling (incl. biometrics) | AES-256-GCM + RLS + admin-only retrieval |
-| Art.28-2 | De-identification | The Cubist mask on the playback view is the de-identification step; it is not applied to the live feed (§B.1), and its measured strength is in the note under §D.4 |
-| Art.28-8 | Cross-border transfer (국외 이전) | Biometric processing is outsourced to Railway in the United States — see §D.5. Consent / SCC basis to be papered before any non-test subject is captured |
+| Art.28-2 | De-identification | The Cubist mask is the de-identification step on the playback view and, since 2026-09-20, on the live feed (§B.1); its measured strength is in the note under §D.4 |
+| Art.28-8 | Cross-border transfer (국외 이전) | Storage and biometric processing are both in Singapore (Railway `asia-southeast1` since 2026-09-20; `us-west2` before) — see §D.5. Consent basis for the Singapore transfer to be papered before any non-test subject is captured |
 | Art.29 | Technical safeguards | See §D.3 |
 | Art.35 | Data subject rights | Mirror of GDPR Art.15–22 above |
 | Art.39 | Penalties for negligence | Audit log + lockout alerts ensure incident traceability |

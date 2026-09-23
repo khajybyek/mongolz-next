@@ -44,7 +44,7 @@ This document applies STRIDE to MONGOLZ Security's three trust zones:
 | Threat | Mitigation | Status |
 |---|---|---|
 | Stolen password reuse | Rate limit (5 fails/email/15min, 10/IP/15min) + TOTP 2FA + WebAuthn passkey + audit (`LOGIN_FAILED`) | ✓ |
-| Stolen session cookie | Session pin (IP/16 + UA fingerprint, HMAC-signed, 7-day TTL) | ✓ |
+| Stolen session cookie | Session pin (User-Agent fingerprint, HMAC-signed, 7-day TTL) — stops replay from a different browser only; network binding dropped 2026-09-23, see R7 | ⚠ partial |
 | Replay of TOTP code | `consume_totp_code` RPC tracks `(user_id, code_hash)` in `totp_used_codes` table, 90s TTL | ✓ |
 | Username enumeration | `email_for_username` RPC service-role only (revoked from anon/authenticated), generic 400 on /login | ✓ |
 | ML-service identity spoofing | `hmac.compare_digest` on `ML_SERVICE_TOKEN` bearer, dual-key rotation supported | ✓ |
@@ -138,6 +138,7 @@ This document applies STRIDE to MONGOLZ Security's three trust zones:
 | R4 | No multi-tenant org_id | Out of capstone scope | Tracked in `docs/FUTURE.md`; super-admin DB trigger pattern is the first step toward role isolation |
 | R5 | Per-chunk SHA-256 manifest not enforced on recording uploads | Vercel free-tier compute budget | Server-side recording reassembly is single-author; tampering risk requires service-role compromise (R1) |
 | R6 | Live suspect-match overlay shares Realtime channel with global RealtimeAlerts | Duplicate-subscription is wasteful but functionally correct (RLS still enforces) | Tracked in `docs/FUTURE.md` |
+| R7 | Stolen session + pin cookies replay from any network | Fingerprint v3 (2026-09-23) hashes the User-Agent only: the v2 IPv4 /16 (IPv6 /48) bucket forced 35 re-logins in 16 days for two accounts on mobile carriers. The UA is not secret, so an attacker who took both cookies (infostealer, shared machine) and the UA passes the pin from anywhere | HttpOnly + Secure cookies, 7-day pin TTL, data-tier MFA (`mfa_ok()`), TOTP step-up for every privileged change, audit trail. Revisit with a soft network-change signal (alert / step-up, never a sign-out) |
 
 ## 6 — How this gets re-evaluated
 

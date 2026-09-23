@@ -5,7 +5,7 @@ Single entry point for everything you need on defense day.
 > **Capstone:** 2026-01-CD-03-07 · 3B-26-1
 > **Project:** 다중 권한 마스킹 및 복원이 가능한 지능형 네트워크 카메라 및 통합관제 서버 개발
 > **Repository:** github.com/khajybyek/mongolz-next
-> **Production:** https://mongolz.vercel.app
+> **Production:** https://aicctv.dev
 
 ---
 
@@ -13,7 +13,7 @@ Single entry point for everything you need on defense day.
 
 The panel cares about these artifacts. Have each one accessible in one click:
 
-- [x] Live production deploy — `https://mongolz.vercel.app/`
+- [x] Live production deploy — `https://aicctv.dev/`
 - [x] GitHub repo — `github.com/khajybyek/mongolz-next`
 - [x] Pentest report — `docs/PENTEST_REPORT.pdf` (9 pages)
 - [x] Compliance mapping — `docs/COMPLIANCE.md` (GDPR + PIPA)
@@ -29,7 +29,7 @@ The panel cares about these artifacts. Have each one accessible in one click:
 ## 2. Pre-defense checklist (24 h before)
 
 - [ ] Run `git status` — repo clean, latest commit pushed
-- [ ] Run `curl -s https://mongolz.vercel.app/api/uptime | jq` — confirm production healthy
+- [ ] Run `curl -s https://aicctv.dev/api/uptime | jq` — confirm production healthy
 - [ ] Visit `https://github.com/khajybyek/mongolz-next/actions` — confirm latest workflows green
 - [ ] Regenerate `docs/PENTEST_REPORT.pdf` — run the Security workflow manually for fresh DAST baseline
 - [ ] Charge your phone (TOTP authenticator)

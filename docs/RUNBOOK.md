@@ -13,7 +13,7 @@ and [COMPLIANCE.md](COMPLIANCE.md) (legal mapping).
 | **RPO** (data loss tolerance) | ≤ 24 h | Supabase Postgres | Daily Vercel-Cron `backup-verify` + Supabase point-in-time backup (Pro tier feature; falls back to manual `pg_dump` on Free). |
 | **RPO** — alerts only | ≤ 5 min | Realtime + audit_log | Hash-chained audit means tampering is detectable even mid-window. |
 | **RTO** (downtime tolerance) | ≤ 60 min | Vercel + Supabase + Railway | Restore from backup ZIP + redeploy each tier. Drill timed at 35-50 min on staging copy. |
-| **MTTD** (detect) | ≤ 5 min | Sentry + `/api/uptime` + `/api/monitoring/error-rate` | External monitor pings uptime; Sentry catches `Sentry.captureRequestError` on every server error. |
+| **MTTD** (detect) | ≤ 5 min for outages; ≤ 24 h for failed-login spikes, backup-verify failures and overdue keys | pg_cron uptime probe (*/5) + Sentry; daily `/api/monitoring/error-rate`, daily `backup-verify`, weekly `key-rotation-check` | The Hobby plan allows at most one run per day per cron, so the scheduled checks cannot detect in minutes. Their alarms reach admins by push + Telegram (`lib/notify.ts#notifyOpsAlarm`) and appear on `/health` ("Scheduled checks"); Slack only if `SLACK_ALERT_WEBHOOK` is set. |
 | **MTTR** (resolve) | ≤ 30 min for P1 | Operator + this runbook |  |
 
 P1 = "users cannot log in" OR "live recording paused" OR "audit chain broken".
@@ -138,9 +138,24 @@ Preserve as evidence — **do not backfill**. See [BREAK_GLASS.md §5](BREAK_GLA
 - Re-enable normal traffic: remove rate-limit overrides, re-enable the affected route.
 - Verify with smoke test:
   ```bash
-  curl -s https://mongolz.vercel.app/api/uptime
-  curl -sI https://mongolz.vercel.app/login | head -3
+  curl -s https://aicctv.dev/api/uptime
+  curl -sI https://aicctv.dev/login | head -3
   ```
+
+#### Break-glass: operators locked out by the rate limiter
+
+`RATE_LIMIT_MODE` (lib/rate-limit.ts) switches the throttle: `enforce`
+(default, atomic counter, fail-closed), `legacy` (old audit-log counting,
+fail-open) or `off` (no throttling; every call logs a warning). Vercel applies
+env changes only to a **new deployment**: set it in Production env, redeploy,
+let the operator in, then restore `enforce` (or unset it) and redeploy again.
+A narrower alternative that needs no redeploy: delete the offending counter
+row from `private.rate_limits` (keys are `<bucket>:<user id | ip>`; check the
+key format in `rate_limit_hit()` first).
+
+Edge-function switch: `CLAUDE_MODEL` (Supabase Edge secret for
+`claude-analysis`, optional) overrides the default model; the function falls
+back through its sonnet/haiku chain when the chosen model refuses or fails.
 
 ### 2.5 Post-mortem (within 5 business days)
 
@@ -226,7 +241,13 @@ auth schema from PITR or recreate users with the same UUIDs before loading
    The command seals every DB/table/manifest file, downloads and seals each
    Storage path, and records original plus sealed SHA-256 hashes. The recovery
    manifest is authenticated with HMAC from the data key and written last. A
-   missing object or failed download removes the incomplete output. The tool
+   failed download removes the incomplete output. A path a row still
+   references but Storage no longer holds (flagged `missing: true` in
+   `buckets/*.manifest.json`, or answered "object not found") is listed in
+   the signed manifest's `missing_objects` and printed as a warning instead of
+   aborting; re-upload the object or clear the row's path. The export also
+   carries the SCH tournament tables and the `sch-receipts` bucket;
+   `manifest.json.not_exported` names the tables it leaves out and why. The tool
    refuses to store escrow inside the bundle. Store bundle, escrow, and
    passphrase in three separate locations; securely delete the extracted
    biometric ZIP after the bundle validates.
@@ -449,7 +470,7 @@ unaffected by this table. What follows is what a **logged-in browser session**
 | `faces` | nothing (restrictive fence) | `/api/faces/[id]/secure-crop` → reveal_level gate + `FACE_CROP_VIEWED` audit row; `components/face-thumb.tsx` renders that route |
 | `revealed` | nothing (restrictive fence, since 20260907100000) | `/api/reveal/[jobId]/output` → job authority + fresh re-auth |
 | `recordings` | SELECT of `recordings.storage_path` only, admin **or** viewer, and only for cameras the user may see | `/playback/[id]` signs the baked artifact; `on_demand` recordings stream through `/api/recordings/[id]/view` → ML |
-| `suspects` | admin: read + write + delete | `/suspects` pages sign, upload and remove enrolment photos with the user-scoped client |
+| `suspects` | admin: read + write + delete | `/suspects` pages sign and upload enrolment photos with the user-scoped client; deleting a suspect removes its photo with the service role |
 | `alert-screenshots` | admin: read | `/suspects/[id]` signs the latest alert screenshot |
 | `branding` | public read of `logo.png`, `logo-text.svg`, `favicon.png`, `apple-icon.png`; admin write | public bucket, served straight to the browser |
 
@@ -561,8 +582,8 @@ from that stamp. Detection recency moved to its own column.
 |---|---|
 | `healthy` | last heartbeat < 90 s ago — frames are arriving |
 | `stale` | last heartbeat < 10 min ago — wedged or the source dropped; the supervisor is retrying with backoff |
-| `offline` | we *are* supposed to be capturing and frames stopped arriving (heartbeat older than 10 min). The only value that asserts a fault |
-| `unknown` | nothing is capturing this camera (never started, stopped, disabled), or it is capturing and has not reported yet |
+| `offline` | we *are* supposed to be capturing and frames stopped arriving (heartbeat older than 10 min), or no frame ever arrived and the capture loop recorded `camera_sessions.last_error` (e.g. `source unreachable at open`; since migration 20260923120000). The only value that asserts a fault |
+| `unknown` | nothing is capturing this camera (never started, stopped, disabled), or it was just started and has not reported yet |
 
 | `detection_status` | Meaning |
 |---|---|
@@ -717,16 +738,53 @@ push subscriptions, `security_event` notifications. The items below need an oper
    Dockerfile to `pip install --require-hashes -r requirements.lock`, point CI's
    `pip-audit` at the lock, and verify a Railway build BEFORE removing the old path.
    Not done here: a lock generated on macOS would pin wrong wheels (onnxruntime,
-   insightface, opencv) and break the Railway build.
-5. **Tailscale auth key.** Use an ephemeral, tagged, single-purpose key and rotate it;
-   the current one is invalid anyway (`tunnel.state = "down"`).
+   insightface, opencv) and break the Railway build. Add `PySocks==1.7.1` to
+   requirements.txt first (hash mode refuses extra command-line packages) and use
+   `--allow-unsafe`; insightface is an sdist, so pre-build its wheel or confirm the
+   build dependencies resolve under hash mode. The Tailscale tarball IS now verified:
+   the Dockerfile pins `TS_SHA256` and runs `sha256sum -c` before unpacking — bump it
+   together with `TS_VERSION`.
+5. **Tailscale auth key.** Use an ephemeral, tagged, single-purpose key and rotate it.
+   Read the ML `GET /` → `tunnel.state`: `down` = the key is invalid or the tailnet
+   never joined (rotate the key); `degraded` = the tailnet is joined but the
+   `CAMERA_TAILNET_FWD` forward target is unreachable; `ok` = that target answers.
+   The block describes the Tailscale forward ONLY: it says nothing about a camera
+   whose URL does not go through `127.0.0.1:<fwd port>` (e.g. a public tunnel or a
+   direct HTTP URL). Per-camera reachability is `camera_sessions.last_error` /
+   `last_heartbeat_at`, so check those — and
+   the camera's own URL on `/cameras` — before chasing the camera LAN. As of
+   2026-09-23 the tunnel reports `degraded` and the only camera
+   (`29b47088-…`, `cam_type=http`) has `last_error = "source unreachable at open"`
+   with no heartbeat; `/health` shows the tunnel state instead of a green "ok".
 6. **Known residual — direct PostgREST writes by a stolen admin session.** After the
    migration, a TOTP-minted admin token can still write, without step-up, the tables
-   the app itself writes with the user token: at least `suspects`, `alert_rules`, `webhooks`,
-   `privacy_zones` and `alerts` (UPDATE only). None
-   of these destroys evidence or widens who sees unmasked video, but a planted webhook
-   or suspect is possible; `/webhooks` and `/suspects` list every row. Closing it means
-   moving those actions to the service role and revoking DML the same way.
+   the app itself writes with the user token: at least `alert_rules`, `webhooks` and
+   `alerts` (UPDATE only). `privacy_zones` left this list with migration
+   `20260923180000` (service-role writes + TOTP step-up for loosening changes). None of
+   these widens who sees unmasked video, but a planted webhook is possible; `/webhooks`
+   lists every row. Closing it means moving those actions to the service role and
+   revoking DML the same way.
+   `suspects` was on this list and was NOT harmless: `alerts.suspect_id` was
+   `ON DELETE CASCADE`, so deleting a suspect erased its alerts, TP/FP labels and
+   incident links (referential actions ignore the DELETE revoke on `alerts`).
+   Migration `20260923150000_suspect_delete_keeps_alerts` makes that FK
+   `ON DELETE SET NULL` (the alert keeps `suspect_name`) and revokes suspect DML
+   from `authenticated`; `/suspects` writes with the service role after step-up,
+   audits `SUSPECT_DELETE` with the affected alert count and notifies the other admins.
+   Deploy the app before applying that migration.
+   **SCH tables are closed (2026-09-23):** `sch_event`, `sch_registrations` and
+   `sch_teams` are service-role-write only
+   (`supabase/migrations/20260923170000_sch_writes_service_role.sql`). This mattered
+   more than the admin tables above: the organiser role has no TOTP, so a
+   password-only organiser token passed `mfa_ok()` and could PATCH
+   `sch_event.payment_info` (the account on the public form) with no audit row and no
+   `SCH_PAYMENT_INFO_CHANGED` alarm. The console actions now write with the service
+   client after `requireSchOrganiser()`, so the app works before and after the
+   migration; apply it with `npx supabase db push --linked`. Verify (expect `SELECT`
+   only for authenticated, nothing for anon):
+   `select grantee, table_name, string_agg(privilege_type, ',') from information_schema.role_table_grants where table_schema='public' and grantee in ('anon','authenticated') and table_name like 'sch_%' group by 1,2;`
+   New code that writes a `sch_*` table must use `createServiceClient()` after the
+   organiser/admin gate.
 7. **Known residual.** Viewer/auditor accounts with TOTP cannot step up (the step-up
    routes are admin-only), so they cannot disable TOTP or enrol a passkey themselves;
    an admin resets them. Unchanged by this pass.

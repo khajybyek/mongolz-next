@@ -73,7 +73,7 @@ When an SLO with a budget runs out:
 
 | Signal | Source | Refresh |
 |---|---|---|
-| App availability | Sentry transactions API + `audit_log` failure counts | hourly on the hour (vercel.json cron) via `/api/monitoring/error-rate` |
+| App availability | Sentry transactions API + `audit_log` failure counts | daily at 02:10 UTC (vercel.json cron, Hobby plan limit) via `/api/monitoring/error-rate` — 24 h window vs a 7-day baseline |
 | Web Vitals p75 | `public.web_vitals_p75` view | real-time on `/perf-budget` page |
 | ML latency | Railway logs → manual benchmark page | hourly via `/api/ml/bench` |
 | Reveal turnaround | DB query against `reveal_jobs` | on read at `/api/slo-status` |

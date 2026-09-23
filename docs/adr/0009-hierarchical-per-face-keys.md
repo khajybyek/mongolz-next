@@ -1,9 +1,9 @@
 # 0009 — Hierarchical per-face keys via hash chain
 
 * **Status:** Accepted · implemented · **partially deployed** (settable from
-  `/users`, but every production profile is still level 0 and self-promotion is
-  an open gap — see "Deployment status" at the end)
-* **Date:** 2026-05-19 · deployment status revised 2026-09-08
+  `/users` and a boundary against the caller's own level, but every production
+  profile is still level 0 — see "Deployment status" at the end)
+* **Date:** 2026-05-19 · deployment status revised 2026-09-08, 2026-09-23
 
 ## Context
 
@@ -140,20 +140,19 @@ that has been false since the Tier 1 work landed — `/users` has set
    group by 1,2`). So in the deployment as it stands, every admin can still
    decrypt every face — not because the mechanism is missing, but because
    nobody has been graded down.
-3. **KNOWN GAP — an admin can raise their own level.**
-   `setRevealLevelAction` checks that the *target* is not the super admin, but
-   it does **not** check that the caller is not the target, nor that the level
-   being granted is at or below the caller's own. An admin at level 5 can set
-   their own row to level 0 and unlock every face; the audit row records it
-   after the fact but nothing stops it. Found in the 2026-09-08 audit
-   (`docs/audits/2026-09-08-full-audit.mn.md` §5.2, remediation P1 #8) and
-   **not fixed at the time of writing** — it is being handled as a separate
-   change. Until it lands, the chain is a boundary against *stolen blobs* and
-   *out-of-band delegated keys* (the two threats above), not against a hostile
-   admin with a session.
+3. **CLOSED — an admin can no longer raise their own level.** Found in the
+   2026-09-08 audit (`docs/audits/2026-09-08-full-audit.mn.md` §5.2,
+   remediation P1 #8): `setRevealLevelAction` did not stop the caller from
+   editing their own row nor from granting a level below their own. Fixed in
+   commit `f341c2f`: an admin cannot change their own level
+   (`users_err_level_self`), cannot grant a level below their own
+   (`users_err_level_ceiling`), and cannot touch a target graded above them
+   (`users_err_level_target_higher`); `createUserAction` / `changeRoleAction`
+   apply the same ceiling. Re-checked 2026-09-23: all 6 profiles are level 0,
+   so the boundary exists but nobody has been graded down yet.
 
 **Say this, and nothing stronger:** "the hierarchical per-face key scheme is
-implemented, verified by 23 tests
-(`ml-service/tests/test_hierarchical_keys.py`), and settable from the admin UI;
-levels are not yet assigned in production, and self-promotion is a known open
-gap." Do not say "least-privilege enforced in production".
+implemented, verified by tests (`ml-service/tests/test_hierarchical_keys.py`),
+settable from the admin UI, and an admin cannot promote themselves or grant
+beyond their own level; levels are not yet assigned in production." Do not say
+"least-privilege enforced in production".

@@ -23,13 +23,18 @@ service or its master key exposes the footage. Threat model:
 **stolen storage blobs and stolen database rows, not a malicious server** — the
 honest boundary is written out in `docs/adr/0009-*.md` §"Honest threat model".
 
-**One more thing to know before the feature list.** Masking happens at
-*playback*. The live HLS feed is unmasked: an operator on `/live`, `/grid` or
-`/wall` sees faces in the clear. Since the 2026-09-08 audit that path is
-authorised per camera and every view is recorded: an admin passes, and any
-other role needs an explicit `camera_permissions` row. `camera_permissions` is
-empty in production, so today only admins can watch live video until grants are
-added at `/cameras/<id>/permissions`
+**One more thing to know before the feature list.** Since commit `1ff609b`
+(deployed 2026-09-20) every ML-captured live frame passes through the same
+`FaceMasker` as playback before it reaches HLS, so `/live` (CCTV tab), `/grid`
+and `/wall` show masked faces — admins included. Masking is detection-based
+and best-effort: a face the detector misses is visible. If the masker throws,
+the capture loop stops (the supervisor restarts it) rather than writing an
+unmasked frame. Raw pixels exist only in the encrypted original, reachable
+through the 4-eyes reveal. The `/live` device and phone tabs are local browser
+previews that never pass through the ML service and are **not** masked. The
+per-camera grant and `STREAM_VIEWED` audit rows stay as defence in depth
+against missed detections: an admin passes, any other role needs a
+`camera_permissions` row, and that table is empty in production
 (`docs/audits/2026-09-08-full-audit.mn.md`).
 
 ---
@@ -41,7 +46,7 @@ Browser ──► Vercel (Next.js 16 / sin1) ──► Supabase Cloud (ap-southe
                     │                            │ Postgres 17 + pgvector
                     ▼                            │ Auth / Storage / RLS
             Railway (Python ML)                  │ Edge Functions
-            us-west2  ⚠ crosses SG → US          ▼
+            asia-southeast1 (Singapore)          ▼
        InsightFace + OpenCV + FFmpeg     Claude · Telegram (pg_net async)
 ```
 
@@ -49,18 +54,18 @@ Browser ──► Vercel (Next.js 16 / sin1) ──► Supabase Cloud (ap-southe
 |---|---|---|
 | Frontend | Next.js 16 · React 19 · TypeScript · Tailwind · hls.js · ONNX (WebGPU+WASM) | Vercel `sin1` (Singapore) — `vercel.json` |
 | Auth + DB + Storage | Supabase (Postgres 17 · pgvector · 23 tables · 6 buckets · RLS on every table) | Supabase `ap-southeast-1` (Singapore) |
-| ML service | Python 3.11 · FastAPI · InsightFace (buffalo_l) · OpenCV · FFmpeg | Railway **`us-west2` (United States)** |
+| ML service | Python 3.11 · FastAPI · InsightFace (buffalo_l) · OpenCV · FFmpeg | Railway `asia-southeast1` (Singapore) |
 | AI insights | Claude (anomaly/summary/chat) via Supabase Edge | Cloudflare |
 | Observability | Sentry (`@sentry/nextjs`) · OpenTelemetry SDK | — |
 
-⚠ **The ML service is not co-located with storage.** Recordings live in
-Singapore; the service that decrypts them, detects faces and computes
-embeddings runs in the United States, so every frame crosses SG → US → SG. That
-is a GDPR Art. 44 / PIPA Art. 28-8 transfer of biometric data and it is
-recorded in `docs/COMPLIANCE.md` §2 + §4 and `docs/DPIA.md` §D.5. Verified
-2026-09-08 from `railway status --json` (`multiRegionConfig`, deployment
-`194b45c0`); earlier revisions of this table said `asia-southeast1`, which was
-wrong. Remediation on file: pin the Railway service to an APAC region.
+**The ML service is co-located with storage.** Recordings live in Singapore
+and the service that decrypts them, detects faces and computes embeddings runs
+in Singapore too (Railway zone `asia-southeast1-eqsg3a`, deployment
+`d97c4507`, verified 2026-09-23 from `railway status --json` →
+`multiRegionConfig`). History: until 2026-09-20 it ran in `us-west2` (United
+States), so every frame crossed SG → US → SG — recorded in
+`docs/COMPLIANCE.md` §2 + §4 and `docs/DPIA.md` §D.5. Singapore is still
+outside the EU, so the Art. 44 basis for EU subjects is unchanged.
 
 ---
 
@@ -113,10 +118,10 @@ wrong. Remediation on file: pin the Railway service to an APAC region.
   `camera_not_authorized` / `permission_check_failed` and writes a
   `STREAM_DENIED` audit row; a successful view writes `STREAM_VIEWED`
   (one row per operator per camera per 5 minutes)
-- The live feed carries **unmasked** frames (masking is a playback-time step),
-  so this gate is the only thing standing between a non-admin account and faces
-  in the clear — `camera_permissions` is empty in production, which now means
-  no live video for non-admins rather than live video for everyone
+- Live frames are masked by the same detection-based `FaceMasker` as playback
+  (since `1ff609b`); a face the detector misses is still visible, so this gate
+  stays as defence in depth — `camera_permissions` is empty in production,
+  which means no live video for non-admins rather than live video for everyone
 
 ### Live + recording (3 modes)
 - 💻 Device — `getUserMedia` (laptop / external webcam)
@@ -135,7 +140,7 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 - ML benchmarks (`/benchmarks` — p50/p95/p99 + effective FPS)
 - Active learning labels (`/active-learning`) → F1-optimal threshold suggester
 - Webhooks (Slack / Discord / HMAC-signed) + test-fire UI
-- GDPR Art.15 export + Art.17 erasure self-service (`/privacy`)
+- GDPR Art.15 export + Art.17 erasure self-service (`/privacy`) — the export ZIP holds profile, audit rows, alert labels, reveal jobs (no biometric templates), camera grants, web vitals, passkeys and push subscriptions (no keys), face-search presets and uploads; its README.txt names any file cut at 10 000 rows
 - Multi-camera wall (`/wall`) with auto-refresh (10s)
 - WebRTC self-loopback latency demo (`/live-rtc`)
 - Admin user CRUD + last-admin protection + super-admin (DB-locked)
@@ -199,12 +204,12 @@ adds the new people (migration `20260919100000`).
 |---|---|
 | 1. UI | role-aware navigation — sidebar, header, tab bar and ⌘K palette share `lib/nav.ts` (admin / viewer / auditor) |
 | 2. Server gate | `requireAdmin()` / `requireUser()` redirect in every protected route |
-| 3. Middleware | auditor allow-list (only `/audit*`); per-camera redirect |
+| 3. Middleware | auditor allow-list (`/audit*` + own `/my-data`); organiser allow-list; unauthenticated `/api/*` → 401 JSON |
 | 4. RLS | on all 23 `public` tables; 61 policies across 22 of them (45 permissive + 16 restrictive: the second-factor gates of row 16 plus the reveal-authority fence), `retention_deletion_queue` deliberately policy-less (service-role only); super-admin row protected by a BEFORE trigger. Counted live 2026-09-08 |
-| 5. Step-up reauth | password OR fresh TOTP, 15-min cookie TTL |
-| 6. Session pinning | IP/16 + UA fingerprint, HMAC-signed cookie, 7-day TTL |
+| 5. Step-up reauth | TOTP step-up, 15-min cookie TTL; a password step-up is accepted only to *request* a reveal (never replaces a live TOTP step-up) — `lib/auth/step-up.ts` |
+| 6. Session pinning | UA fingerprint (network dropped 2026-09-23 — /16 changes forced daily re-logins), HMAC-signed cookie, 7-day TTL; replay signs out every device, expiry only this one |
 | 7. 4-eyes reveal | approver ≠ requester, defended at 3 layers |
-| 8. Reveal authority | hash-chain `K_index` forward-only (ADR 0009) — settable from `/users`, but every profile is still level 0 and an admin can currently raise their own level (open gap, see the ADR) |
+| 8. Reveal authority | hash-chain `K_index` forward-only (ADR 0009) — settable from `/users`; an admin cannot change their own level nor grant a level below their own (closed in `f341c2f`). Every profile is still level 0 (checked 2026-09-23) |
 | 9. Crops encrypt-only | new faces never upload a plaintext crop to Storage (Tier 2) |
 | 10. Audit hash-chain | tamper-evident; `verify_audit_chain()` SQL helper. Covers every privileged mutation, every auth/step-up event, and the personal-data read paths (sealed-crop decrypt, playback view, live-stream playlist, 1:N search, re-id trail, alert CSV export, reveal-output download — `lib/audit.ts`), collapsed to one row per user per object per 5 min. Does **not** cover page views, dashboard aggregates, HLS segments, the audit-log CSV export, or direct PostgREST reads — those reads are now gated by the data-tier second factor (row 16), but they are still not recorded |
 | 11. Storage RLS | every data bucket private (`recordings`, `faces`, `suspects`, `revealed`, `alert-screenshots`); `branding` is public by design (logo + icons only); signed URLs ≤30min where needed |

@@ -12,7 +12,7 @@ qualified DPO and conduct a full audit.
 
 | Data category | Source | Purpose | Retention |
 |---|---|---|---|
-| Facial images (raw) | Camera capture | Encrypted original for lawful reveal (4-eyes); per-face crop sealed with a hash-chain key | **Encrypted in Storage** (AES-256-GCM; no plaintext frame or crop is uploaded to Supabase Storage since Tier 2). Two plaintext copies live transiently on the ML container's own disk: the unmasked HLS segments of a live camera (`/tmp/mongolz-hls`, a rolling window during a session, deleted when the session stops) and the masked playback render cache (`/tmp/mongolz-views`) |
+| Facial images (raw) | Camera capture | Encrypted original for lawful reveal (4-eyes); per-face crop sealed with a hash-chain key | **Encrypted in Storage** (AES-256-GCM; no plaintext frame or crop is uploaded to Supabase Storage since Tier 2). Two derived copies live transiently on the ML container's own disk: the live HLS segments of a camera (`/tmp/mongolz-hls`, a rolling window during a session, deleted when the session stops — **masked** frames since `1ff609b`, 2026-09-20) and the masked playback render cache (`/tmp/mongolz-views`, served only while the recording row still exists). Unmasked pixels exist only inside the encrypted original |
 | Facial embeddings (512-dim ArcFace) | Derived | Suspect matching, dedup | Until subject erasure (GDPR Art. 17) |
 | Encrypted recordings | Camera capture | Evidence trail | Default 30 days, configurable per retention policy |
 | Alerts (suspect match events) | System-generated | Operator review | Default 90 days |
@@ -20,6 +20,8 @@ qualified DPO and conduct a full audit.
 | User profiles (email, role) | Self-registration | Access control | Until account deletion |
 | TOTP secret + recovery code hashes | User-supplied | 2FA | Until TOTP disabled |
 | Session cookies (session-pin, reauth, pre-totp) | Browser | Auth state | 7d / 15m / 2m respectively |
+| SCH Esports registrations (name, e-mail, Facebook, phone, in-game ids, rank, notes) — `sch_registrations`, `sch_teams` | Public form at `/sch` (consent line) or the organiser's Google-Form import | Organise the Chuseok 2026 tournament and contact the players (consent text: "used only to organise the tournament") | Until the event is closed out: `/sch/admin` → *Close out the event* (admin + TOTP step-up, typed confirmation, only from 00:00 KST the day after the last game day) deletes every row and team. Not automatic — the admin must run it after the last game (2026-09-27 → from 2026-09-28) |
+| SCH payment receipts (bank-transfer screenshots) — private `sch-receipts` bucket | Uploaded by the registrant | Payment check by the organiser (every view audited) | Deleted by the same close-out, before the rows; abandoned uploads older than 24 h are removed by the console's manual «Sweep orphaned receipts» button. Imported rows only link to the Google Form owner's Drive — those files and responses must be deleted in Google by the form owner |
 
 ---
 
@@ -35,18 +37,18 @@ qualified DPO and conduct a full audit.
 | **Art. 17** Erasure | "Right to be forgotten" | `/privacy` self-service page + `/api/gdpr/delete` |
 | **Art. 20** Portability | Machine-readable export | `/api/gdpr/export` returns JSON; CSV available via `/api/audit/export` (admin) |
 | **Art. 22** Automated decisions | Human-in-the-loop on alerts | Reveal flow requires 4-eyes approval; no automated enforcement |
-| **Art. 25** Privacy by design | Encrypt-at-rest + mask-at-view pipeline (ADR 0010) | Originals AES-256-GCM encrypted; the blurred view is derived at request time and never persisted in Storage; face crops sealed per face (ADR 0009). Encryption is **server-side**, not end-to-end — the ML service holds the key. The live feed is not masked (see §3 caveat) |
+| **Art. 25** Privacy by design | Encrypt-at-rest + mask-at-view pipeline (ADR 0010) | Originals AES-256-GCM encrypted; the blurred view is derived at request time and never persisted in Storage; face crops sealed per face (ADR 0009). Encryption is **server-side**, not end-to-end — the ML service holds the key. Live frames are masked by the same detector-based masker since 2026-09-20 (see §3 caveat) |
 | **Art. 30** Records of processing | This document + `audit_log` | Maintained. `audit_log` covers privileged changes, auth events and the personal-data read paths — **not** page views or direct PostgREST reads; see "Audit-log coverage" in §3 |
 | **Art. 32** Security of processing | RLS, AES-256, TOTP (enforced at the data tier as well as in the app — see "Second factor at the data tier" in §3), audit hash-chain | See [SECURITY.md](../SECURITY.md) + CLAUDE.md `Security Features` |
 | **Art. 33/34** Breach notification | 72-hour rule | Process documented in [docs/BREAK_GLASS.md](BREAK_GLASS.md). 3rd-party SIEM not yet integrated |
 | **Art. 35** DPIA | High-risk processing (biometric data, surveillance) | This document serves as the lightweight DPIA. Full DPIA template recommended pre-production |
 | **Art. 37** DPO | Designate a Data Protection Officer | Not required for academic scope; recommended for production |
-| **Art. 44** International transfers | Storage in Singapore, **biometric processing in the United States** | Supabase (`ap-southeast-1`) and Vercel (`sin1`) are in Singapore; the Railway ML service — the component that decrypts recordings, detects faces and computes embeddings — runs in Railway's **`us-west2` (United States)** region. Every frame therefore crosses SG → US and back. EU subject data flows would need Standard Contractual Clauses for both hops, or the ML service moved to an EU/SG region |
+| **Art. 44** International transfers | Storage **and** biometric processing in Singapore | Supabase (`ap-southeast-1`), Vercel (`sin1`) and — since 2026-09-20 — the Railway ML service (`asia-southeast1`, the component that decrypts recordings, detects faces and computes embeddings) all run in Singapore. Singapore is outside the EU, so EU subject data flows still need Standard Contractual Clauses (one hop). History: until 2026-09-20 the ML service ran in `us-west2` (United States) and every frame crossed SG → US and back |
 
 **Residual risks** (would be flagged in a formal DPIA):
 1. **Facial recognition is biometric** under GDPR Art. 9 — requires explicit consent or substantial public interest grounds. Operators must declare basis per camera.
 2. **Audit log indefinite retention** — necessary for forensic value, but tension with Art. 5(e). Mitigation: aggregate-only after N years (TBD).
-3. **Cross-border data flow, two hops.** Storage and app compute sit in Singapore, outside the EU; the ML service that handles the *decrypted* biometric payload sits in the United States (`us-west2`). This is the widest transfer in the system and it is the one least visible to a data subject. SCCs are required for EU subjects, and a US transfer of Art. 9 data would in practice need a stronger basis than the academic legitimate-interest ground claimed here. Remediation option on file: pin the Railway service to an Asia-Pacific region so that processing follows storage.
+3. **Cross-border data flow, single region.** Storage, app compute and the ML service that handles the *decrypted* biometric payload all sit in Singapore (Railway `asia-southeast1` since 2026-09-20, deployment `d97c4507`, verified 2026-09-23). Singapore is outside the EU, so SCCs are still required for EU subjects. History: until 2026-09-20 the ML service ran in `us-west2` (United States), a second, wider hop for Art. 9 data; that hop no longer exists.
 
 ---
 
@@ -105,7 +107,7 @@ and a session that has already passed TOTP remains a bearer token — this close
 the password-only path, not token theft. It also does not make direct PostgREST
 reads *auditable*; it only bounds who can make them.
 
-**Live-stream caveat.** Masking is applied to the stored/derived playback view, not to the live HLS feed: an operator watching `/grid`, `/wall` or `/live` sees unmasked faces. Access to that feed is authenticated, recorded (`STREAM_VIEWED`, and `STREAM_DENIED` for refusals) and authorised per camera: the camera must be `enabled`, an admin always passes, and every other role needs an explicit `camera_permissions` row for that camera. `private.user_can_see_camera()` remains default-allow and is kept only as defence-in-depth mirroring RLS; the stricter rule is enforced in `app/api/ml/stream/[cameraId]/[segment]/route.ts`. Refusals return 403 with a machine-readable `code` (`camera_disabled`, `camera_not_authorized`, `permission_check_failed`) and are recorded as `STREAM_DENIED`. `camera_permissions` holds no rows in production, so at the time of writing no non-admin account can watch live video at all.
+**Live-stream caveat.** Since commit `1ff609b` (deployed 2026-09-20) every ML-captured live frame passes through the same `FaceMasker` as the playback view before it is written to HLS, so `/grid`, `/wall` and the `/live` CCTV tab show masked faces — for admins too. The masker is detection-based and best-effort: a face the detector misses is visible. If masking throws, the capture loop stops and the supervisor restarts it; no unmasked frame is written in its place. The `/live` device and phone tabs are local browser previews that never reach the ML service and are **not** masked. Unmasked pixels exist only in the encrypted original, reachable through the audited 4-eyes reveal. The access controls below stay as defence in depth against missed detections. Access to that feed is authenticated, recorded (`STREAM_VIEWED`, and `STREAM_DENIED` for refusals) and authorised per camera: the camera must be `enabled`, an admin always passes, and every other role needs an explicit `camera_permissions` row for that camera. `private.user_can_see_camera()` remains default-allow and is kept only as defence-in-depth mirroring RLS; the stricter rule is enforced in `app/api/ml/stream/[cameraId]/[segment]/route.ts`. Refusals return 403 with a machine-readable `code` (`camera_disabled`, `camera_not_authorized`, `permission_check_failed`) and are recorded as `STREAM_DENIED`. `camera_permissions` holds no rows in production, so at the time of writing no non-admin account can watch live video at all.
 
 ---
 
@@ -114,14 +116,14 @@ reads *auditable*; it only bounds who can make them.
 | Provider | Service | Region | DPA available |
 |---|---|---|---|
 | Supabase | Database + Auth + Storage | ap-southeast-1 (Singapore) — dashboard reports "Southeast Asia (Singapore)" | Yes (GDPR + SCCs) |
-| Railway | ML service hosting — **decrypts recordings, detects faces, computes embeddings** | **us-west2 (United States)** — the deployment's `multiRegionConfig`, 1 replica | Yes |
+| Railway | ML service hosting — **decrypts recordings, detects faces, computes embeddings** | asia-southeast1 (Singapore, zone `asia-southeast1-eqsg3a`) — the deployment's `multiRegionConfig`, 1 replica; `us-west2` (United States) until 2026-09-20 | Yes |
 | Vercel | Frontend + API edge | sin1 (Singapore) — `vercel.json` `regions: ["sin1"]` | Yes |
 | Anthropic | Claude AI (analysis only) | us-east (text only, no biometric data sent) | Yes |
 | Sentry | Error monitoring | us-east | Yes |
 
 PII flowing to Anthropic: **alert summaries only** (suspect name + camera + timestamp + similarity). No images, no embeddings, no raw biometric data.
 
-The Railway region is the one that matters for GDPR Art. 44 / PIPA Art. 28-8: it is the only sub-processor that ever holds a *decrypted* face. Earlier revisions of this document listed it as `asia-southeast1` (Singapore); that was wrong. Verified 2026-09-08 from the Railway API for the active deployment `194b45c0` (`railway status --json`, field `multiRegionConfig`).
+The Railway region is the one that matters for GDPR Art. 44 / PIPA Art. 28-8: it is the only sub-processor that ever holds a *decrypted* face. Verified 2026-09-23 from the Railway API for the active deployment `d97c4507` (created 2026-09-20; `railway status --json`, field `multiRegionConfig` → `asia-southeast1-eqsg3a`). History: the 2026-09-08 check (deployment `194b45c0`) found `us-west2`; the service moved to Singapore with the 2026-09-20 deployment.
 
 ---
 
@@ -140,13 +142,14 @@ These are knowingly deferred — they would block a real production launch but a
   baseline scan + Semgrep SAST + trufflehog secret scan + multi-agent audit.
   External annual pentest still recommended pre-production.
 - [ ] 24-month review cadence for this document
-- [ ] **Move ML processing to the storage region** (Railway `us-west2` → an
-  APAC region) or paper the SG → US transfer of decrypted biometric data with
-  SCCs — see §2 Art. 44 and §4
+- [x] **Move ML processing to the storage region** — Railway moved from
+  `us-west2` to `asia-southeast1` with deployment `d97c4507` (2026-09-20,
+  verified 2026-09-23); the SG → US hop no longer exists — see §2 Art. 44 and §4
 - [x] **Per-camera authorisation for the live feed** — enforced in the stream
   route since 2026-09-08 (admin, or an explicit `camera_permissions` row).
   Remaining work is operational: populate grants for the accounts that need
-  live video. The live path is still the one path where faces are unmasked
+  live video. Live frames are masked since 2026-09-20; the grant remains the
+  control for faces the detector misses
 
 ---
 

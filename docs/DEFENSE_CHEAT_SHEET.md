@@ -7,29 +7,30 @@
 
 ## 30-second elevator pitch (MN)
 
-> "MONGOLZ Security нь олон эрхтэй mask + reveal боломжтой ухаалаг сүлжээний камер ба нэгдсэн удирдлагын сервер. Бичлэг нь зөвхөн AES-256-GCM-ээр шифрлэгдсэн эх хувиараа хадгалагдаж, **үзэх мөчид** Cubist Voronoi mosaic-аар маскалсан хувилбар нь шууд render хийгддэг (plaintext хувилбар хадгалагддаггүй). Маскийг буцаах нь зөвхөн **4-eyes approval**-той reveal flow. **VIP / standard / relaxed** privacy tier-ээр маскийн хүч автомат тохируулагдана. (Live HLS урсгал нь маскгүй — энэ бол мэдэгдэж буй цоорхой, доорх Q16-г үзнэ үү.)"
+> "MONGOLZ Security нь олон эрхтэй mask + reveal боломжтой ухаалаг сүлжээний камер ба нэгдсэн удирдлагын сервер. Бичлэг нь зөвхөн AES-256-GCM-ээр шифрлэгдсэн эх хувиараа хадгалагдаж, **үзэх мөчид** Cubist Voronoi mosaic-аар маскалсан хувилбар нь шууд render хийгддэг (plaintext хувилбар хадгалагддаггүй). Маскийг буцаах нь зөвхөн **4-eyes approval**-той reveal flow. **VIP / standard / relaxed** privacy tier-ээр маскийн хүч автомат тохируулагдана. (2026-09-20-оос хойш live HLS урсгал ч мөн адил маскаар дамждаг — detection-д суурилсан тул алдагдсан нүүр харагдаж болно, Q16-г үзнэ үү.)"
 
 ## 30-second pitch (EN)
 
-> "MONGOLZ Security is a multi-authority masking + reveal control server for intelligent network cameras. A recording is stored only as one AES-256-GCM encrypted original; the masked view is rendered on demand at playback with a Voronoi-tessellation mosaic, so no plaintext view or face crop is persisted. Only a 4-eyes approval workflow can recover the original. Per-suspect privacy tiers (VIP / standard / relaxed) automatically adjust mask strength. The live HLS feed is the one path that is not masked — see Q16."
+> "MONGOLZ Security is a multi-authority masking + reveal control server for intelligent network cameras. A recording is stored only as one AES-256-GCM encrypted original; the masked view is rendered on demand at playback with a Voronoi-tessellation mosaic, so no plaintext view or face crop is persisted. Only a 4-eyes approval workflow can recover the original. Per-suspect privacy tiers (VIP / standard / relaxed) automatically adjust mask strength. Since 2026-09-20 the live HLS feed passes through the same detection-based masker, so a face the detector misses is the residual exposure — see Q16."
 
 ## 30-second pitch (KR)
 
-> "MONGOLZ Security는 다중 권한 마스킹 및 복원이 가능한 지능형 네트워크 카메라 통합관제 서버입니다. 원본은 AES-256-GCM으로 암호화 저장되고, 재생 시점에 모든 얼굴이 Voronoi 모자이크로 마스킹되어 렌더링됩니다(평문 프레임이나 얼굴 조각은 저장되지 않습니다). 4-eyes 승인 흐름만 원본을 복원할 수 있고, 각 대상의 프라이버시 등급(VIP/standard/relaxed)에 따라 마스크 강도가 자동 조정됩니다. 실시간(HLS) 화면은 마스킹되지 않습니다 — Q16 참조."
+> "MONGOLZ Security는 다중 권한 마스킹 및 복원이 가능한 지능형 네트워크 카메라 통합관제 서버입니다. 원본은 AES-256-GCM으로 암호화 저장되고, 재생 시점에 모든 얼굴이 Voronoi 모자이크로 마스킹되어 렌더링됩니다(평문 프레임이나 얼굴 조각은 저장되지 않습니다). 4-eyes 승인 흐름만 원본을 복원할 수 있고, 각 대상의 프라이버시 등급(VIP/standard/relaxed)에 따라 마스크 강도가 자동 조정됩니다. 2026-09-20부터 실시간(HLS) 화면도 같은 검출 기반 마스커를 거치며, 검출기가 놓친 얼굴만 노출될 수 있습니다 — Q16 참조."
 
 ---
 
 ## Architecture (one-line summary)
 
 ```
-Camera → ML service (FastAPI, Railway, us-west2 / USA) → Supabase (Postgres + Storage + Auth + RLS, ap-southeast-1 / SG)
+Camera → ML service (FastAPI, Railway, asia-southeast1 / SG) → Supabase (Postgres + Storage + Auth + RLS, ap-southeast-1 / SG)
                                                        → Vercel (Next.js 16, sin1 / SG) ↳ Telegram bot
 ```
 
-Storage is in Singapore; **the ML service — the only component that ever holds a
-decrypted face — is in the United States** (`us-west2`). Say it before you are
-asked: it is recorded in COMPLIANCE.md §2/§4 and DPIA §D.5, and the fix is to
-move the Railway service to an APAC region.
+Storage is in Singapore, and so is the ML service — the only component that
+ever holds a decrypted face (Railway `asia-southeast1`, deployment `d97c4507`,
+verified 2026-09-23). Until 2026-09-20 it ran in `us-west2` (United States);
+that SG → US hop is closed and recorded in COMPLIANCE.md §2/§4 and DPIA §D.5.
+Singapore is still outside the EU (SCCs for EU subjects).
 
 **5 layers of security**: (1) PostgreSQL RLS · (2) TOTP 2FA + replay tracking · (3) AES-256-GCM per-recording HKDF keys · (4) Hash-chained audit · (5) 4-eyes approval
 
@@ -39,7 +40,7 @@ move the Railway service to an APAC region.
 
 ### 1. "Brute force-аас яаж хамгаалж байна?" / "How is brute force protected?"
 
-> 7 layers: rate limit (5 fail/email/15min + 10 fail/IP/15min) · TOTP replay tracking · timing-safe HMAC everywhere · session pinning (IP/16 + UA) · automatic lockout Slack alert · public RPC lockdown (`email_for_username` service-role only) · hash-chained audit log.
+> 7 layers: rate limit (5 fail/email/15min + 10 fail/IP/15min) · TOTP replay tracking · timing-safe HMAC everywhere · session pinning (UA fingerprint — network binding dropped 2026-09-23, residual risk R7 in THREAT_MODEL) · automatic lockout Slack alert · public RPC lockdown (`email_for_username` service-role only) · hash-chained audit log.
 
 ### 2. "Бусад attack-аас яаж хамгаалж байна?" / "What other threats?"
 
@@ -91,7 +92,7 @@ move the Railway service to an APAC region.
 
 ### 13. "Performance яамаар үнэлэх вэ?" / "Performance & SLOs?"
 
-> RTO ≤ 60min · RPO ≤ 24h · MTTD ≤ 5min · MTTR ≤ 30min for P1. Live `/api/uptime` reports ml + db health with a **bucketed** latency string (`<50ms`, `<100ms`, `<250ms`, … — exact timings are withheld from the public probe on purpose); on 2026-09-08 both read `<250ms` from Vercel `sin1`, and the ML leg carries the trans-Pacific hop to `us-west2`. `/api/ml/bench` admin endpoint runs ML p50/p95/p99 + effective FPS. Slow query check via `top_slow_queries` RPC + `/db-monitor` page. Vercel Speed Insights tracks real-user metrics.
+> RTO ≤ 60min · RPO ≤ 24h · MTTD ≤ 5min for outages (pg_cron uptime probe) but ≤ 24h for the daily scheduled checks (Hobby cron limit) · MTTR ≤ 30min for P1. Live `/api/uptime` reports ml + db health with a **bucketed** latency string (`<50ms`, `<100ms`, `<250ms`, … — exact timings are withheld from the public probe on purpose); on 2026-09-08 both read `<250ms` from Vercel `sin1`; since 2026-09-20 the ML service is in Singapore too, so the ML leg no longer crosses the Pacific. `/api/ml/bench` admin endpoint runs ML p50/p95/p99 + effective FPS. Slow query check via `top_slow_queries` RPC + `/db-monitor` page. Vercel Speed Insights tracks real-user metrics.
 
 ### 14. "Демо crash болвол?" / "What if the demo crashes?"
 
@@ -104,9 +105,9 @@ move the Railway service to an APAC region.
 ### 16. "Юу нь бүрэн биш вэ?" / "What is NOT finished?" — answer this before they find it
 
 > Three things, and I would rather say them than be caught by them:
-> 1. **The live feed is not masked.** Masking runs at playback; frames go to the live HLS writer in the clear (`recording_pipeline.py`, "LIVE = unblurred"). Who may watch is now bounded — the stream route requires an enabled camera plus admin or an explicit `camera_permissions` grant, records every view, and deletes the unmasked segments when the session stops — but the frames an authorised operator sees are still identifiable. That is the honest residual gap.
+> 1. **Live masking is best-effort.** Since 2026-09-20 (`1ff609b`) every ML-captured live frame goes through the same detection-based `FaceMasker` as playback before HLS (admins included; a masker error stops the capture rather than writing a raw frame). A face the detector misses is visible live, and the `/live` device/phone tabs are local, unmasked browser previews. Who may watch stays bounded — enabled camera plus admin or an explicit `camera_permissions` grant, every view recorded — as defence in depth.
 > 2. **The audit log covers changes and data-access paths, not browsing.** It records every privileged mutation, every login/step-up, and the reads that expose personal data (sealed-crop decrypt, playback view, live-stream playlist, 1:N search, re-id trail, alert CSV export, reveal-output download — collapsed to one row per operator per object per 5 min). It does **not** record page views, dashboard aggregates, individual HLS segments, the audit-log CSV export, or a direct PostgREST read. So "every privileged access is logged" is the wrong sentence; "every privileged change and every personal-data read path is logged" is the right one.
-> 3. **The reveal hierarchy is settable but not yet a boundary.** `/users` sets `reveal_level`, ADR 0009 enforces it end-to-end — but every profile in production is still level 0, and `setRevealLevelAction` does not stop an admin from setting their *own* level. Until that check lands, treat the hierarchy as implemented-and-tested, not enforced-against-a-hostile-admin (ADR 0009 "Deployment status").
+> 3. **The reveal hierarchy is a boundary nobody is graded on yet.** `/users` sets `reveal_level`, ADR 0009 enforces it end-to-end, and since `f341c2f` an admin can neither change their own level nor grant beyond it — but every profile in production is still level 0 (ADR 0009 "Deployment status").
 
 ---
 
@@ -117,7 +118,7 @@ Verified 2026-09-08 — re-run the command in the right-hand notes before quotin
 | Metric | Value | How it was checked |
 |---|---|---|
 | Public URL | https://aicctv.dev | `curl -I https://aicctv.dev/` → 200 |
-| ML service | https://mongolz-ml-production.up.railway.app — Railway **us-west2 (USA)** | `railway status --json` → `multiRegionConfig` |
+| ML service | https://mongolz-ml-production.up.railway.app — Railway `asia-southeast1` (Singapore; `us-west2` until 2026-09-20) | `railway status --json` → `multiRegionConfig` |
 | Database | Supabase `ulybenitqmqjfxtaregp` — Southeast Asia (Singapore) | `supabase projects list` |
 | Tests | 222 jest · 210 pytest · 98 Playwright cases | `npx jest`, `pytest --collect-only -q`, `npx playwright test --list` |
 | Migrations | 85 SQL · local files mirror cloud history 1:1 | `supabase migration list --linked` |
