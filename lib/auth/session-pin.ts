@@ -1,7 +1,7 @@
 /**
- * Session pinning — bind a Supabase session to the User-Agent + IP it was
- * created with. If a stolen cookie is replayed from a different network or
- * browser, the pin mismatch invalidates the session (force re-login).
+ * Session pinning — bind a Supabase session to the browser (User-Agent) it
+ * was created with. If a stolen cookie is replayed from a different browser,
+ * the pin mismatch invalidates the session (force re-login).
  *
  * The pin cookie is only ever minted by our own login flows (password+TOTP,
  * passkey), so for users with TOTP enabled it doubles as proof that the
@@ -10,9 +10,14 @@
  * lib/supabase/auth.ts (see `pinVerdict` there).
  *
  * **Design tradeoffs:**
- *   - IP can change legitimately (mobile WiFi → cellular). We hash the /16 of
- *     IPv4 and /48 of IPv6 instead of the full address, which catches network
- *     hops while tolerating normal carrier changes.
+ *   - The network is NOT part of the pin any more (fingerprint v3,
+ *     2026-09-23). The v2 pin hashed the IPv4 /16 (IPv6 /48) too, but real
+ *     carriers move phones and laptops across /16s all the time: production
+ *     logged 37 SESSION_PIN_REJECTED rows in 16 days for two accounts, 35 of
+ *     them from a /16 change, each one a forced re-login. v2 cookies (TTL
+ *     ≤ 7 days) are still honoured on the network they were minted on; one
+ *     seen from another network is reported as "stale" — a benign reason the
+ *     caller answers with a LOCAL sign-out, never a global one.
  *   - User-Agent is hashed in full; minor browser updates won't change it.
  *   - Cookie is HMAC-signed (purpose-tagged) so the client can't tamper.
  *   - 7-day TTL.
@@ -27,7 +32,11 @@ import { hmacEqual, hmacSign, isExpired } from "@/lib/auth/hmac";
 const COOKIE_NAME = "mongolz-session-pin";
 const TTL_DAYS = 7;
 const SEP = "|";
-const PURPOSE_FP = "mongolz-session-pin-fp:v2";
+/** Legacy (v2) fingerprint: network bucket + UA. Verified, never minted. */
+const PURPOSE_FP_V2 = "mongolz-session-pin-fp:v2";
+/** Current (v3) fingerprint: UA only. Stored with FP_V3_PREFIX. */
+const PURPOSE_FP_V3 = "mongolz-session-pin-fp:v3";
+const FP_V3_PREFIX = "u3.";
 const PURPOSE_SIG = "mongolz-session-pin:v2";
 
 function signingSecret(): string | null {
@@ -84,10 +93,17 @@ export function networkBucket(ip: string): string {
   return hextets.slice(0, 3).map((h) => parseInt(h, 16).toString(16)).join(":");
 }
 
-function fingerprint(ip: string, ua: string): string | null {
+function legacyFingerprint(ip: string, ua: string): string | null {
   const secret = signingSecret();
   if (!secret) return null;
-  return hmacSign(secret, PURPOSE_FP, `${networkBucket(ip)}|${ua}`, "hex").slice(0, 32);
+  return hmacSign(secret, PURPOSE_FP_V2, `${networkBucket(ip)}|${ua}`, "hex").slice(0, 32);
+}
+
+/** Hex part of the v3 (UA-only) fingerprint, without FP_V3_PREFIX. */
+function uaFingerprint(ua: string): string | null {
+  const secret = signingSecret();
+  if (!secret) return null;
+  return hmacSign(secret, PURPOSE_FP_V3, ua, "hex").slice(0, 32);
 }
 
 function sign(userId: string, fp: string, expiresAt: string): string | null {
@@ -96,16 +112,21 @@ function sign(userId: string, fp: string, expiresAt: string): string | null {
   return hmacSign(secret, PURPOSE_SIG, `${userId}${SEP}${fp}${SEP}${expiresAt}`, "hex");
 }
 
+/**
+ * `stale` = a legacy v2 pin presented from another network. It is benign (the
+ * user's own browser changed network), so callers must not treat it like
+ * `mismatch` (other browser / other user), which suggests a replayed cookie.
+ */
 export type PinResult =
   | { ok: true }
-  | { ok: false; reason: "no-cookie" | "expired" | "bad-signature" | "mismatch" | "no-secret" };
+  | { ok: false; reason: "no-cookie" | "expired" | "bad-signature" | "mismatch" | "stale" | "no-secret" };
 
 export async function bindSessionPin(userId: string): Promise<void> {
   const h = await headers();
   const ua = h.get("user-agent") ?? "";
-  const ip = clientIpFromHeader(h);
-  const fp = fingerprint(ip, ua);
-  if (!fp) return; // no secret → skip pin (fail-closed below)
+  const hex = uaFingerprint(ua);
+  if (!hex) return; // no secret → skip pin (fail-closed below)
+  const fp = `${FP_V3_PREFIX}${hex}`;
   const expiresAt = new Date(Date.now() + TTL_DAYS * 86400_000).toISOString();
   const sig = sign(userId, fp, expiresAt);
   if (!sig) return;
@@ -139,11 +160,21 @@ export async function checkSessionPin(userId: string): Promise<PinResult> {
 
   const h = await headers();
   const ua = h.get("user-agent") ?? "";
-  const ip = clientIpFromHeader(h);
-  const fp = fingerprint(ip, ua);
-  if (!fp || !hmacEqual(fp, cookieFp, "hex")) return { ok: false, reason: "mismatch" };
 
-  return { ok: true };
+  if (cookieFp.startsWith(FP_V3_PREFIX)) {
+    const fp = uaFingerprint(ua);
+    if (!fp || !hmacEqual(fp, cookieFp.slice(FP_V3_PREFIX.length), "hex")) {
+      return { ok: false, reason: "mismatch" };
+    }
+    return { ok: true };
+  }
+
+  // Legacy v2 pin (network bucket + UA): still valid on the network it was
+  // minted on. Elsewhere we cannot tell a network hop from a browser change,
+  // so it is `stale` (benign) rather than `mismatch`.
+  const legacy = legacyFingerprint(clientIpFromHeader(h), ua);
+  if (legacy && hmacEqual(legacy, cookieFp, "hex")) return { ok: true };
+  return { ok: false, reason: "stale" };
 }
 
 export async function clearSessionPin(): Promise<void> {

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { getServerLang } from "@/lib/i18n/server";
 import { formatDate } from "@/lib/utils";
 import { SCH_GAMES, SCH_GAME_LABEL } from "@/lib/sch/schema";
+import { schShareMetadata } from "@/lib/sch/metadata";
 import { readSchEvent } from "./actions";
 import { SchForm } from "./sch-form";
 import { formatAmount, formatGameDate, localizeEventText, SCH_GAME_TONE, schCopy } from "./sch-copy";
@@ -20,12 +21,14 @@ const TONE_CLASS = {
 } as const;
 
 export async function generateMetadata(): Promise<Metadata> {
-  const c = schCopy(await getServerLang());
-  return {
+  const lang = await getServerLang();
+  const c = schCopy(lang);
+  return schShareMetadata({
+    lang,
     title: "SCH Esports · Chuseok 2026",
     description: c.metaDescription,
-    robots: { index: false, follow: false },
-  };
+    path: "/sch",
+  });
 }
 
 export default async function SchRegistrationPage() {

@@ -1,3 +1,4 @@
+import { notifyOpsAlarm } from "@/lib/notify";
 import { NextResponse, type NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { authorizeCron } from "@/lib/auth/cron";
@@ -159,6 +160,15 @@ export async function GET(req: NextRequest) {
         })),
         full_report: report,
       }),
+    });
+
+    // Push + Telegram: the reminder used to reach only the optional Slack
+    // webhook (unset in production), so an overdue ML_SERVICE_TOKEN went
+    // unseen for weeks. Key names and ages only — never values. Weekly, like
+    // the cron itself.
+    await notifyOpsAlarm({
+      action: "KEY_ROTATION_DUE",
+      detail: overdue.map((r) => `${r.name} ${r.age_days}d (target ${r.target_days}d)`).join(", "),
     });
 
     // Optional Slack alert

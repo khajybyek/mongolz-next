@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { isPushConfigured, sendPushToAllAdmins } from "@/lib/push";
 import { authorizeCron } from "@/lib/auth/cron";
 import { flag } from "@/lib/flags";
+import { positiveNumberEnv } from "@/lib/env-number";
 
 /**
  * Anomaly sweep — runs once a day via Vercel Cron (Hobby tier limit).
@@ -11,7 +12,8 @@ import { flag } from "@/lib/flags";
  * helper. Upgrade to Pro to switch the cron to hourly if needed.
  */
 
-const Z_THRESHOLD = Number(process.env.ANOMALY_THRESHOLD ?? "3");
+// Empty / zero / non-numeric → 3 (Number("") is 0, which flagged every bucket).
+const Z_THRESHOLD = positiveNumberEnv(process.env.ANOMALY_THRESHOLD, 3);
 
 type AnomalyRow = {
   camera_id: string;

@@ -14,13 +14,13 @@ const sections = [
       {
         label: "ML Service",
         value:
-          "Python FastAPI on Railway — us-west2 (United States). NOT co-located with storage: decrypted frames and embeddings cross SG → US (COMPLIANCE.md §2, DPIA §D.5)",
+          "Python FastAPI on Railway — asia-southeast1 (Singapore), co-located with storage since 2026-09-20 (us-west2, United States, before; COMPLIANCE.md §2, DPIA §D.5)",
       },
       { label: "Edge Functions", value: "Supabase Edge (Cloudflare) — telegram-alerts, claude-analysis" },
       {
         label: "Storage",
         value:
-          "Supabase Storage — 6 buckets: recordings, faces, suspects, revealed, alert-screenshots (all private) + branding (public: logo + icons only)",
+          "Supabase Storage — 7 buckets: recordings, faces, suspects, revealed, alert-screenshots, sch-receipts (all private) + branding (public: logo + icons only)",
       },
     ],
   },
@@ -33,7 +33,7 @@ const sections = [
       {
         label: "Anonymization",
         value:
-          "Cubist polygon mosaic (Voronoi tessellation), applied when the playback view is rendered — not at capture, and not on the live feed",
+          "Cubist polygon mosaic (Voronoi tessellation), applied when the playback view is rendered and to every ML-captured live frame before HLS — not to the stored encrypted original",
       },
       {
         label: "Mask strength",
@@ -137,7 +137,7 @@ const sections = [
       { label: "ML Service", value: "railway up --detach (from ml-service/)" },
       { label: "Edge Functions", value: "supabase functions deploy <name> --project-ref <ref>" },
       { label: "CI", value: "GitHub Actions — ci.yml (lint + build, frontend tests, ML tests) + security.yml (Semgrep, trufflehog, Nuclei, ZAP)" },
-      { label: "Monitoring", value: "Sentry browser (instrumentation-client.ts) + server/edge (instrumentation.ts); no DSN ⇒ the SDK stays silent and the error screens stop claiming a report. Failure-rate cron runs hourly over a 1h window. pg_cron probes /api/uptime every 5 min → uptime_checks + Telegram on ML up/down transitions" },
+      { label: "Monitoring", value: "Sentry browser (instrumentation-client.ts) + server/edge (instrumentation.ts); no DSN ⇒ the SDK stays silent and the error screens stop claiming a report. Failure-rate cron runs once a day (02:10 UTC, Vercel Hobby limit) over the previous 24 h against the preceding 7 days, so a login-failure spike can take up to 24 h to alarm. pg_cron probes /api/uptime every 5 min → uptime_checks + Telegram on ML up/down transitions" },
       { label: "Public probe", value: "GET /api/uptime — bucketed ml + db latency, no auth" },
     ],
   },
@@ -151,7 +151,7 @@ const sections = [
       {
         label: "Masking",
         value:
-          "Applied before every live frame reaches HLS. /live, /grid and /wall receive the same persistent Haar + InsightFace Cubist mask used by playback; encrypted originals remain available only through the authorised, audited reveal flow",
+          "Applied before every ML-captured live frame reaches HLS. The /live CCTV tab, /grid and /wall receive the same persistent Haar + InsightFace Cubist mask used by playback (detection-based: a missed face is visible). The /live device (browser webcam) and phone (IP Webcam URL) tabs are local, unmasked previews that never pass through the ML service. Encrypted originals remain available only through the authorised, audited reveal flow",
       },
       {
         label: "Access",

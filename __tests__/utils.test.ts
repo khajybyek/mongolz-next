@@ -28,15 +28,18 @@ describe("formatDate", () => {
     expect(formatDate("not-a-date")).toBe("—");
   });
 
-  it("formats a valid ISO string", () => {
-    const result = formatDate("2025-01-15T10:30:00Z");
-    expect(result).toBeTruthy();
-    expect(result).not.toBe("—");
+  // formatDate pins Asia/Seoul (UTC+9, no DST), so these hold on any machine TZ.
+  it("formats a valid ISO string as YYYY.MM.DD HH:mm in KST", () => {
+    expect(formatDate("2025-01-15T10:30:00Z")).toBe("2025.01.15 19:30");
   });
 
-  it("formats a Date object", () => {
-    const result = formatDate(new Date("2025-06-01T12:00:00Z"));
-    expect(result).not.toBe("—");
+  it("formats a Date object in KST", () => {
+    expect(formatDate(new Date("2025-06-01T12:00:00Z"))).toBe("2025.06.01 21:00");
+  });
+
+  it("rolls the day and year over at KST midnight (hour 00, never 24)", () => {
+    expect(formatDate("2025-12-31T15:00:00Z")).toBe("2026.01.01 00:00");
+    expect(formatDate("2025-01-15T14:59:00Z")).toBe("2025.01.15 23:59");
   });
 });
 

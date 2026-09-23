@@ -95,6 +95,21 @@ describe("cs2PremierScore", () => {
     expect(cs2PremierScore("3000")).toBe(10);
   });
 
+  it("reads 'k' notation and shorthand thousands instead of scoring them as ~0", () => {
+    // Stripping every non-digit made "15k" → 15 → score 1 (weakest player).
+    expect(cs2PremierScore("15k")).toBe(50);
+    expect(cs2PremierScore("15.5K")).toBe(52);
+    expect(cs2PremierScore("15,5k")).toBe(52);
+    expect(cs2PremierScore("Premier 15k")).toBe(50);
+    expect(cs2PremierScore("15 000")).toBe(50);
+    expect(cs2PremierScore("15.000")).toBe(50);
+    expect(cs2PremierScore("1.5")).toBe(5);
+    expect(cs2PremierScore("15")).toBe(50);
+    expect(cs2PremierScore("25000")).toBe(83);
+    expect(cs2PremierScore("k")).toBe(CS2_UNKNOWN_SCORE);
+    expect(rankScore("cs2", "Premier 15k")).toBe(50);
+  });
+
   it("rankScore for CS2 prefers answers.premier_rank over the label", () => {
     expect(rankScore("cs2", null, { premier_rank: "15000" })).toBe(50);
     expect(rankScore("cs2", "Premier 15000")).toBe(50);

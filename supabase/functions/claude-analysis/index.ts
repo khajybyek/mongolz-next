@@ -48,9 +48,24 @@ const SYSTEM_PROMPT = `Чи MONGOLZ Security системийн AI шинжээ�
 3. Тоо баримтад тулгуурла, тааварлуулах хариулт өгөхгүй
 4. Хэрвээ data хангалтгүй бол тэгж хэлээрэй`;
 
+const KST_OFFSET_MS = 9 * 3600 * 1000;
+
+/** UTC instant at which the current Asia/Seoul calendar day began. */
+function kstDayStartUtc(now: Date): Date {
+  const kst = new Date(now.getTime() + KST_OFFSET_MS);
+  return new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate()) - KST_OFFSET_MS);
+}
+
+/** "YYYY-MM-DD HH:mm:ss" wall-clock time in Asia/Seoul (the prompts say KST). */
+function kstTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return new Date(d.getTime() + KST_OFFSET_MS).toISOString().slice(0, 19).replace("T", " ");
+}
+
 function userPromptFor(mode: string, ctx: any, question?: string): string {
   if (mode === "summary") {
-    return `Систем дээрх дараах статистик үнэлгээ хий:
+    return `Систем дээрх дараах статистик үнэлгээ хий (цаг: KST, UTC+9):
 
 Илрүүлсэн царай: ${ctx.faceCount}
 Сэжигтэн: ${ctx.suspectCount}
@@ -59,17 +74,17 @@ function userPromptFor(mode: string, ctx: any, question?: string): string {
 Камер тоо: ${ctx.cameraCount}
 
 Сүүлийн 5 alert:
-${ctx.recentAlerts.map((a: any) => `- ${a.suspect_name} (${Math.round(a.similarity * 100)}%) — ${a.created_at}`).join("\n")}
+${ctx.recentAlerts.slice(0, 5).map((a: any) => `- ${a.suspect_name} (${Math.round(a.similarity * 100)}%) — ${kstTime(a.created_at)}`).join("\n")}
 
 Аюулгүй байдлын ерөнхий үнэлгээг 1-10 оноогоор гарга.`;
   }
 
   if (mode === "anomaly") {
     return `Дараах alert-уудаас аномали байгаа эсэхийг шинжил.
-Шөнийн цаг (22:00 - 06:00) илэрсэн сэжигтэн, нэг хүн давтагдан илэрч буй эсэх, ер бусын хэвээ илрүүлэх.
+Бүх цаг KST (UTC+9). Шөнийн цаг (22:00 - 06:00 KST) илэрсэн сэжигтэн, нэг хүн давтагдан илэрч буй эсэх, ер бусын хэвээ илрүүлэх.
 
 Сүүлийн 20 alert:
-${(ctx.recentAlerts ?? []).map((a: any) => `- ${a.suspect_name} (${Math.round(a.similarity * 100)}%) — ${a.created_at} @ ${a.camera_name ?? "Unknown"}`).join("\n")}`;
+${(ctx.recentAlerts ?? []).map((a: any) => `- ${a.suspect_name} (${Math.round(a.similarity * 100)}%) — ${kstTime(a.created_at)} @ ${a.camera_name ?? "Unknown"}`).join("\n")}`;
   }
 
   // chat
@@ -192,8 +207,10 @@ Deno.serve(async (req) => {
     /* best effort */
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // "Today" is the Asia/Seoul calendar day, like the dashboard. The edge
+  // runtime is UTC, so setHours(0) started the day at 09:00 KST. Korea has no
+  // DST: a fixed +9 h offset is exact.
+  const today = kstDayStartUtc(new Date());
 
   const [faces, suspects, alerts, todayAlerts, cameras, recent] = await Promise.all([
     svc.from("faces").select("*", { count: "exact", head: true }),
@@ -270,7 +287,7 @@ Deno.serve(async (req) => {
 
   if (!claudeRes || !claudeRes.ok) {
     // Алдааг ангилж тодорхой мессеж буцаах
-    let userMessage = `Claude API failed: ${lastErr.slice(0, 200)}`;
+    let userMessage = `Claude API алдаа (HTTP ${claudeRes?.status ?? 0})`;
     if (/credit balance is too low|insufficient.*credit/i.test(lastErr)) {
       userMessage =
         "Anthropic credit балланс хоосон байна. https://console.anthropic.com/settings/billing руу орж credit-ээ нэмнэ үү.";

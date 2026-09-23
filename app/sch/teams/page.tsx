@@ -8,6 +8,7 @@ import { getServerLang } from "@/lib/i18n/server";
 import { log } from "@/lib/log";
 import { maskSteam } from "@/lib/sch/format";
 import { SCH_DRAW_STATUSES, SCH_GAMES, SCH_GAME_LABEL, SCH_TEAM_SIZE, type SchGame } from "@/lib/sch/schema";
+import { schShareMetadata } from "@/lib/sch/metadata";
 import { strengthLabel, teamStrength } from "@/lib/sch/teams";
 import { createServiceClient } from "@/lib/supabase/server";
 import { readSchEvent } from "../actions";
@@ -15,10 +16,16 @@ import { formatGameDate, localizeEventText, schCopy } from "../sch-copy";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "SCH Esports · Teams",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const lang = await getServerLang();
+  const c = schCopy(lang);
+  return schShareMetadata({
+    lang,
+    title: `SCH Esports · ${c.teamsTitle}`,
+    description: c.teamsSubtitle,
+    path: "/sch/teams",
+  });
+}
 
 /** Public projection — never email, phone, Facebook or the receipt. */
 type Member = { id: string; full_name: string; in_game_id: string | null; rank_label: string | null; rank_score: number; roles: string[] };

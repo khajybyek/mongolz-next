@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Fingerprint, Trash2, Loader2, Plus, AlertCircle, CheckCircle2 } from "lucide-react";
 import { TotpPrompt } from "@/components/totp-prompt";
 import { useT } from "@/lib/i18n/client";
+import { formatDate } from "@/lib/utils";
 
 interface Credential {
   id: string;
@@ -32,7 +33,8 @@ function bufToB64u(buf: ArrayBuffer | Uint8Array): string {
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export function PasskeySettings() {
+/** `canEnrol` = false for an admin without TOTP (the step-up cannot succeed). */
+export function PasskeySettings({ canEnrol = true }: { canEnrol?: boolean }) {
   const { t } = useT();
   const [creds, setCreds] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
@@ -215,13 +217,21 @@ export function PasskeySettings() {
         <button
           type="button"
           onClick={enroll}
-          disabled={enrolling}
+          disabled={enrolling || !canEnrol}
+          title={canEnrol ? undefined : t("set_enrol_needs_totp")}
           className="btn-primary btn-sm shrink-0"
         >
           {enrolling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
           {t("set_pk_add")}
         </button>
       </div>
+
+      {!canEnrol && (
+        <div className="text-xs text-warning flex items-start gap-1.5">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          {t("set_enrol_needs_totp")}
+        </div>
+      )}
 
       {error && (
         <div className="text-xs text-danger bg-danger/10 border border-danger/30 rounded p-2 flex items-start gap-1.5">
@@ -257,7 +267,8 @@ export function PasskeySettings() {
                   {c.device_name ?? t("set_pk_unnamed")}
                 </div>
                 <div className="text-text-muted">
-                  {new Date(c.created_at).toLocaleDateString()} ·{" "}
+                  {/* KST like every other operator timestamp (was browser locale / zone). */}
+                  {formatDate(c.created_at)} ·{" "}
                   {c.transports.length > 0 ? c.transports.join(", ") : "—"}
                 </div>
               </div>

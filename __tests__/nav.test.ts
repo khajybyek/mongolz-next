@@ -41,7 +41,8 @@ describe("lib/nav", () => {
     expect(allItems.find((i) => i.href === "/live-rtc")?.adminOnly).toBe(true);
 
     const auditor = visibleNavGroups("auditor").flatMap((g) => g.items.map((i) => i.href));
-    expect(auditor).toEqual(["/audit"]);
+    // Auditors keep their own GDPR page (the middleware allow-list matches).
+    expect(auditor).toEqual(["/audit", "/my-data"]);
 
     // The tournament organiser sees only the SCH console.
     const organiser = visibleNavGroups("organiser").flatMap((g) => g.items.map((i) => i.href));

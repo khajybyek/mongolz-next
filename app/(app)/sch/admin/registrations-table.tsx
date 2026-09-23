@@ -79,6 +79,8 @@ export interface SchAdminRow {
   receipt_url: string | null;
   source: "web" | "import";
   created_at: string;
+  /** Optimistic-lock token: the edit dialog saves only over this version. */
+  updated_at: string;
 }
 
 type GameTab = SchGame | "all";
@@ -105,6 +107,7 @@ function editDraft(row: SchAdminRow): SchRegistrationEditInput {
     roles: [...row.roles],
     premier_rank: row.premier_rank ?? "",
     faceit: row.faceit ?? "",
+    expected_updated_at: row.updated_at,
   };
 }
 
@@ -153,10 +156,22 @@ export function RegistrationsTable({ rows }: { rows: SchAdminRow[] }) {
   }, [rows, game, status, query, sort]);
 
   function errorTitle(result: Exclude<SchActionResult, { ok: true }>): string {
-    return result.error === "conflict" ? copy.conflict : result.error === "invalid" ? copy.invalid : copy.unavailable;
+    switch (result.error) {
+      case "conflict": return copy.conflict;
+      case "invalid": return copy.invalid;
+      case "duplicate_email": return copy.duplicateEmail;
+      case "duplicate_game": return copy.duplicateGame;
+      default: return copy.unavailable;
+    }
   }
 
-  function run(row: SchAdminRow, work: () => Promise<SchActionResult>, okTitle: string, onOk?: () => void) {
+  function run(
+    row: SchAdminRow,
+    work: () => Promise<SchActionResult>,
+    okTitle: string,
+    onOk?: () => void,
+    onConflict?: () => void,
+  ) {
     setBusyId(row.id);
     startTransition(async () => {
       let result: SchActionResult;
@@ -167,7 +182,13 @@ export function RegistrationsTable({ rows }: { rows: SchAdminRow[] }) {
       }
       setBusyId(null);
       if ("error" in result) {
-        toast({ title: errorTitle(result), tone: "danger" });
+        if (result.error === "conflict" && onConflict) {
+          onConflict();
+        } else {
+          toast({ title: errorTitle(result), tone: "danger" });
+        }
+        // A duplicate is not stale data: the dialog stays open so the value
+        // can be changed; refreshing would not make a retry succeed.
         if (result.error === "conflict") router.refresh();
         return;
       }
@@ -480,7 +501,19 @@ export function RegistrationsTable({ rows }: { rows: SchAdminRow[] }) {
               type="button"
               className="btn-primary"
               disabled={pending}
-              onClick={() => run(dialog.row, () => updateRegistrationAction(dialog.draft), copy.editSaved, () => setDialog(null))}
+              onClick={() => run(
+                dialog.row,
+                () => updateRegistrationAction(dialog.draft),
+                copy.editSaved,
+                () => setDialog(null),
+                // The draft was taken from an older version of the row; a
+                // retry from this dialog would conflict again. Close it and
+                // ask for a reopen once the refreshed row is on screen.
+                () => {
+                  setDialog(null);
+                  toast({ title: copy.editConflict, tone: "danger" });
+                },
+              )}
             >
               {pending && busyId === dialog.row.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Pencil className="h-4 w-4" aria-hidden />}
               {pending && busyId === dialog.row.id ? copy.saving : copy.save}

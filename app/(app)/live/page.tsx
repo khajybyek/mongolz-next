@@ -34,7 +34,9 @@ export default async function LivePage() {
   return (
     <>
       <PageHeader title={t("nav_live")} subtitle={t("select_camera")} />
-      <LiveCameraView cameras={cameras} />
+      {/* Only admins start / stop a capture (startCameraAction is admin-only);
+          viewers attach to streams that are already running. */}
+      <LiveCameraView cameras={cameras} canControl={isAdmin} />
       {isAdmin && <LiveMatchFlash />}
     </>
   );

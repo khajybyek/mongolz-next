@@ -146,7 +146,9 @@ export default async function CamerasPage() {
                           `${t("cam_health_liveness")}: ${t(cameraStatusKey(c.health.status))}`,
                           c.health.last_heartbeat
                             ? `${t("cam_health_last_frame")}: ${formatDate(c.health.last_heartbeat)}`
-                            : t("cam_health_not_capturing"),
+                            : c.health.capturing
+                              ? t("cam_health_no_frame_yet")
+                              : t("cam_health_not_capturing"),
                           c.health.last_seen
                             ? `${t("cam_health_last_face")}: ${formatDate(c.health.last_seen)}`
                             : `${t("cam_health_last_face")}: —`,
@@ -164,7 +166,7 @@ export default async function CamerasPage() {
                                   : "bg-text-muted",
                           )}
                         />
-                        {c.health.status}
+                        {t(cameraStatusKey(c.health.status))}
                       </span>
                     )}
                     <span

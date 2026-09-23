@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Pencil,
@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
+import { TotpPrompt } from "@/components/totp-prompt";
 import { useToast } from "@/components/ui/toast";
 import { useT } from "@/lib/i18n/client";
 import type { TranslationKey } from "@/lib/i18n/translations";
@@ -80,6 +81,7 @@ export function CameraDialog(props: Props) {
   const { t } = useT();
   const isEdit = props.mode === "edit";
   const camera = isEdit ? props.camera : null;
+  const fieldId = useId();
 
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(camera?.name ?? "");
@@ -120,38 +122,64 @@ export function CameraDialog(props: Props) {
     }
   }
 
+  // Edits answer REAUTH_REQUIRED when no TOTP step-up is fresh. The built
+  // submission is parked here, the TOTP prompt opens on top of this dialog,
+  // and the SAME submission is retried after a correct code.
+  const [needsTotp, setNeedsTotp] = useState(false);
+  const pendingEdit = useRef<FormData | null>(null);
+
+  function finishOk() {
+    toast({
+      title: isEdit ? t("toast_camera_saved") : t("toast_camera_added"),
+      description: name.trim(),
+      tone: "success",
+    });
+    setOpen(false);
+    reset();
+    router.refresh();
+  }
+
+  function fail(message: string) {
+    setSaveErr(message);
+    toast({ title: t("toast_failed"), description: message, tone: "danger" });
+  }
+
+  function submitEdit(fd: FormData) {
+    startTransition(async () => {
+      const res = await updateCameraAction(fd);
+      if ("error" in res) {
+        if (res.error === "REAUTH_REQUIRED") {
+          pendingEdit.current = fd;
+          setNeedsTotp(true);
+          return;
+        }
+        fail(res.error);
+        return;
+      }
+      pendingEdit.current = null;
+      finishOk();
+    });
+  }
+
   function save() {
     setSaveErr(null);
-    startTransition(async () => {
-      const fd = new FormData();
-      fd.append("name", name);
-      fd.append("url", url);
-      fd.append("cam_type", camType);
+    const fd = new FormData();
+    fd.append("name", name);
+    fd.append("url", url);
+    fd.append("cam_type", camType);
 
-      if (isEdit && camera) {
-        fd.append("id", camera.id);
-        const res = await updateCameraAction(fd);
-        if ("error" in res) {
-          setSaveErr(res.error);
-          toast({ title: t("toast_failed"), description: res.error, tone: "danger" });
-          return;
-        }
-      } else {
-        const res = await addCameraAction(fd);
-        if ("error" in res) {
-          setSaveErr(res.error);
-          toast({ title: t("toast_failed"), description: res.error, tone: "danger" });
-          return;
-        }
+    if (isEdit && camera) {
+      fd.append("id", camera.id);
+      submitEdit(fd);
+      return;
+    }
+    startTransition(async () => {
+      const res = await addCameraAction(fd);
+      if ("error" in res) {
+        fail(res.error);
+        return;
       }
-      toast({
-        title: isEdit ? t("toast_camera_saved") : t("toast_camera_added"),
-        description: name.trim(),
-        tone: "success",
-      });
-      setOpen(false);
-      reset();
-      router.refresh();
+      finishOk();
     });
   }
 
@@ -217,8 +245,9 @@ export function CameraDialog(props: Props) {
       >
         <div className="space-y-4">
           <div>
-            <label className="label">{t("camera_name")}</label>
+            <label className="label" htmlFor={`${fieldId}-name`}>{t("camera_name")}</label>
             <input
+              id={`${fieldId}-name`}
               className="input"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -228,8 +257,9 @@ export function CameraDialog(props: Props) {
           </div>
 
           <div>
-            <label className="label">{t("camera_type")}</label>
+            <label className="label" htmlFor={`${fieldId}-type`}>{t("camera_type")}</label>
             <select
+              id={`${fieldId}-type`}
               className="select"
               value={camType}
               onChange={(e) => {
@@ -253,8 +283,9 @@ export function CameraDialog(props: Props) {
           </div>
 
           <div>
-            <label className="label">{t("camd_url")}</label>
+            <label className="label" htmlFor={`${fieldId}-url`}>{t("camd_url")}</label>
             <input
+              id={`${fieldId}-url`}
               className="input font-mono text-xs"
               value={url}
               onChange={(e) => {
@@ -350,6 +381,20 @@ export function CameraDialog(props: Props) {
           )}
         </div>
       </Dialog>
+
+      <TotpPrompt
+        open={needsTotp}
+        onClose={() => {
+          setNeedsTotp(false);
+          pendingEdit.current = null;
+          setSaveErr(t("step_up_required"));
+        }}
+        onSuccess={() => {
+          setNeedsTotp(false);
+          const fd = pendingEdit.current;
+          if (fd) submitEdit(fd);
+        }}
+      />
     </>
   );
 }

@@ -10,6 +10,7 @@ import { useT } from "@/lib/i18n/client";
 import { cn, formatDate } from "@/lib/utils";
 import { SCH_GAMES, SCH_GAME_LABEL, SCH_TEAM_SIZE, type SchGame } from "@/lib/sch/schema";
 import { drawTeams, strengthLabel, type DrawPlayer, type DrawResult } from "@/lib/sch/teams";
+import { playersBeyondSubstitutes, poolFingerprint } from "@/lib/sch/draw-state";
 import { fill, schAdminCopy } from "./admin-copy";
 import { saveTeamsAction, setTeamsPublishedAction, type SchActionResult } from "./actions";
 
@@ -57,16 +58,21 @@ export function TeamDraw({ eligible, saved, published }: TeamDrawProps) {
   const [game, setGame] = useState<SchGame>("mobile_legends");
   const [preview, setPreview] = useState<DrawResult | null>(null);
   const [previewGame, setPreviewGame] = useState<SchGame | null>(null);
+  const [previewPool, setPreviewPool] = useState<string | null>(null);
 
   const pool = eligible[game] ?? [];
   const savedTeams = saved[game] ?? [];
   const isPublished = published[game] === true;
   const fullTeams = Math.floor(pool.length / SCH_TEAM_SIZE);
   const substitutes = pool.length % SCH_TEAM_SIZE;
-  const activePreview = preview && previewGame === game ? preview : null;
+  const fingerprint = useMemo(() => poolFingerprint(pool), [pool]);
+  // A preview belongs to the pool it was drawn from. After a refresh that
+  // changed a rank, a role or who is paid, the same seed would produce other
+  // rosters — so the stale preview is not shown (and cannot be saved).
+  const activePreview = preview && previewGame === game && previewPool === fingerprint ? preview : null;
   const byId = useMemo(() => new Map(pool.map((p) => [p.id, p])), [pool]);
   const outOfTeams = useMemo(
-    () => (savedTeams.length ? pool.filter((p) => !p.teamName).length : 0),
+    () => playersBeyondSubstitutes(pool, savedTeams.length, SCH_TEAM_SIZE),
     [pool, savedTeams.length],
   );
 
@@ -79,6 +85,7 @@ export function TeamDraw({ eligible, saved, published }: TeamDrawProps) {
     const seed = randomSeed();
     setPreview(drawTeams(pool, { seed, teamSize: SCH_TEAM_SIZE }));
     setPreviewGame(game);
+    setPreviewPool(fingerprint);
   }
 
   function chooseGame(next: SchGame) {
@@ -90,12 +97,18 @@ export function TeamDraw({ eligible, saved, published }: TeamDrawProps) {
     startTransition(async () => {
       let result: SchActionResult;
       try {
-        result = await saveTeamsAction({ game, seed: activePreview.seed, playerIds: pool.map((p) => p.id) });
+        result = await saveTeamsAction({
+          game,
+          seed: activePreview.seed,
+          playerIds: pool.map((p) => p.id),
+          teams: activePreview.teams.map((t) => t.players.map((p) => p.id)),
+        });
       } catch {
         result = { error: "unavailable" };
       }
       if ("error" in result) {
-        toast({ title: errorTitle(result), tone: "danger" });
+        // Save conflict = the pool, a rank or a role changed since the preview.
+        toast({ title: result.error === "conflict" ? copy.drawConflict : errorTitle(result), tone: "danger" });
         if (result.error === "conflict") {
           setPreview(null);
           router.refresh();

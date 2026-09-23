@@ -22,7 +22,10 @@ const state: {
   audits: Row[];
   storageListed: boolean;
   superAdmin: boolean;
-} = { fresh: true, auth: "ok", rows: {}, selects: {}, audits: [], storageListed: false, superAdmin: true };
+  /** Paths the existence RPC reports as absent; `null` = the RPC errors (migration not applied). */
+  missingObjects: Record<string, string[]> | null;
+  rpcCalls: { bucket: string; names: string[] }[];
+} = { fresh: true, auth: "ok", rows: {}, selects: {}, audits: [], storageListed: false, superAdmin: true, missingObjects: {}, rpcCalls: [] };
 
 jest.mock("@/lib/supabase/auth", () => ({
   requireAdminApi: jest.fn(async () => {
@@ -41,6 +44,15 @@ jest.mock("@/lib/auth/step-up", () => ({ hasFreshReauth: jest.fn(async () => sta
 
 jest.mock("@/lib/supabase/server", () => ({
   createServiceClient: () => ({
+    rpc: async (fn: string, args: { p_bucket: string; p_names: string[] }) => {
+      if (fn !== "backup_missing_storage_objects") throw new Error(`unexpected rpc ${fn}`);
+      state.rpcCalls.push({ bucket: args.p_bucket, names: args.p_names });
+      if (state.missingObjects === null) {
+        return { data: null, error: { message: "function public.backup_missing_storage_objects does not exist" } };
+      }
+      const gone = new Set(state.missingObjects[args.p_bucket] ?? []);
+      return { data: args.p_names.filter((n) => gone.has(n)).map((name) => ({ name })), error: null };
+    },
     from: (table: string) => ({
       // Table dumps + storage sources both go through select().order().range().
       select: (columns: string) => {
@@ -107,6 +119,8 @@ beforeEach(() => {
   state.storageListed = false;
   state.superAdmin = true;
   state.selects = {};
+  state.missingObjects = {};
+  state.rpcCalls = [];
   state.rows = {
     profiles: [{ id: "u1", email: "a@x" }],
     cameras: [{ id: "c1", name: "Lobby", url: "enc:v1:abcdef" }],
@@ -144,6 +158,16 @@ beforeEach(() => {
     privacy_zones: [],
     retention_policies: [],
     clusters: [],
+    face_search_presets: [],
+    sch_event: [{ id: 1, title: "Chuseok 2026", registration_open: true }],
+    sch_teams: [{ id: "t1", game: "cs2", name: "Team 1", seed: 1 }],
+    sch_registrations: [
+      // Two games of one web submission share one receipt object.
+      { id: "g1", submission_id: "sub1", game: "cs2", team_id: "t1", receipt_path: "submissions/sub1/receipt.jpg" },
+      { id: "g2", submission_id: "sub1", game: "dota2", team_id: null, receipt_path: "submissions/sub1/receipt.jpg" },
+      // Imported Google Form row: a Drive link, no Storage object.
+      { id: "g3", submission_id: "sub2", game: "cs2", team_id: null, receipt_path: null, receipt_url: "https://drive.google.com/x" },
+    ],
   };
 });
 
@@ -272,6 +296,7 @@ describe("GET /api/admin/backup — storage manifests", () => {
       "faces",
       "recordings",
       "revealed",
+      "sch-receipts",
       "suspects",
     ]);
   });
@@ -341,5 +366,85 @@ describe("backup completeness boundary", () => {
     expect(manifest.tables.faces.rows).toBe(50000);
     expect(manifest.buckets.faces.objects).toBe(50000);
     expect(manifest.file_sha256["tables/faces.json"]).toMatch(/^[a-f0-9]{64}$/);
+  });
+});
+
+
+describe("GET /api/admin/backup — SCH tournament data (was silently omitted)", () => {
+  it("exports the three sch_* tables and face_search_presets", async () => {
+    const { json } = await open();
+    const m = await json("manifest.json");
+    for (const t of ["sch_event", "sch_teams", "sch_registrations", "face_search_presets"]) {
+      expect(m.tables[t]).toMatchObject({ restorable: true });
+    }
+    expect((await json("tables/sch_registrations.json")).length).toBe(3);
+    expect((await json("tables/sch_event.json"))[0].id).toBe(1);
+  });
+
+  it("keeps abuse telemetry out of the registration dump", async () => {
+    await open();
+    expect(dumped("sch_registrations")).toContain("receipt_path");
+    expect(dumped("sch_registrations")).toContain("receipt_url");
+    expect(dumped("sch_registrations")).not.toMatch(/ip_hash|user_agent/);
+  });
+
+  it("lists the web-form receipts once each and skips imported rows", async () => {
+    const { json } = await open();
+    const receipts = await json("buckets/sch-receipts.manifest.json");
+    expect(receipts.objects).toEqual([
+      { path: "submissions/sub1/receipt.jpg", source: "sch_registrations", row_id: "g1" },
+    ]);
+    expect(receipts.total_objects).toBe(1);
+  });
+
+  it("names every table it does not export, with a reason", async () => {
+    const { json, read } = await open();
+    const m = await json("manifest.json");
+    expect(Object.keys(m.not_exported).sort()).toEqual(
+      expect.arrayContaining(["camera_sessions", "upload_jobs", "web_vitals", "webauthn_credentials"]),
+    );
+    expect(await read("README.txt")).toContain("upload_jobs");
+  });
+
+  it("exports the newer faces columns", async () => {
+    await open();
+    expect(dumped("faces")).toContain("source_offset_sec");
+    expect(dumped("faces")).toContain("detection_confidence");
+  });
+});
+
+describe("GET /api/admin/backup — dangling storage paths", () => {
+  it("flags referenced objects that Storage no longer holds", async () => {
+    state.missingObjects = { suspects: ["suspects/s1.jpg"] };
+    const { json, read } = await open();
+    const suspects = await json("buckets/suspects.manifest.json");
+    expect(suspects.objects).toEqual([
+      { path: "suspects/s1.jpg", source: "suspects", row_id: "s1", missing: true },
+    ]);
+    expect(suspects).toMatchObject({ missing_objects: 1, existence_checked: true, complete: true });
+    const m = await json("manifest.json");
+    expect(m.missing_objects).toBe(1);
+    expect(m.buckets.suspects).toMatchObject({ objects: 1, missing: 1, existence_checked: true });
+    expect(m.buckets.recordings).toMatchObject({ missing: 0, existence_checked: true });
+    expect(await read("README.txt")).toMatch(/1 referenced object\(s\) are MISSING/);
+  });
+
+  it("still exports, marked unchecked, when the existence RPC is unavailable", async () => {
+    state.missingObjects = null;
+    const { json, read } = await open();
+    const m = await json("manifest.json");
+    expect(m.missing_objects).toBe(0);
+    expect(m.buckets.faces).toMatchObject({ existence_checked: false, missing: 0 });
+    expect((await json("buckets/faces.manifest.json")).existence_checked).toBe(false);
+    expect(await read("README.txt")).toContain("Object existence was NOT checked");
+  });
+
+  it("checks existence in pages and skips buckets with no paths", async () => {
+    state.rows.faces = Array.from({ length: 1500 }, (_, i) => ({ id: `f${i}`, image_path: `f${i}.jpg` }));
+    state.rows.reveal_jobs = [];
+    await open();
+    const faceCalls = state.rpcCalls.filter((c) => c.bucket === "faces");
+    expect(faceCalls.map((c) => c.names.length)).toEqual([1000, 500]);
+    expect(state.rpcCalls.some((c) => c.bucket === "revealed")).toBe(false);
   });
 });

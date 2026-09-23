@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 import type { AlertLabel } from "@/lib/database.types";
 
@@ -33,16 +34,25 @@ export async function POST(
   }
 
   const supabase = await createClient();
-  const { error } = await supabase
+  // `.select("id")` so a missing (or RLS-hidden) alert is a 404 instead of
+  // `{ok:true}` plus an ALERT_LABEL ledger row for a label nobody applied —
+  // same contract as the sibling state/note routes.
+  const { data: updated, error } = await supabase
     .from("alerts")
     .update({
       label,
       labeled_by: auth.user.id,
       labeled_at: new Date().toISOString(),
     })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id")
+    .maybeSingle();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    log.error("alert label: update failed", { alert_id: id, code: error.code });
+    return NextResponse.json({ error: "update failed" }, { status: 500 });
+  }
+  if (!updated) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   await createServiceClient().from("audit_log").insert({
     action: "ALERT_LABEL",

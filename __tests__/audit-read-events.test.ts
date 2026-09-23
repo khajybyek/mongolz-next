@@ -138,9 +138,16 @@ function fakeClient() {
       eq: chain,
       in: async () => ({ data: listFor(), error: null }),
       limit: chain,
-      order: () => ({
-        limit: async () => ({ data: listFor(), error: null }),
-      }),
+      order: () => {
+        // Paged exports (lib/paged-fetch) chain order().order().range();
+        // every list fits on the first page, so later offsets are empty.
+        const ordered: Record<string, unknown> = {
+          limit: async () => ({ data: listFor(), error: null }),
+          range: async (from: number) => ({ data: from === 0 ? listFor() : [], error: null }),
+        };
+        ordered.order = () => ordered;
+        return ordered;
+      },
       maybeSingle: async () => ({ data: rows(), error: null }),
       single: async () => ({ data: rows(), error: null }),
       gte: async () => ({ count: state.ledgerHits, error: null }),

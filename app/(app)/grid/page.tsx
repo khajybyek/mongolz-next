@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { mlActiveCameras } from "@/lib/ml-client";
+import { restartInfoFor } from "@/lib/camera-restarts";
 import { MultiCameraGrid, type GridCamera } from "./multi-camera-grid";
 
 export const dynamic = "force-dynamic";
@@ -130,6 +131,7 @@ export default async function GridPage({
           cameras={cameras}
           initialActive={initialActive}
           mlReachable={active !== null}
+          initialRestarts={restartInfoFor(active ?? [], new Set(initialActive))}
           initialFocus={initialFocus}
           canControl={canControl}
         />

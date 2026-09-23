@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { FaceThumb } from "@/components/face-thumb";
 import { revealScopeCopy, REVEAL_REASON_MIN, REVEAL_REASON_MAX } from "@/lib/reveal-scope";
 import { useT } from "@/lib/i18n/client";
+import type { TranslationKey } from "@/lib/i18n/translations";
 import { useModalFocus } from "@/lib/use-modal-focus";
 
 interface Suspect {
@@ -34,6 +35,24 @@ export interface DetectedFace {
 }
 
 type Step = "method" | "reauth" | "processing" | "done";
+
+/** /api/reveal/start refusal codes → translation keys. */
+const REVEAL_ERROR_KEYS: Record<string, TranslationKey> = {
+  REAUTH_REQUIRED: "pb_reveal_err_reauth",
+  RATE_LIMITED: "pb_reveal_err_rate",
+  REVEAL_REASON_REQUIRED: "pb_reveal_err_reason",
+  INVALID_PARAMS: "pb_reveal_start_failed",
+  INVALID_WINDOW: "pb_reveal_err_window",
+  WINDOW_EXCEEDS_DURATION: "pb_reveal_err_window",
+  DURATION_UNKNOWN: "pb_reveal_err_duration",
+  RECORDING_NOT_FOUND: "pb_reveal_err_not_found",
+  TARGET_NOT_FOUND: "pb_reveal_err_not_found",
+  NO_ORIGINAL: "pb_reveal_err_no_original",
+  BAD_PHOTO: "pb_reveal_err_photo",
+  ML_UNAVAILABLE: "pb_reveal_err_ml",
+  REFERENCE_SEAL_FAILED: "pb_reveal_start_failed",
+  START_FAILED: "pb_reveal_start_failed",
+};
 type Method = "upload" | "suspect" | "detected_face";
 
 export function RevealModal({
@@ -198,9 +217,15 @@ export function RevealModal({
 
     try {
       const res = await fetch("/api/reveal/start", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? t("pb_reveal_start_failed"));
-      setJob({ id: data.job_id, status: data.status, progress: 0 });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string; job_id?: string; status?: string };
+      if (!res.ok) {
+        // Stable route code → the operator's language; never the raw server
+        // text (it mixed Mongolian and English regardless of the UI language).
+        const key = data.code ? REVEAL_ERROR_KEYS[data.code] : undefined;
+        throw new Error(t(key ?? "pb_reveal_start_failed"));
+      }
+      if (!data.job_id) throw new Error(t("pb_reveal_start_failed"));
+      setJob({ id: data.job_id, status: data.status ?? "pending_approval", progress: 0 });
     } catch (e) {
       setError(e instanceof Error ? e.message : t("ai_error_generic"));
       setStep("method");
@@ -320,10 +345,11 @@ export function RevealModal({
 
               {method === "upload" && (
                 <div>
-                  <label className="label">
+                  <label className="label" htmlFor="reveal-photo">
                     {t("pb_upload_label")}
                   </label>
                   <input
+                    id="reveal-photo"
                     type="file"
                     accept="image/*"
                     onChange={(e) => setPhoto(e.target.files?.[0] ?? null)}
@@ -424,10 +450,11 @@ export function RevealModal({
               )}
 
               <div>
-                <label className="label">
+                <label className="label" htmlFor="reveal-threshold">
                   {t("threshold")}: {threshold.toFixed(2)}
                 </label>
                 <input
+                  id="reveal-threshold"
                   type="range"
                   min="0.30"
                   max="0.85"

@@ -49,6 +49,11 @@ import { createClient } from "@supabase/supabase-js";
 // FK order: parents first.
 const ORDER = [
   "profiles",
+  // SCH Esports: registrations reference sch_teams (team_id); both
+  // reference profiles only through nullable audit columns.
+  "sch_event",
+  "sch_teams",
+  "sch_registrations",
   "cameras",
   "suspects",
   "recordings",
@@ -63,6 +68,7 @@ const ORDER = [
   "incident_events",
   "incident_recordings",
   "incident_evidence_exports",
+  "face_search_presets",
   "edge_agents",
   "edge_ingest_events",
   "webhooks",
@@ -87,6 +93,10 @@ const PK: Record<string, string> = {
  */
 const REQUIRED_COLUMNS: Record<string, string[]> = {
   profiles: ["id", "email"],
+  sch_event: ["id"],
+  sch_teams: ["game", "name", "seed"],
+  sch_registrations: ["submission_id", "game", "full_name", "email", "facebook"],
+  face_search_presets: ["user_id", "name"],
   cameras: ["name", "url"],
   suspects: ["name", "image_path", "embedding"],
   recordings: ["filename", "storage_path"],
@@ -194,6 +204,17 @@ async function main() {
   const integrityErrors = validateBackupIntegrity(manifest as BackupManifest | null,
     (relative) => readFileSync(path.join(dirArg, relative)));
   if (integrityErrors.length) throw new Error(`Backup integrity preflight failed before any write:\n${integrityErrors.join("\n")}`);
+  // A table this tool does not know would be silently left out, and the
+  // complete-recovery verifier would then fail on its row count after the
+  // writes. Refuse up front instead.
+  const unknownTables = Object.keys(
+    manifest?.tables && typeof manifest.tables === "object" ? manifest.tables : {},
+  ).filter((t) => !(ORDER as readonly string[]).includes(t));
+  if (unknownTables.length) {
+    throw new Error(
+      `Backup contains table(s) this restore tool does not know: ${unknownTables.join(", ")}. Update scripts/restore-from-backup.ts (ORDER) before restoring. Nothing was changed.`,
+    );
+  }
   const includeBiometrics = manifest?.include_biometrics === true;
   console.log(`Backup: ${path.resolve(dirArg)}`);
   console.log(
@@ -273,6 +294,8 @@ async function main() {
     incident_events: ["incidents"],
     incident_recordings: ["incidents", "recordings"],
     incident_evidence_exports: ["incidents"],
+    face_search_presets: ["suspects", "incidents"],
+    sch_registrations: ["sch_teams"],
     edge_agents: ["cameras"],
     edge_ingest_events: ["edge_agents", "cameras"],
   };

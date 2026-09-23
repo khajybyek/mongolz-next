@@ -6,6 +6,13 @@ import { Empty } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
 import { useT } from "@/lib/i18n/client";
 import { formatDate } from "@/lib/utils";
+import { TotpPrompt } from "@/components/totp-prompt";
+import { useToast } from "@/components/ui/toast";
+
+/** JSON body or null — a non-JSON answer (HTML error page) must not throw. */
+async function readJson(r: Response): Promise<{ error?: string; zones?: unknown[] } | null> {
+  return (await r.json().catch(() => null)) as { error?: string; zones?: unknown[] } | null;
+}
 
 type Camera = { id: string; name: string };
 type Zone = {
@@ -39,6 +46,21 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
   const [vipMask, setVipMask] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ x: number; y: number } | null>(null);
+  const { toast } = useToast();
+  // Deleting / disabling / loosening a zone needs a fresh TOTP step-up; the
+  // refused request is parked here and replayed after a correct code.
+  const [needsTotp, setNeedsTotp] = useState(false);
+  const retryRef = useRef<(() => void) | null>(null);
+
+  /** true when the response was a step-up refusal (prompt opened). */
+  function needsStepUp(r: Response, j: { error?: string } | null, retry: () => void): boolean {
+    if (r.status === 403 && j?.error === "REAUTH_REQUIRED") {
+      retryRef.current = retry;
+      setNeedsTotp(true);
+      return true;
+    }
+    return false;
+  }
 
   const refresh = useCallback(async () => {
     if (!cameraId) {
@@ -48,8 +70,9 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
     setLoading(true);
     try {
       const r = await fetch(`/api/privacy-zones?camera_id=${cameraId}`, { cache: "no-store" });
-      const j = await r.json();
-      if (r.ok) setZones((j.zones ?? []) as Zone[]);
+      const j = await readJson(r);
+      if (r.ok) setZones((j?.zones ?? []) as Zone[]);
+      else setErr(j?.error ?? `HTTP ${r.status}`);
     } finally {
       setLoading(false);
     }
@@ -117,8 +140,9 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
           enforce_vip_mask: vipMask,
         }),
       });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error ?? "save failed");
+      const j = await readJson(r);
+      if (needsStepUp(r, j, () => void saveZone())) return;
+      if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
       setDraft(null);
       setName("");
       setReason("");
@@ -133,8 +157,15 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
   async function deleteZone(id: string) {
     setBusy(id);
     try {
-      await fetch(`/api/privacy-zones?id=${id}`, { method: "DELETE" });
+      const r = await fetch(`/api/privacy-zones?id=${id}`, { method: "DELETE" });
+      const j = await readJson(r);
+      if (needsStepUp(r, j, () => void deleteZone(id))) return;
+      if (!r.ok) {
+        toast({ title: t("toast_failed"), description: j?.error ?? `HTTP ${r.status}`, tone: "danger" });
+      }
       await refresh();
+    } catch {
+      toast({ title: t("toast_failed"), tone: "danger" });
     } finally {
       setBusy(null);
     }
@@ -143,12 +174,19 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
   async function toggleEnabled(zone: Zone) {
     setBusy(zone.id);
     try {
-      await fetch("/api/privacy-zones", {
+      const r = await fetch("/api/privacy-zones", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: zone.id, enabled: !zone.enabled }),
       });
+      const j = await readJson(r);
+      if (needsStepUp(r, j, () => void toggleEnabled(zone))) return;
+      if (!r.ok) {
+        toast({ title: t("toast_failed"), description: j?.error ?? `HTTP ${r.status}`, tone: "danger" });
+      }
       await refresh();
+    } catch {
+      toast({ title: t("toast_failed"), tone: "danger" });
     } finally {
       setBusy(null);
     }
@@ -159,6 +197,21 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
   }
 
   return (
+    <>
+    <TotpPrompt
+      open={needsTotp}
+      onClose={() => {
+        setNeedsTotp(false);
+        retryRef.current = null;
+        setErr(t("step_up_required"));
+      }}
+      onSuccess={() => {
+        setNeedsTotp(false);
+        const retry = retryRef.current;
+        retryRef.current = null;
+        retry?.();
+      }}
+    />
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
       <div className="space-y-4">
         <div className="card p-3 flex items-end gap-3">
@@ -327,5 +380,6 @@ export function ZonesView({ cameras }: { cameras: Camera[] }) {
         </div>
       </aside>
     </div>
+    </>
   );
 }

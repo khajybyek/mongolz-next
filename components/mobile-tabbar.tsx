@@ -54,6 +54,8 @@ export function MobileTabbar({ role, lang }: { role: Role; lang: Lang }) {
         editing && "translate-y-[calc(100%+4rem)] opacity-0 pointer-events-none",
       )}
     >
+      {/* 68px row (+2px border): AlertMobileActions offsets itself by this
+          height to sit above the bar — keep the two in step. */}
       <ul
         className="grid h-[68px] gap-1 p-1.5"
         style={{ gridTemplateColumns: `repeat(${tabs.length + 1}, minmax(0, 1fr))` }}

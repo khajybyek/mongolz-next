@@ -124,9 +124,23 @@ export async function updateSession(request: NextRequest) {
     PUBLIC_EXACT.has(path) || PUBLIC_PATHS.some((p) => path.startsWith(p));
 
   if (!user && !isPublic) {
+    // API callers (fetch, hls.js, EventSource) cannot follow a redirect to
+    // an HTML login page — they used to receive `200 text/html` and fail
+    // with a JSON SyntaxError. Answer a plain 401 instead.
+    if (path.startsWith("/api/")) {
+      const denied = NextResponse.json(
+        { error: "unauthorized" },
+        { status: 401, headers: { "Cache-Control": "no-store" } },
+      );
+      for (const cookie of response.cookies.getAll()) denied.cookies.set(cookie);
+      return denied;
+    }
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    url.searchParams.set("next", path);
+    // Keep the original query (filters, ?focus=, ?action=) in `next`, and
+    // drop stray parameters from the login URL itself.
+    url.search = "";
+    url.searchParams.set("next", path + request.nextUrl.search);
     return NextResponse.redirect(url);
   }
 
@@ -154,7 +168,8 @@ export async function updateSession(request: NextRequest) {
   // Role-based gating + admin TOTP enforcement.
   //
   // 1. Admin без TOTP   → /settings?force_totp=1
-  // 2. Auditor — зөвхөн /audit + /api/audit/* + /auth/logout + /settings (own data export)
+  // 2. Auditor — зөвхөн /audit + /my-data (own GDPR export / erasure);
+  //    /api/* and /auth/* are exempt below (the route helpers gate them).
   //    Бусад руу ороход /audit руу redirect.
   //
   // Triggers only on top-level page navigations — API/asset requests skip the
@@ -199,9 +214,14 @@ export async function updateSession(request: NextRequest) {
           return NextResponse.redirect(url);
         }
 
-        // Auditor allow-list: zövhön /audit + /audit/*. Бусад page-ийг /audit руу redirect.
+        // Auditor allow-list: /audit(/*) + /my-data(/*) (GDPR Art.15/17 —
+        // /api/gdpr/* already accepts auditors). Everything else → /audit.
         if (prof?.role === "auditor") {
-          const allowed = path === "/audit" || path.startsWith("/audit/");
+          const allowed =
+            path === "/audit" ||
+            path.startsWith("/audit/") ||
+            path === "/my-data" ||
+            path.startsWith("/my-data/");
           if (!allowed) {
             const url = request.nextUrl.clone();
             url.pathname = "/audit";

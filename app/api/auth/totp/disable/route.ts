@@ -72,10 +72,16 @@ export async function POST(request: NextRequest) {
   // Correct password — hand the throttle unit back.
   await releaseRateLimit(ctx.user.id, REAUTH_LIMIT);
 
-  await svc
+  const { error: upErr } = await svc
     .from("profiles")
     .update({ totp_secret: null, totp_enabled: false, totp_recovery_codes: [] })
     .eq("id", ctx.user.id);
+  if (upErr) {
+    // Nothing changed: do not audit a removal, drop subscriptions or alert
+    // the other admins about a second factor that is still in place.
+    console.error("[totp/disable] update failed", upErr.message);
+    return NextResponse.json({ error: "disable_failed" }, { status: 500 });
+  }
 
   await svc.from("audit_log").insert({
     action: "TOTP_DISABLED",

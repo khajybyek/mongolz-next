@@ -53,6 +53,16 @@ jest.mock("@/lib/supabase/auth", () => ({
   isAuthErr: (r: object) => "error" in r,
 }));
 jest.mock("@/lib/totp", () => ({ verifyTOTPWithReplayCheck: (...a: unknown[]) => verifyTOTP(...(a as [])) }));
+// Accounts without TOTP re-authenticate with the password (probe client).
+jest.mock("@supabase/supabase-js", () => ({
+  createClient: () => ({
+    auth: {
+      signInWithPassword: async ({ password }: { password: string }) =>
+        password === "correct-password" ? { error: null } : { error: { message: "Invalid login credentials" } },
+      signOut: async () => ({ error: null }),
+    },
+  }),
+}));
 jest.mock("@/lib/rate-limit", () => ({
   checkRateLimit: (...a: unknown[]) => checkRateLimit(...(a as [])),
   REAUTH_LIMIT: { max: 5, windowSec: 60 },
@@ -104,7 +114,7 @@ jest.mock("@/lib/supabase/server", () => {
 
 import { POST } from "@/app/api/gdpr/delete/route";
 
-function erase(body: Record<string, unknown> = { confirm: "DELETE MY ACCOUNT" }) {
+function erase(body: Record<string, unknown> = { confirm: "DELETE MY ACCOUNT", password: "correct-password" }) {
   return POST(
     new NextRequest("https://app.test/api/gdpr/delete", {
       method: "POST",
@@ -236,5 +246,33 @@ describe("the guards that were already there stay", () => {
     state.rateLimited = true;
     expect((await erase()).status).toBe(429);
     expect(writes.authDeletes).toHaveLength(0);
+  });
+});
+
+describe("accounts without TOTP re-authenticate with the password", () => {
+  it("refuses without a password and deletes nothing", async () => {
+    state.profile = profile({ role: "viewer" });
+    const res = await erase({ confirm: "DELETE MY ACCOUNT" });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ code: "PASSWORD_REQUIRED" });
+    expect(writes.authDeletes).toHaveLength(0);
+  });
+
+  it("refuses a wrong password, audits it, deletes nothing", async () => {
+    state.profile = profile({ role: "auditor" });
+    const res = await erase({ confirm: "DELETE MY ACCOUNT", password: "guess" });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ code: "PASSWORD_INVALID" });
+    expect(writes.audits).toEqual([
+      expect.objectContaining({ action: "REAUTH_PASSWORD_FAILED", detail: "gdpr erase" }),
+    ]);
+    expect(writes.profileDeletes).toHaveLength(0);
+    expect(writes.authDeletes).toHaveLength(0);
+  });
+
+  it("does not ask a TOTP account for the password", async () => {
+    state.profile = profile({ totp_enabled: true, totp_secret: "SEED" });
+    const res = await erase({ confirm: "DELETE MY ACCOUNT", totp_code: "123456" });
+    expect(res.status).toBe(200);
   });
 });

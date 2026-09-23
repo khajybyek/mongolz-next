@@ -39,9 +39,11 @@ export default async function SettingsPage({
         )}
         <TotpSettings email={user.email} enabled={enabled} role={profile.role} />
 
-        <PasskeySettings />
+        {/* Enrolling a passkey or a push channel needs a TOTP step-up; an admin
+            who has not enabled TOTP yet could only reach a dead-end prompt. */}
+        <PasskeySettings canEnrol={enabled} />
 
-        <PushSettings />
+        <PushSettings canEnrol={enabled} />
 
         <div className="card space-y-3">
           <h3 className="section-title">{t("my_data_title")}</h3>

@@ -28,7 +28,9 @@ export function AlertMobileActions({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [noteOpen, setNoteOpen] = useState(false);
-  const [noteDraft, setNoteDraft] = useState(note ?? "");
+  // Seeded from the stored note each time the dialog opens, so a refresh
+  // after a save (or another admin's edit) is never shadowed by a stale copy.
+  const [noteDraft, setNoteDraft] = useState("");
 
   function setLabel(next: AlertLabel) {
     startTransition(async () => {
@@ -55,12 +57,15 @@ export function AlertMobileActions({
 
   return (
     <>
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-bg-primary/95 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shadow-2xl backdrop-blur lg:sticky lg:inset-auto lg:bottom-4 lg:rounded-2xl lg:border">
+      {/* Below lg this floats just above MobileTabbar (same side insets, its
+          68px row + border, and a 0.5rem gap) instead of covering it, so the
+          main navigation stays usable on the page push notifications open. */}
+      <div className="fixed left-[max(0.75rem,env(safe-area-inset-left,0px))] right-[max(0.75rem,env(safe-area-inset-right,0px))] bottom-[calc(max(0.75rem,env(safe-area-inset-bottom,0px))+70px+0.5rem)] z-40 rounded-2xl border border-border bg-bg-primary/95 p-3 shadow-2xl backdrop-blur lg:sticky lg:inset-auto lg:bottom-4">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-2 lg:justify-between">
           <div className="flex flex-wrap justify-center gap-2">
             {playbackHref && <Link href={playbackHref as never} className="btn-secondary btn-sm"><PlayCircle className="h-4 w-4" />{workflow.openRecording}</Link>}
             <Link href={`/incidents?alert=${id}` as never} className="btn-secondary btn-sm"><FolderPlus className="h-4 w-4" />{incident.createFromAlert}</Link>
-            <button type="button" className="btn-ghost btn-sm" onClick={() => setNoteOpen(true)}><FileText className="h-4 w-4" />{t("al_note")}</button>
+            <button type="button" className="btn-ghost btn-sm" onClick={() => { setNoteDraft(note ?? ""); setNoteOpen(true); }}><FileText className="h-4 w-4" />{t("al_note")}</button>
           </div>
           <div className="flex flex-wrap justify-center gap-2">
             <button type="button" className={label === "true_positive" ? "btn-primary btn-sm" : "btn-outline btn-sm"} disabled={pending} onClick={() => setLabel("true_positive")}>

@@ -14,6 +14,7 @@ import {
 import { Empty } from "@/components/ui/empty";
 import { useT } from "@/lib/i18n/client";
 import { useChartColors } from "@/lib/theme/chart-colors";
+import { formatTimeKst } from "@/lib/format-time-kst";
 
 interface Alert {
   id: string;
@@ -39,7 +40,7 @@ interface Props {
 }
 
 export function LiveAlertsView({ seed, labels }: Props) {
-  const { t, lang } = useT();
+  const { t } = useT();
   const chartColors = useChartColors();
   const [alerts, setAlerts] = useState<Alert[]>(seed);
   const [connected, setConnected] = useState(false);
@@ -221,10 +222,7 @@ export function LiveAlertsView({ seed, labels }: Props) {
                     </td>
                     <td className="text-xs whitespace-nowrap">
                       <span className="text-text-muted">
-                        {new Date(a.created_at).toLocaleTimeString(
-                          lang === "kr" ? "ko-KR" : lang === "en" ? "en-US" : "mn-MN",
-                          { timeZone: "Asia/Seoul" },
-                        )}
+                        {formatTimeKst(a.created_at)}
                       </span>
                     </td>
                   </tr>

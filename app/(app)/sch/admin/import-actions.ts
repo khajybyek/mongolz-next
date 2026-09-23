@@ -15,10 +15,10 @@
  * response gets a deterministic submission id (lib/sch/import-id.ts), so
  * uploading the same — or a grown — sheet again only adds the new people.
  *
- * Writes go through the RLS client like every other console action: the
- * "sch_registrations: organiser" policy (20260917131000) is `for all` and the
- * table grants INSERT to `authenticated`; the admin-privilege hardening
- * migration did not touch the sch_* tables. The ledger uses the service role.
+ * Reads and writes use the service client AFTER `requireSchOrganiser()`, like
+ * every other console action: the sch_* tables are service-role-write only
+ * (20260923170000), so a password-only organiser token cannot insert rows
+ * through PostgREST behind the ledger. The ledger uses the service role too.
  */
 
 import { isIP } from "node:net";
@@ -27,7 +27,7 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { log } from "@/lib/log";
 import { requireSchOrganiser, type AuthCtx } from "@/lib/supabase/auth";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/lib/database.generated";
 import { registrationRow, type SchGame } from "@/lib/sch/schema";
 import { buildCandidates, schImportInputSchema } from "@/lib/sch/import";
@@ -43,7 +43,7 @@ import {
 } from "@/lib/sch/import-types";
 
 type RegistrationInsert = Database["public"]["Tables"]["sch_registrations"]["Insert"];
-type RlsClient = Awaited<ReturnType<typeof createClient>>;
+type DbClient = ReturnType<typeof createServiceClient>;
 
 /** E-mails per existence lookup — one query per chunk, never one per row. */
 const LOOKUP_CHUNK = 200;
@@ -99,7 +99,7 @@ function totalsOf(work: Working[]): SchImportTotals {
 }
 
 /** (game, e-mail) pairs the database already holds, for the e-mails of this sheet. */
-async function existingPairs(supabase: RlsClient, candidates: ImportCandidate[]): Promise<Set<string> | null> {
+async function existingPairs(supabase: DbClient, candidates: ImportCandidate[]): Promise<Set<string> | null> {
   const emails = [
     ...new Set(candidates.filter((c) => c.person && c.entries.length > 0).map((c) => c.person!.email)),
   ];
@@ -183,7 +183,7 @@ export async function previewSchImportAction(input: unknown): Promise<SchImportP
   if (!parsed.success) return { error: "invalid" };
   try {
     const candidates = buildCandidates(parsed.data);
-    const existing = await existingPairs(await createClient(), candidates);
+    const existing = await existingPairs(createServiceClient(), candidates);
     if (!existing) return { error: "unavailable" };
     const work = settle(candidates, existing);
     return { ok: true, rows: work.map((w) => w.verdict), totals: totalsOf(work) };
@@ -206,7 +206,7 @@ export async function commitSchImportAction(input: unknown): Promise<SchImportRe
   let failed = false;
   let work: Working[] = [];
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     const candidates = buildCandidates(sheet);
     const existing = await existingPairs(supabase, candidates);
     if (!existing) return { error: "unavailable" };

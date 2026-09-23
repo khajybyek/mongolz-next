@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { ORGANISER_HOME, schOrganiserVerdict } from "@/lib/sch/access";
 import { NextResponse } from "next/server";
@@ -59,7 +60,8 @@ type SessionState =
  * went through the second factor. The TOTP-less organiser role is held to the
  * same rule. Other users without TOTP (viewer/auditor) keep back-compat for
  * cookie-less legacy sessions. A pin that exists but does
- * not match (other network/UA, tampered, expired) is always rejected.
+ * not match (other browser, tampered, expired, legacy pin on another
+ * network) is always rejected; see pinRevocationScope for how far.
  *
  * Missing signing configuration or an internal verification error blocks the
  * request without revoking otherwise valid sessions. Once verification is
@@ -93,7 +95,27 @@ async function pinVerdict(
   }
 }
 
-async function loadSession(): Promise<SessionState> {
+/**
+ * Pin rejections that carry no sign of a replayed cookie: the pin simply
+ * aged out, or a legacy (network-bound) pin met the user's own browser on a
+ * new network. Those end only THIS session. Everything else (other browser,
+ * other user id, forged signature, no pin for a TOTP user) still revokes
+ * every session of the account.
+ */
+const BENIGN_PIN_REASONS: ReadonlySet<string> = new Set(["expired", "stale"]);
+
+export function pinRevocationScope(reason: string): "local" | "global" {
+  return BENIGN_PIN_REASONS.has(reason) ? "local" : "global";
+}
+
+/**
+ * Memoised per render with React `cache()`: a layout and its page both call
+ * requireUser(), and without this every request ran the pin check twice —
+ * on a rejection that meant two SESSION_PIN_REJECTED rows and two sign-out
+ * calls. Outside a React render (route handlers, server actions, tests)
+ * `cache` calls straight through.
+ */
+const loadSession = cache(async function loadSession(): Promise<SessionState> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -126,11 +148,13 @@ async function loadSession(): Promise<SessionState> {
     if (pin.reason === "no-secret" || pin.reason === "internal-error") {
       return { kind: "unavailable" };
     }
-    // Revoke the session server-side as well (global): a replayed cookie
-    // must stop working everywhere, and the middleware's getUser() then
-    // sees no session, so /login does not bounce back to /dashboard.
+    // Revoke the session server-side as well, so the middleware's getUser()
+    // sees no session and /login does not bounce back to /dashboard. A
+    // suspected replay revokes every session of the account (global); a
+    // benign reason (expired / stale network-bound pin) only this one, so the
+    // user's other devices are not signed out with it.
     try {
-      await supabase.auth.signOut({ scope: "global" });
+      await supabase.auth.signOut({ scope: pinRevocationScope(pin.reason) });
     } catch {
       // cookie writes are not possible from a Server Component — fine, the
       // server-side revocation is what matters.
@@ -151,7 +175,7 @@ async function loadSession(): Promise<SessionState> {
     return { kind: "pin-rejected", ctx, reason: pin.reason };
   }
   return { kind: "ok", ctx };
-}
+});
 
 // ── Page / Server Action helpers (redirect) ───────────────────────────
 export async function requireUser(): Promise<AuthCtx> {

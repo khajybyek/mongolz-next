@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { RefreshCw, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { RefreshCw, CheckCircle, XCircle, Loader2, AlertTriangle } from "lucide-react";
 import { useT } from "@/lib/i18n/client";
 import type { TranslationKey } from "@/lib/i18n/translations";
 
@@ -11,12 +11,15 @@ const CHECKS: { nameKey: TranslationKey; url: string }[] = [
   { nameKey: "health_svc_db", url: "/api/health/db" },
   { nameKey: "health_svc_auth", url: "/api/health/auth" },
   { nameKey: "health_svc_storage", url: "/api/health/storage" },
+  // Latest scheduled-check alarms (login spike, backup verify, key rotation).
+  { nameKey: "health_svc_ops", url: "/api/health/ops" },
 ];
 
 interface ServiceStatus {
   nameKey: TranslationKey;
   url: string;
-  status: "ok" | "error" | "loading";
+  /** degraded = the service answers but cannot do its job (ML tunnel down). */
+  status: "ok" | "degraded" | "error" | "loading";
   latency_ms: number | null;
   /** Server-supplied text, shown verbatim when present. */
   detail: string | null;
@@ -44,13 +47,15 @@ export function HealthDashboard() {
         // /api/health/auth answers 200 with config.ok=false when a production
         // signing secret is missing — that must not read as a green service.
         const configBroken = data?.config?.ok === false;
+        const degraded = res.ok && data?.status === "degraded";
+        const status: ServiceStatus["status"] = !res.ok || configBroken ? "error" : degraded ? "degraded" : "ok";
         results.push({
           nameKey: c.nameKey,
           url: c.url,
-          status: res.ok && !configBroken ? "ok" : "error",
+          status,
           latency_ms: Date.now() - t0,
           detail: data.detail ?? data.error ?? null,
-          detailKey: res.ok && !configBroken ? "health_detail_ok" : "health_detail_error",
+          detailKey: status === "ok" ? "health_detail_ok" : status === "degraded" ? "health_detail_degraded" : "health_detail_error",
         });
       } catch {
         results.push({
@@ -71,11 +76,12 @@ export function HealthDashboard() {
   useEffect(() => { check(); }, [check]);
 
   const allOk = services.length > 0 && services.every((s) => s.status === "ok");
+  const anyError = services.some((s) => s.status === "error");
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <div className={`w-3 h-3 rounded-full ${allOk ? "bg-success" : services.length === 0 ? "bg-text-muted" : "bg-danger"} animate-pulse`} />
+        <div className={`w-3 h-3 rounded-full ${allOk ? "bg-success" : services.length === 0 ? "bg-text-muted" : anyError ? "bg-danger" : "bg-warning"} animate-pulse`} />
         <span className="text-sm font-semibold">
           {allOk ? t("health_all_ok") : services.length === 0 ? t("health_checking") : t("health_issues")}
         </span>
@@ -90,6 +96,8 @@ export function HealthDashboard() {
           <div key={s.url} className="card flex items-center gap-3">
             {s.status === "ok" ? (
               <CheckCircle className="w-5 h-5 text-success shrink-0" />
+            ) : s.status === "degraded" ? (
+              <AlertTriangle className="w-5 h-5 text-warning shrink-0" aria-label={t("health_detail_degraded")} />
             ) : s.status === "loading" ? (
               <Loader2 className="w-5 h-5 text-text-muted animate-spin shrink-0" />
             ) : (

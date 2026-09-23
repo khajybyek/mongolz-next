@@ -20,6 +20,7 @@ import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast";
 import { useT } from "@/lib/i18n/client";
 import { cn, formatDate } from "@/lib/utils";
+import type { CameraRestartInfo } from "@/lib/camera-restarts";
 import {
   getActiveCamerasAction,
   getStreamTicketAction,
@@ -78,10 +79,13 @@ export function MultiCameraGrid({
   mlReachable,
   initialFocus = null,
   canControl,
+  initialRestarts = {},
 }: {
   cameras: GridCamera[];
   initialActive: string[];
   mlReachable: boolean;
+  /** ML supervisor restarts per streaming camera (count + last reason). */
+  initialRestarts?: Record<string, CameraRestartInfo>;
   /** Camera id from `?focus=` — focused on mount (starting stays an explicit click). */
   initialFocus?: string | null;
   /** Admins start / stop cameras; viewers only watch running streams. */
@@ -103,6 +107,7 @@ export function MultiCameraGrid({
   const [focused, setFocused] = useState<string | null>(null);
   const [isFull, setIsFull] = useState(false);
   const [reachable, setReachable] = useState(mlReachable);
+  const [restarts, setRestarts] = useState<Record<string, CameraRestartInfo>>(initialRestarts);
   const [bulk, setBulk] = useState<"start" | "stop" | null>(null);
   // True once the first attach pass has run, so the viewer "no streams"
   // notice does not flash while tickets for running streams are fetched.
@@ -221,6 +226,7 @@ export function MultiCameraGrid({
     const timer = window.setInterval(async () => {
       try {
         const r = await getActiveCamerasAction();
+        if (!cancelled && r.reachable) setRestarts(r.restarts ?? {});
         await sync(r.ids, r.reachable);
       } catch {
         /* transient — try again next tick */
@@ -495,6 +501,7 @@ export function MultiCameraGrid({
               busy={busy.get(focusedCam.id) ?? null}
               failed={failed.has(focusedCam.id)}
               deniedStatus={denied.get(focusedCam.id)}
+              restart={restarts[focusedCam.id]}
               playing={playing.has(focusedCam.id)}
               fill
               focused
@@ -525,6 +532,7 @@ export function MultiCameraGrid({
               busy={busy.get(cam.id) ?? null}
               failed={failed.has(cam.id)}
               deniedStatus={denied.get(cam.id)}
+              restart={restarts[cam.id]}
               playing={playing.has(cam.id)}
               fill={fill}
               focused={false}
@@ -564,6 +572,7 @@ function GridTile({
   busy,
   failed,
   deniedStatus,
+  restart,
   playing,
   fill,
   focused,
@@ -582,6 +591,8 @@ function GridTile({
   failed: boolean;
   /** HTTP status when the stream was refused (403 = disabled or not granted). */
   deniedStatus?: number;
+  /** Set when the ML supervisor restarted this capture at least once. */
+  restart?: CameraRestartInfo;
   playing: boolean;
   fill: boolean;
   focused: boolean;
@@ -695,6 +706,17 @@ function GridTile({
           {cam.last_seen ? `${t("wall_last")}: ${formatDate(cam.last_seen)}` : t("wall_no_detection")}
           {" · "}
           <span className="font-mono">{cam.faces_1h}/1h</span>
+          {restart && (
+            <span
+              className="ml-1 inline-flex items-center gap-0.5 text-warning"
+              title={restart.lastError ? `${t("grid_restarted")} ×${restart.count}: ${restart.lastError}` : `${t("grid_restarted")} ×${restart.count}`}
+            >
+              {" · "}
+              <AlertTriangle className="w-3 h-3" aria-hidden />
+              {t("grid_restarted")} ×{restart.count}
+              {restart.lastError && <span className="sr-only">: {restart.lastError}</span>}
+            </span>
+          )}
         </span>
         <span className="flex items-center gap-1 shrink-0">
           {canControl &&

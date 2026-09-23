@@ -13,7 +13,13 @@ import {
   Upload,
 } from "lucide-react";
 import { HlsPlayer } from "@/components/hls-player";
-import { startCameraAction, stopCameraAction, getStreamTicketAction, type StartCameraCode } from "./actions";
+import {
+  startCameraAction,
+  stopCameraAction,
+  getStreamTicketAction,
+  getActiveCamerasAction,
+  type StartCameraCode,
+} from "./actions";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
 import type { TranslationKey } from "@/lib/i18n/translations";
@@ -37,7 +43,7 @@ interface Camera {
 
 type Mode = "device" | "phone" | "cctv" | "file";
 
-export function LiveCameraView({ cameras }: { cameras: Camera[] }) {
+export function LiveCameraView({ cameras, canControl }: { cameras: Camera[]; canControl: boolean }) {
   const { t } = useT();
   const [mode, setMode] = useState<Mode>(() => (cameras.length > 0 ? "cctv" : "device"));
   const [recordingBusy, setRecordingBusy] = useState(false);
@@ -61,7 +67,7 @@ export function LiveCameraView({ cameras }: { cameras: Camera[] }) {
 
       {mode === "device" && <DeviceCameraView onBusyChange={setRecordingBusy} />}
       {mode === "phone" && <PhoneIpWebcamView />}
-      {mode === "cctv" && <CctvView cameras={cameras} />}
+      {mode === "cctv" && <CctvView cameras={cameras} canControl={canControl} />}
       {mode === "file" && <FileUploadView />}
     </div>
   );
@@ -709,12 +715,49 @@ function PhoneIpWebcamView() {
 // ────────────────────────────────────────────────────
 // 3. IP CCTV — RTSP Python ML service-аар HLS-руу хөрвүүлэх
 // ────────────────────────────────────────────────────
-function CctvView({ cameras }: { cameras: Camera[] }) {
+function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: boolean }) {
   const { t } = useT();
   const [active, setActive] = useState<string | null>(null);
   const [ticket, setTicket] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Viewers cannot start a capture (startCameraAction is admin-only and used
+  // to bounce them to /dashboard?error=admin-only). They attach to streams
+  // that are already running; this is the set the ML service reports.
+  const [running, setRunning] = useState<Set<string> | null>(null);
+
+  useEffect(() => {
+    if (canControl) return;
+    let cancelled = false;
+    async function poll() {
+      try {
+        const res = await getActiveCamerasAction();
+        if (!cancelled) setRunning(new Set(res.ids));
+      } catch {
+        if (!cancelled) setRunning(new Set());
+      }
+    }
+    void poll();
+    const timer = setInterval(poll, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [canControl]);
+
+  async function watch(c: Camera) {
+    setError(null);
+    setBusy(true);
+    try {
+      const ticketStr = await getStreamTicketAction(c.id);
+      setTicket(ticketStr);
+      setActive(c.id);
+    } catch {
+      setError(t("live_ml_unreachable"));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   // Server actions cannot ship an error message to the browser in production
   // (Next redacts it), so the action returns a code and the copy lives here.
@@ -805,7 +848,37 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
               <div className="text-sm font-medium truncate">{c.name}</div>
               <div className="text-[10px] text-text-muted uppercase">{c.cam_type}</div>
             </div>
-            {!c.enabled ? (
+            {!canControl && c.enabled ? (
+              active === c.id ? (
+                <button
+                  type="button"
+                  onClick={() => setActive(null)}
+                  className="btn-icon text-danger"
+                  aria-label={t("live_stop_watching")}
+                  title={t("live_stop_watching")}
+                >
+                  <Square className="w-3.5 h-3.5" />
+                </button>
+              ) : running?.has(c.id) ? (
+                <button
+                  type="button"
+                  onClick={() => watch(c)}
+                  disabled={busy}
+                  className="btn-icon text-accent"
+                  aria-label={t("live_watch")}
+                  title={t("live_watch")}
+                >
+                  {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                </button>
+              ) : (
+                <span
+                  className="text-2xs uppercase tracking-wide text-text-faint border border-border rounded px-1.5 py-0.5 shrink-0"
+                  title={t("live_viewer_not_running")}
+                >
+                  {running === null ? "…" : t("live_not_running")}
+                </span>
+              )
+            ) : !c.enabled ? (
               // No Start button for a camera the operator switched off — and
               // the server action refuses it too, so this is not the only gate.
               <span
@@ -847,6 +920,15 @@ function CctvView({ cameras }: { cameras: Camera[] }) {
             )}
           </div>
         ))}
+
+        {!canControl && cameras.length > 0 && (
+          <p className="text-2xs text-text-muted leading-relaxed pt-1">
+            {t("live_viewer_not_running")}{" "}
+            <Link href="/grid" className="link">
+              {t("nav_grid")}
+            </Link>
+          </p>
+        )}
 
         {error && (
           <div className="bg-danger/10 border border-danger/30 rounded-lg p-2.5 text-xs text-danger flex gap-2 mt-2">

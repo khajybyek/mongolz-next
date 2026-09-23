@@ -325,12 +325,7 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                     <tr className="bg-surface-elevated/40">
                       <td colSpan={6} className="px-4 py-3">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs text-text-soft">
-                            Reveal authority level —{" "}
-                            <span className="text-text-muted">
-                              0 = director (бүх нүүр), N = зөвхөн chain_index ≥ N
-                            </span>
-                          </span>
+                          <span className="text-xs text-text-soft">{t("users_reveal_level_hint")}</span>
                           <input
                             type="number"
                             min={callerLevel}

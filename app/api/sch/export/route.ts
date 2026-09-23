@@ -4,6 +4,9 @@
  * `?game=` narrows to one game. Every column the organiser console shows is
  * here, plus the reference code and `has_receipt` — never the storage path:
  * the receipt itself is only reachable through the audited viewer route.
+ * `has_receipt` is "yes" for an uploaded receipt and for an imported row's
+ * trusted Drive link alike (the same rule the organiser console applies).
+ * The body starts with a UTF-8 BOM so Excel decodes Cyrillic/Hangul names.
  * Cells go through `csvCell()` (formula neutralisation — names and ids are
  * player-typed text). One `SCH_REGISTRATIONS_EXPORTED` ledger row per export.
  * The last three columns describe sheet imports: `source` (web / import),
@@ -20,8 +23,11 @@ import { isAuthErr, requireSchOrganiserApi } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { csvCell } from "@/lib/csv";
 import { SCH_GAME_LABEL, isSchGame, referenceCode } from "@/lib/sch/schema";
+import { isTrustedReceiptUrl } from "@/lib/sch/import";
 
 const ROW_CAP = 5000;
+/** Excel only reads a CSV as UTF-8 when it starts with a byte-order mark. */
+const UTF8_BOM = "\uFEFF";
 
 const HEADER = [
   "id",
@@ -99,7 +105,8 @@ export async function GET(request: NextRequest) {
       checked_in_at: r.checked_in_at,
       team: team?.name ?? "",
       notes: r.notes,
-      has_receipt: r.receipt_path ? "yes" : "no",
+      has_receipt:
+        r.receipt_path || (typeof r.receipt_url === "string" && isTrustedReceiptUrl(r.receipt_url)) ? "yes" : "no",
       created_at: r.created_at,
       source: r.source,
       receipt_url: r.receipt_url,
@@ -110,7 +117,7 @@ export async function GET(request: NextRequest) {
 
   await logExport(game ?? "all", rows.length, auth.user, request);
 
-  const csv = [HEADER.join(","), ...rows].join("\n") + "\n";
+  const csv = UTF8_BOM + [HEADER.join(","), ...rows].join("\n") + "\n";
   const stamp = new Date().toISOString().slice(0, 10);
   return new NextResponse(csv, {
     status: 200,

@@ -358,14 +358,15 @@ export function AppHeader({ lang, role, email, isSuperAdmin = false }: Props) {
                 </span>
               </Link>
             )}
-            {role !== "auditor" && (
-              <Link href={"/privacy" as never} role="menuitem" data-dropdown-close className="block">
-                <span className="w-full min-h-11 flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-text-soft hover:bg-text-muted/[0.06] hover:text-text transition-colors">
-                  <Activity className="w-4 h-4 opacity-80" />
-                  {t("nav_privacy", lang)}
-                </span>
-              </Link>
-            )}
+            {/* Every role's own GDPR export / erasure. /privacy is the
+                admin-only differential-privacy demo (reachable from the
+                sidebar Lab group), so it must not sit behind this label. */}
+            <Link href={"/my-data" as never} role="menuitem" data-dropdown-close className="block">
+              <span className="w-full min-h-11 flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-text-soft hover:bg-text-muted/[0.06] hover:text-text transition-colors">
+                <Activity className="w-4 h-4 opacity-80" />
+                {t("nav_my_data", lang)}
+              </span>
+            </Link>
             <div className="lg:hidden">
               <DropdownSeparator />
               <DropdownLabel>{t("menu_preferences", lang)}</DropdownLabel>

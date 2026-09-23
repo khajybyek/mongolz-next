@@ -58,10 +58,23 @@ export async function POST(request: NextRequest) {
     const gen = generateRecoveryCodes();
     recovery = gen.plaintext;
 
-    await svc
+    // Compare-and-set on totp_enabled=false: two parallel enrolment requests
+    // must not each hand out a different set of codes (only the last write
+    // would survive). A failed write must not report success either — the
+    // caller would be signed out holding codes for a factor never enabled.
+    const { data: flipped, error: upErr } = await svc
       .from("profiles")
       .update({ totp_enabled: true, totp_recovery_codes: gen.hashes })
-      .eq("id", ctx.user.id);
+      .eq("id", ctx.user.id)
+      .eq("totp_enabled", false)
+      .select("id");
+    if (upErr) {
+      console.error("[totp/verify] enable failed", upErr.message);
+      return NextResponse.json({ error: "enable_failed" }, { status: 500 });
+    }
+    if (!flipped || flipped.length === 0) {
+      return NextResponse.json({ error: "already_enabled" }, { status: 409 });
+    }
 
     await svc.from("audit_log").insert({
       action: "TOTP_ENABLED",

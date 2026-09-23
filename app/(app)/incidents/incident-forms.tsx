@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { BriefcaseBusiness, Download, Film, Link2, Loader2, LockKeyhole, Plus, Save, UnlockKeyhole } from "lucide-react";
 import { useT } from "@/lib/i18n/client";
 import { incidentCopy, incidentPriorityLabel, incidentStatusLabel } from "@/lib/incident-copy";
+import { evidenceExportErrorKey } from "@/lib/incident-export-error";
 import { INCIDENT_PRIORITIES, INCIDENT_STATUSES } from "@/lib/incidents";
 import { useToast } from "@/components/ui/toast";
 import { TotpPrompt } from "@/components/totp-prompt";
@@ -311,7 +312,7 @@ export function EvidenceHoldButton({ incidentId, evidenceId, legalHold }: { inci
 }
 
 export function EvidenceExportButton({ incidentId }: { incidentId: string }) {
-  const { lang } = useT();
+  const { lang, t } = useT();
   const copy = incidentCopy(lang);
   const [busy, setBusy] = useState(false);
   const [needsTotp, setNeedsTotp] = useState(false);
@@ -342,7 +343,10 @@ export function EvidenceExportButton({ incidentId }: { incidentId: string }) {
           setNeedsTotp(true);
           return;
         }
-        throw new Error(body?.error ?? copy.exportFailed);
+        // Never surface the route's raw English error text; map it to copy.
+        const key = evidenceExportErrorKey(response.status, body?.error);
+        setError(key ? t(key) : copy.exportFailed);
+        return;
       }
       const blob = await response.blob();
       const href = URL.createObjectURL(blob);
@@ -356,8 +360,8 @@ export function EvidenceExportButton({ incidentId }: { incidentId: string }) {
       setExportOpen(false);
       setPassphrase("");
       setPassphraseConfirm("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : copy.exportFailed);
+    } catch {
+      setError(copy.exportFailed);
     } finally {
       setBusy(false);
     }
@@ -366,11 +370,13 @@ export function EvidenceExportButton({ incidentId }: { incidentId: string }) {
   return (
     <>
       <div className="space-y-2">
-        <button type="button" className="btn-primary w-full sm:w-auto" disabled={busy} onClick={() => setExportOpen(true)}>
+        <button type="button" className="btn-primary w-full sm:w-auto" disabled={busy} onClick={() => { setError(null); setExportOpen(true); }}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}{busy ? copy.exporting : copy.packageExport}
         </button>
         <p className="max-w-2xl text-xs leading-relaxed text-text-muted">{copy.exportHelp}</p>
-        {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+        {/* While the dialog is open its backdrop covers this line — the same
+            message is rendered inside the dialog instead (see below). */}
+        {error && !exportOpen && <p role="alert" className="text-xs text-danger">{error}</p>}
       </div>
       <Dialog
         open={exportOpen}
@@ -391,6 +397,7 @@ export function EvidenceExportButton({ incidentId }: { incidentId: string }) {
           <div><label className="label" htmlFor={`evidence-passphrase-${incidentId}`}>{copy.passphrase}</label><input id={`evidence-passphrase-${incidentId}`} type="password" className="input" minLength={12} maxLength={128} autoComplete="new-password" value={passphrase} onChange={(event) => setPassphrase(event.target.value)} /></div>
           <div><label className="label" htmlFor={`evidence-passphrase-confirm-${incidentId}`}>{copy.passphraseConfirm}</label><input id={`evidence-passphrase-confirm-${incidentId}`} type="password" className="input" minLength={12} maxLength={128} autoComplete="new-password" value={passphraseConfirm} onChange={(event) => setPassphraseConfirm(event.target.value)} /></div>
         </div>
+        {error && <p role="alert" className="mt-3 text-xs text-danger">{error}</p>}
       </Dialog>
       <TotpPrompt
         open={needsTotp}

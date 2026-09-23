@@ -16,6 +16,7 @@ import { isIP } from "node:net";
 import { revalidatePath } from "next/cache";
 import { ML_ROLES, SCH_TEAM_SIZE } from "@/lib/sch/schema";
 import { drawTeams } from "@/lib/sch/teams";
+import { scheduleSecurityEvent } from "@/lib/notify";
 
 /* ───────────────────────── fixtures ───────────────────────── */
 
@@ -109,6 +110,8 @@ const storageRemovals: Array<{ client: Client; bucket: string; paths: string[] }
 const rpcCalls: Array<{ client: Client; fn: string; args: unknown }> = [];
 const state = {
   authReject: false,
+  role: "organiser" as "organiser" | "admin",
+  reauthFresh: true,
   forwardedFor: "203.0.113.7",
   faults: [] as Fault[],
   rpc: { data: null as unknown, error: null as DbError | null },
@@ -266,16 +269,21 @@ jest.mock("@/lib/supabase/auth", () => ({
     if (state.authReject) throw new Error("NEXT_REDIRECT");
     return {
       user: { id: ORGANISER, email: ORGANISER_EMAIL },
-      profile: { id: ORGANISER, email: ORGANISER_EMAIL, role: "organiser", totp_enabled: false },
+      profile: { id: ORGANISER, email: ORGANISER_EMAIL, role: state.role, totp_enabled: state.role === "admin" },
     };
   }),
 }));
+jest.mock("@/lib/auth/step-up", () => ({
+  ensureFreshReauth: jest.fn(async () => (state.reauthFresh ? null : { error: "REAUTH_REQUIRED" })),
+}));
+jest.mock("@/lib/notify", () => ({ scheduleSecurityEvent: jest.fn() }));
 jest.mock("@/lib/supabase/server", () => ({
   createClient: async () => makeClient("rls"),
   createServiceClient: () => makeClient("service"),
 }));
 
 import {
+  closeOutEventAction,
   deleteRegistrationAction,
   saveTeamsAction,
   setCheckInAction,
@@ -308,8 +316,10 @@ function expectLedgerClean(expectedActions: string[]) {
     expect(detail.length).toBeLessThanOrEqual(500);
     for (const pii of REGISTRANT_PII) expect(detail).not.toContain(pii);
   }
-  // The ledger is written with the service role, the data with the RLS client.
+  // The ledger and the data are written with the service role after the
+  // organiser gate: the sch_* tables are service-role-write only (20260923170000).
   for (const c of calls.filter((c) => c.table === "audit_log")) expect(c.client).toBe("service");
+  for (const c of writes()) expect(c.client).toBe("service");
 }
 
 function settings(over: Partial<SchEventSettingsInput> = {}): SchEventSettingsInput {
@@ -341,6 +351,7 @@ function edit(over: Partial<SchRegistrationEditInput> = {}): SchRegistrationEdit
     roles: ["Jungle"],
     premier_rank: "",
     faceit: "",
+    expected_updated_at: "2026-09-10T00:00:00.000Z",
     ...over,
   };
 }
@@ -356,6 +367,9 @@ beforeEach(() => {
   storageRemovals.length = 0;
   rpcCalls.length = 0;
   state.authReject = false;
+  state.role = "organiser";
+  state.reauthFresh = true;
+  jest.mocked(scheduleSecurityEvent).mockClear();
   state.forwardedFor = "203.0.113.7";
   state.faults = [];
   state.rpc = { data: null, error: null };
@@ -376,7 +390,7 @@ describe("auth gate", () => {
     await expect(updateRegistrationAction(edit())).rejects.toThrow("NEXT_REDIRECT");
     await expect(deleteRegistrationAction({ id: rid(1) })).rejects.toThrow("NEXT_REDIRECT");
     await expect(updateEventSettingsAction(settings())).rejects.toThrow("NEXT_REDIRECT");
-    await expect(saveTeamsAction({ game: "cs2", seed: 1, playerIds: [] })).rejects.toThrow("NEXT_REDIRECT");
+    await expect(saveTeamsAction({ game: "cs2", seed: 1, playerIds: [], teams: [] })).rejects.toThrow("NEXT_REDIRECT");
     await expect(setTeamsPublishedAction({ game: "cs2", published: false })).rejects.toThrow("NEXT_REDIRECT");
     await expect(sweepOrphanReceiptsAction()).rejects.toThrow("NEXT_REDIRECT");
     expect(calls).toHaveLength(0);
@@ -507,12 +521,83 @@ describe("updateRegistrationAction", () => {
     expect(audits).toHaveLength(0);
   });
 
-  it("maps a duplicate game/e-mail constraint to conflict", async () => {
+  it("maps the (game, e-mail) unique index to duplicate_email — not a retryable conflict", async () => {
     db.sch_registrations.push(reg(1));
     state.faults = [(call) => call.op === "update" && call.table === "sch_registrations"
-      ? { code: "23505", message: "duplicate key" }
+      ? {
+          code: "23505",
+          message: 'duplicate key value violates unique constraint "sch_registrations_game_email_idx"',
+          details: "Key (game, lower(email))=(mobile_legends, other@example.test) already exists.",
+        } as DbError
       : null];
-    expect(await updateRegistrationAction(edit({ email: "other@example.test" }))).toEqual({ error: "conflict" });
+    expect(await updateRegistrationAction(edit({ email: "other@example.test" }))).toEqual({ error: "duplicate_email" });
+    expect(audits).toHaveLength(0);
+  });
+
+  it("maps the (submission_id, game) unique index to duplicate_game", async () => {
+    db.sch_registrations.push(reg(1));
+    state.faults = [(call) => call.op === "update" && call.table === "sch_registrations"
+      ? {
+          code: "23505",
+          message: 'duplicate key value violates unique constraint "sch_registrations_submission_game_idx"',
+          details: `Key (submission_id, game)=(${sid(1)}, cs2) already exists.`,
+        } as DbError
+      : null];
+    expect(await updateRegistrationAction(edit({
+      game: "cs2",
+      in_game_id: "steamcommunity.com/id/p1",
+      rank_label: "",
+      roles: [],
+      premier_rank: "15000",
+      faceit: "no",
+    }))).toEqual({ error: "duplicate_game" });
+    expect(audits).toHaveLength(0);
+  });
+
+  it("a dialog opened before another organiser's save → conflict, even when its draft equals the row now", async () => {
+    // Organiser B already saved a correction: the row moved on to 09-11.
+    db.sch_registrations.push(reg(1, { full_name: "Fixed By B", updated_at: "2026-09-11T00:00:00.000Z" }));
+    // A's stale dialog would put the old name back.
+    expect(await updateRegistrationAction(edit({ full_name: "Player 1" }))).toEqual({ error: "conflict" });
+    // …and an identical draft is still stale, not a silent no-op.
+    expect(await updateRegistrationAction(edit({ full_name: "Fixed By B" }))).toEqual({ error: "conflict" });
+    expect(writes()).toHaveLength(0);
+    expect(audits).toHaveLength(0);
+    expect(row(rid(1))?.full_name).toBe("Fixed By B");
+  });
+
+  it("the same instant in another notation is not stale", async () => {
+    db.sch_registrations.push(reg(1, { updated_at: "2026-09-10T00:00:00+00:00" }));
+    expect(await updateRegistrationAction(edit({ full_name: "Renamed" }))).toEqual({ ok: true });
+    expect(row(rid(1))?.full_name).toBe("Renamed");
+  });
+
+  it.each([undefined, "", "yesterday", "x".repeat(65), 42])("expected_updated_at %p → invalid before reading", async (bad) => {
+    db.sch_registrations.push(reg(1));
+    expect(await updateRegistrationAction(edit({ expected_updated_at: bad as string }))).toEqual({ error: "invalid" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("an unchanged CS2 row read back with jsonb key order is a no-op (no write, no ledger row)", async () => {
+    // jsonb returns keys shortest-first: {faceit, premier_rank}, not the
+    // {premier_rank, faceit} order registrationRow() builds.
+    db.sch_registrations.push(reg(1, {
+      game: "cs2",
+      in_game_id: "https://steamcommunity.com/id/p1",
+      rank_label: "Premier 15000",
+      rank_score: 50,
+      roles: [],
+      answers: { faceit: "yes", premier_rank: "15000" },
+    }));
+    expect(await updateRegistrationAction(edit({
+      game: "cs2",
+      in_game_id: "https://steamcommunity.com/id/p1",
+      rank_label: "",
+      roles: [],
+      premier_rank: "15000",
+      faceit: "yes",
+    }))).toEqual({ ok: true });
+    expect(writes()).toHaveLength(0);
     expect(audits).toHaveLength(0);
   });
 
@@ -544,7 +629,7 @@ describe("setRegistrationStatusAction", () => {
     expect(r.team_id).toBe(tid(1));
 
     const update = writes().find((c) => c.table === "sch_registrations")!;
-    expect(update.client).toBe("rls");
+    expect(update.client).toBe("service");
     expect(update.payload).toEqual({ status: "paid", paid_at: expect.any(String) });
     expect(update.payload).not.toHaveProperty("team_id");
     // Compare-and-set on the status the organiser saw.
@@ -712,7 +797,7 @@ describe("deleteRegistrationAction", () => {
     expect(storageRemovals).toEqual([{ client: "service", bucket: "sch-receipts", paths: [`submissions/${sid(7)}/receipt.png`] }]);
 
     const deletes = writes().filter((c) => c.op === "delete");
-    expect(deletes.map((c) => c.client)).toEqual(["rls", "rls"]);
+    expect(deletes.map((c) => c.client)).toEqual(["service", "service"]);
     expectLedgerClean(["SCH_REGISTRATION_DELETED", "SCH_REGISTRATION_DELETED"]);
     expect(audits[0].detail).toBe(`registration=${rid(1)} game=mobile_legends submission=${sid(7)}`);
     expect(audits[1].detail).toBe(`registration=${rid(2)} game=cs2 submission=${sid(7)}`);
@@ -768,7 +853,7 @@ describe("updateEventSettingsAction", () => {
     expect(await updateEventSettingsAction(settings())).toEqual({ ok: true });
 
     const update = writes().find((c) => c.table === "sch_event")!;
-    expect(update.client).toBe("rls");
+    expect(update.client).toBe("service");
     expect(update.filters).toEqual([{ kind: "eq", col: "id", value: 1 }]);
     expect(update.payload).toEqual({
       title: "Chuseok 2026 SCH Esports",
@@ -922,13 +1007,14 @@ function seedDrawScenario() {
   expect(preview.substitutes).toHaveLength(2);
   // Make sure at least one substitute is currently seated, so "untouched" is observable.
   row(preview.substitutes[0].id)!.team_id = tid(2);
-  return { view, preview, playerIds: view.map((p) => p.id) };
+  const teamsIds = preview.teams.map((t) => t.players.map((p) => p.id));
+  return { view, preview, playerIds: view.map((p) => p.id), teams: teamsIds };
 }
 
 describe("saveTeamsAction", () => {
   it("replaces the game's teams with exactly the previewed draw and re-links only the drafted players", async () => {
-    const { preview, playerIds } = seedDrawScenario();
-    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds })).toEqual({ ok: true });
+    const { preview, playerIds, teams: previewed } = seedDrawScenario();
+    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds, teams: previewed })).toEqual({ ok: true });
 
     // Old ML teams gone, CS2 team untouched.
     expect(teams("mobile_legends").map((t) => t.id)).not.toEqual(expect.arrayContaining([tid(1), tid(2)]));
@@ -936,7 +1022,7 @@ describe("saveTeamsAction", () => {
 
     // Inserted teams = preview teams, byte for byte on what the table stores.
     const insert = writes().find((c) => c.op === "insert" && c.table === "sch_teams")!;
-    expect(insert.client).toBe("rls");
+    expect(insert.client).toBe("service");
     expect(insert.payload).toEqual(
       preview.teams.map((t) => ({ game: "mobile_legends", name: t.name, seed: t.seed, strength: t.strength, created_by: ORGANISER })),
     );
@@ -981,10 +1067,10 @@ describe("saveTeamsAction", () => {
   });
 
   it("only paid players of the chosen game are read, in created order, capped at 501", async () => {
-    const { playerIds } = seedDrawScenario();
-    await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds });
+    const { playerIds, teams: previewed } = seedDrawScenario();
+    await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds, teams: previewed });
     const pool = calls.find((c) => c.op === "select" && c.table === "sch_registrations")!;
-    expect(pool.client).toBe("rls");
+    expect(pool.client).toBe("service");
     expect(pool.filters).toEqual([
       { kind: "eq", col: "game", value: "mobile_legends" },
       { kind: "in", col: "status", value: ["paid"] },
@@ -994,53 +1080,80 @@ describe("saveTeamsAction", () => {
   });
 
   it("a pool that changed since the preview → conflict, nothing written", async () => {
-    const { playerIds } = seedDrawScenario();
+    const { playerIds, teams: previewed } = seedDrawScenario();
     // Someone else was marked paid after the organiser previewed.
     db.sch_registrations.push(reg(15, { status: "paid" }));
-    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds })).toEqual({ error: "conflict" });
+    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds, teams: previewed })).toEqual({ error: "conflict" });
     expect(writes()).toHaveLength(0);
     expect(audits).toHaveLength(0);
     expect(teams("mobile_legends").map((t) => t.id).sort()).toEqual([tid(1), tid(2)]);
   });
 
+  it("a rank edit after the preview changes what the seed draws → conflict, nothing written", async () => {
+    const { playerIds, teams: previewed, preview } = seedDrawScenario();
+    // Same pool, same seed — but a ranked-up player reshapes the snake draft.
+    const moved = preview.teams[0].players[0].id;
+    row(moved)!.rank_score = 0;
+    const redrawn = drawTeams(
+      db.sch_registrations
+        .filter((r) => r.game === "mobile_legends" && r.status === "paid")
+        .map((r) => ({ id: r.id as string, name: r.full_name as string, score: r.rank_score as number, roles: r.roles as string[] })),
+      { seed: SEED, teamSize: SCH_TEAM_SIZE },
+    );
+    const key = (ts: string[][]) => ts.map((t) => [...t].sort().join(",")).join("|");
+    // Guard: the fixture must actually produce different rosters.
+    expect(key(redrawn.teams.map((t) => t.players.map((p) => p.id)))).not.toBe(key(previewed));
+    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds, teams: previewed })).toEqual({ error: "conflict" });
+    expect(writes()).toHaveLength(0);
+    expect(audits).toHaveLength(0);
+  });
+
+  it("previewed rosters match regardless of member order inside a team", async () => {
+    const { playerIds, teams: previewed } = seedDrawScenario();
+    const shuffled = previewed.map((t) => [...t].reverse().map((id) => id.toUpperCase()));
+    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds, teams: shuffled })).toEqual({ ok: true });
+  });
+
   it("a preview that names a player who is no longer eligible → conflict", async () => {
-    const { playerIds } = seedDrawScenario();
+    const { playerIds, teams: previewed } = seedDrawScenario();
     row(playerIds[0])!.status = "rejected";
-    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds })).toEqual({ error: "conflict" });
+    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds, teams: previewed })).toEqual({ error: "conflict" });
     expect(writes()).toHaveLength(0);
   });
 
   it("fewer than one full team → invalid, nothing written", async () => {
     for (let i = 1; i <= 4; i++) db.sch_registrations.push(reg(i, { status: "paid" }));
     const ids = [rid(1), rid(2), rid(3), rid(4)];
-    expect(await saveTeamsAction({ game: "mobile_legends", seed: 1, playerIds: ids })).toEqual({ error: "invalid" });
+    expect(await saveTeamsAction({ game: "mobile_legends", seed: 1, playerIds: ids, teams: [] })).toEqual({ error: "invalid" });
     expect(writes()).toHaveLength(0);
-    expect(await saveTeamsAction({ game: "dota2", seed: 1, playerIds: [] })).toEqual({ error: "invalid" });
+    expect(await saveTeamsAction({ game: "dota2", seed: 1, playerIds: [], teams: [] })).toEqual({ error: "invalid" });
     expect(writes()).toHaveLength(0);
   });
 
-  it.each<[string, { game: string; seed: number; playerIds: string[] }]>([
-    ["unknown game", { game: "valorant", seed: 1, playerIds: [] }],
-    ["negative seed", { game: "cs2", seed: -1, playerIds: [] }],
-    ["seed above uint32", { game: "cs2", seed: 0x1_0000_0000, playerIds: [] }],
-    ["fractional seed", { game: "cs2", seed: 1.5, playerIds: [] }],
-    ["non-uuid player id", { game: "cs2", seed: 1, playerIds: ["p1"] }],
-    ["too many player ids", { game: "cs2", seed: 1, playerIds: Array.from({ length: 501 }, (_, i) => rid(i)) }],
+  it.each<[string, { game: string; seed: number; playerIds: string[]; teams: string[][] }]>([
+    ["unknown game", { game: "valorant", seed: 1, playerIds: [], teams: [] }],
+    ["negative seed", { game: "cs2", seed: -1, playerIds: [], teams: [] }],
+    ["seed above uint32", { game: "cs2", seed: 0x1_0000_0000, playerIds: [], teams: [] }],
+    ["fractional seed", { game: "cs2", seed: 1.5, playerIds: [], teams: [] }],
+    ["non-uuid player id", { game: "cs2", seed: 1, playerIds: ["p1"], teams: [] }],
+    ["too many player ids", { game: "cs2", seed: 1, playerIds: Array.from({ length: 501 }, (_, i) => rid(i)), teams: [] }],
+    ["non-uuid roster id", { game: "cs2", seed: 1, playerIds: [], teams: [["p1"]] }],
+    ["missing rosters", { game: "cs2", seed: 1, playerIds: [] } as unknown as { game: string; seed: number; playerIds: string[]; teams: string[][] }],
   ])("%s → invalid before any read", async (_label, input) => {
     expect(await saveTeamsAction(input)).toEqual({ error: "invalid" });
     expect(calls).toHaveLength(0);
   });
 
   it("insert and link failures map to unavailable without an audit row", async () => {
-    const { playerIds } = seedDrawScenario();
+    const { playerIds, teams: previewed } = seedDrawScenario();
     state.faults = [(c) => (c.op === "insert" && c.table === "sch_teams" ? { message: "offline" } : null)];
-    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds })).toEqual({ error: "unavailable" });
+    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds, teams: previewed })).toEqual({ error: "unavailable" });
     expect(audits).toHaveLength(0);
 
     calls.length = 0;
     db.sch_teams = [team(3, "cs2", 1)];
     state.faults = [(c) => (c.op === "update" && c.table === "sch_registrations" ? { message: "offline" } : null)];
-    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds })).toEqual({ error: "unavailable" });
+    expect(await saveTeamsAction({ game: "mobile_legends", seed: SEED, playerIds, teams: previewed })).toEqual({ error: "unavailable" });
     expect(audits).toHaveLength(0);
   });
 });
@@ -1072,7 +1185,7 @@ describe("setTeamsPublishedAction", () => {
     expect(await setTeamsPublishedAction({ game: "cs2", published: true })).toEqual({ ok: true });
 
     const update = writes().find((c) => c.table === "sch_event")!;
-    expect(update.client).toBe("rls");
+    expect(update.client).toBe("service");
     expect(update.payload).toEqual({ teams_published: { mobile_legends: true, cs2: true, dota2: false }, updated_by: ORGANISER });
     expect(update.filters).toEqual([{ kind: "eq", col: "id", value: 1 }]);
     expectLedgerClean(["SCH_TEAMS_PUBLISHED"]);
@@ -1201,5 +1314,83 @@ describe("audit ledger", () => {
     expect(audits).toHaveLength(1);
     const ip = audits[0].ip;
     expect(ip === null || isIP(String(ip)) !== 0).toBe(true);
+  });
+});
+
+/* ───────────────────────── close-out ───────────────────────── */
+
+describe("closeOutEventAction", () => {
+  const AFTER = new Date("2026-09-28T00:00:00+09:00").getTime();
+
+  function seedEvent() {
+    db.sch_registrations.push(
+      reg(1, { submission_id: sid(1), receipt_path: `submissions/${sid(1)}/receipt.jpg` }),
+      reg(2, { game: "cs2", submission_id: sid(1), receipt_path: `submissions/${sid(1)}/receipt.jpg` }),
+      reg(3, { receipt_path: null, receipt_url: "https://drive.google.com/open?id=x" }),
+    );
+    db.sch_teams.push(team(1, "mobile_legends", 1), team(2, "cs2", 1));
+  }
+
+  afterEach(() => jest.useRealTimers());
+
+  it("organisers (no second factor) are refused before any read", async () => {
+    seedEvent();
+    expect(await closeOutEventAction({ confirm: "DELETE" })).toEqual({ error: "forbidden" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("needs the typed word and a fresh TOTP step-up", async () => {
+    state.role = "admin";
+    expect(await closeOutEventAction({ confirm: "delete" })).toEqual({ error: "invalid" });
+    state.reauthFresh = false;
+    expect(await closeOutEventAction({ confirm: "DELETE" })).toEqual({ error: "REAUTH_REQUIRED" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("refuses before the day after the last game (KST), writing nothing", async () => {
+    state.role = "admin";
+    seedEvent();
+    jest.useFakeTimers({ now: new Date("2026-09-27T23:59:00+09:00") });
+    expect(await closeOutEventAction({ confirm: "DELETE" })).toEqual({ error: "too_early" });
+    expect(writes()).toHaveLength(0);
+    expect(storageRemovals).toHaveLength(0);
+    expect(db.sch_registrations).toHaveLength(3);
+  });
+
+  it("closes the form, removes receipts BEFORE rows, deletes rows and teams, and audits counts only", async () => {
+    state.role = "admin";
+    seedEvent();
+    state.rpc.data = [{ name: `submissions/${sid(9)}/abandoned.png` }, { name: "elsewhere/x.png" }];
+    jest.useFakeTimers({ now: AFTER });
+    expect(await closeOutEventAction({ confirm: "DELETE" })).toEqual({ ok: true, registrations: 3, teams: 2, receipts: 2 });
+
+    expect(db.sch_registrations).toHaveLength(0);
+    expect(db.sch_teams).toHaveLength(0);
+    expect(db.sch_event[0]).toMatchObject({
+      registration_open: false,
+      teams_published: { mobile_legends: false, cs2: false, dota2: false },
+    });
+    expect(storageRemovals).toEqual([
+      { client: "service", bucket: "sch-receipts", paths: [`submissions/${sid(1)}/receipt.jpg`] },
+      { client: "service", bucket: "sch-receipts", paths: [`submissions/${sid(9)}/abandoned.png`] },
+    ]);
+    const order = calls.filter((c) => c.op !== "select").map((c) => `${c.op}:${c.table}`);
+    expect(order.slice(0, 3)).toEqual(["update:sch_event", "delete:sch_registrations", "delete:sch_teams"]);
+    expectLedgerClean(["SCH_EVENT_CLOSED"]);
+    expect(audits[0].detail).toBe("registrations=3 teams=2 receipts=2");
+    expect(jest.mocked(scheduleSecurityEvent)).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "SCH_EVENT_CLOSED", detail: "role=admin registrations=3 teams=2 receipts=2" }),
+    );
+  });
+
+  it("a failed receipt removal keeps every row (their paths are the only way to find the images)", async () => {
+    state.role = "admin";
+    seedEvent();
+    state.storageRemoveError = { message: "offline" };
+    jest.useFakeTimers({ now: AFTER });
+    expect(await closeOutEventAction({ confirm: "DELETE" })).toEqual({ error: "unavailable" });
+    expect(db.sch_registrations).toHaveLength(3);
+    expect(db.sch_teams).toHaveLength(2);
+    expect(audits).toHaveLength(0);
   });
 });

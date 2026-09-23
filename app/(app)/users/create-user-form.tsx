@@ -85,6 +85,7 @@ export function CreateUserForm() {
             name="email"
             type="email"
             placeholder="email@example.com"
+            aria-label={t("users_col_email")}
             required
             className="input text-sm"
             autoComplete="off"
@@ -93,6 +94,7 @@ export function CreateUserForm() {
             name="password"
             type="password"
             placeholder={t("users_pwd_placeholder")}
+            aria-label={t("users_pwd_placeholder")}
             required
             minLength={8}
             className="input text-sm"
@@ -102,9 +104,10 @@ export function CreateUserForm() {
             name="full_name"
             type="text"
             placeholder={t("users_fullname_placeholder")}
+            aria-label={t("users_fullname_placeholder")}
             className="input text-sm"
           />
-          <select name="role" defaultValue="viewer" required className="select text-sm">
+          <select name="role" defaultValue="viewer" required aria-label={t("users_role_label")} className="select text-sm">
             <option value="viewer">{t("users_role_viewer_opt")}</option>
             <option value="auditor">{t("users_role_auditor_opt")}</option>
             <option value="organiser">{t("users_role_organiser_opt")}</option>

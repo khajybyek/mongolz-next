@@ -9,6 +9,8 @@ import path from "node:path";
 import {
   RECOVERY_FORMAT,
   createKeyEscrow,
+  isStorageObjectNotFound,
+  mirrorBucketObjects,
   openKeyEscrow,
   recoveryDatabaseRelative,
   recoveryObjectRelative,
@@ -226,5 +228,82 @@ describe("complete recovery bundle", () => {
     expect(() => recoveryObjectRelative("recordings", "/absolute.enc")).toThrow(
       "Invalid recovery object path",
     );
+  });
+});
+
+describe("mirroring objects a row references but Storage lacks", () => {
+  const notFound = { message: "Object not found", status: 400, statusCode: "404" };
+
+  test("records flagged and not-found objects instead of aborting", async () => {
+    const stored: string[] = [];
+    const requested: string[] = [];
+    const result = await mirrorBucketObjects(
+      "suspects",
+      [
+        { path: "s/1.jpg", row_id: "s1", missing: true },
+        { path: "s/2.jpg", row_id: "s2" },
+        { path: "s/3.jpg", row_id: "s3" },
+      ],
+      async (p) => {
+        requested.push(p);
+        return p === "s/2.jpg" ? { data: null, error: notFound } : { data: Buffer.from("jpeg"), error: null };
+      },
+      (entry) => stored.push(entry.path),
+    );
+    // The flagged entry is never requested at all.
+    expect(requested).toEqual(["s/2.jpg", "s/3.jpg"]);
+    expect(stored).toEqual(["s/3.jpg"]);
+    expect(result).toEqual({
+      mirrored: 1,
+      missing: [
+        { bucket: "suspects", object_path: "s/1.jpg", row_id: "s1", reason: "flagged_in_backup" },
+        { bucket: "suspects", object_path: "s/2.jpg", row_id: "s2", reason: "not_found" },
+      ],
+    });
+  });
+
+  test("still aborts on a transient, auth or bucket failure", async () => {
+    for (const error of [
+      new Error("fetch failed"),
+      { message: "new row violates row-level security policy", status: 403, statusCode: "403" },
+      { message: "Bucket not found", status: 400, statusCode: "404" },
+    ]) {
+      await expect(mirrorBucketObjects(
+        "faces",
+        [{ path: "f/1.jpg", row_id: "f1" }],
+        async () => ({ data: null, error }),
+        () => undefined,
+      )).rejects.toThrow("Could not mirror faces object 1");
+    }
+  });
+
+  test("classifies only an object-level 404 as absent", () => {
+    expect(isStorageObjectNotFound(notFound)).toBe(true);
+    expect(isStorageObjectNotFound({ message: "not found", status: 404 })).toBe(true);
+    expect(isStorageObjectNotFound({ message: "Bucket not found", statusCode: "404" })).toBe(false);
+    expect(isStorageObjectNotFound(new Error("socket hang up"))).toBe(false);
+    expect(isStorageObjectNotFound(null)).toBe(false);
+  });
+
+  test("a signed missing_objects list validates; one overlapping a mirrored object does not", () => {
+    const value = fixture();
+    try {
+      const recoveryFile = path.join(value.bundle, "recovery-manifest.json");
+      const sign = (missing: RecoveryManifest["missing_objects"]) => {
+        const recovery = JSON.parse(readFileSync(recoveryFile, "utf8")) as RecoveryManifest;
+        const { manifest_hmac_sha256: _old, ...unsigned } = recovery;
+        const next = { ...unsigned, missing_objects: missing };
+        writeJson(recoveryFile, { ...next, manifest_hmac_sha256: recoveryManifestHmac(next, value.dataKey) });
+      };
+      sign([{ bucket: "suspects", object_path: "s/1.jpg", row_id: "s1", reason: "flagged_in_backup" }]);
+      expect(validateRecoveryBundle(value.bundle, value.escrow, PASSPHRASE).manifest.missing_objects)
+        .toHaveLength(1);
+      sign([{ bucket: "recordings", object_path: `${RECORDING_ID}/original.enc`, row_id: RECORDING_ID, reason: "not_found" }]);
+      expect(() => validateRecoveryBundle(value.bundle, value.escrow, PASSPHRASE)).toThrow(
+        "both mirrored and missing",
+      );
+    } finally {
+      rmSync(value.root, { recursive: true, force: true });
+    }
   });
 });

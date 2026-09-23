@@ -100,11 +100,37 @@ function ladderScore(ladder: readonly string[], label: string): number {
   return i < 0 ? 0 : Math.round(((i + 1) / ladder.length) * 100);
 }
 
+/**
+ * Premier rating from free text (form, admin edit, sheet import all keep the
+ * cell verbatim). Players write it as "15000", "15,000", "15 000", "15k",
+ * "15.5K" or just "15" / "1.5" meaning thousands; stripping every non-digit
+ * turned "15k" / "1.5" into 15 — the weakest player in the draw.
+ */
+export function cs2PremierRating(raw: string | null | undefined): number | null {
+  const s = (raw ?? "").toLowerCase().replace(/premier/g, "").replace(/\s+/g, "");
+  if (!s) return null;
+  let n: number;
+  const k = /^(\d+(?:[.,]\d+)?)k$/.exec(s);
+  if (k) {
+    n = Number(k[1]!.replace(",", ".")) * 1000;
+  } else if (/^\d{1,3}(?:[.,]\d{3})+$/.test(s)) {
+    n = Number(s.replace(/[.,]/g, "")); // thousands separators: 15,000 / 15.000
+  } else if (/^\d+[.,]\d+$/.test(s)) {
+    n = Number(s.replace(",", ".")); // decimal thousands: 1.5 / 15,5
+  } else {
+    const digits = s.replace(/[^0-9]/g, "");
+    if (!digits) return null;
+    n = Number(digits);
+  }
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // No real Premier rating is below 100 — "15" / "1.5" mean thousands.
+  if (n < 100) n *= 1000;
+  return n;
+}
+
 export function cs2PremierScore(raw: string | null | undefined): number {
-  const digits = (raw ?? "").replace(/[^0-9]/g, "");
-  if (!digits) return CS2_UNKNOWN_SCORE;
-  const n = Number(digits);
-  if (!Number.isFinite(n) || n <= 0) return CS2_UNKNOWN_SCORE;
+  const n = cs2PremierRating(raw);
+  if (n === null) return CS2_UNKNOWN_SCORE;
   return Math.max(1, Math.min(100, Math.round((n / 30_000) * 100)));
 }
 

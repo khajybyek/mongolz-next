@@ -71,15 +71,35 @@ export async function GET(
 
   const headers: Record<string, string> = {};
   if (ML_TOKEN) headers.Authorization = `Bearer ${ML_TOKEN}`;
+  // Forward byte-range requests. Safari/iOS will not play an MP4 whose server
+  // answers its `Range: bytes=0-1` probe with a plain 200, and seeking in every
+  // browser relies on 206 answers. The ML side (Starlette FileResponse) serves
+  // ranges from its render cache; a cold render may still answer 200 once.
+  const range = request.headers.get("range");
+  if (range) {
+    headers.Range = range;
+    const ifRange = request.headers.get("if-range");
+    if (ifRange) headers["If-Range"] = ifRange;
+  }
 
   let upstream: Response;
   try {
     upstream = await fetch(
       `${ML_URL}/recording/${encodeURIComponent(id)}/view`,
-      { headers, cache: "no-store" },
+      { headers, cache: "no-store", signal: request.signal },
     );
   } catch {
     return NextResponse.json({ error: "ML service unreachable" }, { status: 502 });
+  }
+
+  // 416 = the requested range lies outside the file. Pass it through with its
+  // Content-Range so the player can recover. It is not a viewing: no audit row.
+  if (upstream.status === 416) {
+    await upstream.body?.cancel().catch(() => {});
+    const refused = new Headers({ "Cache-Control": "private, no-store", "Accept-Ranges": "bytes" });
+    const contentRange = upstream.headers.get("content-range");
+    if (contentRange) refused.set("Content-Range", contentRange);
+    return new NextResponse(null, { status: 416, headers: refused });
   }
 
   if (!upstream.ok || !upstream.body) {
@@ -107,14 +127,21 @@ export async function GET(
     throttleMs: ACCESS_THROTTLE_MS,
   });
 
-  // Stream the MP4 body straight through. Cache hint = "private" (per-user)
-  // because the URL is auth-gated; "max-age=300" gives the browser 5 min of
-  // local caching so seeking back/forward within the player doesn't re-hit.
+  // Stream the MP4 body straight through, keeping the upstream status (200 or
+  // 206) and the headers a media element needs to seek. Cache hint =
+  // "private" (per-user) because the URL is auth-gated; "max-age=300" gives
+  // the browser 5 min of local caching so seeking doesn't re-hit.
+  const responseHeaders = new Headers({
+    "Content-Type": "video/mp4",
+    "Cache-Control": "private, max-age=300",
+    "Accept-Ranges": "bytes",
+  });
+  for (const name of ["Content-Length", "Content-Range", "Accept-Ranges"]) {
+    const value = upstream.headers.get(name);
+    if (value) responseHeaders.set(name, value);
+  }
   return new NextResponse(upstream.body, {
-    status: 200,
-    headers: {
-      "Content-Type": "video/mp4",
-      "Cache-Control": "private, max-age=300",
-    },
+    status: upstream.status === 206 ? 206 : 200,
+    headers: responseHeaders,
   });
 }

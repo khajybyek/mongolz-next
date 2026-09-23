@@ -6,7 +6,10 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 
-const TIME_RE = /^[0-2][0-9]:[0-5][0-9]$/;
+// 00:00-23:59, plus 24:00 (valid end-of-day for Postgres `time`). The old
+// /^[0-2][0-9]:[0-5][0-9]$/ accepted "29:00", which made effective_mask_mode()
+// raise 22008 for the camera (migration 20260923180000 tightens the CHECK).
+const TIME_RE = /^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$/;
 
 const scheduleSchema = z.object({
   camera_id: z.string().uuid(),

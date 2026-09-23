@@ -79,14 +79,16 @@ test.describe("Public surfaces", () => {
     }
   });
 
-  test("crop + view proxies are auth-gated (307 → /login, never reach ML)", async ({ request }) => {
+  test("crop + view proxies are auth-gated (401 JSON, never reach ML)", async ({ request }) => {
     for (const path of [
       "/api/faces/00000000-0000-4000-8000-000000000000/secure-crop",
       "/api/recordings/00000000-0000-4000-8000-000000000000/view",
       "/api/faces/..%2F..%2Fetc%2Fpasswd/secure-crop",
     ]) {
       const res = await request.get(path, { maxRedirects: 0 });
-      expect(res.status(), path).toBe(307);
+      // Unauthenticated /api/* answers 401 JSON (it used to 307 to the HTML
+      // login page, which fetch / hls.js could not handle).
+      expect(res.status(), path).toBe(401);
     }
   });
 

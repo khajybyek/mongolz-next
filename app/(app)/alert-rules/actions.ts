@@ -1,23 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
-
-const ruleSchema = z.object({
-  name: z.string().min(1).max(120),
-  enabled: z.boolean().optional().default(true),
-  suspect_id: z.string().uuid().optional().nullable(),
-  camera_id: z.string().uuid().optional().nullable(),
-  min_similarity: z.number().min(0).max(1).default(0.45),
-  dedup_window_sec: z.number().int().min(0).max(86400).default(300),
-  burst_count: z.number().int().min(1).max(100).default(1),
-  burst_window_sec: z.number().int().min(1).max(3600).default(60),
-  quiet_from: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
-  quiet_to: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
-});
+import { getT } from "@/lib/i18n/server";
+import { BURST_UNREACHABLE, ruleSchema } from "@/lib/alert-rule-schema";
 
 function pickFormValue(fd: FormData, key: string): string | null {
   const v = fd.get(key);
@@ -45,6 +33,10 @@ export async function createRuleAction(formData: FormData) {
   });
 
   if (!parsed.success) {
+    if (parsed.error.issues.some((i) => i.message === BURST_UNREACHABLE)) {
+      const { t } = await getT();
+      return { error: t("ar_burst_unreachable") };
+    }
     return { error: parsed.error.issues.map((i) => i.message).join(", ") };
   }
 

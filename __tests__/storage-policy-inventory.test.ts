@@ -54,6 +54,9 @@ const EXPECTED_SITES = [
   // service-role gateways (authority checked in the route, audit row written)
   "app/api/faces/[id]/secure-crop/route.ts::svc::faces",
   "app/api/reveal/[jobId]/output/route.ts::svc::revealed",
+  // suspect delete removes the photo after the service-role row delete
+  // (admin + step-up + audit in deleteSuspectAction)
+  "app/(app)/suspects/actions.ts::svc::suspects",
   // sch-receipts (20260917110000) has no storage.objects policy at all: the
   // public form mints a signed upload URL and verifies/removes the object,
   // the organiser console deletes it with the last row of a submission, and

@@ -54,7 +54,11 @@ import { t as translateFallback, type TranslationKey } from "@/lib/i18n/translat
 // ── mode / kill switch ─────────────────────────────────────────────────
 export type RateLimitMode = "enforce" | "legacy" | "off";
 
-/** Reads `RATE_LIMIT_MODE` on every call so the switch works without a rebuild. */
+/**
+ * Reads `RATE_LIMIT_MODE` on every call (no code rebuild needed) — but Vercel
+ * applies env changes only to a NEW deployment, so flipping it means "change
+ * env + redeploy" (docs/RUNBOOK.md, break-glass).
+ */
 export function rateLimitMode(): RateLimitMode {
   const raw = (process.env.RATE_LIMIT_MODE ?? "").trim().toLowerCase();
   return raw === "legacy" || raw === "off" ? raw : "enforce";

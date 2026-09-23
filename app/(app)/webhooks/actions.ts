@@ -5,7 +5,14 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { dispatchEvent, WEBHOOK_EVENTS, type WebhookEvent } from "@/lib/webhooks";
+import {
+  dispatchToHook,
+  WEBHOOK_EVENTS,
+  type EventPayload,
+  type WebhookEvent,
+} from "@/lib/webhooks";
+import { isDeliveredWebhookEvent } from "@/lib/webhook-events";
+import { isPrivateHost } from "@/lib/net-guard";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
 import { getT } from "@/lib/i18n/server";
 import { T, type TranslationKey } from "@/lib/i18n/translations";
@@ -22,33 +29,9 @@ async function audit(action: string, detail: string, userId: string, userEmail: 
   } catch {}
 }
 
-/**
- * SSRF blocklist: prevent webhooks from targeting internal-only addresses.
- * - localhost / loopback (IPv4 + IPv6)
- * - RFC 1918 private networks (10/8, 172.16/12, 192.168/16)
- * - Link-local (169.254/16 — includes cloud metadata 169.254.169.254)
- * - Carrier-grade NAT (100.64/10)
- * - .internal / .local / .home suffixes
- */
-const PRIVATE_HOST_PATTERNS: RegExp[] = [
-  /^localhost$/i,
-  /^127(\.|$)/,
-  /^::1$/,
-  /^10\./,
-  /^192\.168\./,
-  /^172\.(1[6-9]|2\d|3[01])\./,
-  /^169\.254\./,
-  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,
-  /^fc[0-9a-f]{2}:/i,
-  /^fd[0-9a-f]{2}:/i,
-  /\.(internal|local|home|lan)$/i,
-];
-
-function isPrivateHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  return PRIVATE_HOST_PATTERNS.some((p) => p.test(h));
-}
-
+// SSRF admission: literal IPs (incl. bracketed IPv6 and IPv4-mapped IPv6)
+// and internal-looking names are refused here; delivery re-checks every
+// resolved address and never follows redirects (lib/webhooks.ts).
 // Issue messages are translation keys; createWebhookAction resolves them in
 // the caller's language before returning them to the form.
 function publicHttpsUrl(raw: unknown, ctx: z.RefinementCtx): void {
@@ -144,31 +127,94 @@ export async function deleteWebhookAction(id: string) {
   return { ok: true };
 }
 
-export async function testWebhookAction(id: string) {
+/** A sample payload shaped like the event the hook actually receives. */
+function samplePayload(event: WebhookEvent): EventPayload {
+  const now = new Date().toISOString();
+  const zero = "00000000-0000-0000-0000-000000000000";
+  if (event === "reveal_requested") {
+    return {
+      type: "reveal_requested",
+      job_id: zero,
+      recording_id: zero,
+      method: "TEST",
+      threshold: null,
+      requested_email: null,
+      created_at: now,
+      url: "https://aicctv.dev/reveal-approvals",
+    };
+  }
+  return {
+    type: "reveal_completed",
+    job_id: zero,
+    recording_id: zero,
+    status: "completed",
+    duration_sec: null,
+    requested_email: null,
+    url: "https://aicctv.dev/reveal-approvals",
+  };
+}
+
+/**
+ * Send ONE sample event to ONE webhook (enabled or not) and report the HTTP
+ * status. It used to fan a fabricated suspect alert out to every enabled
+ * hook subscribed to the event, crash for reveal-event hooks, and report
+ * success for a disabled hook that received nothing.
+ */
+export async function testWebhookAction(
+  id: string,
+): Promise<{ error: string } | { ok: boolean; status: number }> {
   const ctx = await requireAdmin();
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "invalid id" };
   const supabase = await createClient();
   const { data: hook } = await supabase
     .from("webhooks")
-    .select("id, name, events")
+    .select("id, events")
     .eq("id", id)
-    .single();
-  if (!hook) return { error: "not found" };
+    .maybeSingle();
+  if (!hook) {
+    const { t } = await getT();
+    return { error: t("wh_err_not_found") };
+  }
 
-  const event = (hook.events?.[0] ?? "alert_created") as WebhookEvent;
+  // Legacy rows may list names nothing dispatches ("alert.created"); test
+  // with the first event this hook can actually receive.
+  const event: WebhookEvent = (hook.events ?? []).find(isDeliveredWebhookEvent) ?? "reveal_requested";
+  const result = await dispatchToHook(hook.id, samplePayload(event));
+  if (!result) {
+    const { t } = await getT();
+    return { error: t("wh_err_not_found") };
+  }
+  await audit("WEBHOOK_TEST", `${hook.id} event=${event} status=${result.status}`, ctx.user.id, ctx.user.email);
 
-  await dispatchEvent(event, {
-    type: event,
-    alert_id: "00000000-0000-0000-0000-000000000000",
-    suspect_name: "TEST: Sample Suspect",
-    camera_name: "TEST: Camera",
-    similarity: 0.87,
-    similarity_pct: 87,
-    created_at: new Date().toISOString(),
-    url: "https://aicctv.dev/alerts",
-  });
-  await audit("WEBHOOK_TEST", `${hook.id} "${hook.name}" event=${event}`, ctx.user.id, ctx.user.email);
+  revalidatePath("/webhooks");
+  return { ok: result.ok, status: result.status };
+}
 
+/**
+ * Enable / disable a webhook. Enabling opens an outbound channel that
+ * receives reveal requests, so it needs the TOTP step-up like create;
+ * disabling only narrows and stays one click.
+ */
+export async function setWebhookEnabledAction(
+  id: string,
+  enabled: boolean,
+): Promise<{ error: string } | { ok: true }> {
+  const ctx = await requireAdmin();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "invalid id" };
+  if (enabled) {
+    const reauth = await ensureFreshReauth(ctx.user.id);
+    if (reauth) return reauth;
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("webhooks")
+    .update({ enabled, ...(enabled ? { fail_count: 0 } : {}) })
+    .eq("id", id)
+    .select("id");
+  const { t } = await getT();
+  if (error) return { error: t("wh_err_update") };
+  if (!data?.length) return { error: t("wh_err_not_found") };
+  await audit(enabled ? "WEBHOOK_ENABLE" : "WEBHOOK_DISABLE", id, ctx.user.id, ctx.user.email);
   revalidatePath("/webhooks");
   return { ok: true };
 }

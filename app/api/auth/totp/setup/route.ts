@@ -34,7 +34,8 @@ export async function POST() {
     .eq("id", ctx.user.id);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[totp/setup] update failed", error.message);
+    return NextResponse.json({ error: "setup_failed" }, { status: 500 });
   }
 
   // Audit

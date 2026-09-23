@@ -1,3 +1,4 @@
+import { notifyOpsAlarm } from "@/lib/notify";
 import { NextResponse, type NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { authorizeCron } from "@/lib/auth/cron";
@@ -93,6 +94,16 @@ export async function GET(req: NextRequest) {
       results,
     }),
   });
+
+  if (failures.length > 0) {
+    // Undecryptable backups must reach an operator, not only /audit.
+    await notifyOpsAlarm({
+      action: "BACKUP_VERIFY_FAILED",
+      detail:
+        `${failures.length}/${results.length} sampled recordings failed to decrypt: ` +
+        failures.map((f) => f.recording_id.slice(0, 8)).join(", "),
+    });
+  }
 
   if (failures.length > 0 && process.env.SLACK_ALERT_WEBHOOK) {
     try {

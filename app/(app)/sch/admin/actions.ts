@@ -4,9 +4,13 @@
  * SCH Esports organiser console — server actions.
  *
  * Every mutation: admin with second factor or the organiser role (`requireSchOrganiser`), input validated
- * with zod / the guards in `lib/sch/schema.ts`, data written through the
- * RLS client (admin policies + the mfa restrictive policy apply), one
- * `audit_log` row through the service client, then `revalidatePath`.
+ * with zod / the guards in `lib/sch/schema.ts`, data written with the
+ * service client AFTER that gate, one `audit_log` row, then `revalidatePath`.
+ * The sch_* tables are service-role-write only (20260923170000): the
+ * organiser works without a second factor, so a user token that PostgREST
+ * accepts must not be able to change the payment account or the roster
+ * behind the ledger and the security_event alarm. Every CAS predicate below
+ * is kept as it was — the service role skips RLS, not the filters.
  * Results are plain objects — nothing throws to the client. Audit details
  * carry ids only, never a registrant's name, email or phone.
  */
@@ -18,7 +22,7 @@ import { z } from "zod";
 import type { Database, Json } from "@/lib/database.generated";
 import { log } from "@/lib/log";
 import { requireSchOrganiser, type AuthCtx } from "@/lib/supabase/auth";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import { UUID_RE } from "@/lib/workflow-query";
 import {
   SCH_DRAW_STATUSES,
@@ -36,10 +40,20 @@ import {
 } from "@/lib/sch/schema";
 import { drawTeams, type DrawPlayer } from "@/lib/sch/teams";
 import { scheduleSecurityEvent } from "@/lib/notify";
+import { classifyInsertError } from "@/lib/sch/submit";
+import { SCH_CLOSE_OUT_WORD, closeOutAllowed } from "@/lib/sch/close-out";
+import { ensureFreshReauth } from "@/lib/auth/step-up";
 
 export type SchActionResult =
   | { ok: true }
   | { error: "invalid" | "conflict" | "unavailable" }
+  /**
+   * Edit only: the unique index refused the correction — the e-mail is
+   * already registered for that game (`duplicate_email`), or the same
+   * submission already holds an entry for that game (`duplicate_game`).
+   * Retrying cannot help; the organiser has to change the value.
+   */
+  | { error: "duplicate_email" | "duplicate_game" }
   /** A game was ticked as published while it has no saved teams. */
   | { error: "no_teams"; game: SchGame };
 
@@ -57,6 +71,42 @@ export interface SchRegistrationEditInput {
   roles: string[];
   premier_rank: string;
   faceit: string;
+  /**
+   * `updated_at` of the row as the dialog saw it when it opened. The save is
+   * refused (conflict) if anyone changed the row since, so a stale dialog can
+   * never silently overwrite another organiser's correction.
+   */
+  expected_updated_at: string;
+}
+
+/**
+ * JSON with object keys sorted recursively. jsonb hands keys back in its own
+ * order (shorter keys first), so `{premier_rank, faceit}` written by the
+ * action reads back as `{faceit, premier_rank}` — a plain JSON.stringify
+ * comparison would call every CS2 row "changed". Array order is kept: it is
+ * stored data (roles are shown in the order they were picked).
+ */
+function stableJson(value: unknown): string {
+  const norm = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(norm)
+      : v && typeof v === "object"
+        ? Object.fromEntries(
+            Object.entries(v as Record<string, unknown>)
+              .filter(([, x]) => x !== undefined)
+              .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+              .map(([k, x]) => [k, norm(x)]),
+          )
+        : v ?? null;
+  return JSON.stringify(norm(value));
+}
+
+/** Same instant, whatever precision/offset notation each side used. */
+function sameInstant(a: string, b: string): boolean {
+  if (a === b) return true;
+  const x = Date.parse(a);
+  const y = Date.parse(b);
+  return Number.isFinite(x) && Number.isFinite(y) && x === y;
 }
 
 const MAX_DRAW_PLAYERS = 500;
@@ -109,6 +159,14 @@ const ORGANISER_STATUSES: readonly SchStatus[] = ["pending", "paid", "waitlist",
 export async function updateRegistrationAction(input: SchRegistrationEditInput): Promise<SchActionResult> {
   const ctx = await requireSchOrganiser();
   if (!UUID_RE.test(input?.id ?? "") || !isSchGame(input?.game)) return { error: "invalid" };
+  const expectedUpdatedAt = input.expected_updated_at;
+  if (
+    typeof expectedUpdatedAt !== "string" ||
+    expectedUpdatedAt.length > 64 ||
+    !Number.isFinite(Date.parse(expectedUpdatedAt))
+  ) {
+    return { error: "invalid" };
+  }
 
   const person = schPersonSchema.safeParse({
     full_name: input.full_name,
@@ -128,7 +186,7 @@ export async function updateRegistrationAction(input: SchRegistrationEditInput):
   const id = input.id.toLowerCase();
   const gameFields = registrationRow(entry.data);
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     const { data: current, error: readError } = await supabase
       .from("sch_registrations")
       .select("id, game, full_name, email, facebook, phone, in_game_id, rank_label, rank_score, roles, answers, team_id, updated_at")
@@ -136,6 +194,9 @@ export async function updateRegistrationAction(input: SchRegistrationEditInput):
       .maybeSingle();
     if (readError) return { error: "unavailable" };
     if (!current) return { error: "conflict" };
+    // Before the no-op shortcut: a stale dialog is a conflict even when its
+    // draft happens to equal the row as it is now.
+    if (!sameInstant(current.updated_at, expectedUpdatedAt)) return { error: "conflict" };
 
     const gameChanged = current.game !== gameFields.game;
     const patch: Database["public"]["Tables"]["sch_registrations"]["Update"] = {
@@ -144,10 +205,9 @@ export async function updateRegistrationAction(input: SchRegistrationEditInput):
       answers: gameFields.answers as Json,
       ...(gameChanged && current.team_id ? { team_id: null } : {}),
     };
-    const comparable = (value: unknown) => JSON.stringify(value ?? null);
     const changed = Object.keys(patch).filter((key) => {
       const column = key as keyof typeof patch;
-      return comparable(current[column as keyof typeof current]) !== comparable(patch[column]);
+      return stableJson(current[column as keyof typeof current]) !== stableJson(patch[column]);
     });
     if (changed.length === 0) return { ok: true };
 
@@ -158,7 +218,12 @@ export async function updateRegistrationAction(input: SchRegistrationEditInput):
       .eq("updated_at", current.updated_at)
       .select("id")
       .maybeSingle();
-    if (error) return { error: error.code === "23505" ? "conflict" : "unavailable" };
+    if (error) {
+      if (error.code !== "23505") return { error: "unavailable" };
+      // sch_registrations_submission_game_idx → this submission already has
+      // the target game; sch_registrations_game_email_idx → the e-mail does.
+      return { error: classifyInsertError(error).kind === "replay" ? "duplicate_game" : "duplicate_email" };
+    }
     if (!updated) return { error: "conflict" };
 
     await audit(
@@ -186,7 +251,7 @@ export async function setRegistrationStatusAction(input: {
   const id = input.id.toLowerCase();
   const next = input.status;
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     const { data: row, error: readError } = await supabase
       .from("sch_registrations")
       .select("id, game, status, paid_at, team_id")
@@ -237,7 +302,7 @@ export async function setCheckInAction(input: {
   if (!UUID_RE.test(input?.id ?? "") || typeof input?.checkedIn !== "boolean") return { error: "invalid" };
   const id = input.id.toLowerCase();
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     const { data: updated, error } = await supabase
       .from("sch_registrations")
       .update({ checked_in_at: input.checkedIn ? new Date().toISOString() : null })
@@ -269,7 +334,7 @@ export async function setRegistrationNoteAction(input: {
   const id = parsed.data.id.toLowerCase();
   const note = parsed.data.note.trim() || null;
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     const { data: updated, error } = await supabase
       .from("sch_registrations")
       .update({ notes: note })
@@ -291,7 +356,7 @@ export async function deleteRegistrationAction(input: { id: string }): Promise<S
   if (!UUID_RE.test(input?.id ?? "")) return { error: "invalid" };
   const id = input.id.toLowerCase();
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     const { data: row, error: readError } = await supabase
       .from("sch_registrations")
       .select("id, game, submission_id, receipt_path, team_id")
@@ -397,7 +462,7 @@ export async function updateEventSettingsAction(input: SchEventSettingsInput): P
   if (!parsed.success) return { error: "invalid" };
   const v = parsed.data;
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     const { data: before } = await supabase
       .from("sch_event")
       .select("registration_open, teams_published, payment_info")
@@ -485,18 +550,34 @@ const saveTeamsSchema = z.object({
   seed: z.number().int().min(0).max(0xffffffff),
   /** The eligible ids the organiser previewed — the server refuses to save a draw over a changed pool. */
   playerIds: z.array(z.string().regex(UUID_RE)).max(MAX_DRAW_PLAYERS),
+  /**
+   * The rosters the organiser previewed, as player ids per team in seed
+   * order. A rank or role edit after the preview changes what the seed
+   * produces; the save is refused instead of storing teams nobody saw.
+   */
+  teams: z.array(z.array(z.string().regex(UUID_RE)).max(MAX_DRAW_PLAYERS)).max(MAX_DRAW_PLAYERS),
 });
+
+/** Same teams in the same seed order, member order irrelevant. */
+function sameRosters(previewed: readonly string[][], drawn: readonly { players: readonly { id: string }[] }[]): boolean {
+  if (previewed.length !== drawn.length) return false;
+  const key = (ids: readonly string[]) => ids.map((id) => id.toLowerCase()).sort().join(",");
+  return drawn.every((t, i) => key(t.players.map((p) => p.id)) === key(previewed[i]));
+}
 
 /**
  * Replace the saved teams of one game with the draw for `seed`. The draw is
- * recomputed here from the live eligible pool (drawTeams is deterministic),
- * so what the organiser previewed is exactly what gets saved — and if the
- * pool changed under them (someone marked paid meanwhile) it is a conflict.
+ * recomputed here from the live eligible pool (drawTeams is deterministic)
+ * and compared with the rosters the organiser previewed, so what they saw is
+ * exactly what gets saved. If the pool changed under them (someone marked
+ * paid meanwhile) or a rank / role edit changed what the seed produces, it
+ * is a conflict.
  */
 export async function saveTeamsAction(input: {
   game: string;
   seed: number;
   playerIds: string[];
+  teams: string[][];
 }): Promise<SchActionResult> {
   const ctx = await requireSchOrganiser();
   const parsed = saveTeamsSchema.safeParse(input);
@@ -506,7 +587,7 @@ export async function saveTeamsAction(input: {
   const expected = new Set(parsed.data.playerIds.map((id) => id.toLowerCase()));
 
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     const { data: rows, error: readError } = await supabase
       .from("sch_registrations")
       .select("id, full_name, rank_score, roles")
@@ -529,6 +610,7 @@ export async function saveTeamsAction(input: {
     }));
     const result = drawTeams(players, { seed, teamSize: SCH_TEAM_SIZE });
     if (result.teams.length === 0) return { error: "invalid" };
+    if (!sameRosters(parsed.data.teams, result.teams)) return { error: "conflict" };
 
     // Old teams go first; the FK (on delete set null) clears every team_id of
     // this game, including players that are no longer eligible.
@@ -581,7 +663,7 @@ export async function setTeamsPublishedAction(input: {
   if (!isSchGame(input?.game) || typeof input?.published !== "boolean") return { error: "invalid" };
   const game: SchGame = input.game;
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     if (input.published) {
       const { count, error: countError } = await supabase
         .from("sch_teams")
@@ -662,6 +744,125 @@ export async function sweepOrphanReceiptsAction(): Promise<SchSweepResult> {
     );
     return { ok: true, removed };
   } catch {
+    return { error: "unavailable" };
+  }
+}
+
+// ── Close-out (post-event purge) ──────────────────────────────────────
+
+export type SchCloseOutResult =
+  | { ok: true; registrations: number; teams: number; receipts: number }
+  | { error: "REAUTH_REQUIRED" | "forbidden" | "too_early" | "invalid" | "unavailable" };
+
+const CLOSE_OUT_CHUNK = 100;
+
+/**
+ * Delete the tournament's personal data once it is over: every receipt image
+ * in the private bucket, every registration and every team, and close the
+ * form. Admin only, with a fresh TOTP step-up (the organiser role has no
+ * second factor), a typed confirmation, and only from 00:00 KST on the day
+ * after the last game day — it cannot run while the tournament does.
+ *
+ * Receipts go first: a receipt path is found through its row, so deleting
+ * the rows first would turn a failed removal into an object nobody can find.
+ * Anything left after the rows are gone is an orphan by definition and one
+ * `sch_orphan_receipts` pass picks it up. Imported rows point at the Google
+ * Form owner's Drive, which only that owner can delete (the console says so).
+ * The ledger row and the alarm carry counts only.
+ */
+export async function closeOutEventAction(input: { confirm: string }): Promise<SchCloseOutResult> {
+  const ctx = await requireSchOrganiser();
+  if (ctx.profile.role !== "admin") return { error: "forbidden" };
+  if (input?.confirm !== SCH_CLOSE_OUT_WORD) return { error: "invalid" };
+  const reauth = await ensureFreshReauth(ctx.user.id);
+  if (reauth) return reauth;
+
+  try {
+    const svc = createServiceClient();
+    const { data: event, error: eventError } = await svc
+      .from("sch_event")
+      .select("game_dates")
+      .eq("id", 1)
+      .maybeSingle();
+    if (eventError) return { error: "unavailable" };
+    if (!closeOutAllowed(event?.game_dates)) return { error: "too_early" };
+
+    // 1. Nobody can register (or be shown on a roster) while the purge runs.
+    const { error: closeError } = await svc
+      .from("sch_event")
+      .update({
+        registration_open: false,
+        teams_published: { mobile_legends: false, cs2: false, dota2: false },
+        updated_by: ctx.user.id,
+      })
+      .eq("id", 1);
+    if (closeError) return { error: "unavailable" };
+
+    const { data: rows, error: readError } = await svc
+      .from("sch_registrations")
+      .select("id, receipt_path");
+    if (readError) return { error: "unavailable" };
+    const ids = (rows ?? []).map((r) => r.id);
+    const paths = [...new Set((rows ?? []).map((r) => r.receipt_path).filter((p): p is string => Boolean(p)))];
+
+    // 2. Receipt images while their rows still point at them.
+    let receipts = 0;
+    for (let i = 0; i < paths.length; i += CLOSE_OUT_CHUNK) {
+      const { data: gone, error } = await svc.storage.from(SCH_RECEIPT_BUCKET).remove(paths.slice(i, i + CLOSE_OUT_CHUNK));
+      if (error) return { error: "unavailable" };
+      receipts += gone?.length ?? 0;
+    }
+
+    // 3. Registrations, then teams (the FK would null the seats anyway).
+    let registrations = 0;
+    for (let i = 0; i < ids.length; i += CLOSE_OUT_CHUNK) {
+      const { data: deleted, error } = await svc
+        .from("sch_registrations")
+        .delete()
+        .in("id", ids.slice(i, i + CLOSE_OUT_CHUNK))
+        .select("id");
+      if (error) return { error: "unavailable" };
+      registrations += deleted?.length ?? 0;
+    }
+    const { data: teamsGone, error: teamsError } = await svc
+      .from("sch_teams")
+      .delete()
+      .in("game", [...SCH_GAMES])
+      .select("id");
+    if (teamsError) return { error: "unavailable" };
+
+    // 4. Abandoned uploads that never had a row (best effort).
+    try {
+      const { data: orphans } = await (svc as unknown as OrphanRpcClient).rpc("sch_orphan_receipts", {
+        p_older_than_hours: 2,
+        p_limit: 1000,
+      });
+      const names = (Array.isArray(orphans) ? orphans : [])
+        .map((r) => (r && typeof r === "object" ? (r as { name?: unknown }).name : null))
+        .filter((n): n is string => typeof n === "string" && n.startsWith("submissions/"));
+      for (let i = 0; i < names.length; i += CLOSE_OUT_CHUNK) {
+        const { data: gone, error } = await svc.storage.from(SCH_RECEIPT_BUCKET).remove(names.slice(i, i + CLOSE_OUT_CHUNK));
+        if (error) break;
+        receipts += gone?.length ?? 0;
+      }
+    } catch (err) {
+      log.exception("sch close-out orphan sweep failed", err);
+    }
+
+    const teams = teamsGone?.length ?? 0;
+    const detail = `registrations=${registrations} teams=${teams} receipts=${receipts}`;
+    await audit("SCH_EVENT_CLOSED", detail, ctx);
+    scheduleSecurityEvent({
+      action: "SCH_EVENT_CLOSED",
+      actorId: ctx.user.id,
+      actorEmail: ctx.user.email,
+      detail: `role=${ctx.profile.role} ${detail}`,
+    });
+    refreshAdmin();
+    refreshPublic();
+    return { ok: true, registrations, teams, receipts };
+  } catch (err) {
+    log.exception("sch close-out failed", err);
     return { error: "unavailable" };
   }
 }

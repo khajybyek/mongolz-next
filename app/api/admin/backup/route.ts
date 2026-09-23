@@ -4,6 +4,11 @@ import { createHash } from "node:crypto";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { hasFreshReauth } from "@/lib/auth/step-up";
+import {
+  BACKUP_NOT_EXPORTED,
+  BACKUP_STORAGE_SOURCES,
+  BACKUP_TABLES,
+} from "@/lib/backup-tables";
 
 /**
  * Admin backup endpoint — a JSON snapshot of the operational tables plus a
@@ -25,153 +30,8 @@ import { hasFreshReauth } from "@/lib/auth/step-up";
  * columns when the flag is used). The ZIP is streamed; no server-side copy.
  */
 
-type TableSpec = {
-  /** Base allow-list — never contains biometrics or auth material. */
-  columns: string;
-  /** Primary key, used to page deterministically. */
-  pk?: string;
-  /** Columns added only by ?include_biometrics=1. */
-  biometric?: string;
-  /** NOT NULL columns that only the biometric flag brings back. */
-  biometricRequired?: string[];
-  /** NOT NULL columns this artifact never carries, at any setting. */
-  omittedRequired?: string[];
-  note?: string;
-};
-
-/**
- * Column allow-lists. Auth material (TOTP seeds, recovery-code hashes,
- * passkey public keys/counters) and outbound secrets (webhook signing
- * secrets, Slack/Discord URLs are bearer tokens) are deliberately NOT part
- * of a backup an admin can download: a backup that contains every admin's
- * TOTP seed is an account-takeover kit. Supabase PITR covers those rows.
- */
-const TABLES: Record<string, TableSpec> = {
-  profiles: {
-    columns:
-      "id, email, full_name, role, totp_enabled, is_super_admin, reveal_level, username, created_at, updated_at",
-    note:
-      "TOTP seeds, recovery-code hashes and passkeys are never exported — operators re-enrol 2FA after a restore. profiles.id references auth.users, which this artifact cannot recreate.",
-  },
-  cameras: {
-    columns:
-      "id, name, cam_type, url, enabled, consent_required, consent_text, mask_default, created_by, created_at",
-    note:
-      "url is an AES-256-GCM ciphertext produced with CAMERA_URL_KEY. It is exported because the column is NOT NULL and cameras are unreachable without it; it stays unreadable unless the restore environment holds that key (or CAMERA_URL_KEY_PREV).",
-  },
-  suspects: {
-    columns: "id, name, image_path, notes, privacy_tier, created_by, created_at",
-    biometric: "embedding",
-    biometricRequired: ["embedding"],
-    note: "embedding is a 512-dim ArcFace vector — biometric personal data, and NOT NULL.",
-  },
-  alerts: { columns: "*" },
-  alert_rules: { columns: "*" },
-  audit_log: { columns: "*" },
-  recordings: { columns: "*" },
-  faces: {
-    columns:
-      "id, filename, image_path, camera_id, recording_id, detected_at, bbox, chain_index, crop_sealed, cluster_id, reviewed, review_label, reviewed_by, reviewed_at",
-    biometric: "embedding, embedding_sealed",
-    biometricRequired: ["embedding"],
-    note: "embedding is a 512-dim ArcFace vector — biometric personal data, and NOT NULL.",
-  },
-  reveal_jobs: {
-    columns:
-      "id, recording_id, method, suspect_id, face_id, face_ids, threshold, status, progress, output_path, output_duration_sec, error_message, requested_by, requested_email, approved_by, approved_email, approved_at, approval_required, rejected_by, rejected_email, rejected_reason, rejected_at, reason, request_scope, reveal_level, target_start_sec, target_end_sec, reauth_at, created_at, started_at, completed_at",
-    biometric: "query_embedding, query_embeddings, reference_sealed",
-    note: "query embeddings are the biometric probe of a reveal request (nullable — a restore succeeds without them).",
-  },
-  incidents: { columns: "*" },
-  incident_alerts: { columns: "*", pk: "incident_id" },
-  incident_faces: { columns: "*", pk: "incident_id" },
-  incident_events: {
-    columns: "*",
-    note: "The restore tool regenerates this identity key; no table references incident_events.id.",
-  },
-  incident_recordings: { columns: "*" },
-  incident_evidence_exports: { columns: "*" },
-  edge_agents: { columns: "*" },
-  edge_ingest_events: { columns: "*" },
-  webhooks: {
-    columns:
-      "id, name, kind, enabled, events, last_fired_at, last_status, fail_count, created_by, created_at",
-    omittedRequired: ["url"],
-    note:
-      "url (a Slack/Discord bearer URL) and the HMAC secret are credentials and are never exported — recreate destinations by hand on /webhooks.",
-  },
-  camera_permissions: { columns: "*" },
-  masking_schedules: { columns: "*" },
-  privacy_zones: { columns: "*" },
-  retention_policies: { columns: "*", pk: "resource" },
-  clusters: { columns: "*" },
-  push_subscriptions: {
-    columns: "id, user_id, enabled, ua, created_at",
-    omittedRequired: ["endpoint", "p256dh", "auth"],
-    note:
-      "endpoint and the p256dh/auth keys are push credentials and are never exported — users re-subscribe from their browser.",
-  },
-};
-
-/**
- * Storage manifests are derived from the DATABASE, not from a Storage
- * listing: every object lives under a camera/recording prefix, so
- * storage.list("") only ever returned the top-level folder names (the audit
- * found 0 of 106 objects listed). These are the columns that own a path.
- * The `.enc` suffix rule mirrors the retention trigger in
- * supabase/migrations/20260907101000_retention_deletion_queue.sql.
- */
-type PathSource = {
-  table: string;
-  select: string;
-  pk?: string;
-  /** Human-readable provenance recorded in the manifest. */
-  from: string;
-  paths: (row: Record<string, unknown>) => (string | null | undefined)[];
-};
-
-const STORAGE_SOURCES: Record<string, PathSource[]> = {
-  recordings: [
-    {
-      table: "recordings",
-      select: "id, storage_path, original_path",
-      from: "recordings.storage_path + recordings.original_path",
-      paths: (r) => [r.storage_path as string, r.original_path as string | null],
-    },
-  ],
-  faces: [
-    {
-      table: "faces",
-      select: "id, image_path, crop_sealed",
-      from: "faces.image_path (+ '.enc' when crop_sealed)",
-      paths: (r) => [r.crop_sealed ? `${r.image_path as string}.enc` : (r.image_path as string)],
-    },
-  ],
-  suspects: [
-    {
-      table: "suspects",
-      select: "id, image_path",
-      from: "suspects.image_path",
-      paths: (r) => [r.image_path as string],
-    },
-  ],
-  "alert-screenshots": [
-    {
-      table: "alerts",
-      select: "id, screenshot_path",
-      from: "alerts.screenshot_path",
-      paths: (r) => [r.screenshot_path as string | null],
-    },
-  ],
-  revealed: [
-    {
-      table: "reveal_jobs",
-      select: "id, output_path",
-      from: "reveal_jobs.output_path",
-      paths: (r) => [r.output_path as string | null],
-    },
-  ],
-};
+const TABLES = BACKUP_TABLES;
+const STORAGE_SOURCES = BACKUP_STORAGE_SOURCES;
 
 const PAGE = 1000;
 const MAX_ROWS = 50_000;
@@ -231,6 +91,33 @@ type TableReport = {
   error?: string;
   note?: string;
 };
+
+/**
+ * Names in `paths` that have no object in `bucket`, via a service-role-only
+ * RPC over storage.objects (migration 20260923160000). Returns null when the
+ * check could not run — e.g. before that migration is applied — so the
+ * manifest says "not checked" rather than "nothing missing".
+ */
+async function findMissingObjects(
+  svc: ReturnType<typeof createServiceClient>,
+  bucket: string,
+  paths: string[],
+): Promise<Set<string> | null> {
+  const missing = new Set<string>();
+  try {
+    for (let i = 0; i < paths.length; i += PAGE) {
+      const { data, error } = await svc.rpc("backup_missing_storage_objects", {
+        p_bucket: bucket,
+        p_names: paths.slice(i, i + PAGE),
+      });
+      if (error || !Array.isArray(data)) return null;
+      for (const row of data) if (typeof row?.name === "string") missing.add(row.name);
+    }
+  } catch {
+    return null;
+  }
+  return missing;
+}
 
 export async function GET(request: Request) {
   const auth = await requireAdminApi();
@@ -308,10 +195,13 @@ export async function GET(request: Request) {
   }
 
   // 2) Storage manifests, enumerated from the rows that own each path.
-  const buckets: Record<string, { objects: number; derived_from: string[]; error?: string }> = {};
+  const buckets: Record<
+    string,
+    { objects: number; missing: number; existence_checked: boolean; derived_from: string[]; error?: string }
+  > = {};
   for (const [bucket, sources] of Object.entries(STORAGE_SOURCES)) {
     const seen = new Set<string>();
-    const objects: { path: string; source: string; row_id: string }[] = [];
+    const objects: { path: string; source: string; row_id: string; missing?: true }[] = [];
     const errors: string[] = [];
     for (const source of sources) {
       // Reuse the actual table dump, so manifests cannot drift during a
@@ -326,22 +216,40 @@ export async function GET(request: Request) {
         }
       }
     }
+    // A row can outlive its object (production has suspects whose photo is
+    // gone). Flag those paths so recovery:create reports them instead of
+    // aborting on the first one, and so the manifest never promises bytes.
+    const missingPaths = await findMissingObjects(svc, bucket, objects.map((o) => o.path));
+    let missing = 0;
+    if (missingPaths) {
+      for (const o of objects) {
+        if (missingPaths.has(o.path)) { o.missing = true; missing++; }
+      }
+    }
     const error = errors.length ? errors.join("; ") : undefined;
     buckets[bucket] = {
       objects: objects.length,
+      missing,
+      existence_checked: missingPaths !== null,
       derived_from: sources.map((s) => s.from),
       ...(error ? { error } : {}),
     };
     writeJson(`buckets/${bucket}.manifest.json`, {
       bucket, total_objects: objects.length,
+      missing_objects: missing,
+      existence_checked: missingPaths !== null,
       derived_from: sources.map((s) => s.from),
       complete: !error,
-      note: "Paths match the exported database rows. Blob bytes and unreferenced objects are not in this ZIP.",
+      note: "Paths match the exported database rows. Blob bytes and unreferenced objects are not in this ZIP. Entries with missing:true are referenced by a row but have no object in Storage.",
       ...(error ? { error } : {}), objects,
     });
   }
 
   const totalObjects = Object.values(buckets).reduce((n, b) => n + b.objects, 0);
+  const totalMissing = Object.values(buckets).reduce((n, b) => n + b.missing, 0);
+  const existenceUnchecked = Object.entries(buckets)
+    .filter(([, b]) => !b.existence_checked)
+    .map(([name]) => name);
   const unrestorable = Object.entries(tables)
     .filter(([, r]) => !r.restorable)
     .map(([table, r]) => `${table} (missing ${r.missing_required.join(", ") || "data"})`);
@@ -361,6 +269,8 @@ export async function GET(request: Request) {
         biometric_columns: biometricColumns,
         tables,
         buckets,
+        missing_objects: totalMissing,
+        not_exported: BACKUP_NOT_EXPORTED,
         cannot_restore: {
           auth_users:
             "Supabase auth.users (passwords, sessions, identities) is not exported. profiles.id references it, so recreate or re-invite the accounts first — otherwise every profile row fails its FK.",
@@ -399,6 +309,17 @@ export async function GET(request: Request) {
       "Storage objects (from the database):",
       ...Object.entries(buckets).map(([b, r]) => `  ${b.padEnd(22)} ${String(r.objects).padStart(6)}`),
       `  ${"TOTAL".padEnd(22)} ${String(totalObjects).padStart(6)}`,
+      ...(totalMissing
+        ? [
+            `  ${totalMissing} referenced object(s) are MISSING from Storage (missing:true in buckets/*.manifest.json):`,
+            ...Object.entries(buckets)
+              .filter(([, r]) => r.missing > 0)
+              .map(([b, r]) => `    ${b.padEnd(20)} ${String(r.missing).padStart(6)} missing`),
+          ]
+        : []),
+      ...(existenceUnchecked.length
+        ? [`  Object existence was NOT checked for: ${existenceUnchecked.join(", ")}`]
+        : []),
       "",
       ...(includeBiometrics
         ? [
@@ -438,6 +359,8 @@ export async function GET(request: Request) {
       "  • TOTP seeds, recovery-code hashes, passkeys — operators re-enrol 2FA.",
       "  • webhooks.url + signing secret, push_subscriptions endpoint/p256dh/auth —",
       "    those two tables are reference-only; recreate the destinations by hand.",
+      "  • Tables not exported at all (telemetry, queues, auth caches):",
+      ...Object.entries(BACKUP_NOT_EXPORTED).map(([t, why]) => `      ${t} — ${why}`),
       "  • Storage blob bytes — buckets/*.manifest.json lists paths and totals only.",
       "    Use the complete recovery command below to create an encrypted offline mirror.",
       ...(unrestorable.length

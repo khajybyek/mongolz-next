@@ -412,11 +412,22 @@ describe("GET /api/sch/export", () => {
     expect(header.slice(-3)).toEqual(["source", "receipt_url", "submitted_at"]);
     expect(rows[0]).toMatchObject({
       source: "import",
-      has_receipt: "no",
+      // A trusted Drive link is a receipt, the same rule the console applies.
+      has_receipt: "yes",
       receipt_url: "https://drive.google.com/open?id=abc",
       submitted_at: "2026-09-17T05:03:22.000Z",
     });
     expect(rows[1].receipt_url).toBe("'=cmd|' /C calc'!A0");
+    expect(rows[1].has_receipt).toBe("no");
+  });
+
+  it("starts the body with a UTF-8 BOM so Excel decodes Cyrillic and Hangul", async () => {
+    state.rows = [baseRow()];
+    const res = await callExport();
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(Array.from(bytes.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf]);
+    // Exactly one BOM, followed directly by the header row.
+    expect(new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes).startsWith("\uFEFFid,reference,")).toBe(true);
   });
 
   it("writes one SCH_REGISTRATIONS_EXPORTED audit row with game + row count, ids only", async () => {

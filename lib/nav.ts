@@ -168,7 +168,9 @@ export const NAV_GROUPS: NavGroup[] = [
       // Every role can open this one: /privacy is the admin-only differential-
       // privacy demo, so pointing "Privacy (GDPR)" at it bounced viewers and
       // left nobody but admins able to export or erase their own data.
-      { href: "/my-data", icon: UserRoundCheck, labelKey: "nav_my_data", keywords: ["gdpr", "privacy", "export", "erase"] },
+      // Auditors may open it too (middleware allow-list). The organiser
+      // reaches it from the account menu; its sidebar stays the console only.
+      { href: "/my-data", icon: UserRoundCheck, labelKey: "nav_my_data", auditorAllowed: true, keywords: ["gdpr", "privacy", "export", "erase"] },
       { href: "/docs", icon: BookOpen, labelKey: "nav_docs", adminOnly: true, keywords: ["help", "documentation"] },
     ],
   },

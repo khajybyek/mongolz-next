@@ -149,13 +149,16 @@ export async function deleteCameraAction(
 
 export async function toggleCameraAction(
   formData: FormData,
-): Promise<{ error: string } | { ok: true } | void> {
+): Promise<{ error: string } | { ok: true }> {
   const { user } = await requireAdmin();
   const { t } = await getT();
   const id = String(formData.get("id") ?? "");
   const enabled = String(formData.get("enabled") ?? "false") === "true";
 
-  if (!UUID_RE.test(id)) return;
+  // StepUpForm treats anything that is not `{ error }` as saved, so every
+  // refusal below must be an explicit error — never a bare return / throw
+  // (Next redacts thrown messages from server actions in production).
+  if (!UUID_RE.test(id)) return { error: "missing id" };
 
   // Turning a camera ON widens what is captured and streamed, so it needs the
   // second factor like updateCameraAction. Turning one OFF only narrows it and
@@ -167,26 +170,31 @@ export async function toggleCameraAction(
 
   const supabase = cameraWriter();
   const { error } = await supabase.from("cameras").update({ enabled }).eq("id", id);
-  if (error) return;
+  if (error) return { error: error.message };
+  let stopPending = false;
   if (!enabled) {
     try {
       await mlStopCamera(id);
     } catch {
       await disableCameraAutoResume(id, "ML stop failed after camera disabled");
-      throw new Error(t("cam_stop_pending"));
+      stopPending = true;
     }
   }
 
+  // The row is already written, so audit + revalidate even when the ML stop
+  // is still pending — otherwise the disable is never audited.
   try {
     await createServiceClient().from("audit_log").insert({
       action: "CAMERA_TOGGLE",
-      detail: `camera ${id} → enabled=${enabled}`,
+      detail: `camera ${id} → enabled=${enabled}${stopPending ? " (ml stop pending)" : ""}`,
       user_id: user.id,
       user_email: user.email,
     });
   } catch {}
 
   revalidatePath("/cameras");
+  if (stopPending) return { error: t("cam_stop_pending") };
+  return { ok: true };
 }
 
 export async function updateCameraAction(
@@ -271,11 +279,13 @@ export async function testCameraAction(
   return mlTestCamera(u, camType);
 }
 
-export async function toggleConsentAction(formData: FormData) {
+export async function toggleConsentAction(
+  formData: FormData,
+): Promise<{ error: string } | { ok: true }> {
   const { user } = await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const required = String(formData.get("required") ?? "false") === "true";
-  if (!UUID_RE.test(id)) return;
+  if (!UUID_RE.test(id)) return { error: "missing id" };
 
   // Dropping the consent requirement removes a privacy control — second
   // factor first. Switching it ON is the safe direction and needs none.
@@ -285,7 +295,11 @@ export async function toggleConsentAction(formData: FormData) {
   }
 
   const supabase = cameraWriter();
-  await supabase.from("cameras").update({ consent_required: required }).eq("id", id);
+  const { error: updateError } = await supabase
+    .from("cameras")
+    .update({ consent_required: required })
+    .eq("id", id);
+  if (updateError) return { error: updateError.message };
 
   try {
     const svc = createServiceClient();
@@ -298,4 +312,5 @@ export async function toggleConsentAction(formData: FormData) {
   } catch {}
 
   revalidatePath("/cameras");
+  return { ok: true };
 }

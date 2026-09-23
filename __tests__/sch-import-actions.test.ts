@@ -309,7 +309,8 @@ describe("previewSchImportAction", () => {
     const rows = Array.from({ length: 450 }, (_, i) => ml({ n: i + 1 }));
     okPreview(await previewSchImportAction(sheet(...rows)));
     expect(lookups().map((c) => c.inEmails!.length)).toEqual([200, 200, 50]);
-    for (const c of lookups()) expect(c.client).toBe("rls");
+    // Service role after requireSchOrganiser: sch_* are service-role-write only (20260923170000).
+    for (const c of lookups()) expect(c.client).toBe("service");
   });
 
   it("skips the lookup for e-mails of unusable rows", async () => {
@@ -347,7 +348,7 @@ describe("commitSchImportAction", () => {
     expect(r.inserted).toBe(3);
     expect(r.totals).toMatchObject({ rows: 3, ready: 3, entries_new: 3 });
     expect(inserts()).toHaveLength(1);
-    expect(inserts()[0].client).toBe("rls");
+    expect(inserts()[0].client).toBe("service");
 
     const a = stored("player1@example.test", "mobile_legends")!;
     expect(a).toMatchObject({

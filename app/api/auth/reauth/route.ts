@@ -65,6 +65,23 @@ export async function POST(request: NextRequest) {
   // Correct password — hand the throttle unit back.
   await releaseRateLimit(ctx.user.id, REAUTH_LIMIT);
 
+  // A live TOTP step-up already satisfies every gate the password one does
+  // (reveal requests accept either). Overwriting it with a factor=password
+  // cookie silently downgraded the admin: the next approval / user / retention
+  // action answered REAUTH_REQUIRED again. Keep the stronger cookie.
+  const current = await getFreshReauth(ctx.user.id);
+  if (current?.factor === "totp") {
+    try {
+      await createServiceClient().from("audit_log").insert({
+        action: "REAUTH_OK",
+        detail: "password verified; kept existing totp step-up",
+        user_id: ctx.user.id,
+        user_email: ctx.user.email,
+      });
+    } catch {}
+    return NextResponse.json({ ok: true, factor: "totp", expires_at: current.expiresAt });
+  }
+
   const expiresAt = new Date(Date.now() + REAUTH_TTL_MIN * 60 * 1000);
 
   // Audit

@@ -75,9 +75,13 @@ export default async function CameraSchedulePage({
   const rows = (schedules ?? []) as ScheduleRow[];
 
   // Evaluate current effective mode
-  const { data: nowMode } = await svc.rpc("effective_mask_mode", {
+  // An evaluation error must not render as "masked" (it used to fall back to
+  // that, hiding a broken schedule behind the safe-sounding answer).
+  const { data: nowMode, error: nowModeError } = await svc.rpc("effective_mask_mode", {
     p_camera_id: id,
   });
+  const modeLabel = (mode: string | null | undefined) =>
+    mode === "masked" ? t("schedule_mode_masked") : mode === "revealed" ? t("schedule_mode_revealed") : mode ?? "—";
 
   return (
     <>
@@ -104,45 +108,65 @@ export default async function CameraSchedulePage({
             <h3 className="text-sm font-semibold">{t("schedule_new_window")}</h3>
             <input type="hidden" name="camera_id" value={camera.id} />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <select name="window_mode" defaultValue="revealed" className="input text-sm">
-                <option value="revealed">{t("schedule_mode_revealed")}</option>
-                <option value="masked">{t("schedule_mode_masked")}</option>
-              </select>
+              <div>
+                <label className="label" htmlFor="sched-mode">{t("schedule_col_mode")}</label>
+                <select id="sched-mode" name="window_mode" defaultValue="revealed" className="input text-sm">
+                  <option value="revealed">{t("schedule_mode_revealed")}</option>
+                  <option value="masked">{t("schedule_mode_masked")}</option>
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="sched-starts">{t("schedule_starts_label")}</label>
+                <input
+                  id="sched-starts"
+                  name="starts_at"
+                  placeholder="HH:MM"
+                  pattern="([01][0-9]|2[0-3]):[0-5][0-9]|24:00"
+                  defaultValue="09:00"
+                  required
+                  className="input text-sm"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="sched-ends">{t("schedule_ends_label")}</label>
+                <input
+                  id="sched-ends"
+                  name="ends_at"
+                  placeholder="HH:MM"
+                  pattern="([01][0-9]|2[0-3]):[0-5][0-9]|24:00"
+                  defaultValue="18:00"
+                  required
+                  className="input text-sm"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="sched-weekdays">{t("schedule_col_weekdays")}</label>
+                <input
+                  id="sched-weekdays"
+                  name="weekdays"
+                  placeholder={t("schedule_weekdays_placeholder")}
+                  defaultValue={127}
+                  min={1}
+                  max={127}
+                  type="number"
+                  required
+                  className="input text-sm"
+                  title={t("schedule_weekdays_title")}
+                  aria-describedby="sched-weekdays-hint"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="label" htmlFor="sched-note">{t("schedule_col_note")}</label>
               <input
-                name="starts_at"
-                placeholder="HH:MM"
-                pattern="[0-2][0-9]:[0-5][0-9]"
-                defaultValue="09:00"
-                required
+                id="sched-note"
+                name="note"
+                placeholder={t("schedule_note_placeholder")}
+                maxLength={200}
                 className="input text-sm"
-              />
-              <input
-                name="ends_at"
-                placeholder="HH:MM"
-                pattern="[0-2][0-9]:[0-5][0-9]"
-                defaultValue="18:00"
-                required
-                className="input text-sm"
-              />
-              <input
-                name="weekdays"
-                placeholder={t("schedule_weekdays_placeholder")}
-                defaultValue={127}
-                min={1}
-                max={127}
-                type="number"
-                required
-                className="input text-sm"
-                title={t("schedule_weekdays_title")}
               />
             </div>
-            <input
-              name="note"
-              placeholder={t("schedule_note_placeholder")}
-              maxLength={200}
-              className="input text-sm"
-            />
-            <p className="text-[10px] text-text-muted leading-relaxed">
+            <p id="sched-weekdays-hint" className="text-[10px] text-text-muted leading-relaxed">
               {t("schedule_weekdays_hint")}
             </p>
             <button type="submit" className="btn-primary w-full">
@@ -152,7 +176,7 @@ export default async function CameraSchedulePage({
 
           {/* Schedule list */}
           {rows.length === 0 ? (
-            <Empty message={`${t("schedule_empty")} (${camera.mask_default})`} />
+            <Empty message={`${t("schedule_empty")} (${modeLabel(camera.mask_default)})`} />
           ) : (
             <div className="tbl-wrap">
               <table className="tbl">
@@ -176,7 +200,7 @@ export default async function CameraSchedulePage({
                               : "bg-warning/15 text-warning"
                           }`}
                         >
-                          {r.window_mode}
+                          {modeLabel(r.window_mode)}
                         </span>
                       </td>
                       <td className="text-xs font-mono">
@@ -215,13 +239,17 @@ export default async function CameraSchedulePage({
             <h3 className="text-xs uppercase tracking-wide text-text-soft mb-2">
               {t("schedule_current_state")}
             </h3>
-            <div
-              className={`text-2xl font-bold ${
-                nowMode === "masked" ? "text-accent" : "text-warning"
-              }`}
-            >
-              {nowMode ?? "masked"}
-            </div>
+            {nowModeError || !nowMode ? (
+              <div className="text-sm font-semibold text-danger">{t("schedule_state_unknown")}</div>
+            ) : (
+              <div
+                className={`text-2xl font-bold ${
+                  nowMode === "masked" ? "text-accent" : "text-warning"
+                }`}
+              >
+                {modeLabel(nowMode)}
+              </div>
+            )}
             <p className="text-[10px] text-text-muted mt-1">
               {t("schedule_current_hint")}
             </p>

@@ -1,10 +1,12 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { Trash2, Send, Loader2 } from "lucide-react";
-import { deleteWebhookAction, testWebhookAction } from "./actions";
+import { Trash2, Send, Loader2, Power } from "lucide-react";
+import { deleteWebhookAction, setWebhookEnabledAction, testWebhookAction } from "./actions";
 import { TotpPrompt } from "@/components/totp-prompt";
+import { useToast } from "@/components/ui/toast";
 import { useT } from "@/lib/i18n/client";
+import { isDeliveredWebhookEvent } from "@/lib/webhook-events";
 
 const REAUTH_REQUIRED = "REAUTH_REQUIRED";
 
@@ -30,18 +32,40 @@ const KIND_BG: Record<Hook["kind"], string> = {
 export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
   const { t } = useT();
   const [pending, startTransition] = useTransition();
-  const [busy, setBusy] = useState<{ id: string; action: "delete" | "test" } | null>(null);
+  const { toast } = useToast();
+  const [busy, setBusy] = useState<{ id: string; action: "delete" | "test" | "toggle" } | null>(null);
   const [needsTotp, setNeedsTotp] = useState(false);
   const pendingDeleteRef = useRef<string | null>(null);
+  const pendingEnableRef = useRef<string | null>(null);
 
   function runDelete(id: string) {
     setBusy({ id, action: "delete" });
     startTransition(async () => {
       const res = await deleteWebhookAction(id);
       setBusy(null);
-      if (res && "error" in res && res.error === REAUTH_REQUIRED) {
-        pendingDeleteRef.current = id;
-        setNeedsTotp(true);
+      if (res && "error" in res && res.error) {
+        if (res.error === REAUTH_REQUIRED) {
+          pendingDeleteRef.current = id;
+          setNeedsTotp(true);
+          return;
+        }
+        toast({ title: t("toast_failed"), description: res.error, tone: "danger" });
+      }
+    });
+  }
+
+  function runToggle(id: string, enabled: boolean) {
+    setBusy({ id, action: "toggle" });
+    startTransition(async () => {
+      const res = await setWebhookEnabledAction(id, enabled);
+      setBusy(null);
+      if ("error" in res) {
+        if (res.error === REAUTH_REQUIRED) {
+          pendingEnableRef.current = id;
+          setNeedsTotp(true);
+          return;
+        }
+        toast({ title: t("toast_failed"), description: res.error, tone: "danger" });
       }
     });
   }
@@ -54,8 +78,19 @@ export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
   function test(h: Hook) {
     setBusy({ id: h.id, action: "test" });
     startTransition(async () => {
-      await testWebhookAction(h.id);
+      const res = await testWebhookAction(h.id);
       setBusy(null);
+      if ("error" in res) {
+        toast({ title: t("toast_failed"), description: res.error, tone: "danger" });
+      } else if (res.ok) {
+        toast({ title: t("wh_test_ok"), description: `HTTP ${res.status}`, tone: "success" });
+      } else {
+        toast({
+          title: t("wh_test_failed"),
+          description: res.status ? `HTTP ${res.status}` : t("wh_test_unreachable"),
+          tone: "danger",
+        });
+      }
     });
   }
 
@@ -97,15 +132,42 @@ export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
               </td>
               <td>
                 <div className="flex flex-wrap gap-1">
-                  {h.events.map((e) => (
-                    <span key={e} className="badge bg-text-muted/5 text-text-soft text-[10px]">{e}</span>
-                  ))}
+                  {h.events.map((e) =>
+                    isDeliveredWebhookEvent(e) ? (
+                      <span key={e} className="badge bg-text-muted/5 text-text-soft text-[10px]">{e}</span>
+                    ) : (
+                      // Legacy / never-dispatched event names: say so instead
+                      // of implying they are delivered.
+                      <span
+                        key={e}
+                        className="badge bg-text-muted/5 text-text-muted text-[10px] line-through"
+                        title={t("wh_ev_not_delivered")}
+                      >
+                        {e}
+                      </span>
+                    ),
+                  )}
                 </div>
               </td>
               <td className="text-xs text-text-muted">{h.last_fired_at ?? "—"}</td>
               <td>{statusBadge(h)}</td>
               <td>
                 <div className="flex items-center justify-end gap-1.5">
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => runToggle(h.id, !h.enabled)}
+                    title={h.enabled ? t("wh_disable") : t("wh_enable")}
+                    aria-label={h.enabled ? t("wh_disable") : t("wh_enable")}
+                    aria-pressed={h.enabled}
+                    className={`btn-icon ${h.enabled ? "text-success" : "text-text-muted"}`}
+                  >
+                    {pending && busy?.id === h.id && busy.action === "toggle" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Power className="w-3.5 h-3.5" />
+                    )}
+                  </button>
                   <button
                     type="button"
                     disabled={pending}
@@ -146,14 +208,16 @@ export function WebhooksTable({ hooks }: { hooks: Hook[] }) {
       onClose={() => {
         setNeedsTotp(false);
         pendingDeleteRef.current = null;
+        pendingEnableRef.current = null;
       }}
       onSuccess={() => {
         setNeedsTotp(false);
         const id = pendingDeleteRef.current;
-        if (id) {
-          pendingDeleteRef.current = null;
-          runDelete(id);
-        }
+        const enableId = pendingEnableRef.current;
+        pendingDeleteRef.current = null;
+        pendingEnableRef.current = null;
+        if (id) runDelete(id);
+        else if (enableId) runToggle(enableId, true);
       }}
     />
     </>

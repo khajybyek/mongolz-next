@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Activity, AlertTriangle } from "lucide-react";
+import { useT } from "@/lib/i18n/client";
 
 interface Labels {
   start: string;
@@ -35,6 +36,7 @@ const ZERO: Stats = {
 };
 
 export function LiveRtcView({ labels }: { labels: Labels }) {
+  const { t } = useT();
   const publisherRef = useRef<HTMLVideoElement | null>(null);
   const subscriberRef = useRef<HTMLVideoElement | null>(null);
   const pcsRef = useRef<{ pub: RTCPeerConnection; sub: RTCPeerConnection } | null>(null);
@@ -136,7 +138,7 @@ export function LiveRtcView({ labels }: { labels: Labels }) {
       };
       tick();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "WebRTC failed");
+      setErr(e instanceof Error ? e.message : t("live_rtc_failed"));
     } finally {
       setStarting(false);
     }
@@ -172,13 +174,13 @@ export function LiveRtcView({ labels }: { labels: Labels }) {
         <div className="card p-0 overflow-hidden bg-black aspect-video relative">
           <video ref={publisherRef} autoPlay muted playsInline className="w-full h-full object-contain" />
           <div className="absolute top-2 left-2 text-[10px] uppercase tracking-wide bg-bg/80 backdrop-blur px-2 py-0.5 rounded">
-            Publisher
+            {t("live_rtc_publisher")}
           </div>
         </div>
         <div className="card p-0 overflow-hidden bg-black aspect-video relative">
           <video ref={subscriberRef} autoPlay muted playsInline className="w-full h-full object-contain" />
           <div className="absolute top-2 left-2 text-[10px] uppercase tracking-wide bg-bg/80 backdrop-blur px-2 py-0.5 rounded">
-            Subscriber (WebRTC loopback)
+            {t("live_rtc_subscriber")}
           </div>
         </div>
       </div>

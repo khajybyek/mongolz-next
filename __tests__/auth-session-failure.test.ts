@@ -72,14 +72,24 @@ describe("session verification availability", () => {
     expect(signOut).not.toHaveBeenCalled();
   });
 
-  it.each(["expired", "bad-signature", "mismatch", "no-cookie"] as const)("rejects an invalid %s pin and retains session revocation", async (reason) => {
+  it.each([
+    ["bad-signature", "global"],
+    ["mismatch", "global"],
+    ["no-cookie", "global"],
+    // Benign: the pin aged out, or a legacy network-bound pin met the user's
+    // own browser on a new network. Only THIS session ends — the account's
+    // other devices must not be signed out with it.
+    ["expired", "local"],
+    ["stale", "local"],
+  ] as const)("rejects an invalid %s pin and revokes the session (%s)", async (reason, scope) => {
     jest.mocked(checkSessionPin).mockResolvedValue({ ok: false, reason });
     const result = await requireUserApi();
     if (!isAuthErr(result)) throw new Error("invalid session granted access");
     expect(result.error.status).toBe(401);
     expect(await result.error.json()).toEqual({ error: "session_invalid" });
     await expect(requireUser()).rejects.toThrow("redirect:/login?error=session_pin");
-    expect(signOut).toHaveBeenCalledWith({ scope: "global" });
+    expect(signOut).toHaveBeenCalledWith({ scope });
+    expect(signOut).not.toHaveBeenCalledWith({ scope: scope === "local" ? "global" : "local" });
     expect(auditInsert).toHaveBeenCalledWith(expect.objectContaining({
       action: "SESSION_PIN_REJECTED", detail: `reason: ${reason}`,
     }));

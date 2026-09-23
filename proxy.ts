@@ -15,11 +15,21 @@ function generateNonce(): string {
   return btoa(String.fromCharCode(...bytes));
 }
 
-const REPORT_TO_HEADER = JSON.stringify({
-  group: "csp-endpoint",
-  max_age: 10886400,
-  endpoints: [{ url: "/api/csp-report" }],
-});
+/**
+ * Reporting API endpoints. Current Chromium reads `Reporting-Endpoints`
+ * (relative URLs allowed); the legacy `Report-To` header needs an ABSOLUTE
+ * URL, built per request because aicctv.dev and mongolz.dev share one
+ * deployment. `report-uri` inside the CSP keeps Firefox / Safari reporting.
+ */
+const REPORTING_ENDPOINTS_HEADER = 'csp-endpoint="/api/csp-report"';
+
+function reportToHeader(origin: string): string {
+  return JSON.stringify({
+    group: "csp-endpoint",
+    max_age: 10886400,
+    endpoints: [{ url: `${origin}/api/csp-report` }],
+  });
+}
 
 export async function proxy(request: NextRequest) {
   const nonce = generateNonce();
@@ -36,9 +46,14 @@ export async function proxy(request: NextRequest) {
   // header-ээр rewrite гэдгийг тэмдэглэдэг. Энэ тохиолдолд `next()`-ээр
   // дарж бичих ёсгүй — wall host subdomain rewrite-ийг алдагдуулна.
   const isRewrite = baseRes.headers.has("x-middleware-rewrite");
-  if (isRedirect || isRewrite) {
+  // A terminal answer from updateSession (401 JSON for an unauthenticated
+  // /api/* call) must reach the client as is — replacing it with next()
+  // would run the handler anyway.
+  const isTerminal = baseRes.status >= 400;
+  if (isRedirect || isRewrite || isTerminal) {
     baseRes.headers.set("Content-Security-Policy", csp);
-    baseRes.headers.set("Report-To", REPORT_TO_HEADER);
+    baseRes.headers.set("Report-To", reportToHeader(request.nextUrl.origin));
+    baseRes.headers.set("Reporting-Endpoints", REPORTING_ENDPOINTS_HEADER);
     if (!isDev) {
       baseRes.headers.set(
         "Strict-Transport-Security",
@@ -66,7 +81,8 @@ export async function proxy(request: NextRequest) {
 
   // CSP + reporting headers
   response.headers.set("Content-Security-Policy", csp);
-  response.headers.set("Report-To", REPORT_TO_HEADER);
+  response.headers.set("Report-To", reportToHeader(request.nextUrl.origin));
+  response.headers.set("Reporting-Endpoints", REPORTING_ENDPOINTS_HEADER);
 
   // Defense-in-depth security headers (only in production — dev-д HSTS preload
   // нь localhost-д тасалдал үүсгэдэг).

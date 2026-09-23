@@ -75,6 +75,7 @@ export function AuditFilters({
           <input
             type="text"
             placeholder={labels.q}
+            aria-label={labels.q}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="input pl-8 text-sm"
@@ -83,6 +84,7 @@ export function AuditFilters({
         <input
           type="text"
           placeholder={labels.user}
+          aria-label={labels.user}
           value={user}
           onChange={(e) => setUser(e.target.value)}
           className="input text-sm"
@@ -90,6 +92,7 @@ export function AuditFilters({
         <select
           value={action}
           onChange={(e) => setAction(e.target.value)}
+          aria-label={labels.allActions}
           className="input text-sm"
         >
           <option value="">{labels.allActions}</option>
@@ -100,6 +103,7 @@ export function AuditFilters({
         <select
           value={limit}
           onChange={(e) => setLimit(e.target.value)}
+          aria-label={labels.rows}
           className="input text-sm"
         >
           <option value="100">100 {labels.rows}</option>
@@ -111,8 +115,9 @@ export function AuditFilters({
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2 items-end">
         <div>
-          <label className="text-[10px] uppercase tracking-wide text-text-muted block mb-1">{labels.from}</label>
+          <label htmlFor="audit-filter-from" className="text-[10px] uppercase tracking-wide text-text-muted block mb-1">{labels.from}</label>
           <input
+            id="audit-filter-from"
             type="datetime-local"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
@@ -120,8 +125,9 @@ export function AuditFilters({
           />
         </div>
         <div>
-          <label className="text-[10px] uppercase tracking-wide text-text-muted block mb-1">{labels.to}</label>
+          <label htmlFor="audit-filter-to" className="text-[10px] uppercase tracking-wide text-text-muted block mb-1">{labels.to}</label>
           <input
+            id="audit-filter-to"
             type="datetime-local"
             value={to}
             onChange={(e) => setTo(e.target.value)}

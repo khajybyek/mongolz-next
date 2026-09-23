@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllPaged } from "@/lib/paged-fetch";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,18 +21,26 @@ export async function GET(req: Request) {
 
   const supabase = await createClient();
   const since = new Date(Date.now() - hours * 3600_000).toISOString();
-  const { data, error } = await supabase
-    .from("faces")
-    .select("id, bbox, detected_at")
-    .eq("camera_id", cameraId)
-    .gte("detected_at", since)
-    .not("bbox", "is", null)
-    .order("detected_at", { ascending: false })
-    .limit(limit);
+  // `limit` goes up to 10000 but PostgREST returns at most max_rows (1000)
+  // per request, so a single `.limit(limit)` silently sampled only the newest
+  // 1000 detections. Page up to the requested sample size instead.
+  const { rows: data, truncated, error } = await fetchAllPaged(
+    (from, to) =>
+      supabase
+        .from("faces")
+        .select("id, bbox, detected_at")
+        .eq("camera_id", cameraId)
+        .gte("detected_at", since)
+        .not("bbox", "is", null)
+        .order("detected_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, to),
+    limit,
+  );
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error }, { status: 500 });
 
-  const rows = (data ?? []) as Array<{ id: string; bbox: { x: number; y: number; w: number; h: number } | null; detected_at: string }>;
+  const rows = data as unknown as Array<{ id: string; bbox: { x: number; y: number; w: number; h: number } | null; detected_at: string }>;
 
   const points: Array<{ x: number; y: number; w: number; h: number }> = [];
   for (const r of rows) {
@@ -58,6 +67,8 @@ export async function GET(req: Request) {
     cameraId,
     hours,
     samples: points.length,
+    /** More detections matched than `limit`; the grid covers the newest `limit`. */
+    truncated,
     grid: { w: GW, h: GH, cells: grid, max: maxCount },
     points,
   });

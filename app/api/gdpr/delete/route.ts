@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { verifyTOTPWithReplayCheck } from "@/lib/totp";
@@ -33,14 +34,38 @@ import { getT } from "@/lib/i18n/server";
  * where the trigger's privileged-caller branch applies) — that is the
  * documented break-glass path, and nothing in the app can substitute for it.
  *
- * Requires fresh TOTP if the user has TOTP enabled. Every write is checked;
- * the route never reports success for an account that still exists.
+ * Requires fresh TOTP if the user has TOTP enabled, and the account password
+ * otherwise (viewer / auditor / organiser have no TOTP — typing the phrase
+ * alone let an unattended or stolen session erase the account). Every write
+ * is checked; the route never reports success for an account that still
+ * exists. Every refusal carries a stable `code` the form translates.
  */
 
 const schema = z.object({
   totp_code: z.string().regex(/^\d{6}$/).optional(),
+  password: z.string().min(1).max(256).optional(),
   confirm: z.literal("DELETE MY ACCOUNT"),
 });
+
+/**
+ * Check the password WITHOUT touching the caller's session: a throwaway,
+ * non-persisting client (never the cookie-writing one, which would replace
+ * the session with an amr=["password"] token — see /api/auth/reauth).
+ */
+async function passwordMatches(email: string, password: string): Promise<boolean> {
+  const probe = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } },
+  );
+  const { error } = await probe.auth.signInWithPassword({ email, password });
+  try {
+    await probe.auth.signOut({ scope: "local" });
+  } catch {
+    /* best effort — the probe session is not persisted anywhere */
+  }
+  return !error;
+}
 
 export async function POST(req: NextRequest) {
   const auth = await requireUserApi({ allowAuditor: true });
@@ -51,13 +76,13 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON", code: "INVALID_BODY" }, { status: 400 });
   }
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Body must be { confirm: 'DELETE MY ACCOUNT', totp_code? }" },
+      { error: "Body must be { confirm: 'DELETE MY ACCOUNT', totp_code?, password? }", code: "INVALID_BODY" },
       { status: 400 },
     );
   }
@@ -94,14 +119,17 @@ export async function POST(req: NextRequest) {
   // Same throttle as every other TOTP-checking endpoint.
   const rl = await checkRateLimit(user.id, REAUTH_LIMIT);
   if (!rl.ok) {
-    return NextResponse.json({ error: rl.message }, { status: 429, headers: { "Retry-After": String(rl.resetSec) } });
+    return NextResponse.json(
+      { error: rl.message, code: "RATE_LIMITED" },
+      { status: 429, headers: { "Retry-After": String(rl.resetSec) } },
+    );
   }
 
   // Fresh TOTP if enabled
   if (full.totp_enabled) {
     const code = parsed.data.totp_code;
     if (!code || !full.totp_secret) {
-      return NextResponse.json({ error: "Fresh TOTP code required" }, { status: 401 });
+      return NextResponse.json({ error: "Fresh TOTP code required", code: "TOTP_REQUIRED" }, { status: 401 });
     }
     const result = await verifyTOTPWithReplayCheck(user.id, full.totp_secret, code);
     if (result !== "ok") {
@@ -114,9 +142,28 @@ export async function POST(req: NextRequest) {
         });
       } catch {}
       return NextResponse.json(
-        { error: result === "replayed" ? "Code already used" : "Fresh TOTP code required" },
+        result === "replayed"
+          ? { error: "Code already used", code: "TOTP_REPLAYED" }
+          : { error: "Fresh TOTP code required", code: "TOTP_REQUIRED" },
         { status: 401 },
       );
+    }
+  } else {
+    // No second factor on this account: the password is the re-authentication.
+    const password = parsed.data.password;
+    if (!password) {
+      return NextResponse.json({ error: "Password required", code: "PASSWORD_REQUIRED" }, { status: 401 });
+    }
+    if (!(await passwordMatches(full.email ?? user.email, password))) {
+      try {
+        await svc.from("audit_log").insert({
+          action: "REAUTH_PASSWORD_FAILED",
+          detail: "gdpr erase",
+          user_id: user.id,
+          user_email: user.email,
+        });
+      } catch {}
+      return NextResponse.json({ error: "Password incorrect", code: "PASSWORD_INVALID" }, { status: 401 });
     }
   }
 

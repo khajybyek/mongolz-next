@@ -74,7 +74,8 @@ export function AIChat({
         }),
       });
 
-      if (!res.ok) throw new Error(`AI request failed: ${res.status}`);
+      // Operator-language copy (was a hard-coded English "AI request failed").
+      if (!res.ok) throw new Error(`${labels.errorGeneric} (HTTP ${res.status})`);
       const data = await res.json();
       setHistory([...newHistory, { role: "assistant", content: data.text }]);
     } catch (e) {

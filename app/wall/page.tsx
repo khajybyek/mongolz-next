@@ -84,24 +84,26 @@ export default async function WallPage() {
   // /api/faces/[id]/secure-crop, so this server query never touches the
   // storage layer (encrypt-only safe).
   if (isAdmin && cameras.length > 0) {
-    const cameraIds = cameras.map((c) => c.camera_id);
-    const { data: latestFaces } = await supabase
-      .from("faces")
-      .select("id, camera_id, detected_at")
-      .in("camera_id", cameraIds)
-      .order("detected_at", { ascending: false })
-      .limit(cameraIds.length * 3);
-    const seenCam = new Set<string>();
+    // One newest-face query per camera. A single shared
+    // `.in(cameras).limit(cameras * 3)` let one busy camera fill every slot,
+    // so quieter cameras showed "no face yet" although they had detections.
+    // The wall lists enabled cameras only, so N stays small; faces_camera_id_idx
+    // narrows each query to one camera's rows.
+    const latestFaces = await Promise.all(
+      cameras.map((c) =>
+        supabase
+          .from("faces")
+          .select("id")
+          .eq("camera_id", c.camera_id)
+          .order("detected_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ),
+    );
     const faceIdByCam = new Map<string, string>();
-    for (const f of (latestFaces ?? []) as Array<{
-      id: string;
-      camera_id: string;
-      detected_at: string;
-    }>) {
-      if (seenCam.has(f.camera_id)) continue;
-      seenCam.add(f.camera_id);
-      faceIdByCam.set(f.camera_id, f.id);
-    }
+    latestFaces.forEach((res, i) => {
+      if (res.data?.id) faceIdByCam.set(cameras[i].camera_id, res.data.id);
+    });
     cameras = cameras.map((c) => ({
       ...c,
       latest_face_id: faceIdByCam.get(c.camera_id) ?? null,

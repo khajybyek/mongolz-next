@@ -61,6 +61,7 @@ function contentTypeFor(objectPath: string): string {
     ".jpeg": "image/jpeg",
     ".png": "image/png",
     ".webp": "image/webp",
+    ".heic": "image/heic", // sch-receipts allows it; octet-stream would be refused
     ".mp4": "video/mp4",
     ".webm": "video/webm",
   } as Record<string, string>)[extension] ?? "application/octet-stream";

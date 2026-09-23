@@ -144,7 +144,7 @@ export default async function CameraPermissionsPage({
           <StepUpForm action={grantCameraPermissionAction} className="card space-y-3">
             <h3 className="text-sm font-semibold">{t("perm_grant_title")}</h3>
             <input type="hidden" name="camera_id" value={camera.id} />
-            <select name="user_id" required className="input text-sm">
+            <select name="user_id" required aria-label={t("perm_pick_user")} className="input text-sm">
               <option value="">{t("perm_pick_user")}</option>
               {(candidates ?? []).map((u) => (
                 <option key={u.id} value={u.id}>
@@ -152,7 +152,7 @@ export default async function CameraPermissionsPage({
                 </option>
               ))}
             </select>
-            <select name="permission" defaultValue="view" className="input text-sm">
+            <select name="permission" defaultValue="view" aria-label={t("perm_col_permission")} className="input text-sm">
               <option value="view">{t("perm_view")}</option>
               <option value="operate">{t("perm_operate")}</option>
             </select>

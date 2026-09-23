@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   // the TOTP factor (reveal-approvals/actions.ts).
   if (!(await hasFreshReauth(ctx.user.id, { allowPassword: true }))) {
     return NextResponse.json(
-      { error: "REAUTH_REQUIRED", message: "Нууц үгээ дахин оруулна уу" },
+      { error: "REAUTH_REQUIRED", code: "REAUTH_REQUIRED", message: "Нууц үгээ дахин оруулна уу" },
       { status: 401 }
     );
   }
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   const rl = await checkRateLimit(ctx.user.id, REVEAL_LIMIT);
   if (!rl.ok) {
     return NextResponse.json(
-      { error: rl.message ?? "Хэт олон reveal хүсэлт" },
+      { error: rl.message ?? "Хэт олон reveal хүсэлт", code: "RATE_LIMITED" },
       { status: 429, headers: { "Retry-After": String(rl.resetSec) } }
     );
   }
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   const method = String(fd.get("method") ?? "") as RevealMethod;
   const reason = String(fd.get("reason") ?? "").trim();
   if (reason.length < REVEAL_REASON_MIN || reason.length > REVEAL_REASON_MAX) {
-    return NextResponse.json({ error: "REVEAL_REASON_REQUIRED", message: "Reveal reason must contain 10–1000 characters." }, { status: 400 });
+    return NextResponse.json({ error: "REVEAL_REASON_REQUIRED", code: "REVEAL_REASON_REQUIRED", message: "Reveal reason must contain 10–1000 characters." }, { status: 400 });
   }
   const newJobId = randomUUID();
   let reference_sealed: string | null = null;
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
 
   const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
   if (!UUID_RE.test(recording_id) || !["upload", "suspect", "detected_face"].includes(method)) {
-    return NextResponse.json({ error: "invalid params" }, { status: 400 });
+    return NextResponse.json({ error: "invalid params", code: "INVALID_PARAMS" }, { status: 400 });
   }
 
   // Optional time window — reveal scope-ийг recording-ийн нэг хэсэгт хязгаарлана.
@@ -69,13 +69,15 @@ export async function POST(request: NextRequest) {
   let target_end_sec: number | null = null;
   const hasStart = rawStart != null && String(rawStart) !== "";
   const hasEnd = rawEnd != null && String(rawEnd) !== "";
-  if (hasStart !== hasEnd) return NextResponse.json({ error: "Both time window bounds are required" }, { status: 400 });
+  if (hasStart !== hasEnd) {
+    return NextResponse.json({ error: "Both time window bounds are required", code: "INVALID_WINDOW" }, { status: 400 });
+  }
   if (hasStart && hasEnd) {
     const s = Number(rawStart);
     const e = Number(rawEnd);
     if (!Number.isFinite(s) || !Number.isFinite(e) || s < 0 || e <= s) {
       return NextResponse.json(
-        { error: "invalid time window — start must be ≥0 and end > start" },
+        { error: "invalid time window — start must be ≥0 and end > start", code: "INVALID_WINDOW" },
         { status: 400 },
       );
     }
@@ -92,11 +94,11 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (!rec) {
-    return NextResponse.json({ error: "recording not found" }, { status: 404 });
+    return NextResponse.json({ error: "recording not found", code: "RECORDING_NOT_FOUND" }, { status: 404 });
   }
   if (!rec.has_original) {
     return NextResponse.json(
-      { error: "Энэ бичлэгт original үлдээгүй — reveal боломжгүй" },
+      { error: "Энэ бичлэгт original үлдээгүй — reveal боломжгүй", code: "NO_ORIGINAL" },
       { status: 422 }
     );
   }
@@ -107,13 +109,16 @@ export async function POST(request: NextRequest) {
   if (target_end_sec !== null) {
     if (!rec.duration_sec || rec.duration_sec <= 0) {
       return NextResponse.json(
-        { error: "Recording-ийн duration тодорхойгүй тул time-bounded reveal боломжгүй" },
+        { error: "Recording-ийн duration тодорхойгүй тул time-bounded reveal боломжгүй", code: "DURATION_UNKNOWN" },
         { status: 400 },
       );
     }
     if (target_end_sec > rec.duration_sec + 1) {
       return NextResponse.json(
-        { error: `Time window-ийн end (${target_end_sec}s) recording duration-аас давсан байна (${rec.duration_sec}s)` },
+        {
+          error: `Time window-ийн end (${target_end_sec}s) recording duration-аас давсан байна (${rec.duration_sec}s)`,
+          code: "WINDOW_EXCEEDS_DURATION",
+        },
         { status: 400 },
       );
     }
@@ -132,10 +137,10 @@ export async function POST(request: NextRequest) {
   if (method === "upload") {
     const photo = fd.get("photo");
     if (!(photo instanceof File) || photo.size === 0) {
-      return NextResponse.json({ error: "missing photo" }, { status: 400 });
+      return NextResponse.json({ error: "missing photo", code: "BAD_PHOTO" }, { status: 400 });
     }
     if (photo.size > 2 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(photo.type)) {
-      return NextResponse.json({ error: "Use a JPEG, PNG or WebP reference up to 2 MB" }, { status: 400 });
+      return NextResponse.json({ error: "Use a JPEG, PNG or WebP reference up to 2 MB", code: "BAD_PHOTO" }, { status: 400 });
     }
     const buffer = Buffer.from(await photo.arrayBuffer());
     try {
@@ -144,12 +149,12 @@ export async function POST(request: NextRequest) {
       if (error instanceof RevealReferenceConfigurationError) {
         console.error("[reveal/start] reference sealing is not configured");
         return NextResponse.json(
-          { error: "REVEAL_REFERENCE_CONFIGURATION", message: error.message },
+          { error: "REVEAL_REFERENCE_CONFIGURATION", code: "REFERENCE_SEAL_FAILED", message: error.message },
           { status: 503 },
         );
       }
       console.error("[reveal/start] reference sealing failed", error);
-      return NextResponse.json({ error: "REVEAL_REFERENCE_SEAL_FAILED" }, { status: 500 });
+      return NextResponse.json({ error: "REVEAL_REFERENCE_SEAL_FAILED", code: "REFERENCE_SEAL_FAILED" }, { status: 500 });
     }
     try {
       queryEmbeddingSingle = await mlEmbed(buffer);
@@ -157,18 +162,20 @@ export async function POST(request: NextRequest) {
       targets.push({ id: reference_sha256, label: photo.name.trim() || "reference-image" });
     } catch (e) {
       const msg = e instanceof MLError ? e.message : "ML service хариулсангүй";
-      return NextResponse.json({ error: msg }, { status: 502 });
+      return NextResponse.json({ error: msg, code: "ML_UNAVAILABLE" }, { status: 502 });
     }
     detail += " · upload";
   } else if (method === "suspect") {
     suspect_id = String(fd.get("suspect_id") ?? "");
-    if (!UUID_RE.test(suspect_id)) return NextResponse.json({ error: "missing suspect_id" }, { status: 400 });
+    if (!UUID_RE.test(suspect_id)) {
+      return NextResponse.json({ error: "missing suspect_id", code: "INVALID_PARAMS" }, { status: 400 });
+    }
     const { data: s } = await svc
       .from("suspects")
       .select("name, embedding")
       .eq("id", suspect_id)
       .single();
-    if (!s) return NextResponse.json({ error: "suspect not found" }, { status: 404 });
+    if (!s) return NextResponse.json({ error: "suspect not found", code: "TARGET_NOT_FOUND" }, { status: 404 });
     queryEmbeddingSingle = s.embedding as unknown as number[];
     targets.push({ id: suspect_id, label: s.name });
     detail += ` · suspect=${s.name}`;
@@ -181,7 +188,7 @@ export async function POST(request: NextRequest) {
     // Дахин давхардуулсныг арилгана + хоосон / буруу id шалгах
     const ids = Array.from(new Set(collected));
     if (ids.length === 0 || ids.length > REVEAL_SCOPE_MAX_TARGETS || !ids.every((i) => UUID_RE.test(i))) {
-      return NextResponse.json({ error: "missing or invalid face id(s)" }, { status: 400 });
+      return NextResponse.json({ error: "missing or invalid face id(s)", code: "INVALID_PARAMS" }, { status: 400 });
     }
 
     // Бүх face-ийн embedding-ийг авах (service-role, RLS bypass)
@@ -192,10 +199,10 @@ export async function POST(request: NextRequest) {
 
     if (facesErr) {
       console.error("[reveal/start] faces lookup:", facesErr.message);
-      return NextResponse.json({ error: "could not load faces" }, { status: 500 });
+      return NextResponse.json({ error: "could not load faces", code: "START_FAILED" }, { status: 500 });
     }
     if (!rows || rows.length !== ids.length) {
-      return NextResponse.json({ error: "face(s) not found" }, { status: 404 });
+      return NextResponse.json({ error: "face(s) not found", code: "TARGET_NOT_FOUND" }, { status: 404 });
     }
 
     // Embedding-уудыг JSON массив болгож хадгална
@@ -248,7 +255,7 @@ export async function POST(request: NextRequest) {
 
   if (jobErr || !job) {
     console.error("[reveal/start] job insert:", jobErr?.message);
-    return NextResponse.json({ error: "could not create reveal job" }, { status: 500 });
+    return NextResponse.json({ error: "could not create reveal job", code: "START_FAILED" }, { status: 500 });
   }
 
   // 2. Audit — request logged now; the actual decrypt is gated on approval.

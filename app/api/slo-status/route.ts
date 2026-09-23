@@ -39,7 +39,7 @@ export async function GET() {
   const { status, httpStatus, counts } = summarise(slos);
 
   return NextResponse.json(
-    { status, ts, counts, slos, docs: "/docs/SLO.md" },
+    { status, ts, counts, slos },
     {
       status: httpStatus,
       headers: { "cache-control": "public, s-maxage=30, stale-while-revalidate=60" },

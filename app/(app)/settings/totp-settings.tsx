@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Shield, Loader2, CheckCircle2, AlertTriangle, KeyRound } from "lucide-react";
 import { TotpPrompt } from "@/components/totp-prompt";
 import { useT } from "@/lib/i18n/client";
+import type { TranslationKey } from "@/lib/i18n/translations";
+import { RecoveryCodes } from "./recovery-codes";
 
 interface Props {
   email: string;
@@ -12,10 +14,23 @@ interface Props {
   role: "admin" | "viewer" | "auditor" | "organiser";
 }
 
+/** Machine error codes returned by the TOTP routes → translated copy. */
+const ROUTE_ERRORS: Record<string, TranslationKey> = {
+  setup_failed: "set_totp_setup_failed",
+  enable_failed: "set_totp_enable_failed",
+  already_enabled: "set_totp_already_enabled",
+  disable_failed: "set_totp_disable_failed",
+  regenerate_failed: "set_totp_regen_failed",
+};
+
 export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
   const { t } = useT();
   const [enabled, setEnabled] = useState(initialEnabled);
-  const [step, setStep] = useState<"idle" | "setup" | "verify" | "disable">("idle");
+  const [step, setStep] = useState<"idle" | "setup" | "verify" | "disable" | "regen" | "codes">("idle");
+  // Plaintext recovery codes exist only in this state, only until the
+  // operator confirms they saved them (the server keeps hashes).
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [codesThen, setCodesThen] = useState<"relogin" | "stay">("stay");
   const [qr, setQr] = useState<string | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
   const [code, setCode] = useState("");
@@ -26,6 +41,54 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
   const [needsTotp, setNeedsTotp] = useState(false);
   const router = useRouter();
 
+  function routeError(data: { error?: unknown } | null, fallback: TranslationKey): string {
+    const code = typeof data?.error === "string" ? data.error : null;
+    if (code && ROUTE_ERRORS[code]) return t(ROUTE_ERRORS[code]);
+    return code ?? t(fallback);
+  }
+
+  function showCodes(codes: string[], then: "relogin" | "stay") {
+    setRecoveryCodes(codes);
+    setCodesThen(then);
+    setStep("codes");
+  }
+
+  function confirmCodesSaved() {
+    const then = codesThen;
+    setRecoveryCodes(null);
+    setStep("idle");
+    if (then === "relogin") {
+      // The enrolment already ended this session (see the verify route);
+      // only now, after the codes were acknowledged, leave the page.
+      router.push("/login?error=totp_enrolled" as never);
+      return;
+    }
+    setSuccess(t("set_totp_regen_done"));
+  }
+
+  async function submitRegenerate() {
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch("/api/auth/totp/recovery/regenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !Array.isArray(data?.recovery_codes)) {
+        throw new Error(routeError(data, "set_totp_regen_failed"));
+      }
+      setCode("");
+      showCodes(data.recovery_codes as string[], "stay");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("ai_error_generic"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function startSetup() {
     setBusy(true);
     setError(null);
@@ -33,7 +96,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
     try {
       const res = await fetch("/api/auth/totp/setup", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? t("set_totp_setup_failed"));
+      if (!res.ok) throw new Error(routeError(data, "set_totp_setup_failed"));
       setQr(data.qr_data_uri);
       setSecret(data.secret);
       setStep("verify");
@@ -53,19 +116,24 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? t("set_totp_verify_failed"));
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(routeError(data, "set_totp_verify_failed"));
       setEnabled(true);
       setStep("idle");
       setQr(null);
       setSecret(null);
       setCode("");
       setSuccess(t("set_totp_enabled_msg"));
-      if (data.relogin_required) {
-        // Enrolling ends the password-only session (see the verify route): the
-        // recovery codes stay on screen, and the next navigation goes to login.
+      if (data?.relogin_required) {
+        // Enrolling ends the password-only session (see the verify route).
+        // The recovery codes are shown exactly once, here: no refresh and no
+        // timed redirect — the page leaves only after the operator confirms.
         setSuccess(`${t("set_totp_enabled_msg")} ${t("set_totp_relogin")}`);
-        setTimeout(() => router.push("/login?error=session_pin" as never), 15_000);
+        if (Array.isArray(data.recovery_codes) && data.recovery_codes.length > 0) {
+          showCodes(data.recovery_codes as string[], "relogin");
+        } else {
+          router.push("/login?error=totp_enrolled" as never);
+        }
         return;
       }
       // Server-rendered "must set up TOTP" banner + middleware gate re-evaluate.
@@ -92,7 +160,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
         setNeedsTotp(true);
         return;
       }
-      if (!res.ok) throw new Error(data.error ?? t("set_totp_disable_failed"));
+      if (!res.ok) throw new Error(routeError(data, "set_totp_disable_failed"));
       setEnabled(false);
       setStep("idle");
       setPassword("");
@@ -158,9 +226,75 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
         </button>
       )}
       {step === "idle" && enabled && (
-        <button onClick={() => setStep("disable")} className="btn-ghost w-full">
-          {t("set_disable")}
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            onClick={() => {
+              setCode("");
+              setError(null);
+              setSuccess(null);
+              setStep("regen");
+            }}
+            className="btn-secondary flex-1"
+          >
+            <KeyRound className="w-4 h-4" />
+            {t("set_totp_regen")}
+          </button>
+          <button onClick={() => setStep("disable")} className="btn-ghost flex-1">
+            {t("set_disable")}
+          </button>
+        </div>
+      )}
+
+      {/* REGEN — a fresh authenticator code re-issues the recovery codes */}
+      {step === "regen" && (
+        <div className="space-y-3 border-t border-text-muted/5 pt-3">
+          <p className="text-xs text-text-soft leading-relaxed">{t("set_totp_regen_desc")}</p>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="\d{6}"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            placeholder={t("set_totp_code_placeholder")}
+            aria-label={t("set_totp_code_label")}
+            className="input text-center text-lg tracking-widest"
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setStep("idle");
+                setCode("");
+              }}
+              className="btn-ghost flex-1"
+              disabled={busy}
+            >
+              {t("cancel")}
+            </button>
+            <button
+              onClick={submitRegenerate}
+              disabled={busy || code.length !== 6}
+              className="btn-primary flex-1"
+            >
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {t("confirm")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* CODES — shown once after enrolment or regeneration */}
+      {step === "codes" && recoveryCodes && (
+        <RecoveryCodes
+          codes={recoveryCodes}
+          email={email}
+          confirmLabel={
+            codesThen === "relogin" ? t("set_totp_recovery_saved_relogin") : t("set_totp_recovery_saved")
+          }
+          onConfirm={confirmCodesSaved}
+        />
       )}
 
       {/* VERIFY — QR + 6-digit code */}

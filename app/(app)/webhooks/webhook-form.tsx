@@ -6,16 +6,17 @@ import { createWebhookAction } from "./actions";
 import { TotpPrompt } from "@/components/totp-prompt";
 import { useToast } from "@/components/ui/toast";
 import { useT } from "@/lib/i18n/client";
+import type { WebhookEvent } from "@/lib/webhook-events";
 
 const REAUTH_REQUIRED = "REAUTH_REQUIRED";
 
+// Only events something actually dispatches (lib/webhook-events.ts). The
+// suspect-alert, system-health and audit events were offered — alert_created
+// pre-checked — although nothing ever sent them.
 const EVENTS = [
-  { key: "alert_created", labelKey: "wh_ev_alert_created" },
   { key: "reveal_requested", labelKey: "wh_ev_reveal_requested" },
   { key: "reveal_completed", labelKey: "wh_ev_reveal_completed" },
-  { key: "system_health", labelKey: "wh_ev_system_health" },
-  { key: "audit_critical", labelKey: "wh_ev_audit_critical" },
-] as const;
+] as const satisfies ReadonlyArray<{ key: WebhookEvent; labelKey: string }>;
 
 export function WebhookForm() {
   const { t } = useT();
@@ -115,11 +116,12 @@ export function WebhookForm() {
         <input
           name="name"
           placeholder={t("wh_name_placeholder")}
+          aria-label={t("wh_name_placeholder")}
           required
           maxLength={120}
           className="input md:col-span-2"
         />
-        <select name="kind" defaultValue="slack" className="select" required>
+        <select name="kind" defaultValue="slack" className="select" required aria-label={t("camera_type")}>
           <option value="slack">Slack</option>
           <option value="discord">Discord</option>
           <option value="generic">{t("wh_kind_generic")}</option>
@@ -130,22 +132,23 @@ export function WebhookForm() {
         name="url"
         type="url"
         placeholder={t("wh_url_placeholder")}
+        aria-label={t("wh_url_placeholder")}
         required
         pattern="https://.*"
         className="input"
       />
 
       <div>
-        <label className="label">
+        <span className="label" id="wh-events-label">
           {t("wh_events_label")}
-        </label>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        </span>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2" role="group" aria-labelledby="wh-events-label">
           {EVENTS.map((e) => (
             <label key={e.key} className="flex items-center gap-2 text-xs text-text-soft cursor-pointer">
               <input
                 type="checkbox"
                 name={`event_${e.key}`}
-                defaultChecked={e.key === "alert_created"}
+                defaultChecked={e.key === "reveal_requested"}
                 className="accent-accent"
               />
               {t(e.labelKey)}

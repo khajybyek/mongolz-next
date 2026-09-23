@@ -30,7 +30,7 @@ export default async function AlertDetailPage({ params }: { params: Promise<{ id
   const label = (alert.label ?? "unknown") as AlertLabel;
 
   return (
-    <div className="pb-36 lg:pb-4">
+    <div className="pb-52 lg:pb-4">
       <PageHeader
         title={alert.suspect_name}
         subtitle={`${alert.camera_name ?? "—"} · ${formatDate(alert.created_at)}`}

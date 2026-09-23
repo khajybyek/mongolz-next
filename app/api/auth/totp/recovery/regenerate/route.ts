@@ -53,7 +53,11 @@ export async function POST(request: NextRequest) {
     .update({ totp_recovery_codes: gen.hashes })
     .eq("id", ctx.user.id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    // Database detail stays in the server log; the old codes are still valid.
+    console.error("[totp/recovery/regenerate] update failed", error.message);
+    return NextResponse.json({ error: "regenerate_failed" }, { status: 500 });
+  }
 
   await svc.from("audit_log").insert({
     action: "TOTP_RECOVERY_REGENERATED",

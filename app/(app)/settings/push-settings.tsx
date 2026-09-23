@@ -24,7 +24,8 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
-export function PushSettings() {
+/** `canEnrol` = false for an admin without TOTP (the step-up cannot succeed). */
+export function PushSettings({ canEnrol = true }: { canEnrol?: boolean }) {
   const { t } = useT();
   const [supported, setSupported] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>("default");
@@ -40,8 +41,8 @@ export function PushSettings() {
   const refresh = useCallback(async () => {
     try {
       const r = await fetch("/api/push/subscribe", { cache: "no-store" });
-      const j = await r.json();
-      if (r.ok) setSubs((j.subscriptions ?? []) as Sub[]);
+      const j = (await r.json().catch(() => null)) as { subscriptions?: Sub[] } | null;
+      if (r.ok) setSubs((j?.subscriptions ?? []) as Sub[]);
     } finally {
       setLoading(false);
     }
@@ -184,7 +185,7 @@ export function PushSettings() {
             <button
               type="button"
               onClick={enroll}
-              disabled={busy === "enroll"}
+              disabled={busy === "enroll" || !canEnrol}
               className="btn-primary"
             >
               {busy === "enroll" ? <Loader2 className="w-4 h-4 animate-spin" /> : <BellRing className="w-4 h-4" />}
@@ -201,6 +202,11 @@ export function PushSettings() {
             </button>
           </div>
 
+          {!canEnrol && (
+            <div className="text-xs text-warning flex items-center gap-1">
+              <AlertCircle className="w-3.5 h-3.5" /> {t("set_enrol_needs_totp")}
+            </div>
+          )}
           {permission === "denied" && (
             <div className="text-xs text-danger-ring">{t("push_blocked")}</div>
           )}

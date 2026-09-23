@@ -234,7 +234,7 @@ export const T = {
   calls: { mn: "Calls", en: "Calls", kr: "호출" },
 
   // ── Alerts live ──
-  alerts_live_title: { mn: "Real-time Alerts", en: "Real-time Alerts", kr: "실시간 알림" },
+  alerts_live_title: { mn: "Бодит цагийн alert", en: "Real-time Alerts", kr: "실시간 알림" },
   alerts_live_subtitle: {
     mn: "Сүүлийн 60 минутын alerts + шууд урсгал",
     en: "Last 60 minutes of alerts + live stream",
@@ -251,7 +251,7 @@ export const T = {
   // ── Erase ──
   erase_title: { mn: "Бүртгэлээ устгах", en: "Erase your account", kr: "계정 삭제" },
   erase_subtitle: {
-    mn: "Right to erasure — GDPR Art.17 / PIPA §36",
+    mn: "Устгуулах эрх — GDPR Art.17 / PIPA §36",
     en: "Right to erasure — GDPR Art.17 / PIPA §36",
     kr: "삭제권 — GDPR 17조 / PIPA §36",
   },
@@ -343,7 +343,7 @@ export const T = {
   },
   schedule_new_window: { mn: "Шинэ window нэмэх", en: "Add new window", kr: "새 시간대 추가" },
   schedule_mode_revealed: { mn: "Илрэх (revealed)", en: "Revealed", kr: "공개 (revealed)" },
-  schedule_mode_masked: { mn: "Мaскгүй (masked)", en: "Masked", kr: "마스킹 (masked)" },
+  schedule_mode_masked: { mn: "Масктай (masked)", en: "Masked", kr: "마스킹 (masked)" },
   schedule_note_placeholder: {
     mn: "Тэмдэглэл (optional) — ажлын цаг гэх мэт",
     en: "Note (optional) — e.g. working hours",
@@ -398,7 +398,7 @@ export const T = {
   perm_grant_title: { mn: "Эрх олгох", en: "Grant access", kr: "권한 부여" },
   perm_pick_user: { mn: "— Хэрэглэгч сонгох —", en: "— Pick user —", kr: "— 사용자 선택 —" },
   perm_view: { mn: "View — playback харах", en: "View — playback only", kr: "View — 재생만" },
-  perm_operate: { mn: "Operate — start/stop recording", en: "Operate — start/stop recording", kr: "Operate — 녹화 시작/중지" },
+  perm_operate: { mn: "Удирдах — бичлэг эхлүүлэх/зогсоох", en: "Operate — start/stop recording", kr: "Operate — 녹화 시작/중지" },
   perm_grant: { mn: "Олгох", en: "Grant", kr: "부여" },
 
   // ── Suspects ──
@@ -439,7 +439,7 @@ export const T = {
   // ── Webhooks ──
   webhooks_title: { mn: "Webhook удирдах", en: "Webhooks", kr: "웹훅 관리" },
   webhooks_subtitle: {
-    mn: "Slack / Discord / generic HMAC destinations",
+    mn: "Slack / Discord / ерөнхий HMAC хүлээн авагч",
     en: "Slack / Discord / generic HMAC destinations",
     kr: "Slack / Discord / 일반 HMAC 대상",
   },
@@ -543,7 +543,7 @@ export const T = {
 
   // ── Backup page ──
   nav_backup: { mn: "Backup", en: "Backup", kr: "백업" },
-  backup_title: { mn: "Backup & Restore", en: "Backup & Restore", kr: "백업 및 복원" },
+  backup_title: { mn: "Нөөцлөх ба сэргээх", en: "Backup & Restore", kr: "백업 및 복원" },
   backup_subtitle: {
     mn: "DB rows + storage manifest ZIP-аар татах. Admin-only.",
     en: "Download DB rows + storage manifest as ZIP. Admin-only.",
@@ -751,7 +751,7 @@ export const T = {
     kr: "파일 선택 (MP4 / WebM / MOV)",
   },
   file_upload_btn: {
-    mn: "Upload + ML process",
+    mn: "Байршуулах + ML боловсруулалт",
     en: "Upload + ML process",
     kr: "업로드 + ML 처리",
   },
@@ -957,6 +957,11 @@ export const T = {
     en: "You must enable 2FA before performing this action. Enable it in Settings.",
     kr: "이 작업을 수행하려면 먼저 2FA를 활성화해야 합니다. 설정에서 활성화하세요.",
   },
+  totp_prompt_session_expired: {
+    mn: "Нэвтрэлтийн хугацаа дууссан. Дахин нэвтэрч орно уу.",
+    en: "Your session has expired. Please sign in again.",
+    kr: "세션이 만료되었습니다. 다시 로그인하세요.",
+  },
   totp_prompt_network_err: {
     mn: "Сүлжээний алдаа — дахин оролд",
     en: "Network error — please retry",
@@ -1046,7 +1051,7 @@ export const T = {
   demo_section_problem: { mn: "Асуудал", en: "Problem", kr: "문제" },
   demo_section_arch: { mn: "Архитектур", en: "Architecture", kr: "아키텍처" },
   demo_section_numbers: { mn: "Тоо", en: "Numbers", kr: "수치" },
-  demo_section_demos: { mn: "Live demo", en: "Live demos", kr: "라이브 데모" },
+  demo_section_demos: { mn: "Шууд демо", en: "Live demos", kr: "라이브 데모" },
   demo_section_security: { mn: "Аюулгүй байдал", en: "Security stack", kr: "보안 스택" },
   demo_problem_title: {
     mn: "Хувийн нууц vs Аюулгүй байдал",
@@ -1084,9 +1089,9 @@ export const T = {
     kr: "4계층 아키텍처",
   },
   demo_arch_body: {
-    mn: "Singapore region дотор сонгогдсон холболтоор хүлээлт буурч latency 50ms-аас бага.",
-    en: "All four tiers are co-located in Singapore for sub-50ms inter-service latency.",
-    kr: "모든 4계층이 싱가포르 지역에 함께 위치하여 50ms 미만의 서비스 간 지연 시간을 제공합니다.",
+    mn: "ML сервис, өгөгдлийн сан, веб давхарга бүгд Сингапурт ажилладаг тул бичлэгийг хадгалсан бүс дотор нь тайлж боловсруулдаг.",
+    en: "The ML service, database and web tier all run in Singapore, so recordings are decrypted and processed in the region where they are stored.",
+    kr: "ML 서비스, 데이터베이스, 웹 계층이 모두 싱가포르에서 실행되어 녹화는 저장된 지역 안에서 복호화·처리됩니다.",
   },
   demo_arch_n_camera: { mn: "Камер", en: "Camera", kr: "카메라" },
   demo_numbers_title: {
@@ -1141,17 +1146,17 @@ export const T = {
     kr: "관리자 작업에 TOTP 2FA 필수",
   },
   demo_sec_rls: {
-    mn: "PostgreSQL RLS — 24 policy",
-    en: "PostgreSQL RLS — 24 policies",
-    kr: "PostgreSQL RLS — 24개 정책",
+    mn: "PostgreSQL RLS — бүх хүснэгтэд",
+    en: "PostgreSQL RLS on every table",
+    kr: "모든 테이블에 PostgreSQL RLS",
   },
   demo_sec_aes: {
-    mn: "AES-256-GCM encrypted recordings",
+    mn: "AES-256-GCM-ээр шифрлэгдсэн бичлэг",
     en: "AES-256-GCM encrypted recordings",
     kr: "AES-256-GCM 암호화된 녹화",
   },
   demo_sec_audit: {
-    mn: "Hash-chain audit log",
+    mn: "Hash-chain аудит лог",
     en: "Hash-chain audit log",
     kr: "해시 체인 감사 로그",
   },
@@ -1161,7 +1166,7 @@ export const T = {
     kr: "reveal 시 4-eyes 승인",
   },
   demo_sec_roles: {
-    mn: "Admin / Auditor / Viewer role",
+    mn: "Admin / Auditor / Viewer эрх",
     en: "Admin / Auditor / Viewer roles",
     kr: "Admin / Auditor / Viewer 역할",
   },
@@ -1425,7 +1430,7 @@ export const T = {
 
   // ── Cross-camera Re-ID ──
   nav_reid: { mn: "Re-ID мөшгилт", en: "Re-ID Trail", kr: "재식별 추적" },
-  reid_title: { mn: "Cross-camera Re-ID", en: "Cross-camera Re-ID", kr: "교차 카메라 재식별" },
+  reid_title: { mn: "Камер хоорондын Re-ID", en: "Cross-camera Re-ID", kr: "교차 카메라 재식별" },
   reid_subtitle: {
     mn: "Нэг хүн хэдэн камераар явсныг embedding similarity-ээр сэргээх.",
     en: "Reconstruct one person's movement across cameras via embedding similarity.",
@@ -1745,15 +1750,14 @@ export const T = {
   // ── Landing hero mockup + stats strip ──
   home_mock_recent: { mn: "Сүүлийн alert", en: "Recent alerts", kr: "최근 알림" },
   home_mock_live: { mn: "Шууд", en: "Live", kr: "실시간" },
-  home_mock_sealed: { mn: "Sealed · AES-256-GCM", en: "Sealed · AES-256-GCM", kr: "봉인됨 · AES-256-GCM" },
+  home_mock_sealed: { mn: "Битүүмжилсэн · AES-256-GCM", en: "Sealed · AES-256-GCM", kr: "봉인됨 · AES-256-GCM" },
   home_mock_pending: { mn: "4-eyes зөвшөөрөл хүлээж байна", en: "Awaiting 4-eyes approval", kr: "4-eyes 승인 대기 중" },
   home_mock_approved: { mn: "Reveal зөвшөөрөгдлөө · 2-р admin", en: "Reveal approved · 2nd admin", kr: "공개 승인됨 · 2번째 관리자" },
   home_mock_cameras: { mn: "Камер", en: "Cameras", kr: "카메라" },
   home_stat_embed: { mn: "ArcFace embedding", en: "ArcFace embedding", kr: "ArcFace 임베딩" },
   home_stat_enc: { mn: "Бичлэгийн шифрлэлт", en: "Recording encryption", kr: "녹화 암호화" },
   home_stat_roles: { mn: "Эрхийн түвшин + 4-eyes", en: "Roles + 4-eyes reveal", kr: "역할 + 4-eyes 공개" },
-  home_stat_latency: { mn: "Singapore region latency", en: "Singapore region latency", kr: "싱가포르 리전 지연" },
-  home_trust_row: { mn: "Privacy-first · Audit-ready · Open architecture", en: "Privacy-first · Audit-ready · Open architecture", kr: "프라이버시 우선 · 감사 대응 · 개방형 아키텍처" },
+  home_trust_row: { mn: "Нууцлал нэгдүгээрт · Аудитад бэлэн · Нээлттэй архитектур", en: "Privacy-first · Audit-ready · Open architecture", kr: "프라이버시 우선 · 감사 대응 · 개방형 아키텍처" },
 
   // ── Dashboard panels ──
   dash_quick_actions: { mn: "Түргэн үйлдэл", en: "Quick actions", kr: "빠른 작업" },
@@ -1801,6 +1805,7 @@ export const T = {
   grid_stopping: { mn: "Зогсоож байна…", en: "Stopping…", kr: "정지 중…" },
   grid_stream_failed: { mn: "Стрим ачаалагдсангүй", en: "Stream failed to load", kr: "스트림을 불러오지 못했습니다" },
   grid_retry: { mn: "Дахин оролдох", en: "Retry", kr: "다시 시도" },
+  grid_restarted: { mn: "Дахин эхэлсэн", en: "Restarted", kr: "재시작됨" },
   grid_play: { mn: "Асаах", en: "Start", kr: "시작" },
   grid_stop: { mn: "Зогсоох", en: "Stop", kr: "정지" },
   grid_focus: { mn: "Томруулах", en: "Focus", kr: "확대" },
@@ -2607,6 +2612,147 @@ export const T = {
   cam_health_last_face: { mn: "Сүүлд илэрсэн царай", en: "Last face", kr: "마지막 얼굴" },
   cam_health_not_capturing: { mn: "Энэ камерыг бичиж авахгүй байна", en: "Not being captured", kr: "캡처 중이 아님" },
   wall_no_detection: { mn: "Одоогоор царай илрээгүй", en: "No face detected yet", kr: "아직 얼굴이 감지되지 않음" },
+  // TOTP recovery codes display + regeneration
+  set_totp_recovery_title: { mn: "Сэргээх кодууд", en: "Recovery codes", kr: "복구 코드" },
+  set_totp_recovery_desc: { mn: "Код бүр нэвтрэхэд 6 оронтой кодын оронд нэг л удаа ажиллана. Зөвхөн одоо харагдана — нууц үгийн менежер эсвэл хэвлэмэл хэлбэрээр аюулгүй газар хадгална уу.", en: "Each code works once, in place of the 6-digit code at sign-in. They are shown only now — keep them somewhere safe, such as a password manager or on paper.", kr: "각 코드는 로그인 시 6자리 코드 대신 한 번만 사용할 수 있습니다. 지금만 표시되므로 비밀번호 관리자나 종이 등 안전한 곳에 보관하세요." },
+  set_totp_recovery_copy: { mn: "Хуулах", en: "Copy", kr: "복사" },
+  set_totp_recovery_copied: { mn: "Хуулсан", en: "Copied", kr: "복사됨" },
+  set_totp_recovery_download: { mn: ".txt татах", en: "Download .txt", kr: ".txt 다운로드" },
+  set_totp_recovery_saved: { mn: "Хадгалсан", en: "I have saved them", kr: "저장했습니다" },
+  set_totp_recovery_saved_relogin: { mn: "Хадгалсан — дахин нэвтрэх", en: "I have saved them — sign in again", kr: "저장했습니다 — 다시 로그인" },
+  set_totp_regen: { mn: "Сэргээх код шинэчлэх", en: "Regenerate recovery codes", kr: "복구 코드 재발급" },
+  set_totp_regen_desc: { mn: "Authenticator app-ын 6 оронтой кодыг оруулна уу. Хуучин сэргээх кодууд шууд хүчингүй болно.", en: "Enter the 6-digit code from your authenticator app. The old recovery codes stop working immediately.", kr: "인증 앱의 6자리 코드를 입력하세요. 기존 복구 코드는 즉시 무효화됩니다." },
+  set_totp_regen_failed: { mn: "Сэргээх кодыг шинэчилж чадсангүй. Хуучин кодууд хүчинтэй хэвээр.", en: "Could not regenerate the recovery codes. The old codes still work.", kr: "복구 코드를 재발급하지 못했습니다. 기존 코드는 계속 유효합니다." },
+  set_totp_regen_done: { mn: "Шинэ сэргээх кодууд идэвхжлээ.", en: "The new recovery codes are active.", kr: "새 복구 코드가 활성화되었습니다." },
+  set_totp_enable_failed: { mn: "TOTP идэвхжүүлж чадсангүй. Юу ч өөрчлөгдөөгүй — дахин оролдоно уу.", en: "Could not enable TOTP. Nothing was changed — please try again.", kr: "TOTP를 활성화하지 못했습니다. 변경된 내용은 없습니다 — 다시 시도하세요." },
+  set_totp_already_enabled: { mn: "Энэ бүртгэлд TOTP аль хэдийн идэвхтэй байна. Хуудсыг дахин ачаална уу.", en: "TOTP is already enabled for this account. Reload the page.", kr: "이 계정에는 이미 TOTP가 활성화되어 있습니다. 페이지를 새로고침하세요." },
+  login_err_totp_enrolled: { mn: "Хоёр шатлалт баталгаажуулалт идэвхжлээ. Нууц үг болон 6 оронтой кодоороо дахин нэвтэрнэ үү.", en: "Two-factor authentication is on. Sign in again with your password and the 6-digit code.", kr: "2단계 인증이 켜졌습니다. 비밀번호와 6자리 코드로 다시 로그인하세요." },
+  cam_health_no_frame_yet: { mn: "Бичиж эхэлсэн ч нэг ч дүрс ирээгүй", en: "Capturing, but no frame received yet", kr: "캡처 중이지만 아직 프레임이 수신되지 않음" },
+  incident_export_err_no_evidence: { mn: "Энэ хэрэгт экспортлох нотлох баримт алга.", en: "This incident has no evidence to export.", kr: "이 사건에는 내보낼 증거가 없습니다." },
+  incident_export_err_too_large: { mn: "Нотлох баримт хэт олон тул нэг багцад багтахгүй байна.", en: "Too much evidence to fit in one package.", kr: "증거가 너무 많아 하나의 패키지에 담을 수 없습니다." },
+  incident_export_err_renderer: { mn: "Видео боловсруулах сервис одоогоор ажиллахгүй байна. Дараа дахин оролдоно уу.", en: "The video renderer is unavailable. Try again later.", kr: "영상 렌더러를 사용할 수 없습니다. 나중에 다시 시도하세요." },
+  incident_export_err_packaging: { mn: "Нотлох баримтын багц үүсгэж чадсангүй.", en: "The evidence package could not be built.", kr: "증거 패키지를 만들 수 없습니다." },
+  incident_export_err_audit: { mn: "Аудитын бүртгэл бичигдээгүй тул экспортыг зогсоолоо.", en: "The export was stopped because the audit record could not be written.", kr: "감사 기록을 쓸 수 없어 내보내기를 중단했습니다." },
+  search_confidence_legacy_hint: {
+    mn: "2026-09-20-ноос өмнө бүртгэгдсэн нүүрэнд итгэлцлийн утга байхгүй тул энэ шүүлтүүрийг тавихад тэдгээр нь үр дүнд орохгүй.",
+    en: "Faces captured before 2026-09-20 have no confidence value, so they are left out whenever this filter is set.",
+    kr: "2026-09-20 이전에 캡처된 얼굴에는 신뢰도 값이 없어 이 필터를 설정하면 결과에서 제외됩니다.",
+  },
+  search_confidence_empty_hint: {
+    mn: "Нүүрний итгэлцлийн шүүлтүүр идэвхтэй байна — 2026-09-20-ноос өмнөх нүүрийг оруулахын тулд уг талбарыг хоосон болгоод дахин хайна уу.",
+    en: "The face confidence filter is on — clear it and search again to include faces captured before 2026-09-20.",
+    kr: "얼굴 신뢰도 필터가 켜져 있습니다 — 2026-09-20 이전에 캡처된 얼굴을 포함하려면 필터를 비우고 다시 검색하세요.",
+  },
+  susp_latest_sample: {
+    mn: "Сүүлийн {n} сэрэмжлүүлгээр тооцов",
+    en: "From the latest {n} alerts",
+    kr: "최근 경보 {n}건 기준",
+  },
+  suspect_delete_failed: { mn: "Сэжигтнийг устгаж чадсангүй. Дахин оролдоно уу.", en: "Could not delete the suspect. Try again.", kr: "용의자를 삭제하지 못했습니다. 다시 시도하세요." },
+  ar_burst_unreachable: {
+    mn: "Burst цонх хэт богино: хүн камерт байх үед минутад ойролцоогоор нэг удаа дахин тааруулагддаг тул цонх нь дор хаяж 60 сек × burst тоо байх ёстой.",
+    en: "Burst window too short: a person in view is re-matched about once a minute, so the window must be at least 60 s × the burst count.",
+    kr: "버스트 창이 너무 짧습니다. 화면에 있는 사람은 약 1분에 한 번 재매칭되므로 창은 최소 60초 × 버스트 횟수여야 합니다.",
+  },
+  ar_burst_hint: {
+    mn: "Камерт байгаа хүн минутад ойролцоогоор нэг удаа дахин тааруулагдана — burst цонх ≥ 60 сек × тоо.",
+    en: "A person in view is re-matched about once a minute — burst window ≥ 60 s × count.",
+    kr: "화면에 있는 사람은 약 1분에 한 번 재매칭됩니다 — 버스트 창 ≥ 60초 × 횟수.",
+  },
+  ar_enable_rule: { mn: "Дүрмийг идэвхжүүлэх", en: "Enable rule", kr: "규칙 활성화" },
+  ar_disable_rule: { mn: "Дүрмийг идэвхгүй болгох", en: "Disable rule", kr: "규칙 비활성화" },
+  wh_test_ok: { mn: "Тест хүргэгдлээ", en: "Test delivered", kr: "테스트 전송됨" },
+  wh_test_failed: { mn: "Тест хүргэгдсэнгүй", en: "Test not delivered", kr: "테스트 전송 실패" },
+  wh_test_unreachable: {
+    mn: "Хаяг руу хүрсэнгүй (DNS, private хаяг, redirect эсвэл timeout)",
+    en: "Endpoint unreachable (DNS, private address, redirect or timeout)",
+    kr: "엔드포인트에 연결할 수 없음 (DNS, 사설 주소, 리디렉션 또는 시간 초과)",
+  },
+  wh_enable: { mn: "Идэвхжүүлэх", en: "Enable", kr: "활성화" },
+  wh_disable: { mn: "Идэвхгүй болгох", en: "Disable", kr: "비활성화" },
+  wh_ev_not_delivered: {
+    mn: "Энэ үйл явдлыг юу ч илгээдэггүй — хүргэгдэхгүй",
+    en: "Nothing sends this event — it is never delivered",
+    kr: "이 이벤트를 보내는 기능이 없어 전달되지 않습니다",
+  },
+  wh_err_not_found: { mn: "Webhook олдсонгүй", en: "Webhook not found", kr: "웹훅을 찾을 수 없음" },
+  wh_err_update: { mn: "Webhook шинэчилж чадсангүй", en: "Could not update webhook", kr: "웹훅을 업데이트할 수 없음" },
+  live_watch: { mn: "Үзэх", en: "Watch", kr: "보기" },
+  live_stop_watching: { mn: "Үзэхээ зогсоох", en: "Stop watching", kr: "보기 중지" },
+  live_not_running: { mn: "Ажиллаагүй", en: "Not running", kr: "실행 안 됨" },
+  live_viewer_not_running: {
+    mn: "Та зөвхөн ажиллаж буй камерыг үзэж чадна; камерыг админ эхлүүлнэ. Бүх урсгалыг эндээс харна уу:",
+    en: "You can watch cameras that are already running; an admin starts them. See every stream on the",
+    kr: "이미 실행 중인 카메라만 볼 수 있으며, 카메라는 관리자가 시작합니다. 모든 스트림 보기:",
+  },
+  health_svc_ops: { mn: "Хуваарьт шалгалтууд", en: "Scheduled checks", kr: "예약 점검" },
+  health_detail_degraded: { mn: "Анхаарах шаардлагатай", en: "Needs attention", kr: "주의 필요" },
+  pb_reveal_err_reauth: {
+    mn: "Дахин баталгаажуулалт шаардлагатай — дахин оролдоно уу",
+    en: "Re-authentication required — try again",
+    kr: "재인증이 필요합니다 — 다시 시도하세요",
+  },
+  pb_reveal_err_rate: {
+    mn: "Хэт олон reveal хүсэлт — түр хүлээгээд дахин оролдоно уу",
+    en: "Too many reveal requests — wait a moment and try again",
+    kr: "공개 요청이 너무 많습니다 — 잠시 후 다시 시도하세요",
+  },
+  pb_reveal_err_reason: {
+    mn: "Шалтгаан 10–1000 тэмдэгт байх ёстой",
+    en: "The reason must be 10–1000 characters",
+    kr: "사유는 10–1000자여야 합니다",
+  },
+  pb_reveal_err_window: {
+    mn: "Цагийн цонх буруу эсвэл бичлэгийн уртаас давсан байна",
+    en: "The time window is invalid or longer than the recording",
+    kr: "시간 창이 잘못되었거나 녹화 길이를 초과합니다",
+  },
+  pb_reveal_err_duration: {
+    mn: "Бичлэгийн урт тодорхойгүй тул цагаар хязгаарласан reveal хийх боломжгүй",
+    en: "The recording length is unknown, so a time-bounded reveal is not possible",
+    kr: "녹화 길이를 알 수 없어 시간 제한 공개를 할 수 없습니다",
+  },
+  pb_reveal_err_not_found: { mn: "Бичлэг эсвэл зорилт олдсонгүй", en: "Recording or target not found", kr: "녹화 또는 대상을 찾을 수 없음" },
+  pb_reveal_err_no_original: {
+    mn: "Энэ бичлэгт эх хувь үлдээгүй — reveal боломжгүй",
+    en: "This recording has no original left — reveal is not possible",
+    kr: "이 녹화에는 원본이 없어 공개할 수 없습니다",
+  },
+  pb_reveal_err_photo: {
+    mn: "2 MB хүртэлх JPEG, PNG эсвэл WebP зураг оруулна уу",
+    en: "Use a JPEG, PNG or WebP reference up to 2 MB",
+    kr: "2MB 이하의 JPEG, PNG 또는 WebP 이미지를 사용하세요",
+  },
+  pb_reveal_err_ml: {
+    mn: "ML сервис хариулсангүй — дахин оролдоно уу",
+    en: "The ML service did not answer — try again",
+    kr: "ML 서비스가 응답하지 않습니다 — 다시 시도하세요",
+  },
+  schedule_starts_label: { mn: "Эхлэх (HH:MM)", en: "Starts (HH:MM)", kr: "시작 (HH:MM)" },
+  schedule_ends_label: { mn: "Дуусах (HH:MM)", en: "Ends (HH:MM)", kr: "종료 (HH:MM)" },
+  schedule_state_unknown: {
+    mn: "Тооцоолж чадсангүй — хуваарийг шалгана уу",
+    en: "Could not evaluate — check the schedule",
+    kr: "평가할 수 없음 — 일정을 확인하세요",
+  },
+  set_enrol_needs_totp: {
+    mn: "Эхлээд TOTP (хоёр дахь хүчин зүйл)-ээ идэвхжүүлнэ үү — бүртгэл нь TOTP баталгаажуулалт шаардана.",
+    en: "Enable TOTP (two-factor) first — enrolment needs a TOTP step-up.",
+    kr: "먼저 TOTP(2단계 인증)를 활성화하세요 — 등록에는 TOTP 재인증이 필요합니다.",
+  },
+  set_erase_err_totp: { mn: "Шинэ TOTP код шаардлагатай", en: "A fresh TOTP code is required", kr: "새 TOTP 코드가 필요합니다" },
+  set_erase_err_totp_replayed: { mn: "Энэ код аль хэдийн ашиглагдсан", en: "This code was already used", kr: "이미 사용된 코드입니다" },
+  set_erase_err_password: { mn: "Нууц үг буруу эсвэл оруулаагүй", en: "Password missing or incorrect", kr: "비밀번호가 없거나 올바르지 않습니다" },
+  set_erase_err_rate: {
+    mn: "Хэт олон оролдлого — түр хүлээгээд дахин оролдоно уу",
+    en: "Too many attempts — wait a moment and try again",
+    kr: "시도가 너무 많습니다 — 잠시 후 다시 시도하세요",
+  },
+  set_erase_password_label: { mn: "Нууц үг (баталгаажуулах)", en: "Password (to confirm)", kr: "비밀번호 (확인용)" },
+  users_role_label: { mn: "Үүрэг", en: "Role", kr: "역할" },
+  live_rtc_failed: { mn: "WebRTC амжилтгүй", en: "WebRTC failed", kr: "WebRTC 실패" },
+  live_rtc_publisher: { mn: "Илгээгч", en: "Publisher", kr: "송신측" },
+  live_rtc_subscriber: { mn: "Хүлээн авагч (WebRTC loopback)", en: "Subscriber (WebRTC loopback)", kr: "수신측 (WebRTC 루프백)" },
 } as const;
 
 export type TranslationKey = keyof typeof T;

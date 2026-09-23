@@ -1,3 +1,4 @@
+import { notifyOpsAlarm } from "@/lib/notify";
 import { NextResponse, type NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { authorizeCron } from "@/lib/auth/cron";
@@ -15,21 +16,18 @@ import {
  * Failure-rate monitor.
  *
  * Counts LOGIN_FAILED + TOTP_LOGIN_FAILED + LOGIN_BLOCKED audit rows in the
- * last hour and compares them against the preceding 23 hours. On a spike it
- * fires the Slack webhook (when configured) and writes a MONITOR_ALARM audit
- * row so the signal survives even without Slack.
+ * last 24 hours and compares them against the preceding 7 days (an absolute
+ * count when there is no baseline — see ./window.ts). On a spike it writes a
+ * MONITOR_ALARM audit row, pushes every admin + Telegram (lib/notify), and
+ * posts to SLACK_ALERT_WEBHOOK when that optional channel is configured.
  *
- * Runs HOURLY — `vercel.json` schedules `MONITOR_CRON` and the recent window
- * is exactly that interval, so every minute of the day is examined by exactly
- * one run. (It used to inspect a 5-minute window once a day: 0.35 % of the
- * day, with the rest unmonitored. See ./window.ts.)
- *
- * Cost of hourly: 24 invocations/day instead of 1 — two `count(*)` queries
- * that finish in well under a second, so roughly half a minute of function
- * time per day. The real constraint is Vercel's cron *frequency* limit:
- * sub-daily schedules require a Pro/Enterprise plan. Reverting is a one-line
- * change in vercel.json — but then RECENT_WINDOW_MIN must move with it, and
- * the unit test that compares the two will say so.
+ * Runs DAILY at 02:10 UTC (`MONITOR_CRON`, vercel.json): the Hobby plan
+ * refuses any cron that fires more than once a day, so the recent window
+ * follows the schedule and every minute is examined by exactly one run. The
+ * detection latency is therefore up to ~24 h, not minutes; the login lock
+ * (lib/rate-limit.ts) is the real-time control. On a paid plan, move both
+ * the schedule and RECENT_WINDOW_MIN — the unit test that compares them will
+ * say so.
  *
  * Auth: `Authorization: Bearer <CRON_SECRET | MONITORING_CRON_SECRET>`.
  */
@@ -114,6 +112,14 @@ export async function GET(req: NextRequest) {
     await svc.from("audit_log").insert({
       action: "MONITOR_ALARM",
       detail: JSON.stringify(result),
+    });
+    // The channel that actually reaches someone (Slack is optional and unset
+    // in production). Counts only.
+    await notifyOpsAlarm({
+      action: "MONITOR_ALARM",
+      detail:
+        `failed sign-ins: ${recentCount} in 24h, baseline ${baseCount} in 7d` +
+        (result.spike_ratio === null ? "" : ` (x${result.spike_ratio})`),
     });
   }
 

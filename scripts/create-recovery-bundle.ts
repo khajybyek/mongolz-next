@@ -29,6 +29,7 @@ import {
   recoveryManifestHmac,
   recoveryObjectRelative,
   sealRecoveryDatabaseFile,
+  mirrorBucketObjects,
   sealRecoveryObject,
   sha256,
   validateApplicationKeys,
@@ -36,6 +37,7 @@ import {
   type RecoveryDatabaseFile,
   type RecoveryManifest,
   type UnsignedRecoveryManifest,
+  type RecoveryMissingObject,
   type RecoveryObject,
 } from "../lib/recovery-bundle";
 
@@ -43,7 +45,7 @@ for (const file of [".env.production.tmp", ".env.local", "ml-service/.env.railwa
   if (existsSync(file)) loadEnv({ path: file, quiet: true });
 }
 
-type StorageEntry = { path: string; row_id: string };
+type StorageEntry = { path: string; row_id: string; missing?: boolean };
 type BucketFile = { bucket: string; complete?: boolean; objects: StorageEntry[] };
 
 function usage(): never {
@@ -145,6 +147,7 @@ async function main() {
     }
 
     const recoveryObjects: RecoveryObject[] = [];
+    const missingObjects: RecoveryMissingObject[] = [];
     const unique = new Set<string>();
     for (const bucket of Object.keys(databaseManifest.buckets ?? {}).sort()) {
       const parsed = JSON.parse(
@@ -160,23 +163,42 @@ async function main() {
         const id = `${bucket}\0${entry.path}`;
         if (unique.has(id)) throw new Error(`Storage manifest for ${bucket} contains a duplicate path`);
         unique.add(id);
-        const { data, error } = await svc.storage.from(bucket).download(entry.path);
-        if (error || !data) throw new Error(`Could not mirror object ${recoveryObjects.length + 1}: ${error?.message ?? "missing data"}`);
-        const sourceBody = Buffer.from(await data.arrayBuffer());
-        const sealed = sealRecoveryObject(sourceBody, dataKey, bucket, entry.path);
-        const relative = recoveryObjectRelative(bucket, entry.path);
-        atomicWrite(path.join(bundle, relative), sealed);
-        recoveryObjects.push({
-          bucket,
-          object_path: entry.path,
-          row_id: entry.row_id,
-          file: relative,
-          source_bytes: sourceBody.length,
-          source_sha256: sha256(sourceBody),
-          sealed_bytes: sealed.length,
-          sealed_sha256: sha256(sealed),
-        });
       }
+      // A row can reference an object Storage no longer holds (e.g. a
+      // suspect photo deleted by hand). Those are recorded in the signed
+      // manifest instead of aborting; any other download failure still aborts.
+      const result = await mirrorBucketObjects(
+        bucket,
+        parsed.objects,
+        async (objectPath) => {
+          const { data, error } = await svc.storage.from(bucket).download(objectPath);
+          return { data: data ? Buffer.from(await data.arrayBuffer()) : null, error };
+        },
+        (entry, sourceBody) => {
+          const sealed = sealRecoveryObject(sourceBody, dataKey, bucket, entry.path);
+          const relative = recoveryObjectRelative(bucket, entry.path);
+          atomicWrite(path.join(bundle, relative), sealed);
+          recoveryObjects.push({
+            bucket,
+            object_path: entry.path,
+            row_id: entry.row_id,
+            file: relative,
+            source_bytes: sourceBody.length,
+            source_sha256: sha256(sourceBody),
+            sealed_bytes: sealed.length,
+            sealed_sha256: sha256(sealed),
+          });
+        },
+      );
+      missingObjects.push(...result.missing);
+    }
+    // Every object "not found" while none downloaded means the wrong project
+    // or a broken Storage — not a handful of dangling rows. Refuse.
+    const notFound = missingObjects.filter((m) => m.reason === "not_found").length;
+    if (notFound > 0 && recoveryObjects.length === 0) {
+      throw new Error(
+        `Storage returned "not found" for all ${notFound} requested object(s); check NEXT_PUBLIC_SUPABASE_URL points at the backup's source project`,
+      );
     }
 
     const escrow = createKeyEscrow(applicationKeys, dataKey, passphrase);
@@ -198,6 +220,7 @@ async function main() {
       source_bytes: recoveryObjects.reduce((sum, item) => sum + item.source_bytes, 0),
       sealed_bytes: recoveryObjects.reduce((sum, item) => sum + item.sealed_bytes, 0),
       objects: recoveryObjects,
+      missing_objects: missingObjects,
     };
     const recoveryManifest: RecoveryManifest = {
       ...unsignedManifest,
@@ -210,6 +233,13 @@ async function main() {
     console.log(
       `Recovery bundle complete: ${recoveryDatabaseFiles.length} DB file(s) and ${recoveryObjects.length} storage object(s) sealed and verified for restore.`,
     );
+    if (missingObjects.length) {
+      const byBucket = new Map<string, number>();
+      for (const m of missingObjects) byBucket.set(m.bucket, (byBucket.get(m.bucket) ?? 0) + 1);
+      console.warn(
+        `${missingObjects.length} referenced object(s) do not exist in Storage and were recorded as missing_objects in the signed manifest: ${[...byBucket].map(([b, n]) => `${b}=${n}`).join(", ")}. Re-upload them or clear the owning rows' paths.`,
+      );
+    }
     console.log("Key escrow created separately. Store the bundle, escrow and passphrase in separate locations.");
   } catch (error) {
     rmSync(bundle, { recursive: true, force: true });

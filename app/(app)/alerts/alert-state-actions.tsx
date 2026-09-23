@@ -31,7 +31,19 @@ export function AlertStateActions({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [closeOpen, setCloseOpen] = useState(false);
-  const [noteDraft, setNoteDraft] = useState(note ?? "");
+  // The draft is seeded from the stored note each time the dialog opens (not
+  // once on mount): a note saved elsewhere since then, e.g. from the note
+  // dialog on /alerts/[id], must not be overwritten by a stale copy. `dirty`
+  // means the operator edited it here; an untouched draft is not sent, so
+  // the server leaves the stored note alone (and another admin's edit too).
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteDirty, setNoteDirty] = useState(false);
+
+  function openClose() {
+    setNoteDraft(note ?? "");
+    setNoteDirty(false);
+    setCloseOpen(true);
+  }
 
   const closeDialog = useCallback(() => {
     if (!pending) setCloseOpen(false);
@@ -86,7 +98,7 @@ export function AlertStateActions({
         <button
           type="button"
           className="btn-secondary btn-sm"
-          onClick={() => setCloseOpen(true)}
+          onClick={openClose}
           disabled={pending}
         >
           <CircleCheckBig className="w-3.5 h-3.5" />
@@ -118,7 +130,7 @@ export function AlertStateActions({
             <button
               type="button"
               className="btn-primary btn-sm"
-              onClick={() => transition("closed", { note: noteDraft })}
+              onClick={() => transition("closed", noteDirty ? { note: noteDraft } : undefined)}
               disabled={pending}
             >
               {pending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CircleCheckBig className="w-3.5 h-3.5" />}
@@ -137,7 +149,10 @@ export function AlertStateActions({
           maxLength={NOTE_MAX}
           placeholder={t("al_note_placeholder")}
           value={noteDraft}
-          onChange={(e) => setNoteDraft(e.target.value)}
+          onChange={(e) => {
+            setNoteDraft(e.target.value);
+            setNoteDirty(true);
+          }}
           disabled={pending}
         />
         <p className="helper text-right tabular-nums">

@@ -3,6 +3,7 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireOperator } from "@/lib/supabase/auth";
 import { mlActiveCameras, mlStartCamera, mlStopCamera } from "@/lib/ml-client";
+import { restartInfoFor, type CameraRestartInfo } from "@/lib/camera-restarts";
 import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { issueStreamTicket } from "@/lib/stream-ticket";
 
@@ -88,6 +89,12 @@ export interface ActiveCamerasResult {
   reachable: boolean;
   /** Ids of cameras currently streaming that the caller may see (RLS). */
   ids: string[];
+  /**
+   * Supervisor history for streaming cameras that were restarted at least
+   * once: how many times, and why the previous capture loop ended (an ML
+   * reason string such as "source dropped (no frames)" — never a URL).
+   */
+  restarts: Record<string, CameraRestartInfo>;
 }
 
 /**
@@ -99,10 +106,11 @@ export interface ActiveCamerasResult {
 export async function getActiveCamerasAction(): Promise<ActiveCamerasResult> {
   await requireOperator();
   const active = await mlActiveCameras();
-  if (active === null) return { reachable: false, ids: [] };
+  if (active === null) return { reachable: false, ids: [], restarts: {} };
   const ids = active.map((c) => c.camera_id).filter((id) => UUID_RE.test(id));
-  if (ids.length === 0) return { reachable: true, ids: [] };
+  if (ids.length === 0) return { reachable: true, ids: [], restarts: {} };
   const supabase = await createClient();
   const { data } = await supabase.from("cameras").select("id").in("id", ids).eq("enabled", true);
-  return { reachable: true, ids: (data ?? []).map((c) => c.id) };
+  const visible = (data ?? []).map((c) => c.id);
+  return { reachable: true, ids: visible, restarts: restartInfoFor(active, new Set(visible)) };
 }

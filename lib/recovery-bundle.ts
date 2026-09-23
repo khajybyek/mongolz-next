@@ -44,6 +44,19 @@ export type RecoveryObject = {
   sealed_sha256: string;
 };
 
+/**
+ * A path a database row references but Storage no longer holds. Recorded in
+ * the signed recovery manifest instead of aborting the whole mirror:
+ * `flagged_in_backup` — the backup's existence check already marked it
+ * `missing: true`; `not_found` — Storage answered "object not found".
+ */
+export type RecoveryMissingObject = {
+  bucket: string;
+  object_path: string;
+  row_id: string;
+  reason: "flagged_in_backup" | "not_found";
+};
+
 export type RecoveryDatabaseFile = {
   path: string;
   file: string;
@@ -69,6 +82,8 @@ export type RecoveryManifest = {
   source_bytes: number;
   sealed_bytes: number;
   objects: RecoveryObject[];
+  /** Referenced objects that did not exist at mirror time (optional: older bundles omit it). */
+  missing_objects?: RecoveryMissingObject[];
   manifest_hmac_sha256: string;
 };
 
@@ -319,6 +334,59 @@ export function decryptRecordingBlob(
   throw new Error("Recording could not be authenticated with escrowed keys");
 }
 
+/**
+ * True only for Storage's "this object does not exist" answer. A missing
+ * BUCKET, an auth failure or a network error is a real fault and must abort
+ * the mirror, so anything that mentions a bucket is never treated as absent.
+ */
+export function isStorageObjectNotFound(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { status?: unknown; statusCode?: unknown; message?: unknown; error?: unknown };
+  const message = typeof e.message === "string" ? e.message : "";
+  if (/bucket/i.test(message)) return false;
+  if (/\bobject not found\b/i.test(message)) return true;
+  return e.status === 404 || String(e.statusCode ?? "") === "404" || e.error === "not_found";
+}
+
+export type MirrorEntry = { path: string; row_id: string; missing?: boolean };
+
+/**
+ * Download every entry of one bucket manifest and hand the bytes to `store`.
+ * Entries the backup flagged `missing: true` are not requested at all, and a
+ * confirmed "object not found" is recorded instead of aborting; every other
+ * failure (network, auth, bucket) still throws, so a flaky run can never
+ * produce a bundle that silently lacks bytes that exist.
+ */
+export async function mirrorBucketObjects(
+  bucket: string,
+  entries: MirrorEntry[],
+  download: (objectPath: string) => Promise<{ data: Buffer | null; error: unknown }>,
+  store: (entry: MirrorEntry, body: Buffer) => void,
+): Promise<{ mirrored: number; missing: RecoveryMissingObject[] }> {
+  const missing: RecoveryMissingObject[] = [];
+  let mirrored = 0;
+  for (const [index, entry] of entries.entries()) {
+    if (entry.missing === true) {
+      missing.push({ bucket, object_path: entry.path, row_id: entry.row_id, reason: "flagged_in_backup" });
+      continue;
+    }
+    const { data, error } = await download(entry.path);
+    if (error || !data) {
+      if (error && isStorageObjectNotFound(error)) {
+        missing.push({ bucket, object_path: entry.path, row_id: entry.row_id, reason: "not_found" });
+        continue;
+      }
+      const detail = error && typeof error === "object" && "message" in error
+        ? String((error as { message: unknown }).message)
+        : "missing data";
+      throw new Error(`Could not mirror ${bucket} object ${index + 1}: ${detail}`);
+    }
+    store(entry, data);
+    mirrored++;
+  }
+  return { mirrored, missing };
+}
+
 function parseJsonFile<T>(file: string): T {
   return JSON.parse(readFileSync(file, "utf8")) as T;
 }
@@ -435,6 +503,15 @@ export function validateRecoveryBundle(
   }
   if (sourceBytes !== manifest.source_bytes || sealedBytes !== manifest.sealed_bytes) {
     throw new Error("Recovery byte totals mismatch");
+  }
+  if (manifest.missing_objects !== undefined) {
+    if (!Array.isArray(manifest.missing_objects)) throw new Error("Recovery missing-object list is invalid");
+    for (const item of manifest.missing_objects) {
+      recoveryObjectRelative(item.bucket, item.object_path);
+      const unique = `${item.bucket}\0${item.object_path}`;
+      if (seen.has(unique)) throw new Error("Recovery object is listed as both mirrored and missing");
+      seen.add(unique);
+    }
   }
 
   const cameraBytes = databaseFiles.get("tables/cameras.json");

@@ -30,8 +30,10 @@ async function audit(action: string, detail: string, userId: string, userEmail: 
 }
 
 /**
- * A camera_permissions row is what lets a non-admin stream the UNMASKED live
- * feed (since 2026-09-08), so granting one is a disclosure decision: it needs
+ * A camera_permissions row is what lets a non-admin stream the live feed
+ * (since 2026-09-08). Live frames are masked since 2026-09-20, but only as
+ * well as the detector finds faces, so granting one is still a disclosure
+ * decision: it needs
  * the second factor, not just a (possibly stolen) session. Revoking only ever
  * narrows access and stays one click, so a defender is never slowed down.
  */

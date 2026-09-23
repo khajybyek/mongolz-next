@@ -300,7 +300,8 @@ export function SearchForm({
           </div>
           <div>
             <label className="label" htmlFor="search-confidence">{incident.faceConfidence}</label>
-            <input id="search-confidence" type="number" min="0" max="1" step="0.01" className="input" value={draft.minConfidence} onChange={(event) => setDraft((current) => ({ ...current, minConfidence: event.target.value }))} placeholder="0.80" />
+            <input id="search-confidence" type="number" min="0" max="1" step="0.01" className="input" value={draft.minConfidence} onChange={(event) => setDraft((current) => ({ ...current, minConfidence: event.target.value }))} placeholder="0.80" aria-describedby="search-confidence-hint" />
+            <p id="search-confidence-hint" className="helper mt-1">{t("search_confidence_legacy_hint")}</p>
           </div>
           <div>
             <label className="label" htmlFor="search-suspect">{incident.suspect}</label>
@@ -331,7 +332,13 @@ export function SearchForm({
       </form>
 
       {error && <div role="alert" className="card border-danger/30 bg-danger/5 text-sm text-danger">{error}</div>}
-      {matches && matches.length === 0 && <Empty message={t("search_no_results")} icon={Search} />}
+      {matches && matches.length === 0 && (
+        <Empty
+          message={t("search_no_results")}
+          description={searchQuery?.minConfidence.trim() ? t("search_confidence_empty_hint") : undefined}
+          icon={Search}
+        />
+      )}
 
       {matches && matches.length > 0 && (
         <div className="space-y-4">

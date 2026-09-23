@@ -56,15 +56,32 @@ export default async function SuspectDetailPage({
     .createSignedUrl(suspect.image_path, 60 * 60);
   const photoUrl = photo?.signedUrl ?? null;
 
-  // Alerts table — full history for this suspect
-  const { data: alertsData } = await supabase
-    .from("alerts")
-    .select(
-      "id, similarity, camera_id, camera_name, face_id, created_at, label, match_count",
-    )
-    .eq("suspect_id", id)
-    .order("created_at", { ascending: false })
-    .limit(ALERT_LIMIT);
+  // Alerts table — the newest ALERT_LIMIT rows. The headline total and the
+  // first sighting come from their own queries: deriving them from this
+  // capped list reported "100 alerts" and a first-seen date inside the last
+  // 100 for any frequent suspect. All three use the user-token client, so
+  // RLS and the second-factor gate still decide what is visible.
+  const [{ data: alertsData }, totalRes, firstRes] = await Promise.all([
+    supabase
+      .from("alerts")
+      .select(
+        "id, similarity, camera_id, camera_name, face_id, created_at, label, match_count",
+      )
+      .eq("suspect_id", id)
+      .order("created_at", { ascending: false })
+      .limit(ALERT_LIMIT),
+    supabase
+      .from("alerts")
+      .select("id", { count: "exact", head: true })
+      .eq("suspect_id", id),
+    supabase
+      .from("alerts")
+      .select("created_at")
+      .eq("suspect_id", id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
   type AlertRow = {
     id: string;
@@ -127,10 +144,16 @@ export default async function SuspectDetailPage({
     }
   }
 
-  // Aggregate stats
-  const totalAlerts = alerts.length;
+  // Aggregate stats. An unreadable count is "—", never 0 (lib/metrics.ts).
+  const totalAlerts: number | null = totalRes.error ? null : (totalRes.count ?? null);
+  // Camera / TP / FP / per-camera figures are computed from the capped list;
+  // when more alerts exist than it holds, the UI says so.
+  const sampled = totalAlerts == null ? alerts.length >= ALERT_LIMIT : totalAlerts > alerts.length;
+  const sampleNote = sampled ? t("susp_latest_sample").replace("{n}", String(alerts.length)) : null;
   const uniqueCameras = new Set(alerts.map((a) => a.camera_id).filter(Boolean)).size;
-  const firstSeen = alerts.length ? alerts[alerts.length - 1].created_at : null;
+  const firstSeen = firstRes.error
+    ? null
+    : ((firstRes.data as { created_at: string } | null)?.created_at ?? null);
   const lastSeen = alerts.length ? alerts[0].created_at : null;
   const tpCount = alerts.filter((a) => a.label === "true_positive").length;
   const fpCount = alerts.filter((a) => a.label === "false_positive").length;
@@ -212,8 +235,8 @@ export default async function SuspectDetailPage({
         <div className="space-y-4 min-w-0">
           {/* Stats grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <Stat icon={<Activity className="w-4 h-4 text-accent" />} label={t("susp_total_alerts")} value={totalAlerts} />
-            <Stat icon={<Cctv className="w-4 h-4 text-accent" />} label={t("susp_cameras")} value={uniqueCameras} />
+            <Stat icon={<Activity className="w-4 h-4 text-accent" />} label={t("susp_total_alerts")} value={totalAlerts ?? "—"} />
+            <Stat icon={<Cctv className="w-4 h-4 text-accent" />} label={t("susp_cameras")} value={uniqueCameras} note={sampleNote} />
             <Stat icon={<Clock className="w-4 h-4 text-accent" />} label={t("susp_first_seen")} value={firstSeen ? formatDate(firstSeen) : "—"} small />
             <Stat icon={<Clock className="w-4 h-4 text-accent" />} label={t("susp_last_seen")} value={lastSeen ? formatDate(lastSeen) : "—"} small />
           </div>
@@ -270,6 +293,7 @@ export default async function SuspectDetailPage({
               <h3 className="section-title mb-2 flex items-center gap-1">
                 <Cctv className="w-3.5 h-3.5" /> {t("susp_trail")}
               </h3>
+              {sampleNote && <p className="text-2xs text-text-faint mb-2">{sampleNote}</p>}
               <div className="space-y-2">
                 {cameraBuckets.map((c) => {
                   const max = cameraBuckets[0].count;
@@ -368,11 +392,13 @@ function Stat({
   label,
   value,
   small,
+  note,
 }: {
   icon: React.ReactNode;
   label: string;
   value: number | string;
   small?: boolean;
+  note?: string | null;
 }) {
   return (
     <div className="card">
@@ -383,6 +409,7 @@ function Stat({
       <div className={small ? "text-sm font-medium text-text" : "text-2xl font-semibold text-text tabular-nums"}>
         {value}
       </div>
+      {note && <div className="text-2xs text-text-faint mt-0.5">{note}</div>}
     </div>
   );
 }

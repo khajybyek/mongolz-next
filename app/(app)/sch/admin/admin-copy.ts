@@ -139,7 +139,7 @@ const en = {
   members: "Members",
   substitutesEmpty: "No substitutes.",
   drawnAt: "Drawn",
-  playersOutOfTeams: "{n} paid players are not in a saved team — re-draw to include them.",
+  playersOutOfTeams: "{n} paid player(s) beyond the substitutes are not in a saved team — re-draw to include them.",
   // receipts
   receipt: "Receipt",
   noReceipt: "No receipt",
@@ -220,6 +220,22 @@ const en = {
   impErrInvalid: "The sheet could not be accepted. Check the column matching and try again.",
   impErrTooLarge: "The sheet is too large to send at once. Split it into smaller files or ignore the columns you do not need.",
   impIssueForGame: "{game}: {issue}",
+  // edit / draw conflicts
+  duplicateEmail: "This e-mail is already registered for this game. Use another e-mail or edit the other registration.",
+  duplicateGame: "This registrant already has an entry for this game.",
+  editConflict: "Someone changed this registration after you opened it. Reopen it to see the current data.",
+  drawConflict: "The paid players, a rank or a role changed since this preview. Draw again.",
+  // close-out
+  closeOutTitle: "Close out the event",
+  closeOutDesc: "Permanently deletes every registration, team and uploaded receipt image, and closes the form. Export the CSV first if you need a record — this cannot be undone.",
+  closeOutDrive: "Imported rows link to receipts in the Google Form owner's Drive; delete those responses and files in Google yourself.",
+  closeOutAdminOnly: "Only an admin with an authenticator can close out the event.",
+  closeOutTooEarly: "Available from {date} KST, the day after the last game.",
+  closeOutConfirm: "Type {word} to confirm",
+  closeOutButton: "Delete all event data",
+  closeOutRunning: "Deleting…",
+  closeOutDone: "Deleted {registrations} registration(s), {teams} team(s) and {receipts} receipt image(s).",
+  closeOutForbidden: "Only an admin can close out the event.",
 };
 export type SchAdminCopy = typeof en;
 
@@ -348,7 +364,7 @@ const mn: SchAdminCopy = {
   members: "Гишүүд",
   substitutesEmpty: "Нөөц тоглогч алга.",
   drawnAt: "Хуваарилсан",
-  playersOutOfTeams: "Төлсөн {n} тоглогч хадгалсан багт ороогүй байна — багтаахын тулд дахин хуваарилна уу.",
+  playersOutOfTeams: "Сэлгээнээс гадна төлсөн {n} тоглогч хадгалсан багт ороогүй байна — багтаахын тулд дахин хуваарилна уу.",
   receipt: "Баримт",
   noReceipt: "Баримтгүй",
   viewReceipt: "Баримт харах",
@@ -426,6 +442,22 @@ const mn: SchAdminCopy = {
   impErrInvalid: "Sheet-ийг хүлээн авч чадсангүй. Баганын тааруулалтаа шалгаад дахин оролдоно уу.",
   impErrTooLarge: "Sheet нэг дор илгээхэд хэт том байна. Жижиг файлуудад хуваах эсвэл хэрэггүй багануудыг «алгасах» болгоно уу.",
   impIssueForGame: "{game}: {issue}",
+  // edit / draw conflicts
+  duplicateEmail: "Энэ имэйл энэ тоглоомд аль хэдийн бүртгэлтэй байна. Өөр имэйл ашиглах эсвэл нөгөө бүртгэлийг засна уу.",
+  duplicateGame: "Энэ бүртгүүлэгч энэ тоглоомд аль хэдийн бүртгэлтэй байна.",
+  editConflict: "Таныг нээсний дараа өөр хүн энэ бүртгэлийг өөрчилсөн байна. Одоогийн мэдээллийг харахын тулд дахин нээнэ үү.",
+  drawConflict: "Энэ урьдчилсан харагдацаас хойш төлсөн тоглогчид, rank эсвэл role өөрчлөгдсөн байна. Дахин хуваарилна уу.",
+  // close-out
+  closeOutTitle: "Тэмцээнийг хаах",
+  closeOutDesc: "Бүх бүртгэл, баг, байршуулсан баримтын зургийг бүрмөсөн устгаж, маягтыг хаана. Бүртгэл хэрэгтэй бол эхлээд CSV татаж авна уу — буцаах боломжгүй.",
+  closeOutDrive: "Импортолсон мөрүүдийн баримт Google Form эзэмшигчийн Drive-д байгаа; тэдгээр хариулт, файлыг Google дээр өөрөө устгана уу.",
+  closeOutAdminOnly: "Зөвхөн authenticator-тай админ тэмцээнийг хааж чадна.",
+  closeOutTooEarly: "Сүүлийн тоглолтын дараах өдөр буюу {date} (KST)-оос боломжтой.",
+  closeOutConfirm: "Баталгаажуулахын тулд {word} гэж бичнэ үү",
+  closeOutButton: "Тэмцээний бүх өгөгдлийг устгах",
+  closeOutRunning: "Устгаж байна…",
+  closeOutDone: "{registrations} бүртгэл, {teams} баг, {receipts} баримтын зураг устгагдлаа.",
+  closeOutForbidden: "Зөвхөн админ тэмцээнийг хааж чадна.",
 };
 
 const kr: SchAdminCopy = {
@@ -553,7 +585,7 @@ const kr: SchAdminCopy = {
   members: "구성원",
   substitutesEmpty: "후보 선수가 없습니다.",
   drawnAt: "추첨 시각",
-  playersOutOfTeams: "결제한 선수 {n}명이 저장된 팀에 없습니다 — 포함하려면 다시 추첨하세요.",
+  playersOutOfTeams: "후보 선수 외에 결제한 선수 {n}명이 저장된 팀에 없습니다 — 포함하려면 다시 추첨하세요.",
   receipt: "영수증",
   noReceipt: "영수증 없음",
   viewReceipt: "영수증 보기",
@@ -631,6 +663,22 @@ const kr: SchAdminCopy = {
   impErrInvalid: "시트를 받아들일 수 없습니다. 열 맞추기를 확인하고 다시 시도하세요.",
   impErrTooLarge: "시트가 한 번에 보내기에 너무 큽니다. 더 작은 파일로 나누거나 필요 없는 열을 무시로 바꾸세요.",
   impIssueForGame: "{game}: {issue}",
+  // edit / draw conflicts
+  duplicateEmail: "이 이메일은 이미 이 게임에 등록되어 있습니다. 다른 이메일을 쓰거나 다른 등록을 수정하세요.",
+  duplicateGame: "이 참가자는 이미 이 게임에 등록되어 있습니다.",
+  editConflict: "열어 둔 사이에 다른 사람이 이 등록을 변경했습니다. 다시 열어 현재 정보를 확인하세요.",
+  drawConflict: "미리보기 이후 결제한 선수, 랭크 또는 역할이 바뀌었습니다. 다시 추첨하세요.",
+  // close-out
+  closeOutTitle: "대회 종료 처리",
+  closeOutDesc: "모든 등록, 팀, 업로드된 영수증 이미지를 영구 삭제하고 신청을 닫습니다. 기록이 필요하면 먼저 CSV를 내보내세요 — 되돌릴 수 없습니다.",
+  closeOutDrive: "가져온 행의 영수증은 Google 설문 소유자의 Drive에 있습니다. 해당 응답과 파일은 Google에서 직접 삭제하세요.",
+  closeOutAdminOnly: "인증 앱을 사용하는 관리자만 대회를 종료 처리할 수 있습니다.",
+  closeOutTooEarly: "마지막 경기 다음 날인 {date} (KST)부터 가능합니다.",
+  closeOutConfirm: "확인하려면 {word}를 입력하세요",
+  closeOutButton: "대회 데이터 모두 삭제",
+  closeOutRunning: "삭제하는 중…",
+  closeOutDone: "등록 {registrations}건, 팀 {teams}개, 영수증 이미지 {receipts}개를 삭제했습니다.",
+  closeOutForbidden: "관리자만 대회를 종료 처리할 수 있습니다.",
 };
 
 export function schAdminCopy(lang: Lang): SchAdminCopy {

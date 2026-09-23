@@ -2036,6 +2036,12 @@ export type Database = {
         }
         Returns: string
       }
+      backup_missing_storage_objects: {
+        Args: { p_bucket: string; p_names: string[] }
+        Returns: {
+          name: string
+        }[]
+      }
       camera_anomaly_scores: {
         Args: { p_baseline_days?: number; p_window_hours?: number }
         Returns: {

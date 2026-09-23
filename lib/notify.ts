@@ -308,3 +308,36 @@ export function scheduleSecurityEvent(input: SecurityEventInput): void {
     void run();
   }
 }
+
+// ── ops alarms (cron) ──────────────────────────────────────────────────────
+
+/**
+ * A scheduled check found something an operator must act on: a failed-login
+ * spike (MONITOR_ALARM), an undecryptable backup sample (BACKUP_VERIFY_FAILED)
+ * or an overdue key rotation (KEY_ROTATION_DUE). These used to reach only the
+ * optional SLACK_ALERT_WEBHOOK — unset in production — so they surfaced
+ * nowhere but /audit. `detail` carries names and counts only, never values.
+ */
+export interface OpsAlarmInput {
+  action: "MONITOR_ALARM" | "BACKUP_VERIFY_FAILED" | "KEY_ROTATION_DUE";
+  detail: string;
+}
+
+/**
+ * Push to every admin + Telegram, reusing the security-event wire format the
+ * edge function already renders. Cron routes have no `after()` scope, so the
+ * caller awaits this directly; it never throws.
+ */
+export async function notifyOpsAlarm(input: OpsAlarmInput): Promise<void> {
+  const now = new Date();
+  const event: SecurityEventInput = {
+    action: input.action,
+    actorId: "",
+    actorEmail: "system (scheduled check)",
+    detail: input.detail.slice(0, 300),
+  };
+  await Promise.all([
+    attempt("push", () => sendPushToAdminsExcept(null, buildSecurityEventPush(event))),
+    attempt("telegram", () => postTelegram(buildSecurityEventTelegramPayload(event, now))),
+  ]);
+}

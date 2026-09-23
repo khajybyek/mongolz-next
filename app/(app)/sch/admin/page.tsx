@@ -22,7 +22,9 @@ import {
 } from "@/lib/sch/schema";
 import { isTrustedReceiptUrl } from "@/lib/sch/import";
 import { teamStrength } from "@/lib/sch/teams";
+import { closeOutAllowed, closeOutOpensAt } from "@/lib/sch/close-out";
 import { schAdminCopy } from "./admin-copy";
+import { CloseOutPanel } from "./close-out-panel";
 import { ImportDialog } from "./import-dialog";
 import { ReceiptSweepButton } from "./receipt-sweep-button";
 import { RegistrationsTable, type SchAdminRow } from "./registrations-table";
@@ -63,7 +65,7 @@ function relName(value: unknown): string | null {
 }
 
 export default async function SchAdminPage() {
-  await requireSchOrganiser();
+  const ctx = await requireSchOrganiser();
   const { lang } = await getT();
   const copy = schAdminCopy(lang);
   const supabase = await createClient();
@@ -73,7 +75,7 @@ export default async function SchAdminPage() {
     supabase
       .from("sch_registrations")
       .select(
-        "id, submission_id, game, full_name, email, facebook, phone, in_game_id, rank_label, rank_score, roles, answers, status, paid_at, checked_in_at, notes, team_id, receipt_path, receipt_url, source, created_at, team:sch_teams(name)",
+        "id, submission_id, game, full_name, email, facebook, phone, in_game_id, rank_label, rank_score, roles, answers, status, paid_at, checked_in_at, notes, team_id, receipt_path, receipt_url, source, created_at, updated_at, team:sch_teams(name)",
       )
       .order("created_at", { ascending: false })
       .limit(ROW_CAP),
@@ -126,6 +128,7 @@ export default async function SchAdminPage() {
         receipt_url: typeof r.receipt_url === "string" && isTrustedReceiptUrl(r.receipt_url) ? r.receipt_url : null,
         source: r.source === "import" ? "import" : "web",
         created_at: r.created_at,
+        updated_at: r.updated_at,
       };
     });
 
@@ -188,6 +191,8 @@ export default async function SchAdminPage() {
   );
   const isOpen = eventView.registration_open && !deadlinePassed;
   const loadFailed = Boolean(rowsRes.error || teamsRes.error);
+  // 00:00 KST of the day after the last game, shown as that KST calendar day.
+  const closeOutOpensOn = new Date(closeOutOpensAt(event?.game_dates).getTime() + 9 * 3600_000).toISOString().slice(0, 10);
 
   return (
     <>
@@ -255,6 +260,11 @@ export default async function SchAdminPage() {
         <div className="space-y-8">
           <RegistrationsTable rows={rows} />
           <TeamDraw eligible={eligible} saved={savedTeams} published={eventView.teams_published} />
+          <CloseOutPanel
+            canClose={ctx.profile.role === "admin"}
+            opensOn={closeOutOpensOn}
+            available={closeOutAllowed(event?.game_dates)}
+          />
         </div>
       )}
     </>

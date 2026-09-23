@@ -44,15 +44,30 @@ export function TotpPrompt({ open, onClose, onSuccess }: Props) {
         body: JSON.stringify({ code }),
       });
       const data = (await res.json().catch(() => null)) as
-        | { ok?: true; error?: string }
+        | { ok?: true; error?: string; code?: string; retry_after_sec?: number }
         | null;
       if (!res.ok) {
-        if (data?.error === "TOTP_NOT_ENABLED") {
+        // `totp_required` is what requireAdminApi answers for an admin who
+        // has not enrolled TOTP yet — same meaning, same copy.
+        if (data?.error === "TOTP_NOT_ENABLED" || data?.error === "totp_required") {
           setError(t("totp_prompt_not_enabled"));
         } else if (data?.error === "server_config") {
           setError(t("totp_prompt_server_config"));
+        } else if (res.status === 429) {
+          // Locked out: every further code is refused until the window ends,
+          // so "invalid code" would send the user round in circles.
+          const wait = Number(data?.retry_after_sec);
+          setError(
+            `${t("rl_too_many_attempts")}${Number.isFinite(wait) && wait > 0 ? ` (${Math.ceil(wait)} s)` : ""}`,
+          );
+        } else if (res.status === 401 && data?.code !== "invalid" && data?.code !== "replayed") {
+          // No `code` = the session itself was refused (middleware 401,
+          // session_invalid from a pin mismatch), not the TOTP code.
+          setError(t("totp_prompt_session_expired"));
         } else {
-          setError(data?.error ?? t("totp_prompt_invalid"));
+          // Never render a raw server code; the remaining refusals (bad
+          // code, replay) all mean "try another code".
+          setError(t("totp_prompt_invalid"));
         }
         return;
       }

@@ -1,12 +1,14 @@
 /**
  * Live HLS gateway (playlist + segments).
  *
- * The live path is the *fast* path: no masking is applied to it (the pipeline
- * writes raw frames to the HLS writer by design), so it is also the path that
- * needs the strictest authorization and a trace. Both were missing before the
- * 2026-09-08 audit — `camera_permissions` is empty in production and
- * `user_can_see_camera` treats "no rows" as unrestricted, so any authenticated
- * non-admin could watch any enabled camera un-masked, silently.
+ * Since commit 1ff609b (2026-09-20) the pipeline masks every live frame with
+ * the shared FaceMasker before the HLS writer, so these segments hold masked
+ * pixels. Masking is detection-based, though: a face the detector misses is
+ * visible, so this path keeps the strictest authorization and a trace as
+ * defence in depth. Both were missing before the 2026-09-08 audit (when the
+ * live feed was still unmasked) — `camera_permissions` is empty in production
+ * and `user_can_see_camera` treats "no rows" as unrestricted, so any
+ * authenticated non-admin could watch any enabled camera, silently.
  *
  * Rules enforced here:
  *   • The camera must exist and be enabled — a disabled camera whose capture
@@ -88,7 +90,8 @@ export async function GET(
   if (permErr) return deny(cameraId, "permission_check_failed", auth, request);
   if (canSee === false) return deny(cameraId, "camera_not_authorized", auth, request);
 
-  // Live video is un-masked. An implicit "nobody restricted this camera yet"
+  // Live masking is best-effort (a missed face is visible), so an implicit
+  // "nobody restricted this camera yet"
   // is not a grant: a non-admin needs a row naming them on this camera.
   // (RLS on camera_permissions exposes only the caller's own rows, so this
   // read is safe on the user-scoped client.)
@@ -119,7 +122,7 @@ export async function GET(
   // Ledger: one row per operator per camera per window, for the playlist AND
   // the segments. Logging only the playlist left a trace-free path — segment
   // names are deterministic (index0.ts, index1.ts, … from ffmpeg's writer), so
-  // anyone who knew them could watch the un-masked live feed without ever
+  // anyone who knew them could watch the live feed without ever
   // requesting index.m3u8. Both request kinds share one detail string, so the
   // throttle collapses a whole viewing session into a single row and the
   // hash-chain lock is touched once per window rather than once per segment.

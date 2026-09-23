@@ -6,6 +6,7 @@ import { toggleRuleAction, deleteRuleAction } from "./actions";
 import { formatDate } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
 import { TotpPrompt } from "@/components/totp-prompt";
+import { useToast } from "@/components/ui/toast";
 
 const REAUTH_REQUIRED = "REAUTH_REQUIRED";
 
@@ -29,14 +30,30 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
   const [pending, startTransition] = useTransition();
   const [busy, setBusy] = useState<string | null>(null);
   const [needsTotp, setNeedsTotp] = useState(false);
+  const { toast } = useToast();
   const pendingDeleteRef = useRef<string | null>(null);
+  // A toggle refused for a stale step-up is parked here and replayed after
+  // the TOTP prompt succeeds (same flow as delete).
+  const pendingToggleRef = useRef<{ id: string; enabled: boolean } | null>(null);
+
+  function runToggle(id: string, enabled: boolean) {
+    setBusy(id);
+    startTransition(async () => {
+      const res = await toggleRuleAction(id, enabled);
+      setBusy(null);
+      if (res && "error" in res && res.error) {
+        if (res.error === REAUTH_REQUIRED) {
+          pendingToggleRef.current = { id, enabled };
+          setNeedsTotp(true);
+          return;
+        }
+        toast({ title: t("toast_failed"), description: res.error, tone: "danger" });
+      }
+    });
+  }
 
   function toggle(r: Rule) {
-    setBusy(r.id);
-    startTransition(async () => {
-      await toggleRuleAction(r.id, !r.enabled);
-      setBusy(null);
-    });
+    runToggle(r.id, !r.enabled);
   }
 
   function runDelete(id: string) {
@@ -44,9 +61,13 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
     startTransition(async () => {
       const res = await deleteRuleAction(id);
       setBusy(null);
-      if (res && "error" in res && res.error === REAUTH_REQUIRED) {
-        pendingDeleteRef.current = id;
-        setNeedsTotp(true);
+      if (res && "error" in res && res.error) {
+        if (res.error === REAUTH_REQUIRED) {
+          pendingDeleteRef.current = id;
+          setNeedsTotp(true);
+          return;
+        }
+        toast({ title: t("toast_failed"), description: res.error, tone: "danger" });
       }
     });
   }
@@ -114,7 +135,8 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
                   <button
                     disabled={pending && busy === r.id}
                     onClick={() => toggle(r)}
-                    title={r.enabled ? "Disable" : "Enable"}
+                    title={r.enabled ? t("ar_disable_rule") : t("ar_enable_rule")}
+                    aria-label={r.enabled ? t("ar_disable_rule") : t("ar_enable_rule")}
                     className={`p-1.5 rounded hover:bg-text-muted/5 ${
                       r.enabled ? "text-success" : "text-text-muted"
                     }`}
@@ -145,14 +167,16 @@ export function RulesTable({ rules }: { rules: Rule[] }) {
       onClose={() => {
         setNeedsTotp(false);
         pendingDeleteRef.current = null;
+        pendingToggleRef.current = null;
       }}
       onSuccess={() => {
         setNeedsTotp(false);
         const id = pendingDeleteRef.current;
-        if (id) {
-          pendingDeleteRef.current = null;
-          runDelete(id);
-        }
+        const pendingToggle = pendingToggleRef.current;
+        pendingDeleteRef.current = null;
+        pendingToggleRef.current = null;
+        if (id) runDelete(id);
+        else if (pendingToggle) runToggle(pendingToggle.id, pendingToggle.enabled);
       }}
     />
     </>
