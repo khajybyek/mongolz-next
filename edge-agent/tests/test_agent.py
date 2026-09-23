@@ -110,6 +110,64 @@ def test_spool_never_evicts_old_evidence_when_full(tmp_path):
     assert first.meta_path.exists() and first.payload_path.exists()
 
 
+def test_hot_path_reads_the_index_not_the_disk(tmp_path, monkeypatch):
+    queue = outbox(tmp_path, max_bytes=64 * 1024 * 1024)
+    entries = [queue.enqueue(b"x" * 1000, f"2026-09-15T00:00:{i:02d}+00:00") for i in range(50)]
+
+    # After start-up, depth/due/size/oldest/ack/failure must not rescan or
+    # re-parse the spool (that was O(n) disk work several times per 0.25 s).
+    def boom(*_a, **_k):
+        raise AssertionError("hot path touched the disk scan")
+
+    monkeypatch.setattr(queue, "_scan", boom)
+    monkeypatch.setattr(queue, "_disk_bytes", boom)
+    assert queue.depth() == 50
+    assert queue.due().event_id == entries[0].event_id
+    assert queue.oldest_queued_at() == "2026-09-15T00:00:00+00:00"
+    queue.mark_failure(entries[0], "http-503")
+    # The failed entry backs off; the next oldest becomes due.
+    assert queue.due().event_id == entries[1].event_id
+    queue.acknowledge(entries[1])
+    assert queue.depth() == 49
+    assert queue.size_bytes() > 0
+
+
+def test_running_byte_total_matches_disk(tmp_path):
+    queue = outbox(tmp_path, max_bytes=64 * 1024 * 1024)
+    entries = [queue.enqueue(b"y" * (100 + i)) for i in range(5)]
+    queue.mark_failure(entries[0], "a much longer failure reason than before " * 2)
+    queue.acknowledge(entries[3])
+    assert queue.size_bytes() == queue._disk_bytes()
+    # A fresh process (start-up rescan) agrees with the running total.
+    assert outbox(tmp_path, max_bytes=64 * 1024 * 1024).size_bytes() == queue.size_bytes()
+    assert queue.depth() == 4
+
+
+def test_periodic_rescan_picks_up_external_changes(tmp_path, monkeypatch):
+    queue = outbox(tmp_path)
+    entry = queue.enqueue(b"jpeg")
+    entry.meta_path.unlink()
+    entry.payload_path.unlink()
+    assert queue.depth() == 1  # index still believes it
+    monkeypatch.setattr(agent.EncryptedOutbox, "RESCAN_INTERVAL_SEC", 0.0)
+    assert queue.depth() == 0
+    assert queue.size_bytes() == 0
+
+
+def test_health_file_is_throttled_but_state_changes_write_at_once(tmp_path):
+    queue = outbox(tmp_path)
+    delivery = agent.CloudDelivery(config(tmp_path), queue, agent.Stats(tmp_path / "stats.json"))
+    health = agent.HealthWriter(config(tmp_path), queue, delivery, interval_sec=5.0)
+    assert health.maybe_write("online", now_mono=100.0) is True
+    assert health.maybe_write("online", now_mono=100.01) is False
+    assert health.maybe_write("online", now_mono=104.9) is False
+    assert health.maybe_write("degraded", now_mono=104.95) is True
+    assert health.maybe_write("degraded", now_mono=110.0) is True
+    assert health.maybe_write("stopped", now_mono=110.01, force=True) is True
+    body = json.loads((tmp_path / "health.json").read_text())
+    assert body["state"] == "stopped"
+
+
 def test_camera_credentials_and_query_are_redacted():
     safe = agent.redact_url("rtsp://operator:secret@10.0.0.2/live?token=hidden")
     assert safe == "rtsp://***@10.0.0.2/live"

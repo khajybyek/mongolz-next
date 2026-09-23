@@ -252,7 +252,10 @@ async def require_token(authorization: str | None = Header(default=None)):
         raise HTTPException(401, "Missing token")
     # Constant-time compare so token-length / prefix oracle attacks can't
     # measure how many bytes matched.
-    if not hmac.compare_digest(authorization.removeprefix("Bearer "), ML_TOKEN):
+    # Bytes, not str: hmac.compare_digest raises TypeError on non-ASCII str
+    # input, which turned a garbage header into a 500 + traceback.
+    supplied = authorization.removeprefix("Bearer ").encode("utf-8", "surrogateescape")
+    if not hmac.compare_digest(supplied, ML_TOKEN.encode("utf-8")):
         raise HTTPException(403, "Invalid token")
 
 
@@ -298,6 +301,22 @@ def _detect_or_400(image_bytes: bytes):
         return face_engine.detect_all(image_bytes)
     except ValueError:
         raise HTTPException(400, "cannot decode image")
+
+
+def _detect_quality_or_400(image_bytes: bytes):
+    if not image_bytes or len(image_bytes) > _MAX_IMAGE_BYTES:
+        raise HTTPException(400, "image missing or too large")
+    try:
+        return face_engine.detect_with_quality(image_bytes)
+    except ValueError:
+        raise HTTPException(400, "cannot decode image")
+
+
+# Admin eval / benchmark endpoints run InsightFace for seconds at a time.
+# They run in a worker thread (never on the event loop, which carries capture,
+# HLS and health probes) and one at a time, so a benchmark never overlaps a
+# second one on the shared ONNX sessions.
+_EVAL_SLOT = asyncio.Semaphore(1)
 
 
 @app.post("/embed", dependencies=[Depends(require_token)])
@@ -518,7 +537,7 @@ async def detect_quality_endpoint(file: UploadFile = File(...)):
     if not face_engine:
         raise HTTPException(503, "engine not ready")
     image_bytes = await file.read()
-    faces = face_engine.detect_with_quality(image_bytes)
+    faces = await asyncio.to_thread(_detect_quality_or_400, image_bytes)
     return {
         "faces": [
             {
@@ -613,7 +632,13 @@ class CameraStopReq(BaseModel):
 async def camera_stop(req: CameraStopReq):
     if not camera_manager:
         raise HTTPException(503, "manager not ready")
-    await camera_manager.stop(req.camera_id)
+    try:
+        await camera_manager.stop(req.camera_id)
+    except Exception as e:  # noqa: BLE001
+        # The session stays registered so a retry can finalize it; answer a
+        # generic 502 instead of an unhandled 500 with a traceback.
+        log.warning("camera %s: stop failed: %s", req.camera_id, type(e).__name__)
+        raise HTTPException(502, "camera stop failed; retry")
     return {"ok": True}
 
 
@@ -905,8 +930,28 @@ async def render_view_endpoint(recording_id: str):
 
     cache_path = os.path.join(_VIEW_CACHE_DIR, f"{recording_id}.mp4")
 
-    # Fast path — cache hit
+    # Fast path — cache hit, but only while the recording row still exists:
+    # retention / GDPR deletions happen web-side and never reach this host,
+    # so a derived view used to outlive its recording by up to 24 h.
     if os.path.exists(cache_path) and os.path.getsize(cache_path) > 1000:
+        try:
+            res = await asyncio.to_thread(
+                lambda: storage.client.table("recordings")
+                .select("id")
+                .eq("id", recording_id)
+                .maybe_single()
+                .execute()
+            )
+        except Exception as e:  # noqa: BLE001 — fail closed, never serve blind
+            log.warning("view: cache row check failed (%s): %s", recording_id[:8], type(e).__name__)
+            raise HTTPException(503, "recording lookup failed")
+        if not res or not res.data:
+            async with _get_view_lock(recording_id):
+                try:
+                    os.remove(cache_path)
+                except FileNotFoundError:
+                    pass
+            raise HTTPException(404, "recording not found")
         return FileResponse(cache_path, media_type="video/mp4")
     return await _render_view_cold(recording_id, cache_path)
 
@@ -1290,7 +1335,8 @@ async def eval_detection_endpoint(
         raise HTTPException(503, "engine not ready")
 
     image_bytes = await file.read()
-    faces = face_engine.detect_all(image_bytes)
+    async with _EVAL_SLOT:
+        faces = await asyncio.to_thread(_detect_or_400, image_bytes)
     pred_boxes = [(f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]) for f in faces]
 
     try:
@@ -1321,24 +1367,27 @@ async def eval_blur_endpoint(
 
     orig_bytes = await original.read()
     blur_bytes = await blurred.read()
-
-    orig_img = cv2.imdecode(np.frombuffer(orig_bytes, np.uint8), cv2.IMREAD_COLOR)
-    blur_img = cv2.imdecode(np.frombuffer(blur_bytes, np.uint8), cv2.IMREAD_COLOR)
-
-    if orig_img is None or blur_img is None:
-        raise HTTPException(400, "cannot decode images")
+    if len(orig_bytes) > _MAX_IMAGE_BYTES or len(blur_bytes) > _MAX_IMAGE_BYTES:
+        raise HTTPException(400, "image too large")
 
     try:
         boxes = [tuple(b) for b in json.loads(face_boxes)]
     except (json.JSONDecodeError, TypeError):
         raise HTTPException(400, "face_boxes must be JSON array")
 
-    if not boxes and face_engine:
-        faces = face_engine.detect_all(orig_bytes)
-        boxes = [(f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]) for f in faces]
+    def _run():
+        orig_img = cv2.imdecode(np.frombuffer(orig_bytes, np.uint8), cv2.IMREAD_COLOR)
+        blur_img = cv2.imdecode(np.frombuffer(blur_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if orig_img is None or blur_img is None:
+            raise HTTPException(400, "cannot decode images")
+        use = boxes
+        if not use and face_engine:
+            faces = _detect_or_400(orig_bytes)
+            use = [(f.bbox[0], f.bbox[1], f.bbox[2], f.bbox[3]) for f in faces]
+        return compute_blur_quality(orig_img, blur_img, use)
 
-    result = compute_blur_quality(orig_img, blur_img, boxes)
-    return result
+    async with _EVAL_SLOT:
+        return await asyncio.to_thread(_run)
 
 
 @app.post("/eval/recognition", dependencies=[Depends(require_token)])
@@ -1461,7 +1510,8 @@ async def eval_compare_endpoint(file: UploadFile = File(...)):
     if orig is None:
         raise HTTPException(400, "cannot decode image")
 
-    faces = face_engine.detect_all(image_bytes)
+    async with _EVAL_SLOT:
+        faces = await asyncio.to_thread(_detect_or_400, image_bytes)
     bboxes = [(int(f.bbox[0]), int(f.bbox[1]), int(f.bbox[2]), int(f.bbox[3])) for f in faces]
 
     results = []
@@ -1627,35 +1677,45 @@ async def eval_bench_endpoint(iterations: int = 10):
     if not face_engine:
         raise HTTPException(503, "engine not ready")
 
-    img_bytes, input_label, expects_face = bench_frame()
-    decoded = cv2.imdecode(np.frombuffer(img_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
-    height, width = (decoded.shape[:2] if decoded is not None else (0, 0))
+    img_bytes, input_label, expects_face = await asyncio.to_thread(bench_frame)
 
-    detect_times: list[float] = []
-    embed_times: list[float] = []
-    total_times: list[float] = []
-    faces_detected = 0
+    def _measure():
+        decoded = cv2.imdecode(np.frombuffer(img_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+        height, width = (decoded.shape[:2] if decoded is not None else (0, 0))
+        detect_times: list[float] = []
+        embed_times: list[float] = []
+        total_times: list[float] = []
+        faces_detected = 0
+        embedding = None
 
-    # Warmup — the first call pays model/JIT costs that belong to no row.
-    try:
-        warm = face_engine.detect_all(img_bytes)
-        faces_detected = len(warm or [])
-    except Exception as e:  # noqa: BLE001 — measured below; log, don't hide
-        log.warning("bench warmup detection failed: %s", type(e).__name__)
+        # Warmup — the first call pays model/JIT costs that belong to no row.
+        try:
+            warm = face_engine.detect_all(img_bytes)
+            faces_detected = len(warm or [])
+        except Exception as e:  # noqa: BLE001 — measured below; log, don't hide
+            log.warning("bench warmup detection failed: %s", type(e).__name__)
 
-    for _ in range(iterations):
-        t0 = time.perf_counter()
-        faces = face_engine.detect_all(img_bytes)
-        t1 = time.perf_counter()
-        detect_times.append((t1 - t0) * 1000)
-        faces_detected = max(faces_detected, len(faces or []))
+        for _ in range(iterations):
+            t0 = time.perf_counter()
+            faces = face_engine.detect_all(img_bytes)
+            t1 = time.perf_counter()
+            detect_times.append((t1 - t0) * 1000)
+            faces_detected = max(faces_detected, len(faces or []))
 
-        t2 = time.perf_counter()
-        embedding = face_engine.embed_single(img_bytes)
-        t3 = time.perf_counter()
-        embed_times.append((t3 - t2) * 1000)
+            t2 = time.perf_counter()
+            embedding = face_engine.embed_single(img_bytes)
+            t3 = time.perf_counter()
+            embed_times.append((t3 - t2) * 1000)
 
-        total_times.append((time.perf_counter() - t0) * 1000)
+            total_times.append((time.perf_counter() - t0) * 1000)
+        return width, height, detect_times, embed_times, total_times, faces_detected, embedding
+
+    # The whole timing loop runs in ONE worker thread (per-call thread hops
+    # would leak into the timings); the loop used to block the event loop for
+    # the entire run — ~5.7 s at 20 iterations, tens of seconds at 100.
+    async with _EVAL_SLOT:
+        (width, height, detect_times, embed_times, total_times,
+         faces_detected, embedding) = await asyncio.to_thread(_measure)
 
     detection = bench_stats(detect_times)
     embedding_measured = faces_detected > 0 and embedding is not None
@@ -1755,30 +1815,34 @@ async def zk_simulate(
 ):
     n_trials = min(1000, max(1, int(n_trials)))
     threshold = min(1.0, max(0.0, float(threshold)))
-    rng = np.random.default_rng()
-    results = {"success": 0, "fail_threshold": 0, "fail_proof": 0}
 
-    for _ in range(n_trials):
-        base = rng.standard_normal(512).astype(np.float32)
-        base /= np.linalg.norm(base)
+    # Up to 1000 proof round trips: CPU work, off the event loop.
+    def _simulate():
+        rng = np.random.default_rng()
+        results = {"success": 0, "fail_threshold": 0, "fail_proof": 0}
 
-        if rng.random() > 0.5:
-            query = base + rng.normal(0, 0.01, 512).astype(np.float32)
-            query /= np.linalg.norm(query)
-        else:
-            query = rng.standard_normal(512).astype(np.float32)
-            query /= np.linalg.norm(query)
+        for _ in range(n_trials):
+            base = rng.standard_normal(512).astype(np.float32)
+            base /= np.linalg.norm(base)
 
-        result = zk_demo(query, base, threshold)
-        if result["result"]["valid"]:
-            results["success"] += 1
-        elif result["result"].get("reason") == "below_threshold":
-            results["fail_threshold"] += 1
-        else:
-            results["fail_proof"] += 1
+            if rng.random() > 0.5:
+                query = base + rng.normal(0, 0.01, 512).astype(np.float32)
+                query /= np.linalg.norm(query)
+            else:
+                query = rng.standard_normal(512).astype(np.float32)
+                query /= np.linalg.norm(query)
 
-    results["total"] = n_trials
-    return results
+            result = zk_demo(query, base, threshold)
+            if result["result"]["valid"]:
+                results["success"] += 1
+            elif result["result"].get("reason") == "below_threshold":
+                results["fail_threshold"] += 1
+            else:
+                results["fail_proof"] += 1
+        results["total"] = n_trials
+        return results
+
+    return await asyncio.to_thread(_simulate)
 
 
 # ── Backup verification ───────────────────────────────────────
@@ -1793,13 +1857,14 @@ async def verify_blob_endpoint(req: VerifyBlobRequest):
     if not storage or not storage.client:
         raise HTTPException(503, "storage not initialized")
     try:
-        blob = storage.client.storage.from_("recordings").download(req.storage_path)
+        # Download + AES-GCM decrypt of a whole recording: off the loop.
+        blob = await asyncio.to_thread(storage.client.storage.from_("recordings").download, req.storage_path)
         if not blob or len(blob) < 32:
             return {"ok": False, "reason": "empty or truncated blob"}
 
         from crypto_utils import decrypt_bytes
         try:
-            decoded = decrypt_bytes(blob, req.recording_id)
+            decoded = await asyncio.to_thread(decrypt_bytes, blob, req.recording_id)
             return {"ok": True, "bytes_decoded": len(decoded)}
         except Exception as e:
             return {"ok": False, "reason": f"decrypt failed: {type(e).__name__}"}
@@ -1858,7 +1923,8 @@ async def anti_spoof_endpoint(file: UploadFile = File(...)):
         raise HTTPException(400, "invalid image")
 
     if face_engine is not None:
-        faces = face_engine.detect_all(data)
+        async with _EVAL_SLOT:
+            faces = await asyncio.to_thread(_detect_or_400, data)
         if faces:
             # detect_all() returns DetectedFace dataclasses, not dicts —
             # access .bbox (subscripting would raise TypeError on every

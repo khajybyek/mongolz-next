@@ -24,6 +24,7 @@ import os
 import stat
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -204,6 +205,16 @@ INSIGHTFACE_MIN_CONFIDENCE = 0.55
 HAAR_SCALE_FACTOR = 1.1
 HAAR_MIN_NEIGHBORS = 8
 HAAR_MIN_SIZE = (60, 60)
+# Masked live HLS: when full-resolution masking cannot keep up with a live
+# source (1080p Haar alone is ~125 ms/frame on one core, the budget at
+# 15 fps is 66 ms), the capture falls further and further behind real time.
+# Beyond this lag the HLS writer repeats the PREVIOUS MASKED frame instead of
+# masking the new one, until the loop has caught up. Never an unmasked frame:
+# a held slot shows slightly stale, already-masked pixels. The encrypted
+# original still receives every frame. Downscaling the Haar pass instead was
+# measured to lose ~25% of 60-90 px faces at 1080p — a privacy regression.
+LIVE_MASK_LAG_SEC = _env_seconds("LIVE_MASK_LAG_SEC", 0.5, 0.1)
+_LAG_LOG_EVERY_SEC = 60.0
 # Mosaic block size — face area-ыг N×N болгож зэрэг бууруулна.
 # Жижиг тоо = илүү агрессив anonymize (information theory-р irreversible).
 # 8×8 = 64 пиксел үлдэх (100×100 царайнаас 99.4% information алга).
@@ -578,6 +589,20 @@ class RecordingSession:
         self._encoder_error = None
         self._validated = False
         self._last_capacity_check = 0.0
+        # Live-lag guard state (see LIVE_MASK_LAG_SEC).
+        self._lag_guard = False
+        self._live_origin = 0.0
+        self._lag_baseline: float | None = None
+        self._last_masked: np.ndarray | None = None
+        self.live_lag_sec = 0.0
+        self.held_frames = 0
+        self._lag_logged_at = 0.0
+        self._hold_streak = 0
+        self._hold_streak_lag = 0.0
+        # True once the source opened. A session whose source never opened
+        # captured, journaled and inserted nothing, so stopping it is a clean
+        # no-op rather than a finalize failure (see _finish_stop).
+        self._source_opened = False
 
         # ── Capture heartbeat state (see CAMERA_HEARTBEAT_SEC) ──
         # Enabled inside the loop, and only for a LIVE camera with a real
@@ -604,6 +629,10 @@ class RecordingSession:
 
         # Pipes (lifespan-д init болно)
         self.cap: cv2.VideoCapture | None = None
+        # Serialises cap.read() (which runs in a worker thread) with
+        # cap.release(): a capture task cancelled while a read is in flight
+        # must not free the VideoCapture under that thread.
+        self._cap_lock = threading.Lock()
         self.hls: subprocess.Popen | None = None
         self.blurred_writer: subprocess.Popen | None = None
         self.original_writer: subprocess.Popen | None = None
@@ -648,7 +677,8 @@ class RecordingSession:
         # Cubist mask-руу дамжуулна. None бол "standard".
         # Refresh нь session lifetime-аар бус — шинэ session шинэ кэш.
         self.suspect_cache: list[tuple[np.ndarray, str]] = []  # (embedding, tier)
-        self._load_suspect_cache()
+        # Loaded off the event loop at the start of _run (a synchronous
+        # PostgREST call here stalled every other capture and HTTP handler).
 
         # Жинхэнэ видео уртыг хадгалах (frame_idx / output_fps).
         # File mode-д ended_at - started_at нь processing time-ыг агуулдаг тул
@@ -896,6 +926,15 @@ class RecordingSession:
                 self._encoder_error = f"capture failed: {type(exc).__name__}"
         try:
             await self._close_writers()
+            if self._never_opened():
+                # Unreachable source (or missing demo clip): nothing was
+                # recorded, journaled or inserted. Treating this as a finalize
+                # failure made /camera/stop answer 500 forever and left the
+                # dead session registered, so a later Start was a no-op.
+                for path in (self.original_path, self.blurred_path):
+                    Path(path).unlink(missing_ok=True)
+                self.journal_path.unlink(missing_ok=True)
+                return
             if not should_finalize:
                 # Once handed off, the spool owns these inputs (a preparing
                 # manifest may still need one). Cancellation must not unlink
@@ -929,6 +968,15 @@ class RecordingSession:
             raise
         finally:
             shutil.rmtree(self.hls_dir, ignore_errors=True)
+
+    def _never_opened(self) -> bool:
+        return (
+            not getattr(self, "_source_opened", True)
+            and not self._row_inserted
+            and not self._delivery_enqueued
+            and self.recorded_frames == 0
+            and not get_recording_spool().has_pending(self.recording_id)
+        )
 
     async def _finalize(self, *, deliver=True):
         # Race-condition засвар: бүх in-flight arcface task-уудыг дуусгана
@@ -1079,8 +1127,15 @@ class RecordingSession:
         # the unmasked pixels for an authorised, audited reveal path.
         masked = None
         if self.hls is not None or self.blur_strategy == "baked":
-            masked = await asyncio.to_thread(self.masker.mask, original.copy())
-            self._draw_kst_timestamp(masked, self.recorded_frames)
+            if self._should_hold(source_sec, original.shape):
+                # Behind real time: repeat the last MASKED frame for this
+                # slot rather than fall further behind (never unmasked).
+                masked = self._last_masked
+            else:
+                masked = await asyncio.to_thread(self.masker.mask, original.copy())
+                self._draw_kst_timestamp(masked, self.recorded_frames)
+                if self._lag_guard:
+                    self._last_masked = masked
         if self.blur_strategy == "baked":
             self._write_safe(self.blurred_writer, masked)
         self._write_safe(self.hls, masked)
@@ -1099,7 +1154,69 @@ class RecordingSession:
         self.beat_if_due()
         await asyncio.sleep(0)
 
+    def _read_frame(self):
+        with self._cap_lock:
+            return self.cap.read()
+
+    def _release_cap(self) -> None:
+        with self._cap_lock:
+            if self.cap is not None:
+                self.cap.release()
+
+    def _should_hold(self, source_sec: float, shape) -> bool:
+        """True when the live loop lags real time by more than
+        LIVE_MASK_LAG_SEC and a previous masked frame of the same size can be
+        repeated. Only for live network sources writing the HLS stream in
+        on_demand mode (a baked recording must mask every frame)."""
+        if not getattr(self, "_lag_guard", False) or self.blur_strategy == "baked":
+            return False
+        behind = time.monotonic() - self._live_origin - source_sec
+        if self._lag_baseline is None or behind < self._lag_baseline:
+            # First frame: absorb the connect / buffering offset. Later, a
+            # smaller offset (camera clock running fast) re-anchors downward.
+            self._lag_baseline = behind
+            self._hold_streak = 0
+            return False
+        lag = max(0.0, behind - self._lag_baseline)
+        hold = (
+            lag > LIVE_MASK_LAG_SEC
+            and self._last_masked is not None
+            and self._last_masked.shape == shape
+        )
+        if hold:
+            # A genuine backlog drains while frames are held (holding is
+            # cheap, so buffered frames arrive faster than real time and the
+            # lag shrinks). Camera clock drift (a slow PTS clock, a nominal
+            # MJPEG fps) does not: frames keep arriving in real time and the
+            # lag never shrinks, which would freeze the stream on one frame
+            # for the rest of the session. After ~2 s of held source time
+            # without the lag shrinking, re-anchor the baseline instead.
+            if self._hold_streak == 0:
+                self._hold_streak_lag = lag
+            self._hold_streak += 1
+            if self._hold_streak >= max(1, round(self.fps * 2)):
+                if lag >= self._hold_streak_lag - LIVE_MASK_LAG_SEC / 2:
+                    self._lag_baseline = behind
+                    self._hold_streak = 0
+                    self.live_lag_sec = 0.0
+                    return False
+                self._hold_streak = 0  # draining: keep holding
+        else:
+            self._hold_streak = 0
+        self.live_lag_sec = lag
+        if hold:
+            self.held_frames += 1
+        now = time.monotonic()
+        if hold and now - self._lag_logged_at >= _LAG_LOG_EVERY_SEC:
+            self._lag_logged_at = now
+            log.warning(
+                "camera %s: masking behind real time by %.1fs — repeating masked frames (%d held so far)",
+                self.camera_id, lag, self.held_frames,
+            )
+        return hold
+
     async def _run(self):
+        await asyncio.to_thread(self._load_suspect_cache)
         shutil.rmtree(self.hls_dir, ignore_errors=True)
         os.makedirs(self.hls_dir, exist_ok=True)
         src = int(self.source_url) if isinstance(self.source_url, str) and self.source_url.isdigit() else self.source_url
@@ -1112,7 +1229,9 @@ class RecordingSession:
                 self._encoder_error = self.exit_reason
                 return
         self._is_file_mode = not is_demo and isinstance(src, str) and "://" not in src and os.path.isfile(src)
-        self.cap = open_video_capture(src)
+        # Off the loop: opening an unreachable RTSP/MJPEG source blocks for
+        # the full 5 s connect timeout, which froze the whole ML API.
+        self.cap = await asyncio.to_thread(open_video_capture, src)
         if not self.cap.isOpened():
             self.exit_reason = "source unreachable at open"
             self._encoder_error = self.exit_reason
@@ -1124,6 +1243,7 @@ class RecordingSession:
             input_fps = self.fps
         self.fps = min(input_fps, 15.0) if self._is_file_mode else float(self.fps)
         self.source_duration_sec = self.cap.get(cv2.CAP_PROP_FRAME_COUNT) / input_fps if self._is_file_mode else 0
+        self._source_opened = True
         self._journal_active()
         await self._open_recording_row()
         self._heartbeat_enabled = not self._is_file_mode and bool(self.db_camera_id)
@@ -1132,6 +1252,8 @@ class RecordingSession:
         read_failures = demo_reopens = 0
         demo_due = time.monotonic()
         live_origin = demo_due
+        self._live_origin = live_origin
+        self._lag_guard = not self._is_file_mode and not is_demo
         try:
             if not self._is_file_mode:
                 self.hls = _ffmpeg_hls_writer(self.hls_dir, w, h, self.fps)
@@ -1139,7 +1261,10 @@ class RecordingSession:
                 self.blurred_writer = _ffmpeg_mp4_writer(self.blurred_path, w, h, self.fps)
             self.original_writer = _ffmpeg_mp4_writer(self.original_path, w, h, self.fps)
             while not self.stop_flag.is_set():
-                ok, frame = self.cap.read()
+                # A stalling source blocks read() for up to its 5 s timeout;
+                # run it off the loop. release() happens only after this loop
+                # exits, so no read thread is ever inside cap.read() then.
+                ok, frame = await asyncio.to_thread(self._read_frame)
                 if not ok or frame is None:
                     if self._is_file_mode:
                         expected = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)
@@ -1156,7 +1281,7 @@ class RecordingSession:
                             self.exit_reason = "demo source yields no frames"
                             break
                         self.cap.release()
-                        self.cap = open_video_capture(src)
+                        self.cap = await asyncio.to_thread(open_video_capture, src)
                         if not self.cap.isOpened():
                             self.exit_reason = "demo source re-open failed"
                             break
@@ -1191,7 +1316,9 @@ class RecordingSession:
             log.exception("Capture loop crashed for camera %s", self.camera_id)
         finally:
             self._heartbeat_enabled = False
-            self.cap.release()
+            # Waits for an in-flight read (bounded by the source's read
+            # timeout) when the task was cancelled mid-read.
+            self._release_cap()
             # stop/rotation performs the checked wait; close here so a crashed
             # loop cannot leave encoders waiting on stdin indefinitely.
             for proc in (self.hls, self.blurred_writer, self.original_writer):
@@ -1354,14 +1481,27 @@ class RecordingSession:
         #
         # The chain index is consumed even if the seal fails, so a
         # concurrent face never derives the same key.
+        #
+        # The seal key is derived from the recording id, so a face whose row
+        # FK is NULL can never be decrypted again (secure-crop / reveal need
+        # the id). If the row insert failed at segment start (transient DB
+        # blip), retry it now; if it still fails, persist nothing — the
+        # caller retries after a short TTL and no orphaned blob is left.
+        if not self._row_inserted and not self._delivery_enqueued:
+            await self._open_recording_row()
+        if not self._row_inserted:
+            raise RuntimeError("recording row unavailable — face not persisted")
+        recording_id = self.recording_id
         chain_index = self._face_chain_index
         self._face_chain_index += 1
-        k = key_at_index(self.recording_id, chain_index, master_key())
+        k = key_at_index(recording_id, chain_index, master_key())
         emb_bytes = np.asarray(f.embedding, dtype=np.float32).tobytes()
         embedding_sealed = base64.b64encode(_seal_embedding(emb_bytes, k)).decode()
         sealed_crop = _seal_embedding(crop_bytes.tobytes(), k)
-        self.storage.upload_bytes(
-            "faces", f"{path}.enc", sealed_crop, "application/octet-stream"
+        # Storage upload off the event loop (it ran synchronously under
+        # _arcface_lock and stalled capture for the whole round trip).
+        await asyncio.to_thread(
+            self.storage.upload_bytes, "faces", f"{path}.enc", sealed_crop, "application/octet-stream"
         )
 
         face_id = await self.storage.insert_face(
@@ -1369,7 +1509,7 @@ class RecordingSession:
             image_path=path,
             embedding=f.embedding.tolist(),
             camera_id=self.db_camera_id,
-            recording_id=self.recording_id if self._row_inserted else None,
+            recording_id=recording_id,
             bbox=bbox,
             chain_index=chain_index,
             embedding_sealed=embedding_sealed,

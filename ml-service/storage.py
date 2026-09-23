@@ -600,7 +600,9 @@ class SupabaseStorage:
             return None
         # Order: suspect+camera specific > suspect-only > camera-only > global
         try:
-            res = (
+            # Off the event loop, like every other PostgREST call on the alert
+            # path: this runs first in every insert_alert.
+            res = await _run_query(
                 self.client.table("alert_rules")
                 .select(
                     "id, name, suspect_id, camera_id, min_similarity, "
@@ -609,7 +611,6 @@ class SupabaseStorage:
                 )
                 .eq("enabled", True)
                 .lte("min_similarity", similarity)
-                .execute()
             )
         except Exception as e:  # noqa: BLE001
             # Дүрэм уншиж чадаагүй бол quiet hours / burst / дүрмийн dedup цонх
@@ -695,14 +696,25 @@ class SupabaseStorage:
             row["capture_status"] = capture_status
         if recording_id:
             row["id"] = recording_id
-        res = self.client.table("recordings").insert(row).execute()
+            # Idempotent: a retry after a lost response (or the capture
+            # pipeline re-opening the row before a face is persisted) must
+            # neither fail on the primary key nor overwrite a row a delivery
+            # already completed — ON CONFLICT DO NOTHING. An empty answer
+            # then means "the row already exists".
+            res = await _run_query(
+                self.client.table("recordings").upsert(row, on_conflict="id", ignore_duplicates=True)
+            )
+            return res.data[0]["id"] if res.data else recording_id
+        # Off the event loop: a slow PostgREST round trip used to stall every
+        # capture task, HLS writer and HTTP handler.
+        res = await _run_query(self.client.table("recordings").insert(row))
         return res.data[0]["id"] if res.data else None
 
     async def update_recording(self, recording_id: str, fields: dict) -> None:
         """Patch a recording row (used by _finalize to fill duration/size/…)."""
         if not self.client:
             raise RuntimeError("Recording storage is not configured")
-        self.client.table("recordings").update(fields).eq("id", recording_id).execute()
+        await _run_query(self.client.table("recordings").update(fields).eq("id", recording_id))
 
     def commit_recording_delivery(self, recording_id: str, fields: dict) -> None:
         """Idempotent durable-delivery acknowledgement (called off the loop).
@@ -722,7 +734,7 @@ class SupabaseStorage:
         """Remove a placeholder row for a session that produced no artifact."""
         if not self.client:
             return
-        self.client.table("recordings").delete().eq("id", recording_id).execute()
+        await _run_query(self.client.table("recordings").delete().eq("id", recording_id))
 
     def fail_stale_reveal_jobs(self, older_than_minutes: int = 30) -> int:
         """Startup sweep: a container restart mid-reveal left jobs stuck in

@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 
 from recording_pipeline import RecordingSession, redact_url
 from capture_journal import recover_captures, recordings_directory
+from recording_spool import get_recording_spool
 from reveal_job import RevealProcessor
 from storage import CameraDesiredState, seal_camera_url, unseal_camera_url
 
@@ -205,8 +206,12 @@ class CameraManager:
                 log.warning("Camera %s: stale session cleanup failed: %s", camera_id, e)
             # /camera/stop may have landed while we awaited the cleanup: the
             # operator's stop wins over a supervised restart.
-            if getattr(existing, "stopped_by_user", False) or (
-                supervised and camera_id not in self.supervision
+            # An explicit operator start (supervised=False) is newer than any
+            # earlier stop and must replace the dead session — returning here
+            # used to answer /camera/start ok:true while capturing nothing.
+            if supervised and (
+                getattr(existing, "stopped_by_user", False)
+                or camera_id not in self.supervision
             ):
                 log.info("Камер %s: restart cancelled — stopped by user", camera_id)
                 return
@@ -257,9 +262,37 @@ class CameraManager:
             await self._persist_resume_flag(camera_id, False)
         if not session:
             return
-        await session.stop()
+        try:
+            await session.stop()
+        except Exception as e:  # noqa: BLE001
+            if not by_user or self._finalize_retry_possible(session):
+                # A validated segment is still on disk (spool entry or
+                # journal): keep the session so the next stop can retry.
+                raise
+            # Nothing left to retry: the capture loop is over and no segment
+            # awaits delivery. Keeping the entry only made every later stop
+            # fail and every later start a no-op.
+            self.sessions.pop(camera_id, None)
+            log.warning("Камер %s: stopped; finalize failed: %s", camera_id, type(e).__name__)
+            return
         self.sessions.pop(camera_id, None)
         log.info("Камер %s зогсолоо", camera_id)
+
+    @staticmethod
+    def _finalize_retry_possible(session) -> bool:
+        task = getattr(session, "task", None)
+        if task is None or not task.done():
+            return True
+        recording_id = getattr(session, "recording_id", None)
+        if recording_id is None:
+            return True
+        try:
+            if get_recording_spool().has_pending(recording_id):
+                return True
+        except Exception:  # noqa: BLE001 — unknown spool state: keep for retry
+            return True
+        journal = getattr(session, "journal_path", None)
+        return bool(getattr(session, "_validated", False) and journal is not None and journal.exists())
 
     async def stop_all(self):
         """Process shutdown: close sessions but leave auto_resume untouched so

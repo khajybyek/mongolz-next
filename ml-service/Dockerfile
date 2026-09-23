@@ -15,9 +15,15 @@ COPY requirements.txt .
 RUN pip install --user --no-cache-dir -r requirements.txt PySocks==1.7.1
 
 # ── Tailscale binaries (userspace networking enables LAN access from Railway) ──
+# The tarball is verified against a pinned SHA-256 before it is unpacked
+# (RUNBOOK §5a.4). Bump TS_VERSION and TS_SHA256 in the same edit; the value
+# is published at pkgs.tailscale.com/stable/tailscale_<ver>_amd64.tgz.sha256.
 ARG TS_VERSION=1.98.2
-RUN curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TS_VERSION}_amd64.tgz" \
-      | tar -xz -C /tmp \
+ARG TS_SHA256=85c2fdeacebebfd5afc6b6aea1b9522583d1fb5159c23fdc5bd83e98137efb1c
+RUN curl -fsSLo /tmp/tailscale.tgz "https://pkgs.tailscale.com/stable/tailscale_${TS_VERSION}_amd64.tgz" \
+    && echo "${TS_SHA256}  /tmp/tailscale.tgz" | sha256sum -c - \
+    && tar -xzf /tmp/tailscale.tgz -C /tmp \
+    && rm /tmp/tailscale.tgz \
     && mv "/tmp/tailscale_${TS_VERSION}_amd64/tailscale" /usr/local/bin/tailscale \
     && mv "/tmp/tailscale_${TS_VERSION}_amd64/tailscaled" /usr/local/bin/tailscaled \
     && rm -rf "/tmp/tailscale_${TS_VERSION}_amd64"

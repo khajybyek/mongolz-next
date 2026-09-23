@@ -161,7 +161,10 @@ class FaceMasker:
         """Advance one frame: detect, refresh the persistence cache, return it."""
         self.frame_idx += 1
         new: list[tuple[Box, str]] = self._detect_haar(frame)
-        if self.frame_idx % self.insight_every_n == 0:
+        # Frame 1 too: a masker often renders a single frame (evidence
+        # stills) or starts a clip / stream / seek, and its first frames must
+        # not be Haar-only — profile and tilted faces are what Haar misses.
+        if self.frame_idx == 1 or self.frame_idx % self.insight_every_n == 0:
             new.extend(self._detect_insight(frame))
         self.cache = [(b, ttl - 1, tier) for (b, ttl, tier) in self.cache if ttl > 1]
         for box, tier in new:

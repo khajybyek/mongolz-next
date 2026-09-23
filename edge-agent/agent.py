@@ -165,23 +165,62 @@ class SpoolFull(RuntimeError):
     pass
 
 
+def _file_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except FileNotFoundError:
+        return 0
+
+
 class EncryptedOutbox:
+    """Durable encrypted queue.
+
+    Disk is the source of truth, but the hot path (depth, due, size, oldest)
+    reads an in-memory index that enqueue/acknowledge/mark_failure keep in
+    step. Rescanning and re-parsing every file several times per 0.25 s loop
+    made a post-outage backlog drain in O(n^2): ~110 ms per iteration at 2000
+    queued events. A full rescan (with crash recovery and quarantine) runs at
+    start-up, on `entries()`, and every RESCAN_INTERVAL_SEC as a safety net.
+    """
+
+    RESCAN_INTERVAL_SEC = 60.0
+
     def __init__(self, root: Path, key: bytes, max_bytes: int):
         self.root = root
         self.events = root / "events"
         self.events.mkdir(parents=True, exist_ok=True)
         self.cipher = AESGCM(key)
         self.max_bytes = max_bytes
+        self._index: dict[str, OutboxEntry] = {}
+        self._entry_bytes: dict[str, int] = {}
+        self._bytes = 0
+        self._scanned_at = 0.0
+        self.rescan()
 
-    def size_bytes(self) -> int:
+    def _disk_bytes(self) -> int:
         total = 0
         for path in self.events.iterdir():
             if path.is_file() and not path.name.endswith(".tmp"):
-                try:
-                    total += path.stat().st_size
-                except FileNotFoundError:
-                    pass
+                total += _file_size(path)
         return total
+
+    def rescan(self) -> list[OutboxEntry]:
+        found = self._scan()
+        self._index = {entry.event_id: entry for entry in found}
+        self._entry_bytes = {
+            entry.event_id: _file_size(entry.meta_path) + _file_size(entry.payload_path) for entry in found
+        }
+        self._bytes = self._disk_bytes()
+        self._scanned_at = time.monotonic()
+        return found
+
+    def _fresh(self) -> None:
+        if time.monotonic() - self._scanned_at >= self.RESCAN_INTERVAL_SEC:
+            self.rescan()
+
+    def size_bytes(self) -> int:
+        self._fresh()
+        return self._bytes
 
     def _recover(self, payload_path: Path, meta_path: Path, event_id: str) -> dict[str, Any]:
         sealed = payload_path.read_bytes()
@@ -201,6 +240,10 @@ class EncryptedOutbox:
         return metadata
 
     def entries(self) -> list[OutboxEntry]:
+        """Full disk rescan (recovers crashed writes, quarantines corrupt ones)."""
+        return self.rescan()
+
+    def _scan(self) -> list[OutboxEntry]:
         found: list[OutboxEntry] = []
         # Payload is written first. Recover the narrow crash window before the
         # metadata rename, including the same window after acknowledgement.
@@ -257,13 +300,18 @@ class EncryptedOutbox:
             "next_attempt_epoch": 0.0,
             "last_error": None,
         }
+        meta_body = json.dumps(metadata, separators=(",", ":")).encode()
         _atomic_write(payload_path, sealed)
         try:
-            _atomic_write(meta_path, json.dumps(metadata, separators=(",", ":")).encode())
+            _atomic_write(meta_path, meta_body)
         except BaseException:
             payload_path.unlink(missing_ok=True)
             raise
-        return OutboxEntry(event_id, metadata, meta_path, payload_path)
+        entry = OutboxEntry(event_id, metadata, meta_path, payload_path)
+        self._index[event_id] = entry
+        self._entry_bytes[event_id] = len(sealed) + len(meta_body)
+        self._bytes += len(sealed) + len(meta_body)
+        return entry
 
     def read(self, entry: OutboxEntry) -> bytes:
         sealed = entry.payload_path.read_bytes()
@@ -274,9 +322,16 @@ class EncryptedOutbox:
             raise ValueError("payload checksum mismatch")
         return payload
 
+    @staticmethod
+    def _created(entry: OutboxEntry) -> float:
+        return float(entry.metadata.get("created_epoch", 0))
+
     def due(self, now: float | None = None) -> OutboxEntry | None:
+        """Oldest entry whose back-off has elapsed (FIFO, as before)."""
+        self._fresh()
         now = time.time() if now is None else now
-        return next((e for e in self.entries() if float(e.metadata.get("next_attempt_epoch", 0)) <= now), None)
+        ready = (e for e in self._index.values() if float(e.metadata.get("next_attempt_epoch", 0)) <= now)
+        return min(ready, key=self._created, default=None)
 
     def mark_failure(self, entry: OutboxEntry, reason: str) -> None:
         attempts = int(entry.metadata.get("attempts", 0)) + 1
@@ -286,19 +341,28 @@ class EncryptedOutbox:
             "next_attempt_epoch": time.time() + min(300, 2 ** min(attempts, 8)),
             "last_error": reason[:120],
         })
-        _atomic_write(entry.meta_path, json.dumps(metadata, separators=(",", ":")).encode())
+        meta_body = json.dumps(metadata, separators=(",", ":")).encode()
+        _atomic_write(entry.meta_path, meta_body)
+        if entry.event_id in self._index:
+            new_size = _file_size(entry.payload_path) + len(meta_body)
+            self._bytes += new_size - self._entry_bytes.get(entry.event_id, 0)
+            self._entry_bytes[entry.event_id] = new_size
+            self._index[entry.event_id] = OutboxEntry(entry.event_id, metadata, entry.meta_path, entry.payload_path)
 
-    @staticmethod
-    def acknowledge(entry: OutboxEntry) -> None:
+    def acknowledge(self, entry: OutboxEntry) -> None:
         entry.meta_path.unlink(missing_ok=True)
         entry.payload_path.unlink(missing_ok=True)
+        if self._index.pop(entry.event_id, None) is not None:
+            self._bytes = max(0, self._bytes - self._entry_bytes.pop(entry.event_id, 0))
 
     def depth(self) -> int:
-        return len(self.entries())
+        self._fresh()
+        return len(self._index)
 
     def oldest_queued_at(self) -> str | None:
-        entries = self.entries()
-        return str(entries[0].metadata.get("captured_at")) if entries else None
+        self._fresh()
+        oldest = min(self._index.values(), key=self._created, default=None)
+        return str(oldest.metadata.get("captured_at")) if oldest else None
 
 
 class Stats:
@@ -369,7 +433,7 @@ class CloudDelivery:
             body = response.json()
             if body.get("ok") is not True or body.get("event_id") != entry.event_id:
                 raise ValueError("invalid acknowledgement")
-            EncryptedOutbox.acknowledge(entry)
+            self.outbox.acknowledge(entry)
             self.capture_enabled = body.get("capture_enabled") is not False
             self.stats.sent_total += 1
             self.stats.save()
@@ -423,6 +487,32 @@ def write_health(cfg: Config, outbox: EncryptedOutbox, delivery: CloudDelivery, 
     }, separators=(",", ":")).encode())
 
 
+class HealthWriter:
+    """Writes health.json when the state changes or every `interval_sec`.
+
+    The main loop runs every ~10 ms while waiting for the next sample; an
+    fsync'd rewrite on every iteration wore flash for no reader benefit. The
+    healthcheck tolerates 180 s of staleness, far above this interval.
+    """
+
+    def __init__(self, cfg: Config, outbox: EncryptedOutbox, delivery: CloudDelivery, interval_sec: float = 5.0):
+        self.cfg = cfg
+        self.outbox = outbox
+        self.delivery = delivery
+        self.interval_sec = interval_sec
+        self._last_state: str | None = None
+        self._next_at = 0.0
+
+    def maybe_write(self, state: str, now_mono: float | None = None, force: bool = False) -> bool:
+        now_mono = time.monotonic() if now_mono is None else now_mono
+        if not force and state == self._last_state and now_mono < self._next_at:
+            return False
+        write_health(self.cfg, self.outbox, self.delivery, state)
+        self._last_state = state
+        self._next_at = now_mono + self.interval_sec
+        return True
+
+
 def healthcheck() -> int:
     root = Path(os.environ.get("EDGE_SPOOL_DIR", "/var/lib/mongolz-edge"))
     try:
@@ -452,6 +542,7 @@ def main() -> None:
     outbox = EncryptedOutbox(cfg.spool_dir, cfg.spool_key, cfg.max_spool_bytes)
     stats = Stats(cfg.spool_dir / "stats.json")
     delivery = CloudDelivery(cfg, outbox, stats)
+    health = HealthWriter(cfg, outbox, delivery)
     log.info(
         "Edge agent %s starting camera=%s source=%s queued=%d",
         cfg.agent_name, cfg.camera_id, redact_url(cfg.rtsp_url), outbox.depth(),
@@ -478,7 +569,7 @@ def main() -> None:
             if now_mono >= next_heartbeat:
                 delivery.heartbeat()
                 next_heartbeat = now_mono + cfg.heartbeat_interval_sec
-            write_health(cfg, outbox, delivery, "degraded" if delivery.last_error else "online")
+            health.maybe_write("degraded" if delivery.last_error else "online", now_mono)
 
             if not delivery.capture_enabled:
                 if cap is not None:
@@ -541,7 +632,7 @@ def main() -> None:
     finally:
         if cap is not None:
             cap.release()
-        write_health(cfg, outbox, delivery, "stopped")
+        health.maybe_write("stopped", force=True)
 
 
 if __name__ == "__main__":
