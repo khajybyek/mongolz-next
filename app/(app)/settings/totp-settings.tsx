@@ -11,7 +11,7 @@ import { RecoveryCodes } from "./recovery-codes";
 interface Props {
   email: string;
   enabled: boolean;
-  role: "admin" | "viewer" | "auditor" | "organiser";
+  role: "admin" | "viewer" | "auditor";
 }
 
 /** Machine error codes returned by the TOTP routes → translated copy. */

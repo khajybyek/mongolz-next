@@ -24,7 +24,16 @@ import type {
 export type { Database, Enums, Json, Tables, TablesInsert, TablesUpdate };
 
 // ── Postgres enums ────────────────────────────────────────────────────
-export type UserRole = Enums<"user_role">;
+/**
+ * The roles this build serves. `Extract` keeps the type honest while the
+ * generated enum can still carry a label a pending migration removes; the
+ * auth helpers refuse a profile whose role is not in USER_ROLES.
+ */
+export const USER_ROLES = ["admin", "viewer", "auditor"] as const satisfies readonly Enums<"user_role">[];
+export type UserRole = Extract<Enums<"user_role">, (typeof USER_ROLES)[number]>;
+export function isUserRole(role: unknown): role is UserRole {
+  return typeof role === "string" && (USER_ROLES as readonly string[]).includes(role);
+}
 export type SuspectPrivacyTier = Enums<"suspect_privacy_tier">;
 export type RevealMethod = Enums<"reveal_method">;
 export type RevealStatus = Enums<"reveal_status">;
@@ -76,7 +85,9 @@ export const PUBLIC_PROFILE_COLUMNS = [
   "updated_at",
 ] as const satisfies readonly (keyof Profile)[];
 
-export type PublicProfile = Pick<Profile, (typeof PUBLIC_PROFILE_COLUMNS)[number]>;
+export type PublicProfile = Omit<Pick<Profile, (typeof PUBLIC_PROFILE_COLUMNS)[number]>, "role"> & {
+  role: UserRole;
+};
 
 export type Camera = Omit<Tables<"cameras">, "cam_type"> & { cam_type: CameraType };
 export type Suspect = Tables<"suspects">;

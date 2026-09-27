@@ -20,8 +20,6 @@ qualified DPO and conduct a full audit.
 | User profiles (email, role) | Self-registration | Access control | Until account deletion |
 | TOTP secret + recovery code hashes | User-supplied | 2FA | Until TOTP disabled |
 | Session cookies (session-pin, reauth, pre-totp) | Browser | Auth state | 7d / 15m / 2m respectively |
-| SCH Esports registrations (name, e-mail, Facebook, phone, in-game ids, rank, notes) — `sch_registrations`, `sch_teams` | Public form at `/sch` (consent line) or the organiser's Google-Form import | Organise the Chuseok 2026 tournament and contact the players (consent text: "used only to organise the tournament") | Until the event is closed out: `/sch/admin` → *Close out the event* (admin + TOTP step-up, typed confirmation, only from 00:00 KST the day after the last game day) deletes every row and team. Not automatic — the admin must run it after the last game (2026-09-27 → from 2026-09-28) |
-| SCH payment receipts (bank-transfer screenshots) — private `sch-receipts` bucket | Uploaded by the registrant | Payment check by the organiser (every view audited) | Deleted by the same close-out, before the rows; abandoned uploads older than 24 h are removed by the console's manual «Sweep orphaned receipts» button. Imported rows only link to the Google Form owner's Drive — those files and responses must be deleted in Google by the form owner |
 
 ---
 

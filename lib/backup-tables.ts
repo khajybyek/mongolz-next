@@ -4,8 +4,8 @@
  * (__tests__/backup-tables.test.ts) can hold every table and column in
  * lib/database.generated.ts against these lists: a new table or column must
  * be exported or excluded here with a reason, or CI fails. Before this test,
- * the SCH tournament tables, the sch-receipts bucket and two faces columns
- * were silently missing while the manifest said `complete: true`.
+ * whole tables and two faces columns were silently missing while the
+ * manifest said `complete: true`.
  */
 
 export type TableSpec = {
@@ -95,15 +95,6 @@ export const BACKUP_TABLES: Record<string, TableSpec> = {
     note:
       "endpoint and the p256dh/auth keys are push credentials and are never exported — users re-subscribe from their browser.",
   },
-  // SCH Esports tournament (/sch). sch_event is the id=1 singleton.
-  sch_event: { columns: "*" },
-  sch_teams: { columns: "*" },
-  sch_registrations: {
-    columns:
-      "id, submission_id, game, full_name, email, facebook, phone, in_game_id, rank_label, rank_score, roles, answers, status, paid_at, checked_in_at, notes, team_id, receipt_path, receipt_mime, receipt_bytes, receipt_url, source, submitted_at, created_at, updated_at",
-    note:
-      "Tournament registrations (personal data the organisers already see on /sch/admin). ip_hash and user_agent are abuse-throttling telemetry and are not exported.",
-  },
 };
 
 /**
@@ -128,10 +119,6 @@ export const BACKUP_EXCLUDED_COLUMNS: Record<string, Record<string, string>> = {
     worker_lease_token: "in-flight ML worker lease — meaningless in another project",
     worker_lease_until: "in-flight ML worker lease — meaningless in another project",
     worker_attempts: "in-flight ML worker retry counter (defaults to 0)",
-  },
-  sch_registrations: {
-    ip_hash: "abuse-throttling telemetry",
-    user_agent: "abuse-throttling telemetry",
   },
 };
 
@@ -207,16 +194,6 @@ export const BACKUP_STORAGE_SOURCES: Record<string, PathSource[]> = {
       select: "id, output_path",
       from: "reveal_jobs.output_path",
       paths: (r) => [r.output_path as string | null],
-    },
-  ],
-  // Web-form payment receipts. Imported (Google Form) rows carry a Drive
-  // link in receipt_url instead and have no object here.
-  "sch-receipts": [
-    {
-      table: "sch_registrations",
-      select: "id, receipt_path",
-      from: "sch_registrations.receipt_path",
-      paths: (r) => [r.receipt_path as string | null],
     },
   ],
 };

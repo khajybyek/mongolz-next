@@ -159,15 +159,6 @@ beforeEach(() => {
     retention_policies: [],
     clusters: [],
     face_search_presets: [],
-    sch_event: [{ id: 1, title: "Chuseok 2026", registration_open: true }],
-    sch_teams: [{ id: "t1", game: "cs2", name: "Team 1", seed: 1 }],
-    sch_registrations: [
-      // Two games of one web submission share one receipt object.
-      { id: "g1", submission_id: "sub1", game: "cs2", team_id: "t1", receipt_path: "submissions/sub1/receipt.jpg" },
-      { id: "g2", submission_id: "sub1", game: "dota2", team_id: null, receipt_path: "submissions/sub1/receipt.jpg" },
-      // Imported Google Form row: a Drive link, no Storage object.
-      { id: "g3", submission_id: "sub2", game: "cs2", team_id: null, receipt_path: null, receipt_url: "https://drive.google.com/x" },
-    ],
   };
 });
 
@@ -296,7 +287,6 @@ describe("GET /api/admin/backup — storage manifests", () => {
       "faces",
       "recordings",
       "revealed",
-      "sch-receipts",
       "suspects",
     ]);
   });
@@ -370,31 +360,11 @@ describe("backup completeness boundary", () => {
 });
 
 
-describe("GET /api/admin/backup — SCH tournament data (was silently omitted)", () => {
-  it("exports the three sch_* tables and face_search_presets", async () => {
+describe("GET /api/admin/backup — tables that were silently omitted", () => {
+  it("exports face_search_presets", async () => {
     const { json } = await open();
     const m = await json("manifest.json");
-    for (const t of ["sch_event", "sch_teams", "sch_registrations", "face_search_presets"]) {
-      expect(m.tables[t]).toMatchObject({ restorable: true });
-    }
-    expect((await json("tables/sch_registrations.json")).length).toBe(3);
-    expect((await json("tables/sch_event.json"))[0].id).toBe(1);
-  });
-
-  it("keeps abuse telemetry out of the registration dump", async () => {
-    await open();
-    expect(dumped("sch_registrations")).toContain("receipt_path");
-    expect(dumped("sch_registrations")).toContain("receipt_url");
-    expect(dumped("sch_registrations")).not.toMatch(/ip_hash|user_agent/);
-  });
-
-  it("lists the web-form receipts once each and skips imported rows", async () => {
-    const { json } = await open();
-    const receipts = await json("buckets/sch-receipts.manifest.json");
-    expect(receipts.objects).toEqual([
-      { path: "submissions/sub1/receipt.jpg", source: "sch_registrations", row_id: "g1" },
-    ]);
-    expect(receipts.total_objects).toBe(1);
+    expect(m.tables.face_search_presets).toMatchObject({ restorable: true });
   });
 
   it("names every table it does not export, with a reason", async () => {

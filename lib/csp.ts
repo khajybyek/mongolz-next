@@ -15,7 +15,7 @@
  * webcam on the LAN speaks plain HTTP (MJPEG or MP4), so only here may
  * `img-src` / `media-src` load `http:`. These channels carry pixels, never a
  * session token (`connect-src` is HTTPS-only everywhere). Every other page —
- * the public landing, /login, /sch — gets no scheme wildcard at all.
+ * the public landing, /login — gets no scheme wildcard at all.
  */
 const INSECURE_MEDIA_PREFIXES = ["/live"] as const;
 

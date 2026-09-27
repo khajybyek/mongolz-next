@@ -12,7 +12,7 @@ interface User {
   id: string;
   email: string;
   full_name: string | null;
-  role: "admin" | "viewer" | "auditor" | "organiser";
+  role: "admin" | "viewer" | "auditor";
   totp_enabled: boolean;
   is_super_admin: boolean;
   reveal_level: number;
@@ -20,7 +20,7 @@ interface User {
 }
 
 type PendingAction =
-  | { kind: "role"; user: User; newRole: "admin" | "viewer" | "auditor" | "organiser" }
+  | { kind: "role"; user: User; newRole: "admin" | "viewer" | "auditor" }
   | { kind: "delete"; user: User }
   | { kind: "reset"; user: User; password: string }
   | { kind: "level"; user: User; level: number };
@@ -105,11 +105,10 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
   function nextRoleCycle(current: User["role"]): User["role"] {
     if (current === "admin") return "viewer";
     if (current === "viewer") return "auditor";
-    if (current === "auditor") return "organiser";
     return "admin";
   }
 
-  function changeRole(user: User, newRole: "admin" | "viewer" | "auditor" | "organiser") {
+  function changeRole(user: User, newRole: "admin" | "viewer" | "auditor") {
     if (!confirm(`${user.email} — "${newRole}" role?`)) return;
     runPending({ kind: "role", user, newRole });
   }
@@ -192,8 +191,6 @@ export function UsersTable({ users, currentUserId }: { users: User[]; currentUse
                             ? "badge-accent"
                             : u.role === "auditor"
                             ? "badge-warning"
-                            : u.role === "organiser"
-                            ? "badge-info"
                             : "badge-muted"
                         }`}
                       >

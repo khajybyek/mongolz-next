@@ -44,10 +44,6 @@ describe("lib/nav", () => {
     // Auditors keep their own GDPR page (the middleware allow-list matches).
     expect(auditor).toEqual(["/audit", "/my-data"]);
 
-    // The tournament organiser sees only the SCH console.
-    const organiser = visibleNavGroups("organiser").flatMap((g) => g.items.map((i) => i.href));
-    expect(organiser).toEqual(["/sch/admin"]);
-
     const admin = visibleNavGroups("admin").flatMap((g) => g.items);
     expect(admin.length).toBe(allItems.length);
   });
@@ -59,7 +55,7 @@ describe("lib/nav", () => {
     expect(NAV_GROUPS[0].items.map((item) => item.href)).toEqual([
       "/dashboard", "/live", "/playback", "/alerts", "/incidents", "/search", "/analytics",
     ]);
-    expect(allItems).toHaveLength(46);
+    expect(allItems).toHaveLength(45);
   });
 
   it("keeps the operator surfaces together and viewer-accessible", () => {

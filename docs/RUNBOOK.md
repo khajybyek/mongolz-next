@@ -245,9 +245,8 @@ auth schema from PITR or recreate users with the same UUIDs before loading
    references but Storage no longer holds (flagged `missing: true` in
    `buckets/*.manifest.json`, or answered "object not found") is listed in
    the signed manifest's `missing_objects` and printed as a warning instead of
-   aborting; re-upload the object or clear the row's path. The export also
-   carries the SCH tournament tables and the `sch-receipts` bucket;
-   `manifest.json.not_exported` names the tables it leaves out and why. The tool
+   aborting; re-upload the object or clear the row's path.
+   `manifest.json.not_exported` names the tables the export leaves out and why. The tool
    refuses to store escrow inside the bundle. Store bundle, escrow, and
    passphrase in three separate locations; securely delete the extracted
    biometric ZIP after the bundle validates.
@@ -683,10 +682,10 @@ No Telegram on an outage usually means the vault secrets are missing
 ## 5a. Admin-privilege hardening — operator follow-ups (2026-09-17 review)
 
 Shipped in code: factor-bound step-up cookie (a password step-up no longer opens
-TOTP gates), operator allow-list in `requireUserApi()`, mandatory session pin for
-the organiser role, step-up on retention / legal-hold release / camera-permission
-grant / camera enable / consent off, super-admin-only admin creation, server-written
-push subscriptions, `security_event` notifications. The items below need an operator.
+TOTP gates), operator allow-list in `requireUserApi()`, step-up on retention /
+legal-hold release / camera-permission grant / camera enable / consent off,
+super-admin-only admin creation, server-written push subscriptions,
+`security_event` notifications. The items below need an operator.
 
 1. **Deploy order.** Push the app → wait for the Vercel deploy → then apply
    `supabase/migrations/20260917150000_admin_privilege_hardening.sql`
@@ -772,19 +771,6 @@ push subscriptions, `security_event` notifications. The items below need an oper
    from `authenticated`; `/suspects` writes with the service role after step-up,
    audits `SUSPECT_DELETE` with the affected alert count and notifies the other admins.
    Deploy the app before applying that migration.
-   **SCH tables are closed (2026-09-23):** `sch_event`, `sch_registrations` and
-   `sch_teams` are service-role-write only
-   (`supabase/migrations/20260923170000_sch_writes_service_role.sql`). This mattered
-   more than the admin tables above: the organiser role has no TOTP, so a
-   password-only organiser token passed `mfa_ok()` and could PATCH
-   `sch_event.payment_info` (the account on the public form) with no audit row and no
-   `SCH_PAYMENT_INFO_CHANGED` alarm. The console actions now write with the service
-   client after `requireSchOrganiser()`, so the app works before and after the
-   migration; apply it with `npx supabase db push --linked`. Verify (expect `SELECT`
-   only for authenticated, nothing for anon):
-   `select grantee, table_name, string_agg(privilege_type, ',') from information_schema.role_table_grants where table_schema='public' and grantee in ('anon','authenticated') and table_name like 'sch_%' group by 1,2;`
-   New code that writes a `sch_*` table must use `createServiceClient()` after the
-   organiser/admin gate.
 7. **Known residual.** Viewer/auditor accounts with TOTP cannot step up (the step-up
    routes are admin-only), so they cannot disable TOTP or enrol a passkey themselves;
    an admin resets them. Unchanged by this pass.

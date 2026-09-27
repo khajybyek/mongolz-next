@@ -159,7 +159,6 @@ export const T = {
   role_admin: { mn: "Админ", en: "Admin", kr: "관리자" },
   role_viewer: { mn: "Хянагч", en: "Viewer", kr: "뷰어" },
   role_auditor: { mn: "Аудитор", en: "Auditor", kr: "감사자" },
-  role_organiser: { mn: "Зохион байгуулагч", en: "Organiser", kr: "주최자" },
 
   // ── AI page ──
   ai_subtitle: {
@@ -1721,7 +1720,6 @@ export const T = {
   nav_eval: { mn: "ML үнэлгээ", en: "ML evaluation", kr: "ML 평가" },
   nav_edge_detect: { mn: "Browser ONNX демо", en: "Edge detect (ONNX)", kr: "엣지 감지 (ONNX)" },
   nav_edge_agents: { mn: "Edge төхөөрөмжүүд", en: "Edge devices", kr: "엣지 장치" },
-  nav_sch: { mn: "SCH Esports тэмцээн", en: "SCH Esports", kr: "SCH e스포츠 대회" },
   nav_thresholds: { mn: "Threshold тохируулга", en: "Thresholds", kr: "임계값 조정" },
   nav_zk_reveal: { mn: "ZK reveal (PoC)", en: "ZK reveal (PoC)", kr: "ZK 공개 (PoC)" },
   header_search: { mn: "Хайх…", en: "Search…", kr: "검색…" },
@@ -2425,7 +2423,6 @@ export const T = {
   },
   users_role_viewer_opt: { mn: "Viewer (зөвхөн харах)", en: "Viewer (read-only)", kr: "뷰어 (읽기 전용)" },
   users_role_auditor_opt: { mn: "Auditor (зөвхөн аудит лог)", en: "Auditor (audit log only)", kr: "감사자 (감사 로그 전용)" },
-  users_role_organiser_opt: { mn: "Зохион байгуулагч (зөвхөн SCH тэмцээн, 2FA шаардахгүй)", en: "Organiser (SCH tournament only, no 2FA required)", kr: "주최자 (SCH 대회 전용, 2FA 불필요)" },
   users_role_admin_opt: { mn: "Admin (бүрэн эрх)", en: "Admin (full access)", kr: "관리자 (전체 권한)" },
 
   // /reveal-approvals — decisions table.

@@ -85,7 +85,7 @@ export function Sidebar({ lang, role, email, isSuperAdmin = false }: SidebarProp
     });
   }
 
-  const roleLabel = isSuperAdmin ? "Super admin" : t(role === "admin" ? "role_admin" : role === "auditor" ? "role_auditor" : role === "organiser" ? "role_organiser" : "role_viewer", lang);
+  const roleLabel = isSuperAdmin ? "Super admin" : t(role === "admin" ? "role_admin" : role === "auditor" ? "role_auditor" : "role_viewer", lang);
 
   function navLink(item: NavItem, rail: boolean, nested = false) {
     const active = isActivePath(pathname, item.href);

@@ -68,13 +68,13 @@ describe("GET /api/health/ml tunnel state", () => {
 });
 
 describe("GET /api/health/storage", () => {
-  const all = ["alert-screenshots", "branding", "faces", "recordings", "revealed", "sch-receipts", "suspects"];
+  const all = ["alert-screenshots", "branding", "faces", "recordings", "revealed", "suspects"];
 
   it("is ok only when every expected bucket exists (service-role listing)", async () => {
     mockBuckets = all.map((id) => ({ id }));
     const res = await storageHealth();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: "ok", detail: "7/7 buckets present" });
+    expect(await res.json()).toEqual({ status: "ok", detail: "6/6 buckets present" });
   });
 
   it("names the missing buckets with a 503", async () => {

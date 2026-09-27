@@ -43,7 +43,6 @@ const AUTHORED = [
   { file: "masking_schedules.json", what: "masking schedules you created", table: "masking_schedules", select: "id, camera_id, window_mode, starts_at, ends_at, weekdays, note, created_at", column: "created_by", order: "created_at" },
   { file: "webhooks.json", what: "webhooks you created (url and signing secret omitted)", table: "webhooks", select: "id, name, kind, enabled, events, created_at", column: "created_by", order: "created_at" },
   { file: "retention_policies.json", what: "retention policies you last changed", table: "retention_policies", select: "resource, retention_days, enabled, updated_at", column: "updated_by", order: "updated_at" },
-  { file: "sch_teams.json", what: "SCH teams you drew", table: "sch_teams", select: "id, game, name, created_at", column: "created_by", order: "created_at" },
 ] as const satisfies ReadonlyArray<{
   file: string;
   what: string;

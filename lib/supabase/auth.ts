@@ -1,10 +1,10 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { ORGANISER_HOME, schOrganiserVerdict } from "@/lib/sch/access";
 import { NextResponse } from "next/server";
 import { createClient } from "./server";
 import {
   PUBLIC_PROFILE_COLUMNS as PUBLIC_PROFILE_COLUMN_LIST,
+  isUserRole,
   type PublicProfile,
 } from "@/lib/database.types";
 import { checkSessionPin, type PinResult } from "@/lib/auth/session-pin";
@@ -25,8 +25,8 @@ export type ApiAuthOptions = {
    */
   allowAuditor?: boolean;
   /**
-   * Own-account scope: every authenticated role (admin, viewer, auditor AND
-   * the tournament-only organiser) may call this endpoint. Same meaning as
+   * Own-account scope: every authenticated role (admin, viewer, auditor)
+   * may call this endpoint. Same meaning as
    * `allowAuditor` — the older name is kept for existing callers. Without it
    * the helper is an explicit operator allow-list (admin | viewer), mirroring
    * private.is_operator() at the data tier.
@@ -57,9 +57,8 @@ type SessionState =
  * pin cookie. A Supabase session obtained any other way — e.g. straight from
  * the public password grant with a phished password — has none, so for users
  * with TOTP enabled the cookie is *mandatory*: it is the proof the session
- * went through the second factor. The TOTP-less organiser role is held to the
- * same rule. Other users without TOTP (viewer/auditor) keep back-compat for
- * cookie-less legacy sessions. A pin that exists but does
+ * went through the second factor. Users without TOTP (viewer/auditor) keep
+ * back-compat for cookie-less legacy sessions. A pin that exists but does
  * not match (other browser, tampered, expired, legacy pin on another
  * network) is always rejected; see pinRevocationScope for how far.
  *
@@ -82,14 +81,7 @@ async function pinVerdict(
   if (pin.ok) return { ok: true };
   switch (pin.reason) {
     case "no-cookie":
-      // The organiser works WITHOUT a second factor (owner decision), so the
-      // pin is the only proof its session came through our login form rather
-      // than straight from the public password grant with a phished password.
-      // The role was created after every login flow started binding a pin, so
-      // there are no legacy cookie-less organiser sessions to keep alive.
-      return profile.totp_enabled || profile.role === "organiser"
-        ? { ok: false, reason: "no-cookie" }
-        : { ok: true };
+      return profile.totp_enabled ? { ok: false, reason: "no-cookie" } : { ok: true };
     default:
       return { ok: false, reason: pin.reason };
   }
@@ -127,7 +119,9 @@ const loadSession = cache(async function loadSession(): Promise<SessionState> {
     .select(PUBLIC_PROFILE_COLUMNS)
     .eq("id", user.id)
     .single<PublicProfile>();
-  if (error || !profile) {
+  // A role this build does not serve gets no session at all rather than
+  // falling through to whichever gate forgets to check for it.
+  if (error || !profile || !isUserRole(profile.role)) {
     // Self-heal rather than loop: without a profile every gate refuses, so a
     // session that cannot read one is useless. Drop it locally (the account
     // itself may be fine — a transient read error should not revoke the user's
@@ -190,12 +184,11 @@ export async function requireUser(): Promise<AuthCtx> {
 /**
  * Operator scope (admin | viewer) for pages and Server Actions. Server
  * Actions are dispatched by action id, so the middleware's page allow-list
- * for the auditor / organiser roles does not cover them — the action itself
+ * for the auditor role does not cover them — the action itself
  * has to refuse.
  */
 export async function requireOperator(): Promise<AuthCtx> {
   const ctx = await requireUser();
-  if (ctx.profile.role === "organiser") redirect(ORGANISER_HOME as never);
   if (ctx.profile.role !== "admin" && ctx.profile.role !== "viewer") redirect("/audit");
   return ctx;
 }
@@ -207,18 +200,6 @@ export async function requireAdmin(opts: AdminOptions = {}): Promise<AuthCtx> {
   // /settings; server actions and API routes enforce it here so an admin
   // without a second factor cannot act at all.
   if (!ctx.profile.totp_enabled && !opts.allowNoTotp) redirect("/settings?force_totp=1");
-  return ctx;
-}
-
-/**
- * SCH Esports console: admin (second factor required) or the organiser role
- * (tournament-only, no TOTP requirement). See lib/sch/access.ts.
- */
-export async function requireSchOrganiser(): Promise<AuthCtx> {
-  const ctx = await requireUser();
-  const verdict = schOrganiserVerdict(ctx.profile);
-  if (verdict === "forbidden") redirect("/dashboard?error=forbidden");
-  if (verdict === "totp_required") redirect("/settings?force_totp=1");
   return ctx;
 }
 
@@ -253,8 +234,8 @@ async function apiSession(opts: ApiAuthOptions): Promise<ApiAuthResult> {
     };
   }
   // Explicit allow-list, not "anyone but the auditor": a role added later
-  // (the organiser, which works WITHOUT a second factor) must not inherit
-  // operator-scope routes — uploads into the ML pipeline, push, streams.
+  // must not inherit operator-scope routes — uploads into the ML pipeline,
+  // push, streams.
   if (!ownAccount && role !== "admin" && role !== "viewer") {
     return {
       error: NextResponse.json({ error: "forbidden: operator scope only" }, { status: 403 }),
@@ -274,19 +255,6 @@ export async function requireAdminApi(): Promise<ApiAuthResult> {
     return { error: NextResponse.json({ error: "forbidden: admin only" }, { status: 403 }) };
   }
   if (!r.profile.totp_enabled) {
-    return { error: NextResponse.json({ error: "totp_required" }, { status: 403 }) };
-  }
-  return r;
-}
-
-export async function requireSchOrganiserApi(): Promise<ApiAuthResult> {
-  const r = await apiSession({ allowAuditor: true });
-  if (isAuthErr(r)) return r;
-  const verdict = schOrganiserVerdict(r.profile);
-  if (verdict === "forbidden") {
-    return { error: NextResponse.json({ error: "forbidden: organiser or admin only" }, { status: 403 }) };
-  }
-  if (verdict === "totp_required") {
     return { error: NextResponse.json({ error: "totp_required" }, { status: 403 }) };
   }
   return r;

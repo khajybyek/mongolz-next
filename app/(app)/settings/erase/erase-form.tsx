@@ -18,7 +18,7 @@ const ERROR_KEYS: Record<string, TranslationKey> = {
 
 interface Props {
   email: string;
-  role: "admin" | "viewer" | "auditor" | "organiser";
+  role: "admin" | "viewer" | "auditor";
   totpEnabled: boolean;
 }
 

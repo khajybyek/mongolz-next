@@ -3,6 +3,7 @@ import { Empty } from "@/components/ui/empty";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/utils";
+import { isUserRole } from "@/lib/database.types";
 import { getT } from "@/lib/i18n/server";
 import { UsersTable } from "./users-table";
 import { CreateUserForm } from "./create-user-form";
@@ -32,16 +33,20 @@ export default async function UsersPage() {
         <Empty message={t("empty")} />
       ) : (
         <UsersTable
-          users={profiles.map((p) => ({
-            id: p.id,
-            email: p.email,
-            full_name: p.full_name,
-            role: p.role,
-            totp_enabled: p.totp_enabled,
-            is_super_admin: p.is_super_admin ?? false,
-            reveal_level: (p as { reveal_level?: number }).reveal_level ?? 0,
-            created_at: formatDate(p.created_at),
-          }))}
+          users={profiles.flatMap((p) => {
+            const role = p.role;
+            if (!isUserRole(role)) return [];
+            return [{
+              id: p.id,
+              email: p.email,
+              full_name: p.full_name,
+              role,
+              totp_enabled: p.totp_enabled,
+              is_super_admin: p.is_super_admin ?? false,
+              reveal_level: (p as { reveal_level?: number }).reveal_level ?? 0,
+              created_at: formatDate(p.created_at),
+            }];
+          })}
           currentUserId={ctx.user.id}
         />
       )}

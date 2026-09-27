@@ -240,7 +240,7 @@ describe("GDPR subject export", () => {
     );
     expect(JSON.parse(await zip.file("incidents.json")!.async("string"))).toHaveLength(1);
     const readme = await zip.file("README.txt")!.async("string");
-    for (const name of ["incident_events.json", "face_reviews.json", "webhooks.json", "sch_teams.json"]) {
+    for (const name of ["incident_events.json", "face_reviews.json", "webhooks.json"]) {
       expect(zip.file(name)).not.toBeNull();
       expect(readme).toContain(name);
     }

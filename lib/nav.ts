@@ -1,6 +1,5 @@
 import {
   LayoutDashboard,
-  Trophy,
   Video,
   Search,
   UserSearch,
@@ -54,7 +53,7 @@ import type { TranslationKey } from "@/lib/i18n/translations";
  * every surface agrees on labels, icons and role visibility.
  */
 
-export type Role = "admin" | "viewer" | "auditor" | "organiser";
+export type Role = "admin" | "viewer" | "auditor";
 
 export interface NavItem {
   href: string;
@@ -64,8 +63,6 @@ export interface NavItem {
   shortLabelKey?: TranslationKey;
   adminOnly?: boolean;
   auditorAllowed?: boolean;
-  /** The tournament-only organiser role sees just these. */
-  organiserAllowed?: boolean;
   /** Extra search terms for the command palette. */
   keywords?: string[];
 }
@@ -127,7 +124,6 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: Wrench,
     items: [
       { href: "/users", icon: UserCog, labelKey: "nav_users", adminOnly: true, keywords: ["roles", "admin", "viewer"] },
-      { href: "/sch/admin", icon: Trophy, labelKey: "nav_sch", adminOnly: true, organiserAllowed: true, keywords: ["esports", "tournament", "chuseok", "registration", "teams"] },
       { href: "/reveal-approvals", icon: ShieldCheck, labelKey: "nav_reveal_approvals", adminOnly: true, keywords: ["unblur", "4-eyes", "approve"] },
       { href: "/audit", icon: ScrollText, labelKey: "nav_audit", shortLabelKey: "tab_audit", adminOnly: true, auditorAllowed: true, keywords: ["log", "hash chain"] },
       { href: "/privacy-zones", icon: Lock, labelKey: "nav_zones", adminOnly: true, keywords: ["mask", "zone"] },
@@ -168,8 +164,7 @@ export const NAV_GROUPS: NavGroup[] = [
       // Every role can open this one: /privacy is the admin-only differential-
       // privacy demo, so pointing "Privacy (GDPR)" at it bounced viewers and
       // left nobody but admins able to export or erase their own data.
-      // Auditors may open it too (middleware allow-list). The organiser
-      // reaches it from the account menu; its sidebar stays the console only.
+      // Auditors may open it too (middleware allow-list).
       { href: "/my-data", icon: UserRoundCheck, labelKey: "nav_my_data", auditorAllowed: true, keywords: ["gdpr", "privacy", "export", "erase"] },
       { href: "/docs", icon: BookOpen, labelKey: "nav_docs", adminOnly: true, keywords: ["help", "documentation"] },
     ],
@@ -182,7 +177,6 @@ const MOBILE_TAB_HREFS = ["/dashboard", "/live", "/playback", "/alerts", "/analy
 export function isItemVisible(item: NavItem, role: Role): boolean {
   if (role === "admin") return true;
   if (role === "auditor") return item.auditorAllowed === true;
-  if (role === "organiser") return item.organiserAllowed === true;
   return !item.adminOnly;
 }
 

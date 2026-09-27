@@ -20,7 +20,7 @@ const sections = [
       {
         label: "Storage",
         value:
-          "Supabase Storage — 7 buckets: recordings, faces, suspects, revealed, alert-screenshots, sch-receipts (all private) + branding (public: logo + icons only)",
+          "Supabase Storage — 6 buckets: recordings, faces, suspects, revealed, alert-screenshots (all private) + branding (public: logo + icons only)",
       },
     ],
   },

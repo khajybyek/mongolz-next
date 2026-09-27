@@ -86,7 +86,7 @@ const createSchema = z.object({
   email: z.string().email().max(255),
   password: z.string().min(8).max(128),
   full_name: z.string().max(120).optional(),
-  role: z.enum(["admin", "viewer", "auditor", "organiser"]),
+  role: z.enum(["admin", "viewer", "auditor"]),
   // Optional: the form does not expose it yet, so an omitted value inherits
   // the creator's own authority (see below). An empty string is treated as
   // omitted — z.coerce would otherwise turn "" into 0 = director.
@@ -185,7 +185,7 @@ export async function createUserAction(formData: FormData): Promise<ActionError 
 
 const roleSchema = z.object({
   user_id: z.string().uuid(),
-  role: z.enum(["admin", "viewer", "auditor", "organiser"]),
+  role: z.enum(["admin", "viewer", "auditor"]),
 });
 
 export async function changeRoleAction(formData: FormData): Promise<ActionError | ActionOk> {
@@ -270,7 +270,7 @@ export async function changeRoleAction(formData: FormData): Promise<ActionError 
     return { error: t("users_err_level_target_higher") };
   }
 
-  const patch: { role: "admin" | "viewer" | "auditor" | "organiser"; reveal_level?: number } = {
+  const patch: { role: "admin" | "viewer" | "auditor"; reveal_level?: number } = {
     role: parsed.data.role,
   };
   if (callerLevel !== null && callerLevel > 0 && targetLevel < callerLevel) {

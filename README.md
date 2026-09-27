@@ -163,48 +163,13 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 
 ---
 
-### SCH Esports registration (`/sch`)
-
-`mongolz.dev/sch` (same app as aicctv.dev) replaces the Google Form for the
-Chuseok 2026 SCH Esports tournament. Public, no login: one submission =
-one person + one entry per chosen game (Mobile Legends / CS2 / Dota 2, each
-with the game's own rank ladder, roles and id fields), fee × games, the bank
-accounts from `sch_event.payment_info`, and a **required payment receipt**
-that the browser uploads straight to the private `sch-receipts` bucket
-through a signed upload URL (Vercel caps request bodies at 4.5 MB). The
-server action re-validates with `lib/sch/schema.ts`, verifies the object,
-rate-limits per IP (separate mint/submit buckets), and writes all rows of a
-submission in one atomic insert. `/sch/teams` shows published rosters —
-names, masked in-game ids, ranks and roles only.
-
-Organiser console `/sch/admin` (admin + second factor): per-game tabs,
-search/status filters, receipt lightbox next to *Mark paid*, check-in,
-notes, CSV export, event settings (open/close, deadline, fees, bank details,
-dates, publish switches), the balanced random team draw
-(`lib/sch/teams.ts`: seeded shuffle → snake draft → bounded local search on
-strength spread, then role collisions; paid players only; re-draw/save/
-publish) and an orphan-receipt sweep. Every mutation writes an `audit_log`
-row carrying ids only. Tables: `sch_event`, `sch_registrations`, `sch_teams`
-(migrations `20260917100000`, `20260917110000`, `20260917120000`).
-
-**Sheet import.** Registrations collected with the original Google Form are
-brought in from `/sch/admin` → *Import sheet*: upload the response sheet
-(Google Sheets → File → Download → CSV or XLSX) or paste the copied cells.
-The browser parses it (`lib/sch/import.ts`, `lib/sch/xlsx.ts`) and guesses the
-column mapping, which the organiser can correct; the server re-validates every
-row with the same zod schemas as the public form, shows a preview (ready /
-partial / already registered / duplicate / invalid), and inserts only the new
-entries with `source = 'import'`, the form's Drive link in `receipt_url` (Google Drive hosts only, no `user:pw@`) and a
-deterministic `submission_id` — so re-uploading the same or a grown sheet only
-adds the new people (migration `20260919100000`).
-
 ## Security model
 
 | Layer | Mechanism |
 |---|---|
 | 1. UI | role-aware navigation — sidebar, header, tab bar and ⌘K palette share `lib/nav.ts` (admin / viewer / auditor) |
 | 2. Server gate | `requireAdmin()` / `requireUser()` redirect in every protected route |
-| 3. Middleware | auditor allow-list (`/audit*` + own `/my-data`); organiser allow-list; unauthenticated `/api/*` → 401 JSON |
+| 3. Middleware | auditor allow-list (`/audit*` + own `/my-data`); unauthenticated `/api/*` → 401 JSON |
 | 4. RLS | on all 23 `public` tables; 61 policies across 22 of them (45 permissive + 16 restrictive: the second-factor gates of row 16 plus the reveal-authority fence), `retention_deletion_queue` deliberately policy-less (service-role only); super-admin row protected by a BEFORE trigger. Counted live 2026-09-08 |
 | 5. Step-up reauth | TOTP step-up, 15-min cookie TTL; a password step-up is accepted only to *request* a reveal (never replaces a live TOTP step-up) — `lib/auth/step-up.ts` |
 | 6. Session pinning | UA fingerprint (network dropped 2026-09-23 — /16 changes forced daily re-logins), HMAC-signed cookie, 7-day TTL; replay signs out every device, expiry only this one |

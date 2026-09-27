@@ -206,8 +206,6 @@ export function AppHeader({ lang, role, email, isSuperAdmin = false }: Props) {
     ? t("role_admin", lang)
     : role === "auditor"
     ? t("role_auditor", lang)
-    : role === "organiser"
-    ? t("role_organiser", lang)
     : t("role_viewer", lang);
 
   return (

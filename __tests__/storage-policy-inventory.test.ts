@@ -57,13 +57,6 @@ const EXPECTED_SITES = [
   // suspect delete removes the photo after the service-role row delete
   // (admin + step-up + audit in deleteSuspectAction)
   "app/(app)/suspects/actions.ts::svc::suspects",
-  // sch-receipts (20260917110000) has no storage.objects policy at all: the
-  // public form mints a signed upload URL and verifies/removes the object,
-  // the organiser console deletes it with the last row of a submission, and
-  // the admin-gated viewer route streams it after writing SCH_RECEIPT_VIEWED.
-  "app/sch/actions.ts::svc::<dynamic:SCH_RECEIPT_BUCKET>",
-  "app/(app)/sch/admin/actions.ts::svc::<dynamic:SCH_RECEIPT_BUCKET>",
-  "app/api/sch/receipt/[id]/route.ts::svc::<dynamic:SCH_RECEIPT_BUCKET>",
   // service client injected by the caller (cron + /retention action)
   "lib/retention.ts::svc::<dynamic:bucket>",
   // offline recovery CLI constructs this client from SUPABASE_SERVICE_ROLE_KEY

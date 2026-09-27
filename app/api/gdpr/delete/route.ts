@@ -35,7 +35,7 @@ import { getT } from "@/lib/i18n/server";
  * documented break-glass path, and nothing in the app can substitute for it.
  *
  * Requires fresh TOTP if the user has TOTP enabled, and the account password
- * otherwise (viewer / auditor / organiser have no TOTP — typing the phrase
+ * otherwise (viewer / auditor have no TOTP — typing the phrase
  * alone let an unattended or stolen session erase the account). Every write
  * is checked; the route never reports success for an account that still
  * exists. Every refusal carries a stable `code` the form translates.

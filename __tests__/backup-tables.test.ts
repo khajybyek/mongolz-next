@@ -1,15 +1,15 @@
 /**
  * Drift guard for the admin backup. Every public table and column in the
  * generated schema must be either exported by /api/admin/backup or excluded
- * with a written reason (lib/backup-tables.ts). Before this test the SCH
- * tournament tables, face_search_presets and two new faces columns were
- * silently missing from a manifest that said `complete: true`.
+ * with a written reason (lib/backup-tables.ts). Before this test whole
+ * tables, face_search_presets and two new faces columns were silently
+ * missing from a manifest that said `complete: true`.
  *
  * It also holds scripts/restore-from-backup.ts to the same list: a table the
  * backup exports but the restore tool does not know is dropped on restore,
  * and the complete-recovery verifier then fails on its row count.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   BACKUP_EXCLUDED_COLUMNS,
@@ -20,6 +20,23 @@ import {
 
 const ROOT = path.join(__dirname, "..");
 
+/**
+ * Public tables whose most recent migration statement is a DROP. The
+ * generated types are regenerated only after a migration is applied, so for
+ * a while they can still list a table the repository has already dropped;
+ * such a table is neither backed up nor restored.
+ */
+function droppedTables(): Set<string> {
+  const dir = path.join(ROOT, "supabase/migrations");
+  const last = new Map<string, "create" | "drop">();
+  const re = /\b(create|drop)\s+table\s+(?:if\s+(?:not\s+)?exists\s+)?(?:public\.)?"?(\w+)"?/gi;
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
+    const sql = readFileSync(path.join(dir, file), "utf8").replace(/--[^\n]*/g, "");
+    for (const m of sql.matchAll(re)) last.set(m[2].toLowerCase(), m[1].toLowerCase() as "create" | "drop");
+  }
+  return new Set([...last].filter(([, action]) => action === "drop").map(([t]) => t));
+}
+
 /** table → Row column names, parsed from lib/database.generated.ts (public schema). */
 function generatedTables(): Map<string, string[]> {
   const src = readFileSync(path.join(ROOT, "lib/database.generated.ts"), "utf8");
@@ -28,8 +45,10 @@ function generatedTables(): Map<string, string[]> {
   expect(start).toBeGreaterThan(-1);
   const block = src.slice(start, end);
   const out = new Map<string, string[]>();
+  const dropped = droppedTables();
   const re = /\n {6}(\w+): \{\n {8}Row: \{([\s\S]*?)\n {8}\}/g;
   for (let m = re.exec(block); m; m = re.exec(block)) {
+    if (dropped.has(m[1])) continue;
     out.set(m[1], [...m[2].matchAll(/\n {10}(\w+)\??:/g)].map((c) => c[1]));
   }
   return out;
@@ -43,7 +62,7 @@ describe("backup table coverage", () => {
 
   it("parses the generated schema", () => {
     expect(schema.size).toBeGreaterThan(30);
-    expect(schema.get("sch_registrations")).toContain("receipt_path");
+    expect(schema.get("faces")).toContain("image_path");
   });
 
   it("exports or explicitly excludes every public table", () => {
@@ -84,7 +103,7 @@ describe("backup table coverage", () => {
     for (const sources of Object.values(BACKUP_STORAGE_SOURCES)) {
       for (const s of sources) expect(Object.keys(BACKUP_TABLES)).toContain(s.table);
     }
-    expect(Object.keys(BACKUP_STORAGE_SOURCES)).toContain("sch-receipts");
+    expect(Object.keys(BACKUP_STORAGE_SOURCES)).toContain("faces");
   });
 });
 
@@ -99,8 +118,7 @@ describe("restore tool knows every exported table", () => {
 
   it("loads FK parents before their children", () => {
     const before = (a: string, b: string) => expect(order.indexOf(a)).toBeLessThan(order.indexOf(b));
-    before("profiles", "sch_event");
-    before("sch_teams", "sch_registrations"); // sch_registrations.team_id → sch_teams
+    before("recordings", "faces");
     before("incidents", "face_search_presets");
     before("suspects", "face_search_presets");
     before("cameras", "face_search_presets");

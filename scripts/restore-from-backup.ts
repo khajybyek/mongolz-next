@@ -49,11 +49,6 @@ import { createClient } from "@supabase/supabase-js";
 // FK order: parents first.
 const ORDER = [
   "profiles",
-  // SCH Esports: registrations reference sch_teams (team_id); both
-  // reference profiles only through nullable audit columns.
-  "sch_event",
-  "sch_teams",
-  "sch_registrations",
   "cameras",
   "suspects",
   "recordings",
@@ -93,9 +88,6 @@ const PK: Record<string, string> = {
  */
 const REQUIRED_COLUMNS: Record<string, string[]> = {
   profiles: ["id", "email"],
-  sch_event: ["id"],
-  sch_teams: ["game", "name", "seed"],
-  sch_registrations: ["submission_id", "game", "full_name", "email", "facebook"],
   face_search_presets: ["user_id", "name"],
   cameras: ["name", "url"],
   suspects: ["name", "image_path", "embedding"],
@@ -295,7 +287,6 @@ async function main() {
     incident_recordings: ["incidents", "recordings"],
     incident_evidence_exports: ["incidents"],
     face_search_presets: ["suspects", "incidents"],
-    sch_registrations: ["sch_teams"],
     edge_agents: ["cameras"],
     edge_ingest_events: ["edge_agents", "cameras"],
   };

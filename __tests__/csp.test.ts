@@ -5,7 +5,7 @@ const directive = (csp: string, name: string) =>
 
 describe("content security policy", () => {
   it("gives public and console pages no scheme wildcard", () => {
-    for (const path of ["/", "/login", "/sch", "/sch/admin", "/dashboard", "/grid", "/wall", "/liveness"]) {
+    for (const path of ["/", "/login", "/dashboard", "/grid", "/wall", "/liveness"]) {
       expect(allowsInsecureMedia(path)).toBe(false);
     }
     const csp = buildCsp("n0nce", { isDev: false, insecureMedia: false });

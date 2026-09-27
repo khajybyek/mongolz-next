@@ -8,6 +8,7 @@ import {
   requireAdminApi,
   requireAdminOrAuditor,
   requireAdminOrAuditorApi,
+  requireOperator,
   requireUser,
   requireUserApi,
 } from "@/lib/supabase/auth";
@@ -103,6 +104,21 @@ describe("session verification availability", () => {
     expect(signOut).not.toHaveBeenCalled();
   });
 
+  it("refuses a profile whose role this build does not serve", async () => {
+    const original = profile.role;
+    profile.role = "retired-role";
+    try {
+      const result = await requireUserApi({ ownAccount: true });
+      if (!isAuthErr(result)) throw new Error("unknown role granted access");
+      expect(result.error.status).toBe(401);
+      await expect(requireUser()).rejects.toThrow("redirect:/login?error=no_profile");
+      expect(signOut).toHaveBeenCalledWith({ scope: "local" });
+      expect(checkSessionPin).not.toHaveBeenCalled();
+    } finally {
+      profile.role = original;
+    }
+  });
+
   it("retains missing-cookie compatibility for an account without TOTP", async () => {
     profile.totp_enabled = false;
     jest.mocked(checkSessionPin).mockResolvedValue({ ok: false, reason: "no-cookie" });
@@ -130,5 +146,32 @@ describe("session verification availability", () => {
     const response = await updateSession(new NextRequest(`https://app.test${path}`));
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://app.test/dashboard");
+  });
+});
+
+describe("operator scope (admin | viewer)", () => {
+  afterEach(() => {
+    profile.role = "admin";
+  });
+
+  it.each(["admin", "viewer"])("requireOperator and requireUserApi() admit %s", async (role) => {
+    profile.role = role;
+    expect(await requireOperator()).toEqual({ user, profile });
+    expect(await requireUserApi()).toEqual({ user, profile });
+  });
+
+  it("requireOperator sends an auditor to /audit (server actions bypass the middleware)", async () => {
+    profile.role = "auditor";
+    await expect(requireOperator()).rejects.toThrow("redirect:/audit");
+  });
+
+  it("requireUserApi() refuses an auditor by default and admits it for its own account", async () => {
+    profile.role = "auditor";
+    const refused = await requireUserApi();
+    if (!isAuthErr(refused)) throw new Error("auditor admitted to operator-scope API routes");
+    expect(refused.error.status).toBe(403);
+    expect(await refused.error.json()).toEqual({ error: "forbidden: auditor scope is /audit only" });
+    expect(await requireUserApi({ ownAccount: true })).toEqual({ user, profile });
+    expect(await requireUserApi({ allowAuditor: true })).toEqual({ user, profile });
   });
 });

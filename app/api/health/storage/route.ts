@@ -14,7 +14,6 @@ const EXPECTED_BUCKETS = [
   "faces",
   "recordings",
   "revealed",
-  "sch-receipts",
   "suspects",
 ] as const;
 
