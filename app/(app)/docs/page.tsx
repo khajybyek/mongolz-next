@@ -137,7 +137,7 @@ const sections = [
       { label: "ML Service", value: "railway up --detach (from ml-service/)" },
       { label: "Edge Functions", value: "supabase functions deploy <name> --project-ref <ref>" },
       { label: "CI", value: "GitHub Actions — ci.yml (lint + build, frontend tests, ML tests) + security.yml (Semgrep, trufflehog, Nuclei, ZAP)" },
-      { label: "Monitoring", value: "Sentry browser (instrumentation-client.ts) + server/edge (instrumentation.ts); no DSN ⇒ the SDK stays silent and the error screens stop claiming a report. Failure-rate cron runs once a day (02:10 UTC, Vercel Hobby limit) over the previous 24 h against the preceding 7 days, so a login-failure spike can take up to 24 h to alarm. pg_cron probes /api/uptime every 5 min → uptime_checks + Telegram on ML up/down transitions" },
+      { label: "Monitoring", value: "Sentry browser (instrumentation-client.ts) + server/edge (instrumentation.ts); no DSN ⇒ the SDK stays silent and the error screens stop claiming a report. Failure-rate cron runs once a day (02:10 UTC, Vercel Hobby limit) over the previous 24 h against the preceding 7 days, so a login-failure spike can take up to 24 h to alarm. pg_cron probes /api/uptime every 5 min → uptime_checks + Telegram on web app, database and ML up/down transitions (a full Postgres outage stops pg_cron too, so only an external probe can report it)" },
       { label: "Public probe", value: "GET /api/uptime — bucketed ml + db latency, no auth" },
     ],
   },

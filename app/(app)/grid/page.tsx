@@ -6,7 +6,7 @@ import { Empty } from "@/components/ui/empty";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
-import { mlActiveCameras } from "@/lib/ml-client";
+import { mlCameraSupervision } from "@/lib/ml-client";
 import { restartInfoFor } from "@/lib/camera-restarts";
 import { MultiCameraGrid, type GridCamera } from "./multi-camera-grid";
 
@@ -62,15 +62,16 @@ export default async function GridPage({
   const rawFocus = Array.isArray(sp.focus) ? sp.focus[0] : sp.focus;
   const initialFocus = rawFocus && UUID_RE.test(rawFocus) ? rawFocus.toLowerCase() : null;
 
-  const [{ data: rows }, health, active] = await Promise.all([
+  const [{ data: rows }, health, supervision] = await Promise.all([
     supabase
       .from("cameras")
       .select("id, name, cam_type, enabled")
       .eq("enabled", true)
       .order("name"),
     supabase.rpc("camera_health"),
-    mlActiveCameras(),
+    mlCameraSupervision(),
   ]);
+  const active = supervision?.active ?? null;
 
   // camera_health is operator-aware (admin + viewer, rows filtered per
   // user_can_see_camera). If the RPC errors the tiles simply show
@@ -131,7 +132,10 @@ export default async function GridPage({
           cameras={cameras}
           initialActive={initialActive}
           mlReachable={active !== null}
-          initialRestarts={restartInfoFor(active ?? [], new Set(initialActive))}
+          initialRestarts={restartInfoFor(
+            [...(supervision?.active ?? []), ...(supervision?.reconnecting ?? [])],
+            enabledIds,
+          )}
           initialFocus={initialFocus}
           canControl={canControl}
         />

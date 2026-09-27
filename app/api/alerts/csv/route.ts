@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
-import { csvCell } from "@/lib/csv";
+import { csvCell, csvDocument, CSV_CONTENT_TYPE } from "@/lib/csv";
 import { recordAccess, READ_ACTIONS } from "@/lib/audit";
 import { fetchAllPaged } from "@/lib/paged-fetch";
 import { log } from "@/lib/log";
@@ -68,9 +68,10 @@ export async function GET(request: NextRequest) {
   });
 
   const day = new Date().toISOString().slice(0, 10);
-  return new NextResponse(lines.join("\n"), {
+  // BOM first: without it Excel decodes Cyrillic / Hangul names as mojibake.
+  return new NextResponse(csvDocument(lines.join("\n")), {
     headers: {
-      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Type": CSV_CONTENT_TYPE,
       // The download is a plain link, so the filename is where the operator
       // sees that the cap was hit.
       "Content-Disposition": `attachment; filename="alerts_${day}${truncated ? "_partial" : ""}.csv"`,

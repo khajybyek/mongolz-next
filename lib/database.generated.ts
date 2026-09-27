@@ -1580,6 +1580,7 @@ export type Database = {
           notified: string | null
           request_id: number | null
           status: string | null
+          web_ok: boolean | null
         }
         Insert: {
           checked_at?: string
@@ -1590,6 +1591,7 @@ export type Database = {
           notified?: string | null
           request_id?: number | null
           status?: string | null
+          web_ok?: boolean | null
         }
         Update: {
           checked_at?: string
@@ -1600,6 +1602,7 @@ export type Database = {
           notified?: string | null
           request_id?: number | null
           status?: string | null
+          web_ok?: boolean | null
         }
         Relationships: []
       }

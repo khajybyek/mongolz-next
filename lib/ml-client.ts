@@ -96,6 +96,42 @@ export interface ActiveCamera {
   /** Supervisor restarts since the session was first started (ML ≥ 2026-09-07). */
   restart_count?: number | null;
   last_error?: string | null;
+  /**
+   * "running" = capturing (HLS playable); "backoff" = the source dropped and
+   * the supervisor is waiting to retry (ML ≥ 2026-09-27; older builds omit it
+   * and only ever report running cameras).
+   */
+  state?: "running" | "backoff" | null;
+  /** When the supervisor will next try to reconnect (ISO UTC), backoff only. */
+  next_retry_at?: string | null;
+}
+
+/** Everything the ML supervisor knows: streaming cameras and cameras in backoff. */
+export interface CameraSupervisionStatus {
+  /** Running captures — HLS playable. */
+  active: ActiveCamera[];
+  /** Supervised cameras whose capture dropped and that wait for a retry. */
+  reconnecting: ActiveCamera[];
+}
+
+/**
+ * `GET /camera/active` in full. Resolves to `null` when the service is
+ * unreachable so callers can distinguish "nothing streaming" from "ML down".
+ * An ML build without the `reconnecting` list yields an empty one.
+ */
+export async function mlCameraSupervision(): Promise<CameraSupervisionStatus | null> {
+  try {
+    const res = await mlFetch("/camera/active");
+    const data = (await res.json()) as { cameras?: ActiveCamera[]; reconnecting?: ActiveCamera[] };
+    return {
+      active: Array.isArray(data.cameras) ? data.cameras : [],
+      reconnecting: Array.isArray(data.reconnecting)
+        ? data.reconnecting.map((c) => ({ ...c, state: "backoff" as const }))
+        : [],
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -104,13 +140,8 @@ export interface ActiveCamera {
  * streaming" from "ML down".
  */
 export async function mlActiveCameras(): Promise<ActiveCamera[] | null> {
-  try {
-    const res = await mlFetch("/camera/active");
-    const data = (await res.json()) as { cameras?: ActiveCamera[] };
-    return Array.isArray(data.cameras) ? data.cameras : [];
-  } catch {
-    return null;
-  }
+  const status = await mlCameraSupervision();
+  return status ? status.active : null;
 }
 
 /**

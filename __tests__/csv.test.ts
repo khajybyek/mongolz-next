@@ -1,4 +1,30 @@
-import { csvCell } from "@/lib/csv";
+import { csvCell, csvDocument, CSV_CONTENT_TYPE, UTF8_BOM } from "@/lib/csv";
+
+describe("csvDocument", () => {
+  const bomCount = (s: string) => s.split(UTF8_BOM).length - 1;
+
+  it("prepends the UTF-8 BOM so Excel decodes Cyrillic and Hangul", () => {
+    const doc = csvDocument("name\nБат\n김민준\n");
+    expect(doc.startsWith(UTF8_BOM)).toBe(true);
+    expect(doc.slice(1)).toBe("name\nБат\n김민준\n");
+    expect([...Buffer.from(doc, "utf8").subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+  });
+
+  it("adds the BOM exactly once, even when applied twice", () => {
+    expect(bomCount(csvDocument("a,b\n"))).toBe(1);
+    expect(bomCount(csvDocument(csvDocument("a,b\n")))).toBe(1);
+    expect(csvDocument("")).toBe(UTF8_BOM);
+  });
+
+  it("keeps formula neutralisation on the first cell behind the BOM", () => {
+    const doc = csvDocument([csvCell("=cmd|' /C calc'!A0"), csvCell("ok")].join(","));
+    expect(doc).toBe(`${UTF8_BOM}"'=cmd|' /C calc'!A0",ok`);
+  });
+
+  it("pairs with a Content-Type that names the charset", () => {
+    expect(CSV_CONTENT_TYPE).toBe("text/csv; charset=utf-8");
+  });
+});
 
 describe("csvCell", () => {
   it("passes plain values through", () => {

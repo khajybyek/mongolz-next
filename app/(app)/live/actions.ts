@@ -2,7 +2,7 @@
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireOperator } from "@/lib/supabase/auth";
-import { mlActiveCameras, mlStartCamera, mlStopCamera } from "@/lib/ml-client";
+import { mlCameraSupervision, mlStartCamera, mlStopCamera } from "@/lib/ml-client";
 import { restartInfoFor, type CameraRestartInfo } from "@/lib/camera-restarts";
 import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { issueStreamTicket } from "@/lib/stream-ticket";
@@ -90,27 +90,32 @@ export interface ActiveCamerasResult {
   /** Ids of cameras currently streaming that the caller may see (RLS). */
   ids: string[];
   /**
-   * Supervisor history for streaming cameras that were restarted at least
-   * once: how many times, and why the previous capture loop ended (an ML
-   * reason string such as "source dropped (no frames)" — never a URL).
+   * Supervisor state per camera the caller may see: streaming cameras that
+   * were restarted at least once (count + why the previous capture loop
+   * ended — an ML reason string such as "source dropped (no frames)", never a
+   * URL), and cameras in backoff (`state: "backoff"`, `nextRetryAt` ISO UTC)
+   * whose source dropped and that the ML supervisor will try again.
    */
   restarts: Record<string, CameraRestartInfo>;
 }
 
 /**
- * Which cameras the ML service is capturing right now. Used by the grid and
- * the live wall to attach to streams started elsewhere and to keep their
- * LIVE badges honest. Filtered through the cameras table so viewers only
- * learn about cameras they can already list.
+ * Which cameras the ML service is capturing right now, and which it is
+ * trying to reconnect. Used by the grid, the live wall and /live to attach to
+ * streams started elsewhere and to keep their LIVE badges honest. Filtered
+ * through the cameras table (RLS, enabled only) so viewers only learn about
+ * cameras they can already list.
  */
 export async function getActiveCamerasAction(): Promise<ActiveCamerasResult> {
   await requireOperator();
-  const active = await mlActiveCameras();
-  if (active === null) return { reachable: false, ids: [], restarts: {} };
-  const ids = active.map((c) => c.camera_id).filter((id) => UUID_RE.test(id));
-  if (ids.length === 0) return { reachable: true, ids: [], restarts: {} };
+  const status = await mlCameraSupervision();
+  if (status === null) return { reachable: false, ids: [], restarts: {} };
+  const known = [...status.active, ...status.reconnecting];
+  const candidates = [...new Set(known.map((c) => c.camera_id).filter((id) => UUID_RE.test(id)))];
+  if (candidates.length === 0) return { reachable: true, ids: [], restarts: {} };
   const supabase = await createClient();
-  const { data } = await supabase.from("cameras").select("id").in("id", ids).eq("enabled", true);
-  const visible = (data ?? []).map((c) => c.id);
-  return { reachable: true, ids: visible, restarts: restartInfoFor(active, new Set(visible)) };
+  const { data } = await supabase.from("cameras").select("id").in("id", candidates).eq("enabled", true);
+  const visible = new Set((data ?? []).map((c) => c.id));
+  const ids = [...new Set(status.active.map((c) => c.camera_id))].filter((id) => visible.has(id));
+  return { reachable: true, ids, restarts: restartInfoFor(known, visible) };
 }

@@ -155,7 +155,8 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
   from the realtime popup; reveal requests notify the second admin (webhook, push, Telegram)
 - Reliability: the ML service records running cameras in `camera_sessions` and resumes them
   after a redeploy (supervisor with backoff); pg_cron probes `/api/uptime` every 5 min and
-  posts ML down/recovered transitions to Telegram
+  posts web app / database / ML down and recovered transitions to Telegram (a full
+  Postgres outage needs an external probe — `docs/OBSERVABILITY.md`)
 - App shell: sticky header (breadcrumbs, ⌘K palette with actions, live ML/DB status,
   theme + language, account menu), grouped sidebar, phone bottom tab bar, toast
   notifications — all driven by one navigation source (`lib/nav.ts`); Geist typography
@@ -309,6 +310,7 @@ npm test                             # jest (222 tests in 25 suites on 2026-09-0
 cd ml-service && venv/bin/pytest -q  # pytest (210 tests on 2026-09-08)
 npm run lint:db                      # supabase db lint --linked
 npm run lint:migrations              # migration filename + safety-waiver lint
+npm run test:sql                     # supabase/tests/*.test.sql on the local Postgres (Docker; starts it + applies migrations)
 npm run gen:types                    # regenerate lib/database.generated.ts after every migration
 npx playwright test                  # e2e (override base URL via PLAYWRIGHT_BASE_URL)
 

@@ -153,6 +153,7 @@ def test_camera_active_lists_only_running_sessions_without_urls(monkeypatch):
     mgr = _Manager()
     # Borrow the real method so the test exercises the production code path.
     mgr.active_sessions = CameraManager.active_sessions.__get__(mgr)
+    mgr.reconnecting_sessions = CameraManager.reconnecting_sessions.__get__(mgr)
     monkeypatch.setattr(main, "camera_manager", mgr)
 
     client = TestClient(main.app)
@@ -166,6 +167,10 @@ def test_camera_active_lists_only_running_sessions_without_urls(monkeypatch):
     assert cams[0]["camera_name"] == "Gate A"
     assert cams[0]["fps"] == 15
     assert cams[0]["started_at"].startswith("2026-09-07T01:02:03")
+    assert cams[0]["state"] == "running"
+    # The finished session has no supervision entry (user stop / dropped), so
+    # it is not "reconnecting" either.
+    assert res.json()["reconnecting"] == []
     assert "secret" not in res.text and "rtsp" not in res.text
 
 
@@ -174,4 +179,4 @@ def test_camera_active_without_manager_is_empty(monkeypatch):
 
     monkeypatch.setattr(main, "camera_manager", None)
     res = TestClient(main.app).get("/camera/active", headers={"Authorization": "Bearer test-token"})
-    assert res.status_code == 200 and res.json() == {"cameras": []}
+    assert res.status_code == 200 and res.json() == {"cameras": [], "reconnecting": []}

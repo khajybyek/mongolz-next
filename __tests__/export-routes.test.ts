@@ -102,6 +102,17 @@ import { POST as labelAlert } from "@/app/api/alerts/[id]/label/route";
 import { GET as auditExport } from "@/app/api/audit/export/route";
 import { GET as heatmap } from "@/app/api/heatmap/route";
 
+/** Raw body bytes: `Response.text()` silently strips a leading BOM. */
+async function bytes(res: Response) {
+  return new Uint8Array(await res.arrayBuffer());
+}
+/** Number of UTF-8 BOM sequences (EF BB BF) anywhere in the body. */
+function bomCount(b: Uint8Array) {
+  let n = 0;
+  for (let i = 0; i + 2 < b.length; i++) if (b[i] === 0xef && b[i + 1] === 0xbb && b[i + 2] === 0xbf) n++;
+  return n;
+}
+
 function many(n: number, make: (i: number) => Record<string, unknown>) {
   return Array.from({ length: n }, (_, i) => make(i));
 }
@@ -292,6 +303,25 @@ describe("alerts CSV", () => {
     expect(res.headers.get("x-export-truncated")).toBe("1");
     expect(res.headers.get("content-disposition")).toContain("_partial.csv");
   });
+
+  it("starts with the UTF-8 BOM exactly once and names the charset", async () => {
+    state.tables.alerts = [
+      { id: "a1", suspect_name: "Бат-Эрдэнэ", camera_name: "정문", created_at: "2026-09-01", state: "new" },
+      { id: "a2", suspect_name: "=HYPERLINK(\"http://evil\")", created_at: "2026-09-01", state: "new" },
+    ];
+    const res = await alertsCsv(req());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+    const b = await bytes(res);
+    expect([...b.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(bomCount(b)).toBe(1);
+    const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(b);
+    expect(text.slice(1).startsWith("suspect_name,")).toBe(true);
+    expect(text).toContain("Бат-Эрдэнэ,");
+    expect(text).toContain(",정문,");
+    // Formula neutralisation survives the BOM.
+    expect(text).toContain(`"'=HYPERLINK(""http://evil"")"`);
+  });
 });
 
 // ── finding 2: alert label ────────────────────────────────────────────────
@@ -349,6 +379,23 @@ describe("audit CSV export", () => {
     const res = await auditExport(new NextRequest("https://app.test/api/audit/export"));
     expect(res.status).toBe(503);
     expect(JSON.stringify(await res.json())).not.toContain("offline");
+  });
+
+  it("starts with the UTF-8 BOM exactly once and names the charset", async () => {
+    state.tables.audit_log = [
+      { id: 1, action: "LOGIN", detail: "Нэвтэрсэн · 로그인", created_at: "2026-09-01" },
+      { id: 2, action: "LOGIN_FAILED", detail: "@SUM(A1)", user_email: "+1", created_at: "2026-09-01" },
+    ];
+    const res = await auditExport(new NextRequest("https://app.test/api/audit/export"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/csv; charset=utf-8");
+    const b = await bytes(res);
+    expect([...b.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(bomCount(b)).toBe(1);
+    const text = new TextDecoder("utf-8", { ignoreBOM: true }).decode(b);
+    expect(text.slice(1).startsWith("id,action,detail,")).toBe(true);
+    expect(text).toContain("Нэвтэрсэн · 로그인");
+    expect(text).toContain(`"'@SUM(A1)","'+1"`);
   });
 });
 

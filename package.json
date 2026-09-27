@@ -29,6 +29,7 @@
     "rotate:keys": "tsx scripts/rotate-keys.ts",
     "gen:vapid": "tsx scripts/gen-vapid.ts",
     "test": "jest",
+    "test:sql": "bash scripts/test-sql.sh",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "encrypt:camera-urls": "tsx scripts/encrypt-camera-urls.ts",

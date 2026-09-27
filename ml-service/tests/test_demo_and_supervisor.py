@@ -11,6 +11,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import time
 import types
 from datetime import datetime, timezone
 
@@ -31,7 +32,7 @@ import camera_worker  # noqa: E402
 import demo_source  # noqa: E402
 import main  # noqa: E402
 import storage as storage_mod  # noqa: E402
-from camera_worker import CameraManager, CameraSupervision, backoff_delay  # noqa: E402
+from camera_worker import CameraManager, CameraSupervision, backoff_delay, public_reason  # noqa: E402
 from storage import (  # noqa: E402
     CameraDesiredState,
     SupabaseStorage,
@@ -314,6 +315,9 @@ def test_camera_active_reports_restart_count_and_last_error(monkeypatch):
         def active_count(self):
             return 1
 
+        def reconnecting_sessions(self):
+            return []
+
     mgr = _Manager()
     mgr.active_sessions = CameraManager.active_sessions.__get__(mgr)
     monkeypatch.setattr(main, "camera_manager", mgr)
@@ -324,7 +328,105 @@ def test_camera_active_reports_restart_count_and_last_error(monkeypatch):
     assert len(cams) == 1 and cams[0]["camera_id"] == "cam-live"
     assert cams[0]["restart_count"] == 3
     assert cams[0]["last_error"] == "source dropped (no frames)"
+    assert cams[0]["state"] == "running" and cams[0]["next_retry_at"] is None
     assert "secret" not in res.text and "rtsp" not in res.text and "10.0.0.5" not in res.text
+
+
+# ── /camera/active reports cameras stuck in supervisor backoff ───────────
+def test_camera_active_lists_backoff_cameras_separately(tmp_path, monkeypatch):
+    mgr, _ = _manager(tmp_path)
+    live_id, down_id = CAM_UUID, "7a2b3c4d-5e6f-4a71-8b82-a3c4d5e6f708"
+    mgr.sessions = {
+        live_id: _FakeSession(_LiveTask()),
+        down_id: _FakeSession(_DoneTask(), name="Parking", exit_reason="source unreachable at open"),
+    }
+    mgr.supervision = {
+        live_id: CameraSupervision(url="rtsp://admin:secret@10.0.0.5/stream", restart_count=1),
+        down_id: CameraSupervision(
+            url="rtsp://admin:secret@10.0.0.6/stream", fps=10, camera_name="Parking",
+            restart_count=4, failures=5, last_error="source unreachable at open",
+            next_retry_at=time.monotonic() + 120.0,
+        ),
+    }
+    monkeypatch.setattr(main, "camera_manager", mgr)
+
+    before = datetime.now(timezone.utc)
+    res = TestClient(main.app).get("/camera/active", headers=HEADERS)
+    assert res.status_code == 200
+    body = res.json()
+    # Backwards compatible: `cameras` still means "running, HLS playable".
+    assert [c["camera_id"] for c in body["cameras"]] == [live_id]
+    assert body["cameras"][0]["state"] == "running"
+    (down,) = body["reconnecting"]
+    assert down["camera_id"] == down_id and down["camera_name"] == "Parking"
+    assert down["state"] == "backoff" and down["capture_status"] == "reconnecting"
+    assert down["restart_count"] == 4
+    assert down["last_error"] == "source unreachable at open"
+    retry = datetime.fromisoformat(down["next_retry_at"].replace("Z", "+00:00"))
+    assert retry.tzinfo is not None and retry.utcoffset().total_seconds() == 0
+    assert 110 <= (retry - before).total_seconds() <= 130
+    assert "secret" not in res.text and "rtsp" not in res.text and "10.0.0." not in res.text
+
+
+def test_reconnecting_sessions_rounds_retry_up_to_the_next_supervisor_tick(tmp_path):
+    mgr, _ = _manager(tmp_path)
+    wall = datetime(2026, 9, 27, 3, 0, 0, tzinfo=timezone.utc)
+    mgr.supervision = {
+        CAM_UUID: CameraSupervision(url="rtsp://h/s", restart_count=0, failures=1, next_retry_at=1005.0),
+    }
+    mgr.sessions = {CAM_UUID: _FakeSession(_DoneTask(), exit_reason="source dropped (no frames)")}
+    # No supervisor loop: the deadline itself.
+    (row,) = mgr.reconnecting_sessions(now=1000.0, now_wall=wall)
+    assert row["next_retry_at"] == "2026-09-27T03:00:05Z"
+    # Loop ticks at 1020, 1050, …: a 1005 deadline is acted on at 1020.
+    mgr._next_tick_at = 1020.0
+    (row,) = mgr.reconnecting_sessions(now=1000.0, now_wall=wall)
+    assert row["next_retry_at"] == "2026-09-27T03:00:20Z"
+    mgr.supervision[CAM_UUID].next_retry_at = 1100.0  # → tick 1110
+    (row,) = mgr.reconnecting_sessions(now=1000.0, now_wall=wall)
+    assert row["next_retry_at"] == "2026-09-27T03:01:50Z"
+
+
+def test_reconnecting_sessions_before_first_tick_and_after_user_stop(tmp_path):
+    mgr, _ = _manager(tmp_path)
+    mgr.supervision = {CAM_UUID: CameraSupervision(url="rtsp://h/s")}
+    crashed = _FakeSession(_DoneTask(RuntimeError("cv2 open rtsp://u:p@h/s")))
+    mgr.sessions = {CAM_UUID: crashed}
+    # Drop not yet noticed by the supervisor: reason derived, retry unknown.
+    (row,) = mgr.reconnecting_sessions()
+    assert row["state"] == "backoff" and row["next_retry_at"] is None
+    assert row["last_error"] == "capture task failed: RuntimeError"
+    # A user stop is not a reconnect.
+    crashed.stopped_by_user = True
+    assert mgr.reconnecting_sessions() == []
+    # Running sessions are never listed here.
+    mgr.sessions = {CAM_UUID: _FakeSession(_LiveTask())}
+    assert mgr.reconnecting_sessions() == []
+
+
+def test_public_reason_strips_urls_and_credentials(tmp_path):
+    assert public_reason(None) is None and public_reason("") is None
+    assert public_reason("source dropped (no frames)") == "source dropped (no frames)"
+    leaked = public_reason("open failed: rtsp://admin:secret@10.0.0.5:554/cam?x=1 timeout")
+    assert "secret" not in leaked and "10.0.0.5" not in leaked and "rtsp" not in leaked
+    assert leaked == "open failed: <redacted> timeout"
+    bare = public_reason("auth admin:hunter2@cam.local refused")
+    assert "hunter2" not in bare and "cam.local" not in bare
+    assert len(public_reason("x" * 1000)) == 200
+
+    # A future reason that echoes the URL never reaches either list.
+    mgr, _ = _manager(tmp_path)
+    mgr.sessions = {
+        CAM_UUID: _FakeSession(_LiveTask()),
+        "cam-down": _FakeSession(_DoneTask()),
+    }
+    mgr.supervision = {
+        CAM_UUID: CameraSupervision(url="rtsp://h/s", restart_count=1, last_error="dropped rtsp://a:b@h/s"),
+        "cam-down": CameraSupervision(url="rtsp://h/s", last_error="dropped a:b@10.1.1.1", next_retry_at=5.0),
+    }
+    rows = mgr.active_sessions() + mgr.reconnecting_sessions(now=1.0)
+    text = repr(rows)
+    assert "a:b" not in text and "10.1.1.1" not in text and "rtsp" not in text
 
 
 # ── supervisor + registry behaviour (no real sessions) ───────────────────

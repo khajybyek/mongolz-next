@@ -647,10 +647,19 @@ def camera_active():
     """Cameras currently being captured (HLS available). Feeds the multi-camera
     grid and the live wall so they can attach to streams started elsewhere.
     Each entry also carries the supervisor's ``restart_count`` and
-    ``last_error`` (why the previous capture loop ended); never a URL."""
+    ``last_error`` (why the previous capture loop ended), ``state`` and
+    ``next_retry_at``; never a URL.
+
+    ``cameras`` keeps its original meaning (running, HLS playable — older
+    callers treat every entry as a stream). Supervised cameras that dropped
+    and are waiting for a retry are listed separately under ``reconnecting``
+    with ``state = "backoff"`` and ``next_retry_at`` (ISO UTC or null)."""
     if not camera_manager:
-        return {"cameras": []}
-    return {"cameras": camera_manager.active_sessions()}
+        return {"cameras": [], "reconnecting": []}
+    return {
+        "cameras": camera_manager.active_sessions(),
+        "reconnecting": camera_manager.reconnecting_sessions(),
+    }
 
 
 # ── /camera/test — quick reachability probe before saving a config ──

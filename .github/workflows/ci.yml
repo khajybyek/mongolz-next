@@ -71,6 +71,30 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
 
+  # Plain-SQL assertions (supabase/tests/*.test.sql) against a real Postgres
+  # with every migration applied: the security functions, lease RPCs and
+  # search paging that Jest only covers through JavaScript mirrors. Local:
+  # `npm run test:sql`.
+  test-sql:
+    name: SQL tests (Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
+        with:
+          # Same CLI the SQL tests were written against locally.
+          version: 2.95.4
+
+      - name: Start local database (applies every migration)
+        run: supabase db start
+
+      - name: Run SQL tests
+        run: bash scripts/test-sql.sh
+
   test-ml:
     name: Test (Pytest)
     runs-on: ubuntu-latest

@@ -20,3 +20,27 @@ export function csvCell(v: unknown): string {
   }
   return s;
 }
+
+/**
+ * UTF-8 byte-order mark. Excel opens a BOM-less CSV in the machine's legacy
+ * code page (Windows-1252, CP949, ...), so Mongolian Cyrillic and Korean
+ * cells arrive as mojibake. The BOM is the signal Excel honours; other
+ * readers (LibreOffice, pandas, Numbers, `TextDecoder`) strip it.
+ */
+export const UTF8_BOM = "\uFEFF";
+
+/** Content-Type for every CSV the app serves; always paired with `csvDocument`. */
+export const CSV_CONTENT_TYPE = "text/csv; charset=utf-8";
+
+/**
+ * A finished CSV document, ready to be a response body: prefixed with the
+ * UTF-8 BOM exactly once (idempotent: a body that already starts with it is
+ * returned unchanged). Cells must already be encoded with `csvCell`, which is
+ * where formula neutralisation happens; the BOM sits before the first cell
+ * and does not change how any cell is encoded.
+ *
+ * A streaming export must instead enqueue `UTF8_BOM` as its first chunk.
+ */
+export function csvDocument(csv: string): string {
+  return csv.startsWith(UTF8_BOM) ? csv : UTF8_BOM + csv;
+}

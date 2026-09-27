@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireAdminOrAuditorApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 
-import { csvCell } from "@/lib/csv";
+import { csvCell, csvDocument, CSV_CONTENT_TYPE } from "@/lib/csv";
 import { fetchAllPaged } from "@/lib/paged-fetch";
 import { log } from "@/lib/log";
 
@@ -49,11 +49,12 @@ export async function GET(req: NextRequest) {
   const rows = data.map((r) =>
     header.map((h) => csvCell(r[h as keyof typeof r])).join(","),
   );
-  const csv = [header.join(","), ...rows].join("\n") + "\n";
+  // BOM first: without it Excel decodes Cyrillic / Hangul details as mojibake.
+  const csv = csvDocument([header.join(","), ...rows].join("\n") + "\n");
 
   return new NextResponse(csv, {
     headers: {
-      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Type": CSV_CONTENT_TYPE,
       // Plain-link download: the filename is where the auditor sees the cap.
       "Content-Disposition": `attachment; filename="mongolz-audit-${Date.now()}${truncated ? "-partial" : ""}.csv"`,
       "X-Export-Truncated": truncated ? "1" : "0",

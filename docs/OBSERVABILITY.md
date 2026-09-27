@@ -69,6 +69,42 @@ move to a paid plan and set the schedule and `RECENT_WINDOW_MIN` /
 A failed count query now answers 500 (`status: "error"`) instead of
 reporting a green window built on a query that never ran.
 
+## Uptime alerting
+
+pg_cron probes `GET https://aicctv.dev/api/uptime` every 5 minutes
+(`private.uptime_probe()`) and `private.uptime_collect()` turns each reply
+into a `public.uptime_checks` row with three independent verdicts:
+
+| Column | Meaning | Unknown (NULL) when |
+|---|---|---|
+| `web_ok` | The web app answered with `/api/uptime`'s JSON body (HTTP 200 or 503) | not collected yet |
+| `db_ok` | `checks.db.ok` from that body — Vercel → Supabase round trip (`public.ping()`) | the web app did not answer |
+| `ml_ok` | `checks.ml.ok` — Vercel → Railway ML health | the web app did not answer |
+
+A timeout, no response, an HTML 5xx or a foreign JSON body is `web_ok =
+false` — never "ML down". Telegram receives one message per transition
+(`web_down` / `web_recovered` / `db_down` / `db_recovered` / `ml_down` /
+`ml_recovered`) through the `telegram-alerts` edge function; each probe is
+compared with the one before it for web, and with the previous web-answered
+probe for db and ml — also when a late response resolves two probes in one
+collector run. `notified` records what was sent, so nothing is sent twice. Detection
+takes one probe interval plus the 2-minute collection lag (≤ ~7 min).
+Details and inspection queries: [RUNBOOK §5](RUNBOOK.md#uptime-monitor-pg_cron).
+
+**Limitation: a complete Postgres outage cannot alert from here.** pg_cron,
+pg_net and the vault secrets all live inside the database, so when Postgres
+is down the monitor stops instead of reporting. `db_down` therefore means
+"the app cannot reach the database while Postgres itself still runs"
+(PostgREST, pooler, API key, network). Covering a full outage needs a probe
+outside Supabase — the concrete option is a GitHub Actions workflow on
+`schedule: "*/15 * * * *"` that calls `/api/uptime` and PostgREST
+`rpc/ping` and posts to the Telegram Bot API on a failure. It needs
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (and `SUPABASE_ANON_KEY`) as
+GitHub Actions secrets, which only the owner can add; the full recipe,
+including the Actions-minutes cost, is in
+[RUNBOOK §5](RUNBOOK.md#external-probe-covers-a-full-database-outage--owner-action).
+It is not in the repository yet.
+
 ## Trace propagation
 
 `lib/trace.ts` exports `withSpan(name, fn)` and `tracedFetch(url)`.

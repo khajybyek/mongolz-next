@@ -29,9 +29,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
+import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from recording_pipeline import RecordingSession, redact_url
@@ -61,6 +64,32 @@ def backoff_delay(failures: int, base: float = BACKOFF_BASE_SEC, cap: float = BA
     return min(base * (2 ** max(0, int(failures))), cap)
 
 
+PUBLIC_REASON_MAX_LEN = 200
+# Anything URL-shaped (scheme://…) or credential-shaped (user:pass@host).
+# The reasons written today are fixed strings or exception type names, so
+# this never fires; it exists so a future reason that echoes a source URL
+# cannot reach /camera/active (the web and every operator reads it).
+_URL_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://\S*")
+_CREDENTIAL_TOKEN = re.compile(r"\S*:\S*@\S+")
+
+
+def public_reason(reason: str | None) -> str | None:
+    """A supervisor reason safe to return to callers: no URL, no credentials,
+    bounded length. ``None``/empty stays ``None``."""
+    if not reason:
+        return None
+    text = _URL_TOKEN.sub("<redacted>", str(reason))
+    text = _CREDENTIAL_TOKEN.sub("<redacted>", text)
+    text = " ".join(text.split())[:PUBLIC_REASON_MAX_LEN]
+    return text or None
+
+
+def _monotonic_to_utc_iso(at: float, now_mono: float, now_wall: datetime) -> str:
+    """Convert a ``time.monotonic()`` instant to ISO-8601 UTC (second precision)."""
+    wall = now_wall + timedelta(seconds=at - now_mono)
+    return wall.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 @dataclass
 class CameraSupervision:
     """Per-camera restart bookkeeping. ``url`` stays in memory only — it is
@@ -85,6 +114,10 @@ class CameraManager:
         self.supervision: dict[str, CameraSupervision] = {}
         self.reveal = RevealProcessor(face_engine, storage)
         self._supervisor_task: asyncio.Task | None = None
+        # monotonic time of the next supervisor tick (None = no loop running).
+        # Retries only happen on a tick, so "next try" is the first tick at or
+        # after the backoff deadline, not the deadline itself.
+        self._next_tick_at: float | None = None
         os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
     def active_count(self) -> int:
@@ -113,7 +146,70 @@ class CameraManager:
                     "capture_status": "capturing",
                     "segment_duration_sec": getattr(s, "segment_duration_sec", 120),
                     "restart_count": sup.restart_count if sup else 0,
-                    "last_error": sup.last_error if sup else None,
+                    "last_error": public_reason(sup.last_error) if sup else None,
+                    "state": "running",
+                    "next_retry_at": None,
+                }
+            )
+        return out
+
+    def _effective_retry_at(self, deadline: float, now: float) -> float:
+        """The supervisor tick that will actually act on ``deadline``.
+
+        Without a running loop (tests, shutdown) the deadline itself is the
+        best answer. A tick time already in the past means a tick is running
+        right now; ``now`` stands in for it."""
+        tick = getattr(self, "_next_tick_at", None)
+        if tick is None:
+            return deadline
+        tick = max(tick, now)
+        if deadline <= tick:
+            return tick
+        steps = math.ceil((deadline - tick) / SUPERVISOR_INTERVAL_SEC)
+        return tick + steps * SUPERVISOR_INTERVAL_SEC
+
+    def reconnecting_sessions(
+        self, now: float | None = None, now_wall: datetime | None = None
+    ) -> list[dict]:
+        """Supervised cameras whose capture loop is NOT running — dropped and
+        waiting for (or between) supervisor retries. ``/camera/active`` used to
+        hide them entirely, so an unreachable source looked merely idle.
+
+        Same privacy rule as ``active_sessions``: no URL, and ``last_error``
+        passes through ``public_reason``. ``next_retry_at`` is ISO-8601 UTC, or
+        None until the supervisor has noticed the drop (≤ one tick)."""
+        now = time.monotonic() if now is None else now
+        now_wall = datetime.now(timezone.utc) if now_wall is None else now_wall
+        out: list[dict] = []
+        for camera_id, sup in list(self.supervision.items()):
+            session = self.sessions.get(camera_id)
+            if session is not None:
+                if getattr(session, "stopped_by_user", False):
+                    continue
+                if session.task and not session.task.done():
+                    continue  # running → reported by active_sessions
+            reason = sup.last_error
+            if reason is None and session is not None:
+                reason = self._exit_reason(session)
+            retry_at = (
+                _monotonic_to_utc_iso(
+                    self._effective_retry_at(sup.next_retry_at, now), now, now_wall
+                )
+                if sup.next_retry_at is not None
+                else None
+            )
+            out.append(
+                {
+                    "camera_id": camera_id,
+                    "camera_name": sup.camera_name,
+                    "started_at": None,
+                    "fps": sup.fps,
+                    "frames_total": 0,
+                    "capture_status": "reconnecting",
+                    "restart_count": sup.restart_count,
+                    "last_error": public_reason(reason),
+                    "state": "backoff",
+                    "next_retry_at": retry_at,
                 }
             )
         return out
@@ -375,6 +471,7 @@ class CameraManager:
 
     async def stop_supervisor(self) -> None:
         task, self._supervisor_task = self._supervisor_task, None
+        self._next_tick_at = None
         if task and not task.done():
             task.cancel()
             try:
@@ -384,6 +481,7 @@ class CameraManager:
 
     async def _supervise_forever(self) -> None:
         while True:
+            self._next_tick_at = time.monotonic() + SUPERVISOR_INTERVAL_SEC
             await asyncio.sleep(SUPERVISOR_INTERVAL_SEC)
             try:
                 await self.supervise_once()

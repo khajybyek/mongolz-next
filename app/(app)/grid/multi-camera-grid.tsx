@@ -21,6 +21,7 @@ import { useToast } from "@/components/ui/toast";
 import { useT } from "@/lib/i18n/client";
 import { cn, formatDate } from "@/lib/utils";
 import type { CameraRestartInfo } from "@/lib/camera-restarts";
+import { CameraReconnectLine, CameraRestartBadge } from "@/components/camera-restart-status";
 import {
   getActiveCamerasAction,
   getStreamTicketAction,
@@ -591,7 +592,8 @@ function GridTile({
   failed: boolean;
   /** HTTP status when the stream was refused (403 = disabled or not granted). */
   deniedStatus?: number;
-  /** Set when the ML supervisor restarted this capture at least once. */
+  /** Set when the ML supervisor restarted this capture at least once, or
+   *  when it is waiting to reconnect a dropped source (state "backoff"). */
   restart?: CameraRestartInfo;
   playing: boolean;
   fill: boolean;
@@ -639,6 +641,11 @@ function GridTile({
                 ? t("grid_idle")
                 : t("grid_waiting_stream")}
           </span>
+          {/* Supervisor backoff: the source dropped and the ML service will
+              retry on its own — say when, instead of looking merely idle. */}
+          {restart?.state === "backoff" && (
+            <CameraReconnectLine info={restart} className="max-w-[90%] px-2 text-2xs" />
+          )}
         </div>
       )}
 
@@ -706,16 +713,11 @@ function GridTile({
           {cam.last_seen ? `${t("wall_last")}: ${formatDate(cam.last_seen)}` : t("wall_no_detection")}
           {" · "}
           <span className="font-mono">{cam.faces_1h}/1h</span>
-          {restart && (
-            <span
-              className="ml-1 inline-flex items-center gap-0.5 text-warning"
-              title={restart.lastError ? `${t("grid_restarted")} ×${restart.count}: ${restart.lastError}` : `${t("grid_restarted")} ×${restart.count}`}
-            >
+          {restart && restart.count > 0 && (
+            <>
               {" · "}
-              <AlertTriangle className="w-3 h-3" aria-hidden />
-              {t("grid_restarted")} ×{restart.count}
-              {restart.lastError && <span className="sr-only">: {restart.lastError}</span>}
-            </span>
+              <CameraRestartBadge info={restart} className="ml-0.5" />
+            </>
           )}
         </span>
         <span className="flex items-center gap-1 shrink-0">

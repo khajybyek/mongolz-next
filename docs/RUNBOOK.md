@@ -13,7 +13,7 @@ and [COMPLIANCE.md](COMPLIANCE.md) (legal mapping).
 | **RPO** (data loss tolerance) | ≤ 24 h | Supabase Postgres | Daily Vercel-Cron `backup-verify` + Supabase point-in-time backup (Pro tier feature; falls back to manual `pg_dump` on Free). |
 | **RPO** — alerts only | ≤ 5 min | Realtime + audit_log | Hash-chained audit means tampering is detectable even mid-window. |
 | **RTO** (downtime tolerance) | ≤ 60 min | Vercel + Supabase + Railway | Restore from backup ZIP + redeploy each tier. Drill timed at 35-50 min on staging copy. |
-| **MTTD** (detect) | ≤ 5 min for outages; ≤ 24 h for failed-login spikes, backup-verify failures and overdue keys | pg_cron uptime probe (*/5) + Sentry; daily `/api/monitoring/error-rate`, daily `backup-verify`, weekly `key-rotation-check` | The Hobby plan allows at most one run per day per cron, so the scheduled checks cannot detect in minutes. Their alarms reach admins by push + Telegram (`lib/notify.ts#notifyOpsAlarm`) and appear on `/health` ("Scheduled checks"); Slack only if `SLACK_ALERT_WEBHOOK` is set. |
+| **MTTD** (detect) | ≤ 5–10 min for web app / DB-path / ML outages (a complete Postgres outage stops the in-DB probe — only an external probe detects it, §5); ≤ 24 h for failed-login spikes, backup-verify failures and overdue keys | pg_cron uptime probe (*/5) + Sentry; daily `/api/monitoring/error-rate`, daily `backup-verify`, weekly `key-rotation-check` | The Hobby plan allows at most one run per day per cron, so the scheduled checks cannot detect in minutes. Their alarms reach admins by push + Telegram (`lib/notify.ts#notifyOpsAlarm`) and appear on `/health` ("Scheduled checks"); Slack only if `SLACK_ALERT_WEBHOOK` is set. |
 | **MTTR** (resolve) | ≤ 30 min for P1 | Operator + this runbook |  |
 
 P1 = "users cannot log in" OR "live recording paused" OR "audit chain broken".
@@ -611,6 +611,14 @@ usually means the source is reachable but not delivering (RTSP handshake OK,
 no frames) — the loop exits after 100 consecutive failed reads and the
 supervisor restarts it with backoff (5 s · 2ⁿ, capped at 300 s).
 
+A camera that is *waiting* for one of those retries (source unreachable,
+capture crashed) is not in `cameras` on `/camera/active` — that list stays
+"running, HLS playable" — but in `reconnecting`, with `state: "backoff"`,
+`restart_count`, the sanitised `last_error` and `next_retry_at` (ISO UTC, the
+supervisor tick that will act on it; `null` until the drop has been noticed).
+`/live` and `/grid` show it as "Reconnecting — next try at HH:mm (KST)" to
+anyone who may list the camera.
+
 ### ML benchmark (`/eval/bench` → `/benchmarks`)
 
 The benchmark used to run on a uniform-noise image in which the detector finds
@@ -643,29 +651,55 @@ never blocks the request that triggered it). Source: `lib/notify.ts`.
 | Suspect alert | `alerts` INSERT trigger (`notify_telegram_on_alert`, pg_net) | Telegram · webhooks (`alert_created`) · web push (`/api/push/dispatch`) |
 | Reveal request (4-eyes) | `POST /api/reveal/start` → job `pending_approval` | Telegram · webhooks (`reveal_requested`) · web push to every admin **except the requester** → `/reveal-approvals` |
 | Reveal decision | `approveRevealAction` / `rejectRevealAction` | Telegram · webhooks (`reveal_completed`, status `approved` / `rejected`) · web push to the requester → `/jobs` |
-| ML service down / recovered | in-DB uptime monitor (below) | Telegram (🔴 `ml_down` / 🟢 `ml_recovered`) |
+| Web app / database / ML down or recovered | in-DB uptime monitor (below) | Telegram (🔴 `web_down` · `db_down` · `ml_down` / 🟢 `web_recovered` · `db_recovered` · `ml_recovered`) |
 
 All Telegram traffic goes through the `telegram-alerts` edge function
-(`supabase/functions/telegram-alerts/index.ts`), which branches on
-`payload.kind`. Redeploy it after any message change:
+(`supabase/functions/telegram-alerts/index.ts`; the messages live in
+`messages.ts` next to it), which branches on `payload.kind`. Redeploy it after any message change:
 `npx supabase functions deploy telegram-alerts --project-ref ulybenitqmqjfxtaregp`.
 
 ### Uptime monitor (pg_cron)
 
 Vercel Hobby crons are daily, so the 5-minute probe lives in Postgres
-(`supabase/migrations/20260906170200_uptime_monitor_pg_cron.sql`):
+(`supabase/migrations/20260906170200_uptime_monitor_pg_cron.sql`, collector
+redefined in `20260927110000_uptime_per_component_alerts.sql`):
 
 1. `mongolz-uptime-probe` (`*/5 * * * *`) — `net.http_get` on
    `https://aicctv.dev/api/uptime`, row inserted into `public.uptime_checks`.
-2. `mongolz-uptime-collect` (`2-59/5 * * * *`) — parses the response into
-   `ml_ok` / `db_ok` / `status`; on an ML ok↔down transition between the two
-   latest probes it POSTs `{"kind":"ml_down"|"ml_recovered","checked_at":…}`
-   to the edge function once (`notified` column) and prunes rows > 30 days.
+2. `mongolz-uptime-collect` (`2-59/5 * * * *`) — resolves each probe:
+   - `web_ok = true` only when the reply is `/api/uptime`'s own JSON body
+     (`checks.ml.ok` and `checks.db.ok` both booleans; HTTP 200 or 503).
+     `ml_ok` / `db_ok` are copied from it.
+   - Timeout, no response, an HTML 5xx or any other body → `web_ok = false`
+     and `ml_ok` / `db_ok` stay **NULL** (unknown — not reported as down).
+     `http_status` is `0` for timeout / no response.
+   - Transitions, one Telegram message each (`{"kind":…,"checked_at":…}`),
+     evaluated for every probe the run resolved (oldest first) plus the newest
+     completed probe — a response that arrives late or a skipped collect tick
+     resolves two probes at once and neither transition is lost:
+     **web** a probe against the completed probe just before it; **db** and
+     **ml** only while the web app answers — a probe against the most recent
+     earlier probe the web app also answered, so a component that changed
+     during a web outage is reported when the web comes back. Order: web,
+     db, ml. `notified` lists every kind already sent for that probe
+     (comma-separated), so a re-run never sends one twice.
+   - Rows older than 30 days are pruned.
+
+**Deploy order when the message set changes:** deploy `telegram-alerts`
+first, then apply the migration — the old function renders unknown kinds as
+an empty suspect alert.
+
+**What the `db` check means.** `checks.db.ok` is Vercel → Supabase
+(`probeDb()` in `lib/health-probes.ts`). When it fails while pg_cron still
+runs, Postgres itself is alive and the fault is on the path the app uses
+(PostgREST / pooler / API key / network). A **complete Postgres outage**
+stops pg_cron as well, so this monitor goes silent instead of alerting —
+see "External probe" below.
 
 Inspect:
 
 ```sql
-select checked_at, http_status, ml_ok, db_ok, status, notified
+select checked_at, http_status, web_ok, ml_ok, db_ok, status, notified
   from public.uptime_checks order by checked_at desc limit 20;
 
 select jobid, jobname, schedule, active from cron.job;
@@ -675,7 +709,38 @@ select * from cron.job_run_details order by start_time desc limit 10;
 No Telegram on an outage usually means the vault secrets are missing
 (`select name from vault.decrypted_secrets` must list `edge_url` and
 `service_role_key`) or the edge function returned non-2xx — check
-`net._http_response` for the latest `request_id`.
+`net._http_response` for the latest `request_id`. No new `uptime_checks`
+rows at all means pg_cron is not running — i.e. the database itself is down
+or `cron.job` lost its schedule.
+
+#### External probe (covers a full database outage) — owner action
+
+Nothing inside Postgres can report that Postgres is down. The concrete
+option on the current plans is a GitHub Actions scheduled workflow:
+
+- `on: schedule: - cron: "*/15 * * * *"` (GitHub may delay scheduled runs
+  by several minutes; 15 min is the realistic floor) plus
+  `workflow_dispatch` for a manual test.
+- One step: `curl -s -m 20 -o body.json -w '%{http_code}' https://aicctv.dev/api/uptime`;
+  treat anything except HTTP 200 with `"status":"ok"` as a failure, and also
+  run a PostgREST liveness call (`POST
+  https://ulybenitqmqjfxtaregp.supabase.co/rest/v1/rpc/ping` with the anon
+  key as `apikey`; `public.ping()` is granted to `anon` and touches no data)
+  so a database outage is named as such.
+- On failure: `curl` the Telegram Bot API `sendMessage` with
+  `chat_id=$TELEGRAM_CHAT_ID`. To avoid a message every 15 min, alert only
+  when the previous run of the workflow succeeded (or cache the last state
+  with `actions/cache`).
+- **Secrets the owner must add** (repository → Settings → Secrets and
+  variables → Actions): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — the same
+  values the `telegram-alerts` edge function uses — and, for the PostgREST
+  call, `SUPABASE_ANON_KEY`. They are not in the repository and must not be.
+- Pin actions to commit SHAs like the existing workflows. On this private
+  repo every job is billed as at least one minute: `*/15` is ~2 900
+  minutes a month, above GitHub Free's 2 000 — use `*/30` (~1 450) on Free,
+  or keep `*/15` on a plan with 3 000+ minutes.
+
+Not added yet: it needs those secrets first.
 
 ---
 

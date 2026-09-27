@@ -29,6 +29,8 @@ import {
   RecordingUploadQueue,
 } from "@/lib/recording-upload";
 import { UploadJobPanel } from "@/components/upload-job-panel";
+import { CameraReconnectLine, CameraRestartBadge } from "@/components/camera-restart-status";
+import type { CameraRestartInfo } from "@/lib/camera-restarts";
 import { workflowCopy } from "@/lib/workflow-copy";
 
 interface Camera {
@@ -725,14 +727,22 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
   // to bounce them to /dashboard?error=admin-only). They attach to streams
   // that are already running; this is the set the ML service reports.
   const [running, setRunning] = useState<Set<string> | null>(null);
+  // ML supervisor state for every camera the caller may see (the action
+  // filters through the cameras table): restart count + last reason, and
+  // whether a dropped source is waiting to reconnect. Polled for admins too —
+  // a camera stuck in backoff otherwise just looks idle.
+  const [restarts, setRestarts] = useState<Record<string, CameraRestartInfo>>({});
 
   useEffect(() => {
-    if (canControl) return;
     let cancelled = false;
     async function poll() {
       try {
         const res = await getActiveCamerasAction();
-        if (!cancelled) setRunning(new Set(res.ids));
+        if (cancelled) return;
+        setRunning(new Set(res.ids));
+        // Unreachable ML: keep the last known restart info rather than
+        // blanking it (same as /grid).
+        if (res.reachable) setRestarts(res.restarts ?? {});
       } catch {
         if (!cancelled) setRunning(new Set());
       }
@@ -743,7 +753,7 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
       cancelled = true;
       clearInterval(timer);
     };
-  }, [canControl]);
+  }, []);
 
   async function watch(c: Camera) {
     setError(null);
@@ -847,6 +857,12 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">{c.name}</div>
               <div className="text-[10px] text-text-muted uppercase">{c.cam_type}</div>
+              {c.enabled && restarts[c.id] && (
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] leading-tight">
+                  <CameraRestartBadge info={restarts[c.id]} />
+                  <CameraReconnectLine info={restarts[c.id]} className="min-w-0 max-w-full" />
+                </div>
+              )}
             </div>
             {!canControl && c.enabled ? (
               active === c.id ? (
