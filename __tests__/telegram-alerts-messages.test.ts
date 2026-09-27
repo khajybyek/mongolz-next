@@ -8,11 +8,16 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import {
-  UPTIME_KINDS,
-  buildMessage,
-  type Payload,
-} from "@/supabase/functions/telegram-alerts/messages";
+
+// Loaded at run time, not imported: .vercelignore keeps /supabase/ out of
+// the Vercel upload, and `next build` type-checks __tests__ too, so a static
+// import of the edge function's module fails the production build (TS2307).
+type Payload = { kind: string } & Record<string, unknown>;
+const messages = jest.requireActual<{
+  UPTIME_KINDS: readonly string[];
+  buildMessage: (payload: Payload) => string;
+}>(path.join(__dirname, "..", "supabase", "functions", "telegram-alerts", "messages.ts"));
+const { UPTIME_KINDS, buildMessage } = messages;
 
 const MIGRATIONS = path.join(__dirname, "..", "supabase", "migrations");
 
@@ -38,23 +43,24 @@ function collectorKinds(sql: string): string[] {
 }
 
 const AT = "2026-09-27T01:00:00Z";
-const defaultAlert = buildMessage({ kind: "alert", created_at: AT } as unknown as Payload);
+const defaultAlert = buildMessage({ kind: "alert", created_at: AT });
 
 describe("telegram-alerts uptime kinds", () => {
   it("renders exactly the kinds private.uptime_collect() posts", () => {
     expect(collectorKinds(latestCollectorSql())).toEqual([...UPTIME_KINDS].sort());
   });
 
-  it.each(UPTIME_KINDS)("%s renders an uptime message, not the suspect-alert fallback", (kind) => {
+  it.each([...UPTIME_KINDS])("%s renders an uptime message, not the suspect-alert fallback", (kind: string) => {
     const text = buildMessage({ kind, checked_at: AT });
     expect(text).not.toBe(defaultAlert);
     expect(text).not.toContain("Security Alert");
-    const component = { web: "Web app", db: "Database", ml: "ML service" }[kind.split("_")[0]];
+    const labels: Record<string, string> = { web: "Web app", db: "Database", ml: "ML service" };
+    const component = labels[kind.split("_")[0]];
     expect(text).toContain(`*${component} ${kind.endsWith("_down") ? "DOWN" : "recovered"}*`);
     expect(text).toContain("2026");
   });
 
   it("an unknown kind still falls back to the suspect-alert branch", () => {
-    expect(buildMessage({ kind: "web_dwn", created_at: AT, checked_at: AT } as unknown as Payload)).toBe(defaultAlert);
+    expect(buildMessage({ kind: "web_dwn", created_at: AT, checked_at: AT })).toBe(defaultAlert);
   });
 });
