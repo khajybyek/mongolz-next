@@ -17,6 +17,7 @@
 import * as Sentry from "@sentry/nextjs";
 import {
   BROWSER_TRACES_SAMPLE_RATE,
+  SENTRY_DATA_COLLECTION,
   browserErrorReportingDsn,
   scrubSentryBreadcrumb,
   scrubSentryEvent,
@@ -29,8 +30,9 @@ if (dsn) {
     dsn,
     // Errors are always captured; this only samples performance transactions.
     tracesSampleRate: BROWSER_TRACES_SAMPLE_RATE,
-    // Never attach IP / cookies / user agent-derived identity to an event.
-    sendDefaultPii: false,
+    // Never attach IP / cookies / bodies / query strings to an event or span
+    // (SDK v11 collects all of them by default; see lib/error-reporting.ts).
+    dataCollection: SENTRY_DATA_COLLECTION,
     integrations: [Sentry.browserTracingIntegration()],
     // Session Replay is deliberately NOT enabled. It records the DOM of a
     // console that shows face crops, camera names and RTSP hostnames;

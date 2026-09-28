@@ -34,7 +34,26 @@ All three runtimes share `lib/error-reporting.ts`:
   and query strings (HLS stream tickets ride in those) from **every** event,
   not just `/api/auth` as the old browser config did.
 * `beforeBreadcrumb` strips query strings from fetch/xhr breadcrumbs.
-* `sendDefaultPii: false` everywhere.
+* `dataCollection: SENTRY_DATA_COLLECTION` everywhere. SDK v11 removed
+  `sendDefaultPii`; left unset, `dataCollection` collects client IPs,
+  cookies, every header, request bodies and query strings, and only masks
+  names that look like "token"/"secret". The shared constant turns off user
+  info, cookies, bodies, query strings and payload capture, and denies the
+  IP / geo headers (`x-forwarded-for`, `x-real-ip`, `x-vercel-ip-*`).
+  `beforeSend` never runs on **sampled spans**, so this is what keeps
+  those clean — but `urlQueryParams: false` filters only the attributes
+  the SDK builds (`url.full`, `url.query`). Next sets `http.target` to the
+  raw `req.url` on every root span, so on the server and edge
+  `beforeSendSpan: scrubSentrySpan` strips the query from `http.target`
+  and from the `referer` / `location` header attributes (stream
+  `?ticket=`, `/audit?q=…`). `beforeSend` also drops request bodies,
+  `user.ip_address` and the same headers, as a second line.
+* `attachStacktrace: false` on the server, so `captureMessage` (CSP
+  beacons, the boot-time config check) stays a message instead of a
+  synthetic exception. CSP issues are fingerprinted per directive.
+* Production events are tagged `environment: production` (SDK v11 uses
+  `VERCEL_TARGET_ENV`; before v11 it was `vercel-production`). Sentry alert
+  rules and saved searches must filter on the new name.
 * Session Replay is deliberately **off**: it records the DOM of a console
   that displays face crops, camera names and RTSP hostnames.
 
@@ -182,9 +201,16 @@ latencies, never the underlying counts.
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Vercel + ML Service | OTLP collector — when set, NodeSDK initialises |
 | `OTEL_SERVICE_NAME` | Vercel + ML Service | Auto-set per service |
 
-The OTLP endpoint is optional — without it, all `withSpan` /
-`tracedFetch` calls are zero-cost no-ops. Sentry transactions still
-work via the Sentry SDK.
+The OTLP endpoint is optional. Note how it interacts with Sentry: when a
+Sentry DSN is set, `Sentry.init` registers the global OpenTelemetry tracer
+provider first, so `withSpan` / `tracedFetch` spans become Sentry spans
+(they are no-ops only when neither Sentry nor an endpoint is configured),
+and `lib/telemetry.ts`'s NodeSDK — started after Sentry — has its own
+provider registration refused, so nothing is exported over OTLP. Real
+OTLP export needs setup 3 of the Sentry v11 migration guide ("your own
+OpenTelemetry, Sentry linked to it": `enableOpenTelemetrySetup: false` +
+`Sentry.openTelemetryIntegration()`), which moves Next.js server spans
+out of Sentry. Sentry transactions work without any of this.
 
 ## On-call runbook (abbreviated)
 

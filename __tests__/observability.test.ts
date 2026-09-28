@@ -15,10 +15,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  SENTRY_DATA_COLLECTION,
   browserErrorReportingDsn,
   errorReportingEnabled,
   scrubSentryBreadcrumb,
   scrubSentryEvent,
+  scrubSentrySpan,
   serverErrorReportingDsn,
   stripQuery,
 } from "@/lib/error-reporting";
@@ -108,6 +110,32 @@ describe("event scrubbing", () => {
     expect(scrubSentryEvent({})).toEqual({});
   });
 
+  it("drops request bodies, the client IP and IP / geo headers", () => {
+    // SDK v11 no longer has sendDefaultPii: these are collected unless
+    // dataCollection says otherwise, so beforeSend is the second line.
+    const event = scrubSentryEvent({
+      user: { ip_address: "203.0.113.7" },
+      request: {
+        url: "https://aicctv.dev/api/auth/reauth",
+        data: '{"password":"hunter2"}',
+        headers: {
+          "X-Forwarded-For": "203.0.113.7",
+          "x-real-ip": "203.0.113.7",
+          "x-vercel-ip-city": "Seoul",
+          "x-vercel-ip-latitude": "37.5",
+          "User-Agent": "Mozilla/5.0",
+        },
+      },
+    });
+
+    expect(event.request?.data).toBeUndefined();
+    expect(event.user).toEqual({});
+    expect(event.request?.headers).toEqual({ "User-Agent": "Mozilla/5.0" });
+    expect(JSON.stringify(event)).not.toContain("hunter2");
+    expect(JSON.stringify(event)).not.toContain("203.0.113.7");
+    expect(JSON.stringify(event)).not.toContain("Seoul");
+  });
+
   it("strips query strings from fetch breadcrumbs", () => {
     const crumb = scrubSentryBreadcrumb({
       category: "fetch",
@@ -118,6 +146,41 @@ describe("event scrubbing", () => {
 
   it("leaves a plain URL alone", () => {
     expect(stripQuery("/api/uptime")).toBe("/api/uptime");
+  });
+});
+
+describe("span scrubbing", () => {
+  it("strips the query from Next's http.target and the referer / location headers", () => {
+    // dataCollection.urlQueryParams filters url.full / url.query only; Next
+    // sets http.target to the raw req.url on every root span.
+    const span = scrubSentrySpan({
+      name: "GET /api/ml/stream/[cameraId]/[segment]",
+      attributes: {
+        "http.target": "/api/ml/stream/cam-1/index.m3u8?ticket=SIGNED_TICKET",
+        "http.request.header.referer": ["https://aicctv.dev/audit?q=face-search#top"],
+        "http.response.header.location": { value: "/login?next=%2Fplayback%2F1" },
+        "http.route": "/api/ml/stream/[cameraId]/[segment]",
+        "http.status_code": 200,
+      },
+    });
+
+    expect(span.attributes).toEqual({
+      "http.target": "/api/ml/stream/cam-1/index.m3u8",
+      "http.request.header.referer": ["https://aicctv.dev/audit"],
+      "http.response.header.location": { value: "/login" },
+      "http.route": "/api/ml/stream/[cameraId]/[segment]",
+      "http.status_code": 200,
+    });
+    expect(JSON.stringify(span)).not.toContain("SIGNED_TICKET");
+  });
+
+  it("returns the span it was given, with or without attributes", () => {
+    // SDK v11 ignores null from beforeSendSpan: dropping is not an option.
+    const bare: { name: string; attributes?: Record<string, unknown> } = { name: "x" };
+    expect(scrubSentrySpan(bare)).toBe(bare);
+    const plain = { attributes: { "http.target": "/api/uptime" } };
+    expect(scrubSentrySpan(plain)).toBe(plain);
+    expect(plain.attributes["http.target"]).toBe("/api/uptime");
   });
 });
 
@@ -163,7 +226,8 @@ describe("instrumentation-client.ts", () => {
     expect(init).toHaveBeenCalledTimes(1);
     const options = init.mock.calls[0][0] as {
       dsn: string;
-      sendDefaultPii: boolean;
+      dataCollection: unknown;
+      sendDefaultPii?: unknown;
       tracesSampleRate: number;
       integrations: unknown[];
       beforeSend: (e: unknown) => { request?: { cookies?: unknown } };
@@ -171,7 +235,10 @@ describe("instrumentation-client.ts", () => {
     };
 
     expect(options.dsn).toBe("https://key@o1.ingest.sentry.io/2");
-    expect(options.sendDefaultPii).toBe(false);
+    expect(options.dataCollection).toEqual(SENTRY_DATA_COLLECTION);
+    // Ignored by SDK v11: its presence would only suggest a protection that
+    // is not there.
+    expect(options).not.toHaveProperty("sendDefaultPii");
     expect(options.tracesSampleRate).toBeGreaterThan(0);
     expect(options.tracesSampleRate).toBeLessThanOrEqual(0.2);
     // Session Replay would record a console showing face crops — not enabled.
@@ -183,6 +250,68 @@ describe("instrumentation-client.ts", () => {
 
   it("no longer ships sentry.client.config.ts, which Turbopack ignores", () => {
     expect(() => readFileSync(join(ROOT, "sentry.client.config.ts"))).toThrow();
+  });
+});
+
+describe("sentry.server.config.ts / sentry.edge.config.ts", () => {
+  const realDsn = process.env.SENTRY_DSN;
+
+  afterEach(() => {
+    if (realDsn === undefined) delete process.env.SENTRY_DSN;
+    else process.env.SENTRY_DSN = realDsn;
+    jest.resetModules();
+  });
+
+  it.each(["@/sentry.server.config", "@/sentry.edge.config"])("%s initialises with the shared no-PII collection and span scrubbing", (path) => {
+    process.env.SENTRY_DSN = "https://key@o1.ingest.sentry.io/3";
+    const init = jest.fn();
+    jest.doMock("@sentry/nextjs", () => ({ init }));
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require(path);
+    });
+
+    expect(init).toHaveBeenCalledTimes(1);
+    const options = init.mock.calls[0][0] as {
+      dataCollection: unknown;
+      attachStacktrace: unknown;
+      beforeSend: (e: unknown) => { request?: { data?: unknown } };
+      beforeSendSpan: (s: { attributes: Record<string, unknown> }) => { attributes: Record<string, unknown> };
+    };
+    expect(options.dataCollection).toEqual(SENTRY_DATA_COLLECTION);
+    expect(options).not.toHaveProperty("sendDefaultPii");
+    expect(options.attachStacktrace).toBe(false);
+    expect(options.beforeSend({ request: { data: "x" } }).request?.data).toBeUndefined();
+    // A sampled stream request must not ship its ?ticket= in http.target.
+    const span = options.beforeSendSpan({
+      attributes: { "http.target": "/api/ml/stream/cam-1/index.m3u8?ticket=SIGNED_TICKET" },
+    });
+    expect(span.attributes["http.target"]).toBe("/api/ml/stream/cam-1/index.m3u8");
+  });
+});
+
+describe("SENTRY_DATA_COLLECTION", () => {
+  it("collects no identity, cookies, bodies, query strings or payloads", () => {
+    expect(SENTRY_DATA_COLLECTION).toMatchObject({
+      userInfo: false,
+      cookies: false,
+      httpBodies: [],
+      urlQueryParams: false,
+      genAI: { inputs: false, outputs: false },
+      databaseQueryData: false,
+      queues: false,
+      graphQL: { document: false, variables: false },
+      stackFrameVariables: false,
+    });
+  });
+
+  it("denies the IP / geo headers in both directions", () => {
+    for (const direction of ["request", "response"] as const) {
+      const deny = SENTRY_DATA_COLLECTION.httpHeaders[direction].deny;
+      for (const header of ["x-forwarded-for", "x-real-ip", "x-vercel-ip-country", "remote-addr", "via"]) {
+        expect(deny.some((fragment) => header.includes(fragment))).toBe(true);
+      }
+    }
   });
 });
 

@@ -73,4 +73,9 @@ export default withSentryConfig(config, {
   widenClientFileUpload: true,
   tunnelRoute: "/monitoring",
   sourcemaps: { deleteSourcemapsAfterUpload: true },
+  // SDK v11 runs a build-time instrumentation loader over every server
+  // module by default. It only instruments libraries this app does not use
+  // (pg, redis, ioredis, express, openai, …), so it would be a loader pass
+  // per module for nothing on a build-minute-limited plan.
+  buildTimeInstrumentation: false,
 });

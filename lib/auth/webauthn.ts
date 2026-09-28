@@ -18,7 +18,18 @@ import {
   type AuthenticationResponseJSON,
   type RegistrationResponseJSON,
 } from "@simplewebauthn/server";
+import { COSEALG } from "@simplewebauthn/server/helpers";
 import { createServiceClient } from "@/lib/supabase/server";
+
+/**
+ * Key algorithms offered at enrolment AND accepted when verifying it (the two
+ * lists must match). Pinned rather than left to the library default: since
+ * v14 that default adds ML-DSA-44 whenever the runtime supports it (Node
+ * 24.7+), and a passkey enrolled that way fails closed on every login once
+ * the runtime moves back below that version. Classical algorithms only, the
+ * same set v13 offered.
+ */
+const SUPPORTED_ALG_IDS = [COSEALG.EdDSA, COSEALG.ES256, COSEALG.RS256];
 
 /** Relying-party config — derived from the production host. */
 export function getRpConfig(host: string | null) {
@@ -130,6 +141,7 @@ export async function buildRegistrationOptions(args: {
     userDisplayName: args.user_email,
     timeout: 60_000,
     attestationType: "none",
+    supportedAlgorithmIDs: SUPPORTED_ALG_IDS,
     authenticatorSelection: {
       residentKey: "preferred",
       userVerification: "required",
@@ -173,7 +185,7 @@ export async function buildAuthenticationOptions(args: {
     userVerification: "required",
     allowCredentials: creds.map((c) => ({
       id: c.credential_id,
-      transports: (c.transports ?? []) as ("internal" | "hybrid" | "usb" | "ble" | "nfc")[],
+      transports: c.transports ?? [],
     })),
   });
 
@@ -224,7 +236,7 @@ export async function finishAuthentication(args: {
       id: cred.credential_id,
       publicKey: new Uint8Array(Buffer.from(cred.public_key, "base64url")),
       counter: Number(cred.counter),
-      transports: (cred.transports ?? []) as ("internal" | "hybrid" | "usb" | "ble" | "nfc")[],
+      transports: cred.transports ?? [],
     },
     // Require user verification on login (PIN / biometric). Platform
     // authenticators (Touch ID, Windows Hello) always satisfy this; it stops
@@ -278,6 +290,7 @@ export async function finishRegistration(args: {
     // Must match the "required" hint above: a credential enrolled without UV
     // would later pass login with mere presence.
     requireUserVerification: true,
+    supportedAlgorithmIDs: SUPPORTED_ALG_IDS,
   });
 
   if (!verification.verified || !verification.registrationInfo) {

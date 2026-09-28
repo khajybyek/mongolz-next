@@ -2,6 +2,9 @@
   "name": "mongolz-next",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "bash scripts/build-next.sh",
@@ -46,8 +49,8 @@
     "@opentelemetry/sdk-node": "^0.222.0",
     "@opentelemetry/sdk-trace-node": "^2.11.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
-    "@sentry/nextjs": "^10.73.0",
-    "@simplewebauthn/server": "^13.3.3",
+    "@sentry/nextjs": "^11.0.0",
+    "@simplewebauthn/server": "^14.0.3",
     "@supabase/ssr": "^0.12.6",
     "@supabase/supabase-js": "^2.115.0",
     "@types/qrcode": "^1.5.6",

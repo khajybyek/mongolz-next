@@ -69,8 +69,13 @@ describe("POST /api/csp-report", () => {
     const res = await POST(post(modern));
     expect(res.status).toBe(204);
     expect(Sentry.captureMessage).toHaveBeenCalledTimes(1);
-    const [msg, ctx] = jest.mocked(Sentry.captureMessage).mock.calls[0] as [string, { extra: Record<string, unknown> }];
+    const [msg, ctx] = jest.mocked(Sentry.captureMessage).mock.calls[0] as [
+      string,
+      { extra: Record<string, unknown>; fingerprint?: string[] },
+    ];
     expect(msg).toBe("CSP violation: img-src");
+    // Grouped per directive, not by the (shared) call-site stack.
+    expect(ctx.fingerprint).toEqual(["csp-violation", "img-src"]);
     expect(ctx.extra).not.toHaveProperty("raw");
     expect(ctx.extra.blocked_origin).toBe("http://10.0.0.9");
   });

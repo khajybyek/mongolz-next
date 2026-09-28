@@ -22,6 +22,41 @@ export const BROWSER_TRACES_SAMPLE_RATE = 0.1;
 export const SERVER_TRACES_SAMPLE_RATE = 0.2;
 
 /**
+ * Header-name fragments that carry the client's IP or location: x-forwarded-for,
+ * x-real-ip, x-vercel-ip-city/-country/-latitude, remote-addr, via, x-*-user.
+ * The same list `sendDefaultPii: false` used to drop before SDK v11.
+ */
+const IP_HEADER_FRAGMENTS = ["forwarded", "-ip", "remote-", "via", "-user"];
+
+/**
+ * `dataCollection` for every `Sentry.init` (browser, Node, edge).
+ *
+ * SDK v11 removed `sendDefaultPii`; with `dataCollection` unset it collects
+ * client IPs, cookies, every header, request bodies and query strings, and
+ * only masks names that look like "token"/"secret" — so `mongolz-pre-totp`,
+ * Vercel geo headers and `?ticket=` stream tickets would get through. This
+ * restores the old baseline and is stricter in three places: no cookies at
+ * all, no bodies, no query strings. On sampled spans (which `beforeSend` never
+ * sees) `urlQueryParams` only reaches the attributes the SDK builds itself —
+ * `url.full`, `url.query` — so Next's `http.target` needs `scrubSentrySpan`.
+ */
+export const SENTRY_DATA_COLLECTION = {
+  userInfo: false,
+  cookies: false,
+  httpHeaders: {
+    request: { deny: IP_HEADER_FRAGMENTS },
+    response: { deny: IP_HEADER_FRAGMENTS },
+  },
+  httpBodies: [],
+  urlQueryParams: false,
+  genAI: { inputs: false, outputs: false },
+  databaseQueryData: false,
+  queues: false,
+  graphQL: { document: false, variables: false },
+  stackFrameVariables: false,
+};
+
+/**
  * DSN the browser bundle may use, or `undefined` when reporting is off.
  *
  * The `process.env.NEXT_PUBLIC_SENTRY_DSN` member expression is written out
@@ -68,10 +103,12 @@ export interface ScrubbableRequest {
   headers?: Record<string, string>;
   cookies?: Record<string, string>;
   query_string?: unknown;
+  data?: unknown;
 }
 
 export interface ScrubbableEvent {
   request?: ScrubbableRequest;
+  user?: { ip_address?: unknown };
 }
 
 const FORBIDDEN_HEADERS = ["authorization", "cookie", "set-cookie", "x-ml-token", "proxy-authorization"];
@@ -82,26 +119,72 @@ const FORBIDDEN_HEADERS = ["authorization", "cookie", "set-cookie", "x-ml-token"
  * Removes, unconditionally (not just on `/api/auth` as the old browser config
  * did):
  *   • the cookie jar — session + step-up + pin cookies live there;
- *   • Authorization / Cookie style headers;
- *   • query strings — HLS stream tickets and reveal tokens ride in them.
+ *   • Authorization / Cookie style headers, and the IP / geo headers;
+ *   • query strings — HLS stream tickets and reveal tokens ride in them;
+ *   • the request body — reauth and login bodies carry passwords and codes;
+ *   • `user.ip_address`.
+ * `SENTRY_DATA_COLLECTION` already stops the SDK collecting these; this is the
+ * second line in case a default or an integration changes.
  */
 export function scrubSentryEvent<E extends ScrubbableEvent>(event: E): E {
+  if (event.user) delete event.user.ip_address;
+
   const request = event.request;
   if (!request) return event;
 
   delete request.cookies;
   delete request.query_string;
+  delete request.data;
 
   const headers = request.headers;
   if (headers) {
     for (const name of Object.keys(headers)) {
-      if (FORBIDDEN_HEADERS.includes(name.toLowerCase())) delete headers[name];
+      const lower = name.toLowerCase();
+      if (FORBIDDEN_HEADERS.includes(lower) || IP_HEADER_FRAGMENTS.some((f) => lower.includes(f))) {
+        delete headers[name];
+      }
     }
   }
 
   if (typeof request.url === "string") request.url = stripQuery(request.url);
 
   return event;
+}
+
+/**
+ * Span attributes holding a URL that `dataCollection.urlQueryParams` does not
+ * filter: Next sets `http.target` to the raw `req.url` on every root span, and
+ * header attributes carry the referring page and redirect target verbatim.
+ */
+const URL_SPAN_ATTRIBUTES = ["http.target", "http.request.header.referer", "http.response.header.location"];
+
+export interface ScrubbableSpan {
+  attributes?: Record<string, unknown>;
+}
+
+/** Strip queries from a raw attribute: a string, a header's string[], or an `{ value }` object. */
+function stripQueryFromAttribute(value: unknown): unknown {
+  if (typeof value === "string") return stripQuery(value);
+  if (Array.isArray(value)) return value.map(stripQueryFromAttribute);
+  if (value !== null && typeof value === "object" && "value" in value) {
+    return { ...value, value: stripQueryFromAttribute(value.value) };
+  }
+  return value;
+}
+
+/**
+ * `beforeSendSpan` scrubbing for the Node and edge SDKs: without it a sampled
+ * `/api/ml/stream/<id>/index.m3u8?ticket=…` request ships the signed ticket
+ * (and `/audit?q=…` its search) to Sentry in `http.target`. Must return the
+ * span — SDK v11 ignores `null` here.
+ */
+export function scrubSentrySpan<S extends ScrubbableSpan>(span: S): S {
+  const attributes = span.attributes;
+  if (!attributes) return span;
+  for (const key of URL_SPAN_ATTRIBUTES) {
+    if (key in attributes) attributes[key] = stripQueryFromAttribute(attributes[key]);
+  }
+  return span;
 }
 
 export interface ScrubbableBreadcrumb {

@@ -55,6 +55,9 @@ export async function POST(req: NextRequest) {
   const first = reports[0];
   Sentry.captureMessage(`CSP violation: ${first.directive}`, {
     level: "warning",
+    // One Sentry issue per directive. Without it the SDK groups by this call
+    // site's stack, folding every directive into a single issue.
+    fingerprint: ["csp-violation", first.directive],
     tags: { csp_directive: first.directive },
     extra: {
       blocked_origin: first.blocked,
