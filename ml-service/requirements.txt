@@ -20,4 +20,4 @@ opentelemetry-instrumentation-fastapi>=0.46b0
 opentelemetry-instrumentation-httpx>=0.46b0
 scikit-learn>=1.5.0,<2
 # Optional error reporting — active only when SENTRY_DSN is set (main._init_sentry)
-sentry-sdk[fastapi]>=2,<3
+sentry-sdk[fastapi]>=2.70.0,<3
