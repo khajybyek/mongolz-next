@@ -619,6 +619,116 @@ supervisor tick that will act on it; `null` until the drop has been noticed).
 `/live` and `/grid` show it as "Reconnecting — next try at HH:mm (KST)" to
 anyone who may list the camera.
 
+### Privacy schedules (ADR 0012)
+
+Since 2026-09-28 each camera's schedule decides whether faces are
+**identified**. It never decides whether they are masked.
+
+* **`standard`** (the default) is the behaviour described in the rest of this
+  runbook: recognition, face rows, alerts, and reveal through 4-eyes.
+* **`private`** keeps the video masked but stops the recognition (ArcFace) step:
+  no face rows or crops, no alerts, no inference on edge frames. Footage captured in this
+  mode can never be revealed.
+
+Where to look:
+
+* `/cameras/<id>/schedule` shows the mode per the saved schedule (SQL), and a
+  red notice when the running ML build does not enforce schedules at all.
+  `/health` shows the same check. `curl -s $ML/ | jq .privacy_schedules` must
+  print `1`.
+* `/grid` tiles, the `/live` CCTV list and `/wall` live tiles show what the ML
+  service actually applies: a "Privacy mode" lock badge, or "Recognition
+  paused" (warning colour) when it failed closed. `GET /camera/active` entries
+  carry `privacy_mode` and `privacy_source`.
+* `/playback/<id>` lists the intervals captured in `private` mode and, apart,
+  the stretches the camera's *current* schedule withholds from reveal.
+
+```sql
+-- Mode per camera right now, and the windows behind it
+select c.id, c.name, c.privacy_default,
+       public.effective_privacy_mode(c.id) as mode_now
+  from public.cameras c;
+select camera_id, window_mode, starts_at, ends_at, weekdays
+  from public.masking_schedules
+ order by camera_id, starts_at;
+
+-- Newest capture-time privacy spans and why they were opened
+select recording_id, start_offset_sec, end_offset_sec, source, created_at
+  from public.recording_privacy_spans
+ order by created_at desc
+ limit 20;
+```
+
+| Symptom | Meaning | Action |
+|---|---|---|
+| No new faces or alerts on any camera, spans with `source = 'fail_closed'`, "Recognition paused" badges | The ML service has not been able to read the schedule for 10 minutes, or has not read it at all since it started. Usually the database path is down, or ML was deployed before migration `20260928100000`. It treats every camera as `private` on purpose | Restore database access, or apply the migration. The cache re-reads within about 30 s and recognition resumes on the next tick. The ML log prints one line per mode change (camera id, new mode, source). **Footage captured meanwhile is protected permanently** (its spans are `fail_closed`): it can never be revealed, even on a `standard` camera. The only release is the manual span release below. If the cause is ML deployed before the migration, nothing is delivered either until the migration lands (the spans have no table to go to): recordings stay `capturing`, the ML log repeats "privacy spans could not be written … delivery held", and capture stops once the spool reaches `RECORDING_MAX_PENDING_BYTES` (2 GiB by default). Applying the migration lets the backlog deliver |
+| Schedule page shows a red "does NOT report privacy-schedule enforcement" notice | The running ML build predates ADR 0012 (failed `railway up`, rollback): schedules are saved but ignored — recognition and alerts run inside private windows and no spans are written | Deploy the current ML service (`cd ml-service && railway up --detach`) and re-check `GET /` |
+| Faces or alerts stop at the same time every day | A `private` window is active | Expected. Check the windows with the query above |
+| Recognition resumes a few seconds after a private window ends | The capture instant is judged as a bound (source clock to wall clock, 5 s margin); the pipeline stays private while any part of the bound is private | Expected (ADR 0012, Limits) |
+| ML log: "capture-time bound … exceeds PRIVACY_SCHEDULE_PAD_SEC" | A camera's source clock drifted or the loop lagged far behind real time within one segment; the pipeline stays conservative, but the reveal/view schedule backstop (60 s pad) is narrower than the bound. In baked mode and on demo sources a slow source clock is counted as backlog and never corrected, so the bound keeps growing | Check the camera's clock/fps and `live_lag_sec`; the spans still record the pipeline's decisions |
+| A reveal job fails with "privacy schedule could not be read" (`[privacy_unavailable]`) | The job could not read the spans or the schedule and failed closed; nothing was decrypted | Retry once the database is healthy |
+| A reveal job fails because the recording (or the range) was **captured** in privacy mode (`[privacy_whole_recording]` / `[privacy_whole_range]`) | The capture-time spans alone cover every second of it | Expected and final. That footage cannot be revealed; a range that includes `standard` footage can |
+| A reveal job fails because the camera's **current schedule** covers the recording or range (`[privacy_schedule_whole_recording]` / `[privacy_schedule_whole_range]`) | The footage was captured in `standard` mode, but a `private` window added later (or the 60 s margin around one) covers it. The playback page lists these stretches separately | Withheld while that window exists. If the reveal is justified, loosen the window on the schedule page (TOTP step-up, audited, other admins notified) and request again |
+
+Change schedules only through the page. Loosening asks for a TOTP step-up,
+notifies the other admins and writes an audit row. A service-role SQL write
+skips all three. If an incident ever forces one, record who made the change
+and why in the incident notes.
+
+Deleting `recording_privacy_spans` rows with the service role makes footage
+revealable that was captured as protected. It is the only way to release
+footage captured while the ML service failed closed, and it is a **manual
+procedure: nothing in the product enforces it.** There is no RPC, no step-up
+and no trigger on the table; one person holding the service-role key can
+delete spans alone and leave no trace. Treat it as a change to reveal policy,
+never as cleanup: one admin runs it while a second admin watches, the incident
+notes name both and the reason, and the audit row below goes in the same
+transaction as the delete (SQL editor or `psql` as the service role / owner):
+
+```sql
+begin;
+-- 1. What is released — copy the output into the incident notes.
+select id, recording_id, start_offset_sec, end_offset_sec, source, created_at
+  from public.recording_privacy_spans
+ where recording_id = '<recording uuid>'
+   and source = 'fail_closed';
+-- 2. The audit row (hash-chained like every other row).
+insert into public.audit_log (action, detail, user_id, user_email)
+values ('PRIVACY_SPANS_RELEASED',
+        'recording <recording uuid>: fail_closed spans <ids from step 1> released; '
+        || 'run by <admin email>, witnessed by <second admin email>; reason: <incident ref>',
+        '<profile id of the admin running it>', '<admin email>');
+-- 3. The release. Expect the row count from step 1.
+delete from public.recording_privacy_spans
+ where recording_id = '<recording uuid>'
+   and source = 'fail_closed';
+commit;
+```
+
+Release only `fail_closed` spans unless the incident says otherwise: a
+`schedule` span records a window someone marked private. The camera's current
+schedule still applies after the release — the reveal job also withholds any
+time a `private` window covers today (plus 60 s).
+
+Spans are delivered with their footage: a segment's spans are in its capture
+journal and spool manifest, and the delivery writes them before the artifact
+uploads and before the recording row becomes ready. A delivery whose spans
+cannot be written stays pending — the recording is not playable or revealable
+meanwhile. Each retry then costs one database call (no re-upload); the ML log
+says "privacy spans could not be written … delivery held" and the spool
+manifest's `last_stage` is `privacy_spans`.
+
+Edge agents (none deployed today): `/edge/detect` judges a frame as captured
+no later than receipt and up to 5 s before the device's `captured_at`, and
+keeps frames private that may have been captured before the last loosening
+that took private time away (`cameras.privacy_loosened_at`). An agent whose
+clock is far behind (1970 after booting without an RTC) therefore has every
+frame treated as private once such a loosening has happened — sync the
+agent's clock (NTP) before it sends.
+
+Deploy order for any change to this feature: migration first, then the ML
+service, then the web app. [ADR 0012](adr/0012-privacy-schedules-tightening-only.md), section Deployment, explains why.
+
 ### ML benchmark (`/eval/bench` → `/benchmarks`)
 
 The benchmark used to run on a uniform-noise image in which the detector finds
@@ -829,7 +939,9 @@ super-admin-only admin creation, server-written push subscriptions,
    migration, a TOTP-minted admin token can still write, without step-up, the tables
    the app itself writes with the user token: at least `alert_rules`, `webhooks` and
    `alerts` (UPDATE only). `privacy_zones` left this list with migration
-   `20260923180000` (service-role writes + TOTP step-up for loosening changes). None of
+   `20260923180000` (service-role writes + TOTP step-up for loosening changes), and
+   `masking_schedules` with `20260928100000`: once schedules controlled recognition
+   (ADR 0012), a direct write could switch identification back on without a step-up. None of
    these widens who sees unmasked video, but a planted webhook is possible; `/webhooks`
    lists every row. Closing it means moving those actions to the service role and
    revoking DML the same way.

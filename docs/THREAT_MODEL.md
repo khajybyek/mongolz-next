@@ -1,6 +1,6 @@
 # Threat Model — MONGOLZ Security
 
-> **Capstone 2026-01-CD-03-07 · 3B-26-1** · Last updated 2026-05-18
+> **Capstone 2026-01-CD-03-07 · 3B-26-1** · Last updated 2026-09-28
 
 ## 1 — Scope
 
@@ -36,6 +36,8 @@ This document applies STRIDE to MONGOLZ Security's three trust zones:
 | WebAuthn credentials | **Public key only** | `webauthn_credentials` RLS-self-only |
 | Service-role JWT, ML token, encryption keys | **Critical** | Vercel/Railway env vars (encrypted) |
 | Session cookie + pin HMAC | High | HttpOnly + SameSite=Lax + Secure |
+| Privacy schedule (`masking_schedules`, `cameras.privacy_default`) | **Integrity-critical**: decides whether faces are identified | Service-role writes only; operator-readable under RLS plus the second-factor policy (ADR 0012) |
+| Capture-time privacy spans (`recording_privacy_spans`) | **Integrity-critical**: records which footage can never be revealed | Written by the ML service (service role); readable only with the recording; not on `recordings`, where `authenticated` holds UPDATE |
 
 ## 3 — STRIDE matrix
 
@@ -62,6 +64,8 @@ This document applies STRIDE to MONGOLZ Security's three trust zones:
 | Open-redirect via /auth/callback | `sanitizeNextPath` blocks `//`, `://`, `\`; only single-slash internal paths pass | ✓ |
 | Super-admin demotion | DB trigger `protect_super_admin` refuses anon/authenticated UPDATE/DELETE; only postgres + service_role can flip | ✓ |
 | Recording chunk re-assembly tampering | Per-chunk SHA-256 not yet enforced (future work — chain of custody hash manifest) | ⚠ partial |
+| Loosening a privacy schedule to switch identification back on (ADR 0012) | Loosening changes (a `standard` window, deleting a `private` window, default `private` → `standard`) need a fresh **TOTP** step-up (a password step-up is not accepted); a delete is classified from the stored row, never from the form; the other admins are notified (push + Telegram `security_event`); audit rows `PRIVACY_SCHEDULE_ADD` / `_DELETE` / `PRIVACY_DEFAULT_CHANGE`. `authenticated` and `anon` have no write grant on `masking_schedules`, so a stolen admin token cannot skip the step-up through PostgREST. Tightening stays one click. Adding a camera needs the same TOTP step-up and notifies the other admins (a second cameras row for a `private` feed would otherwise start `standard`). `authenticated` has no UPDATE on `recordings`, so a recording's `camera_id` / `started_at` — the anchors the reveal job and view renderers place the schedule with — cannot be moved through PostgREST | ✓ |
+| Erasing the record that footage was captured in `private` mode | `recording_privacy_spans` is its own table with service-role writes only (not columns on `recordings`); the reveal job also combines the current schedule | ✓ |
 
 ### Repudiation
 
@@ -86,6 +90,8 @@ This document applies STRIDE to MONGOLZ Security's three trust zones:
 | Referrer leak to 3rd parties | `Referrer-Policy: strict-origin-when-cross-origin` | ✓ |
 | FastAPI `/docs` schema leak | Disabled in production unless `ALLOW_API_DOCS=1` | ✓ |
 | CSP report leaking page URL | CSP report-uri → `/api/csp-report` → forwarded to Sentry with truncated document_uri | ✓ |
+| Reveal of footage captured in `private` mode | Reveal job protects the union of the recording's privacy spans and the camera's current schedule over the recording's time range: those frames are not matched and stay masked; a recording protected end to end is refused before decryption; a failed read of spans or schedule fails the job closed. Residual: the encrypted original is still stored, so an ML-master-key or service-role holder can decrypt it outside the product (R1) | ✓ |
+| Biometric identification in a window marked `private` | The recording pipeline and `/edge/detect` check the mode at capture time and skip the recognition step (ArcFace task, face rows, crops, matching for alerts, alerts). The pipeline judges each live frame over a capture-time bound (source clock re-anchored at open and rotation, to the wall clock), private if any instant is; `/edge/detect` also checks receipt time, the span between capture and receipt, and `cameras.privacy_loosened_at`. Every masking path (live masker, on-demand view, evidence exports, reveal) uses detector-only boxes with no suspect-tier lookup (VIP mask) for private frames and never falls back to the full pass. The ML schedule cache fails closed (`private`) after 10 min without a readable schedule; the web warns when the running ML build lacks the `privacy_schedules` capability. Residual: the live masker lags a boundary by up to 1 s (transient embedding, discarded), and edits usually take about 30 s to reach running cameras (R9) | ⚠ partial |
 
 ### Denial of service
 
@@ -99,6 +105,7 @@ This document applies STRIDE to MONGOLZ Security's three trust zones:
 | WebAuthn challenge spam | 5-min TTL on `webauthn_challenges` + single-use consume + same login rate-limit bucket | ✓ |
 | RLS-bypass via cron | `process.env.VERCEL_ENV !== "production"` fail-closed for cron endpoints | ✓ |
 | Recording write-amplification | Chunked uploads + ML async background processing prevents Vercel timeout | ✓ |
+| Privacy schedule unreadable (DB outage, ML deployed before the migration) | Deliberately fail-closed: after 10 min without a readable schedule (or none read since start) every camera is `private`, so recognition and alerts stop while recording and masking continue. Visible as the "Recognition paused" badge (`privacy_source: "fail_closed"` on `/camera/active`), spans with `source = 'fail_closed'` and one ML log line per mode change; footage captured meanwhile stays unrevealable (the only release is a manual, unenforced service-role span deletion — `docs/RUNBOOK.md`); ML deployed before the migration also holds every recording in the spool until the migration lands (spans have no table; capture stops when the spool is full); deploy order in ADR 0012 | ⚠ accepted (R8) |
 
 ### Elevation of privilege
 
@@ -139,6 +146,8 @@ This document applies STRIDE to MONGOLZ Security's three trust zones:
 | R5 | Per-chunk SHA-256 manifest not enforced on recording uploads | Vercel free-tier compute budget | Server-side recording reassembly is single-author; tampering risk requires service-role compromise (R1) |
 | R6 | Live suspect-match overlay shares Realtime channel with global RealtimeAlerts | Duplicate-subscription is wasteful but functionally correct (RLS still enforces) | Tracked in `docs/FUTURE.md` |
 | R7 | Stolen session + pin cookies replay from any network | Fingerprint v3 (2026-09-23) hashes the User-Agent only: the v2 IPv4 /16 (IPv6 /48) bucket forced 35 re-logins in 16 days for two accounts on mobile carriers. The UA is not secret, so an attacker who took both cookies (infostealer, shared machine) and the UA passes the pin from anywhere | HttpOnly + Secure cookies, 7-day pin TTL, data-tier MFA (`mfa_ok()`), TOTP step-up for every privileged change, audit trail. Revisit with a soft network-change signal (alert / step-up, never a sign-out) |
+| R8 | Privacy schedule fail-closed stops recognition | A database outage longer than 10 minutes, or an ML deploy that runs before its migration, turns identification off on every camera. The alternative, identifying people in a window someone marked private because the schedule could not be read, is worse | Surfaced on `/camera/active` (`privacy_mode`), in `recording_privacy_spans.source = 'fail_closed'` and the ML log; migration-first deploy order (ADR 0012) |
+| R9 | Privacy schedule granularity and gaps | The live masker gets the mode on the once-per-second tick (up to 1 s of standard-mode masking after a boundary, embedding discarded); a live frame's capture instant is a bound, so recognition resumes a few seconds after a private window ends, and a source clock running fast by more than the 5 s margin within one segment — or a backlog the on_demand lag guard mistakes for drift — could still miss the END of a window; the ML cache refreshes every 30 s (keeps the last good schedule up to 10 min); a later `private` window does not delete faces already produced; deleting a camera leaves its recordings to their spans alone | Spans open at the previous tick (conservative); the anchor is re-taken at open and every rotation (from the rotation frame's arrival and the backlog measured before the old segment is finalized, for every live source) and the bound width is logged; reveal and view renderers combine the spans with the fresh schedule widened by 60 s; spans carry an idempotency key and travel with their segment (journal + spool manifest, written before the row is ready), so a span is lost only together with its footage |
 
 ## 6 — How this gets re-evaluated
 
@@ -147,4 +156,4 @@ Threat model is re-reviewed:
 - After any incident postmortem
 - Quarterly even with no changes (capstone scope: at the time of paper revision)
 
-Last review: 2026-05-18 by primary author. Next: when WebAuthn discoverable-login lands (planned).
+Last review: 2026-09-28 (privacy schedules enforced, ADR 0012: new assets, tampering / disclosure / DoS rows, R8, R9; same day: capture-time bound, spans delivered with the footage, camera-add step-up, no UPDATE on `recordings`, embedding-free view renderers). Previous: 2026-05-18 by primary author. Next: when WebAuthn discoverable-login lands (planned).

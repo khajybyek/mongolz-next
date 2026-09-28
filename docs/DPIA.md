@@ -1,7 +1,7 @@
 # Data Protection Impact Assessment — MONGOLZ Security
 
 > **GDPR Art.35 + Korean PIPA Art.33** · Capstone 2026-01-CD-03-07 · 3B-26-1
-> Last reviewed 2026-09-08
+> Last reviewed 2026-09-28
 
 This DPIA template follows the EU EDPB structure (Sept-2017 guidelines) and
 the ICO's UK GDPR DPIA template, adapted for an academic capstone deployment.
@@ -48,6 +48,41 @@ explicit `camera_permissions` row) as defence in depth against missed
 detections; `camera_permissions` is empty in the current deployment, so no
 non-admin can watch live video today.
 
+**Privacy schedules** (added 2026-09-28, [ADR 0012](adr/0012-privacy-schedules-tightening-only.md)):
+each camera has a time-window schedule in Asia/Seoul with two modes.
+
+- **`standard`** (the default): processing works as described above,
+  including biometric identification. Once per second of video the pipeline
+  computes an ArcFace embedding, stores a sealed face crop and a `faces` row,
+  matches the face against suspects and raises alerts.
+- **`private`**: the video is recorded and masked exactly the same way, but the
+  recognition step is off. No embeddings are stored, and there are no face rows
+  or crops, no matching for alerts, no alerts and no inference on edge frames.
+  The reveal job will never un-mask footage captured in this mode.
+
+The masker keeps running in both modes, because it is what keeps faces hidden.
+For a frame captured in `private` mode every masking path — live capture, the
+on-demand playback view, the evidence clip and frame, and the reveal output —
+places masks with the face detector alone (RetinaFace boxes, no ArcFace
+embedding), skips the suspect-tier lookup and gives every face the strongest
+(VIP) mask. None of them falls back to the full pass; without a working
+detector-only call such frames are masked by Haar and the persistence cache
+only, and an error is logged. The one exception is timing: the mode reaches the
+live capture masker on the once-per-second tick, so up to 1 s after a boundary
+into `private` can still get the standard-mode pass (a transient embedding,
+discarded, nothing stored).
+
+The mode is decided at capture time. A live frame's capture instant is known
+only within a bound (the camera's source clock against the wall clock, re-anchored
+at every segment); the pipeline treats the frame as `private` if any instant of
+that bound is, so a private window's start is never identified and recognition
+resumes a few seconds after it ends. The intervals captured in `private` mode are
+stored per recording (`recording_privacy_spans`) and are delivered together with
+the footage, before the recording becomes playable or revealable. The reveal job
+and the view renderers also place the camera's current schedule on the recording,
+widened by 60 s on each side. No schedule setting can un-mask video; schedules
+can only tighten protection.
+
 **Scope (per-recording typical)**:
 - Resolution 1280×720 @ 15fps
 - Duration 5–30 seconds in current capstone test set
@@ -63,6 +98,10 @@ controlled test devices.
 **Purpose**:
 1. Demonstrate a privacy-preserving CCTV management architecture that meets
    GDPR Art.5(1)(b) (purpose limitation) and (1)(c) (data minimisation).
+   Privacy schedules (§B.1) let an operator limit biometric identification to
+   the hours it is justified. Example: business hours 09:00–18:00 `private`, so
+   staff and customers are not put through recognition, and after hours `standard`, so
+   recognition and alerts cover intruders.
 2. Provide a tiered-reveal workflow for hypothetical investigative use cases.
 3. Serve as a capstone artefact for defense + paper publication.
 
@@ -78,7 +117,7 @@ controlled test devices.
 | Category | GDPR | PIPA equivalent | Volume |
 |---|---|---|---|
 | Face image (raw) | Art.9(1) biometric | Sensitive (민감정보) | Captured frames |
-| Face embedding (ArcFace 512-dim) | Art.9(1) biometric | Sensitive | One per detected face |
+| Face embedding (ArcFace 512-dim) | Art.9(1) biometric | Sensitive | One stored per detected face in `standard` mode; none computed or stored for frames captured in `private` mode (capture, playback view, evidence exports and reveal all use the detector alone), apart from a sub-second lag of the live masker after a boundary (transient, discarded; ADR 0012) |
 | Operator email | Art.4(1) personal | Personal | One per account |
 | Operator IP address | Art.4(1) | Personal | Each request |
 | Session UA fingerprint | Pseudonymous | Pseudonymous | One per session |
@@ -95,7 +134,7 @@ controlled test devices.
 |---|---|
 | Is processing strictly necessary for the stated purpose? | Yes — masked video alone proves the algorithm works; encrypted-original retention is necessary only because the use case requires post-hoc selective reveal |
 | Are there less intrusive ways to achieve the purpose? | No — k-anonymity-only solutions cannot demonstrate a recovery workflow which is the project's thesis |
-| Is data minimised? | Yes — the original is persisted only AES-256-GCM encrypted and the blurred view is derived at request time (ADR 0010); face crops are sealed per face (ADR 0009); embeddings stored only for the suspects feature; audit log only stores what's needed for accountability |
+| Is data minimised? | Yes — the original is persisted only AES-256-GCM encrypted and the blurred view is derived at request time (ADR 0010); face crops are sealed per face (ADR 0009); embeddings stored only for the suspects feature; audit log only stores what's needed for accountability. Biometric identification can be switched off per camera by time window (`private` mode, ADR 0012). No embeddings are stored and no face rows, crops or alerts are produced for frames captured in that mode, and those frames cannot be revealed. Every masking path places masks for such frames with the detector alone |
 | How long is data retained? | Configurable per `retention_policies` table; default 90 days for masked recordings + revealed outputs; sweep cron `sweep_retention()` enforces |
 | Is consent collected? | Camera consent table (`camera_consent` migration 20260516070053) records explicit consent per camera deployment; capstone deployment is on private test devices belonging to the project owner |
 
@@ -136,7 +175,8 @@ Documented in detail in `docs/THREAT_MODEL.md` §3 STRIDE matrix. Highlights:
 | 4-eyes for high-impact actions | Reveal jobs gated by `reveal-approvals` page |
 | Auth factors | password + TOTP 2FA (mandatory for admin) + WebAuthn passkey. Enforced **at the data tier** as well as in the application since 2026-09-08: the access token of a TOTP-enabled account must carry an `amr` method other than `password`, so a stolen password used directly against the public Supabase REST endpoint reaches no personal data ([ADR 0011](adr/0011-mfa-at-the-data-tier.md)). Fail-open where the claim is unreadable; `service_role` still bypasses RLS |
 | Audit | Hash-chained log + `verify_audit_chain()` RPC. Covers every privileged mutation, every authentication/step-up event, and the personal-data read paths — `FACE_CROP_VIEWED`, `RECORDING_VIEWED`, `STREAM_VIEWED`/`STREAM_DENIED`, `FACE_SEARCH`, `REID_TRAIL`, `ALERTS_EXPORTED`, `REVEAL_OUTPUT_DOWNLOADED` (`lib/audit.ts`). Object-scoped reads collapse to one row per user per object per 5 minutes; for live streams only the playlist request is logged, not each segment. Does **not** cover page views, dashboard/analytics aggregates, the audit-log's own CSV export, or reads a browser makes directly against PostgREST under RLS |
-| Pseudonymisation | Cubist mask applied to the playback view (not at capture, and not on the live feed — see §B.1); embeddings stored separately from raw images |
+| Pseudonymisation | Cubist mask applied to the playback view and, since 2026-09-20, to the ML-captured live feed (§B.1); never baked into the encrypted original; embeddings stored separately from raw images |
+| Privacy schedules (ADR 0012) | Per-camera `private` windows turn the recognition step off at capture (the masker uses the detector alone and gives every face the VIP mask) and block reveal of footage captured in them. They can only tighten protection. Loosening needs a fresh TOTP step-up, notifies the other admins and is audited (`PRIVACY_SCHEDULE_ADD` / `_DELETE`, `PRIVACY_DEFAULT_CHANGE`). Only the service role can write the schedule table. The ML service fails closed (treats the camera as `private`) when it has not been able to read the schedule for 10 minutes |
 | Backup | Supabase point-in-time recovery (24 h RPO) + weekly `backup-verify` cron tests decryption |
 | Incident response | `BREAK_GLASS.md` 5 procedures + Sentry + Slack alert on lockout |
 | Continuous security testing | Semgrep (681 rules) + trufflehog + Nuclei + OWASP ZAP — all weekly |
@@ -149,6 +189,8 @@ Documented in detail in `docs/THREAT_MODEL.md` §3 STRIDE matrix. Highlights:
 | Subject re-identified despite mask | Medium | High | Cubist Voronoi mosaic measured at **SSIM 0.613 ± 0.058** (standard tier, n = 20) vs Gaussian 0.778 and 8×8 pixelation 0.627 — see the measurement note below. Masking is one layer; the originals are encrypted and the reveal path is 4-eyes gated | **Medium** — the mask beats Gaussian clearly, but its margin over pixelation is inside one standard deviation, and no face-recovery rate has been measured |
 | Faces missed by the detector are visible on the live feed | Medium | High | Live HLS frames are masked by the shared `FaceMasker` since 2026-09-20 (§B.1); a missed detection is the residual exposure. Access requires an authenticated session, is recorded per view, and is restricted to admins plus holders of an explicit `camera_permissions` grant; segments are deleted when the session stops | **Low–Medium** — bounded, attributable audience; exposure limited to detector misses (mask strength and miss rate as in the row above) |
 | Decrypted biometric data processed outside the EU | High (by design) | Medium | Storage and the Railway ML service that decrypts, detects and embeds are both in Singapore since 2026-09-20 (`asia-southeast1`; `us-west2` before); transport is TLS 1.3 and the blobs are AES-256-GCM at rest | **Low** — single-region processing; SCCs still needed for EU subjects (Singapore is outside the EU); see §D.5 |
+| Biometric identification beyond the hours it is justified | Medium | High | An operator sets `private` windows (ADR 0012). No embeddings are stored and no face rows, crops or alerts are produced for frames captured in them, and the reveal job refuses those frames (captured intervals ∪ current schedule widened by 60 s; fails closed on a read error; a fully protected recording is refused before anything is decrypted). The pipeline judges each live frame over a capture-time bound (source clock to wall clock), so the start of a window is never identified. Limits: the live masker lags a boundary by up to 1 s (transient embedding, discarded); recognition resumes a few seconds after a window ends; an edit usually reaches running cameras within about 30 s (up to 10 min while the ML service cannot read the database); faces already produced in `standard` mode are not deleted when a window is added later; the ML build must report the `privacy_schedules` capability (the web warns when it does not) | **Low** for footage captured in a `private` window. Unchanged for hours left `standard`: the control helps only where an operator configures it |
+| Schedule loosened to re-enable identification or reach private footage | Low | High | Loosening requires a fresh TOTP step-up (a password step-up is not accepted), is classified from the stored row rather than the form, notifies the other admins and writes an audit row. `authenticated` has no write grant on `masking_schedules`, so PostgREST cannot be used to skip the step-up. Intervals captured in `private` mode are stored per recording, delivered with the footage (journal and spool manifest, before the row is ready) and still protect that footage from reveal after a later loosening. Adding a camera needs the TOTP step-up too, and `authenticated` cannot UPDATE `recordings` (so a recording's camera and capture time cannot be moved) | **Low**. Footage withheld only by the current schedule (a window added after capture) is released by a later loosening — by design, and the refusal says so. Deleting a camera leaves its recordings to their spans alone. Footage captured while failing closed stays protected permanently |
 | Mask bypass via reveal misuse | Low | Critical | 4-eyes approval + step-up TOTP + audit chain + time-bounded scope + watermark on output | Very low |
 | Bystander face captured + revealed | Medium | Medium | Reveal flow targets specific face_id only; everyone else stays masked even after reveal; time-bounded window limits temporal scope | Low |
 | Storage breach | Low | High | AES-256-GCM means breach alone yields ciphertext; HKDF per-recording means single-key compromise affects one file | Very low |
@@ -221,7 +263,7 @@ here — but the transfer is now on the record.
 |---|---|---|
 | Art.15 | Lawful purpose for collection | Documented in §B.1 |
 | Art.17 | Provision to third parties | None — single-deployment architecture |
-| Art.23 | Sensitive data handling (incl. biometrics) | AES-256-GCM + RLS + admin-only retrieval |
+| Art.23 | Sensitive data handling (incl. biometrics) | AES-256-GCM + RLS + admin-only retrieval; per-camera privacy schedules switch biometric processing off in `private` windows (ADR 0012) |
 | Art.28-2 | De-identification | The Cubist mask is the de-identification step on the playback view and, since 2026-09-20, on the live feed (§B.1); its measured strength is in the note under §D.4 |
 | Art.28-8 | Cross-border transfer (국외 이전) | Storage and biometric processing are both in Singapore (Railway `asia-southeast1` since 2026-09-20; `us-west2` before) — see §D.5. Consent basis for the Singapore transfer to be papered before any non-test subject is captured |
 | Art.29 | Technical safeguards | See §D.3 |
@@ -238,7 +280,13 @@ here — but the transfer is now on the record.
 | Data subject representative | N/A (test deployment) | — |
 | Review trigger | Quarterly + on auth/RLS/encryption change | See §6 of `THREAT_MODEL.md` |
 
-**Document version**: 1.2 — 2026-09-08 correction pass after the full audit
+**Document version**: 1.3 — 2026-09-28: privacy schedules are enforced as a
+tightening-only control (§B.1, §D.3, §D.4, [ADR 0012](adr/0012-privacy-schedules-tightening-only.md)),
+and the pseudonymisation row now reflects the masked live feed. Same day: the
+capture instant is a bound (no "1 s boundary / exact reveal" claim), spans are
+delivered with the footage, and the playback view and evidence exports compute
+no embedding for private frames.
+Version 1.2 — 2026-09-08 correction pass after the full audit
 (`docs/audits/2026-09-08-full-audit.mn.md`): masking is at view time and absent
 from the live feed, the SSIM figures now match the repository's own benchmark
 runs, audit-log coverage is stated with its boundary, and the SG → US processing

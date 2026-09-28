@@ -29,3 +29,5 @@ constraints that shaped each choice.
 | [0008](0008-arc-face-cosine-thresholds.md) | ArcFace + pgvector cosine thresholds (0.45 / 0.35) | Accepted |
 | 0009 | [Hierarchical per-face keys](0009-hierarchical-per-face-keys.md) | Accepted |
 | 0010 | [On-demand blurred view](0010-on-demand-blurred-view.md) | Accepted |
+| 0011 | [Prove the second factor at the data tier](0011-mfa-at-the-data-tier.md) | Accepted |
+| 0012 | [Privacy schedules can only tighten protection](0012-privacy-schedules-tightening-only.md) | Accepted |

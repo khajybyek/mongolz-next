@@ -123,6 +123,45 @@ outside the EU, so the Art. 44 basis for EU subjects is unchanged.
   stays as defence in depth — `camera_permissions` is empty in production,
   which means no live video for non-admins rather than live video for everyone
 
+### Privacy schedules — tightening only (ADR 0012)
+- Per-camera time windows at `/cameras/<id>/schedule` (Asia/Seoul, weekday
+  bitmask, overnight windows belong to the day they start). Two modes:
+  **`standard`** (default, the behaviour above) and **`private`**
+- `private` keeps the video masked and turns the recognition step off. The
+  ML service stores no embedding and makes no face row or sealed crop, no
+  suspect match for alerts, no alert, and no inference on edge frames. Footage
+  captured in `private` mode can **never** be revealed; the reveal job keeps it
+  masked and does not match it
+- The masker keeps running. For frames captured in `private` mode every
+  masking path — live capture, the on-demand playback view, the evidence clip
+  and frame, the reveal output — places masks with the face detector alone
+  (no ArcFace embedding), skips the suspect-tier lookup and gives every face the
+  strongest (VIP) mask; it never falls back to the full pass (ADR 0012)
+- No setting un-masks video. The old `revealed` option was removed; un-masking
+  is still only the 4-eyes reveal
+- Example: 09:00–18:00 `private` (staff and customers not put through recognition), after
+  hours `standard` (recognition + alerts for intruders). This is GDPR
+  Art. 5(1)(b)(c) and Art. 25 minimisation by time
+- The mode is decided at capture time — as a bound (camera clock to wall clock,
+  re-anchored every segment): a frame is `private` if any instant of the bound
+  is. Intervals captured in `private` mode are stored per recording
+  (`recording_privacy_spans`, delivered together with the footage), listed on
+  `/playback/<id>`, and still protect that footage after a later schedule
+  change. `/camera/active` reports `privacy_mode` and `privacy_source`, and
+  `/grid`, `/live` and `/wall` show a lock badge ("Recognition paused" when the
+  ML service failed closed)
+- Loosening a schedule needs a fresh TOTP step-up, notifies the other admins and
+  is audited; tightening is one click. Only the service role can write the
+  schedule table; adding a camera needs the step-up too
+- The schedule page and `/health` warn when the running ML build does not
+  report `privacy_schedules` on `GET /` (older build: schedules ignored)
+- Limits: the live masker picks up a switch on the once-per-second tick;
+  recognition resumes a few seconds after a private window ends (conservative
+  bound); reveal and the view renderers widen the schedule by 60 s; edits usually
+  reach running cameras within about 30 s; after 10 minutes without a readable
+  schedule the ML service fails closed and treats every camera as `private` —
+  footage captured then can never be revealed (ADR 0012, Limits)
+
 ### Live + recording (3 modes)
 - 💻 Device — `getUserMedia` (laptop / external webcam)
 - 📱 Phone — IP Webcam app URL (MJPEG / snapshot)
@@ -184,6 +223,7 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 | 14. Dual-key crypto | `ML_ENCRYPTION_KEY_PREV` fallback during rotation |
 | 15. Webhook HMAC | SHA-256 signing for generic destinations |
 | 16. Second factor at the data tier | RLS restrictive policies AND `private.mfa_ok()` on the ten personal-data tables (`faces`, `alerts`, `recordings`, `cameras`, `suspects`, `clusters`, `reveal_jobs`, `audit_log`, `webhooks`, `camera_sessions`), the admin-writable configuration tables (`retention_policies`, `alert_rules`, `privacy_zones`, `masking_schedules`, `camera_permissions`), `storage.objects`, and inside the four SECURITY DEFINER RPCs, which RLS cannot reach. If a profile has TOTP enabled, its token must carry an `amr` method other than `password` — so an admin password plus the public anon key can no longer read or write through PostgREST. Fails open when the claim is unreadable; `profiles` and the auth-flow tables are deliberately not gated; kill switch `update private.security_settings set mfa_required = false` (ADR 0011, `docs/adr/0011-mfa-at-the-data-tier.md`) |
+| 17. Privacy schedules | tightening only (ADR 0012): `private` windows turn off the recognition step at capture (no embeddings, face rows, crops or alerts; every masking path uses the detector alone for those frames) and block reveal of footage captured in them; no setting can un-mask video. Loosening needs a TOTP step-up + admin notification + audit row; `masking_schedules` is service-role-write only; capture-time facts live in `recording_privacy_spans` (not on `recordings`, which `authenticated` cannot UPDATE) and travel with each segment's delivery; the ML side fails closed after 10 min without a readable schedule |
 
 ---
 
@@ -195,11 +235,11 @@ mongolz-next/
 │   ├── (app)/                       # auth-gated
 │   │   ├── dashboard/ alerts/ alerts-live/ analytics/ ai/
 │   │   ├── audit/ active-learning/ alert-rules/
-│   │   ├── backup/ benchmarks/ cameras/ clusters/ compare/
+│   │   ├── backup/ benchmarks/ cameras/ clusters/ compare/   # cameras/[id]/{permissions,schedule}
 │   │   ├── db-monitor/ edge-detect/ eval/ faces/ grid/
 │   │   ├── health/ jobs/ live/ live-rtc/ playback/
 │   │   ├── privacy/ reid/ retention/ reveal-approvals/
-│   │   ├── review/ schedule/ search/ settings/ suspects/
+│   │   ├── review/ search/ settings/ suspects/
 │   │   ├── thresholds/ users/ webhooks/ zk-reveal/
 │   │   └── layout.tsx               # shell: sidebar + header + tab bar + toasts + i18n
 │   ├── login/                       # email/username + TOTP
@@ -231,6 +271,7 @@ mongolz-next/
 │   ├── recording_pipeline.py        # Tier 2: encrypt-only crops
 │   ├── view_renderer.py             # ADR 0010: on-demand blurred view
 │   ├── reveal_job.py
+│   ├── privacy_schedule.py          # ADR 0012: schedule evaluation + cache
 │   ├── hierarchical_keys.py         # ADR 0009: K_index chain + decrypt_face
 │   ├── crypto_utils.py              # AES-256-GCM + dual-key rotation
 │   ├── anti_spoof.py / embedding_fusion.py / dp_embeddings.py
@@ -355,6 +396,13 @@ Full start-to-finish audit (DB → auth → API → UI → ML). Highlights:
   sole artifact; the blurred view is derived at request time. Legacy `baked`
   recordings continue via the strategy discriminator. Rollback via
   `BLUR_STRATEGY=baked`.
+- **0011 — Second factor at the data tier** (`docs/adr/0011-mfa-at-the-data-tier.md`):
+  restrictive RLS policies require `private.mfa_ok()`, so a TOTP account's
+  password-only token reaches no personal data.
+- **0012 — Privacy schedules can only tighten protection**
+  (`docs/adr/0012-privacy-schedules-tightening-only.md`): `standard` / `private`
+  modes evaluated at capture time; `private` turns the recognition step off and
+  makes that footage unrevealable; loosening needs TOTP step-up.
 
 ---
 
