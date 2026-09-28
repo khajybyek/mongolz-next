@@ -17,6 +17,12 @@ updates:
       time: "09:00"
       timezone: Asia/Seoul
     open-pull-requests-limit: 5
+    # Supply-chain cooldown: a release must be this old before a version PR is
+    # opened, so a hijacked or broken publish is usually yanked first. Security
+    # updates ignore the cooldown.
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
     commit-message:
       prefix: "chore(deps)"
     groups:
@@ -54,6 +60,12 @@ updates:
       time: "09:00"
       timezone: Asia/Seoul
     open-pull-requests-limit: 3
+    # Supply-chain cooldown: a release must be this old before a version PR is
+    # opened, so a hijacked or broken publish is usually yanked first. Security
+    # updates ignore the cooldown.
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
     commit-message:
       prefix: "chore(deps)"
     groups:
@@ -63,6 +75,25 @@ updates:
 
   # Actions are pinned to commit SHAs with a version comment; Dependabot
   # keeps that format when it bumps them.
+  - package-ecosystem: pip
+    directory: "/edge-agent"
+    schedule:
+      interval: monthly
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 2
+    # Supply-chain cooldown: a release must be this old before a version PR is
+    # opened, so a hijacked or broken publish is usually yanked first. Security
+    # updates ignore the cooldown.
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      edge-agent-minor-patch:
+        update-types: ["minor", "patch"]
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
@@ -70,6 +101,12 @@ updates:
       time: "09:00"
       timezone: Asia/Seoul
     open-pull-requests-limit: 3
+    # Supply-chain cooldown: a release must be this old before a version PR is
+    # opened, so a hijacked or broken publish is usually yanked first. Security
+    # updates ignore the cooldown.
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
     commit-message:
       prefix: "chore(ci)"
     groups:
@@ -84,6 +121,12 @@ updates:
       time: "09:00"
       timezone: Asia/Seoul
     open-pull-requests-limit: 3
+    # Supply-chain cooldown: a release must be this old before a version PR is
+    # opened, so a hijacked or broken publish is usually yanked first. Security
+    # updates ignore the cooldown.
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
     commit-message:
       prefix: "chore(deps)"
     groups:
