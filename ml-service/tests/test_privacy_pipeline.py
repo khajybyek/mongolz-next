@@ -543,6 +543,13 @@ def test_capture_bound_wider_than_the_schedule_pad_is_logged(tmp_path, monkeypat
     s = _live(tmp_path, ScriptedCache(S), SpanStorage(), monkeypatch)
     monkeypatch.setattr(rp, "PRIVACY_SCHEDULE_PAD_SEC", 10.0)
     s.capture_started_at = rp.datetime.now(rp.timezone.utc) - timedelta(seconds=120)
+    # A freshly booted host (CI runners, a new container) has a small
+    # time.monotonic(); the first warning must still be logged.
+    real_time = rp.time
+    monkeypatch.setattr(rp, "time", SimpleNamespace(
+        monotonic=lambda: 5.0, time=real_time.time, sleep=real_time.sleep,
+        perf_counter=real_time.perf_counter,
+    ))
     with caplog.at_level("WARNING", logger="mongolz-ml.recording"):
         asyncio.run(_emit(s, 1))
     assert "exceeds PRIVACY_SCHEDULE_PAD_SEC" in caplog.text

@@ -903,7 +903,7 @@ class RecordingSession:
         # Widest capture-clock bound (seconds) seen at a tick, and when a
         # bound wider than the reveal/view schedule pad was last logged.
         self.capture_clock_bound_sec = 0.0
-        self._clock_logged_at = 0.0
+        self._clock_logged_at: float | None = None
         # Serialises recordings-row inserts (rotation, face persist and the
         # privacy span flush can all retry it).
         self._row_open_lock = asyncio.Lock()
@@ -1159,7 +1159,10 @@ class RecordingSession:
             self.capture_clock_bound_sec = bound
         if bound > PRIVACY_SCHEDULE_PAD_SEC:
             now = time.monotonic()
-            if now - getattr(self, "_clock_logged_at", 0.0) >= _PRIVACY_CLOCK_LOG_EVERY_SEC:
+            # None, not 0.0: time.monotonic() counts from boot, so on a freshly
+            # started host a 0.0 default swallowed the first warning.
+            last = getattr(self, "_clock_logged_at", None)
+            if last is None or now - last >= _PRIVACY_CLOCK_LOG_EVERY_SEC:
                 self._clock_logged_at = now
                 log.warning(
                     "camera %s: capture-time bound %.1fs exceeds PRIVACY_SCHEDULE_PAD_SEC=%.0fs — "
