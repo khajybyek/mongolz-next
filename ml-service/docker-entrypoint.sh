@@ -10,7 +10,8 @@
 #   localhost:5554 → SOCKS5 → 192.168.0.15:554.
 #
 # Required env vars to enable the live RTSP path:
-#   TAILSCALE_AUTHKEY        — reusable + ephemeral key from Tailscale admin
+#   TAILSCALE_AUTHKEY        — reusable key from Tailscale admin (the node is
+#                              ephemeral via --state=mem:; a tagged key is best)
 #   CAMERA_TAILNET_FWD       — e.g. "5554:192.168.0.15:554"
 #
 # Optional:
@@ -63,9 +64,13 @@ if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
   ts_status starting "tailscaled launching"
 
   echo "[entrypoint] Starting tailscaled (userspace networking)…"
+  # --state=mem: registers the node as EPHEMERAL: Tailscale removes it 30-60 min
+  # after it goes offline. The state file under /tmp never survived a Railway
+  # deploy anyway, so every deploy used to leave another offline "mongolz-ml"
+  # device in the tailnet (21 by 2026-09-28). Works with a reusable key.
   tailscaled \
     --tun=userspace-networking \
-    --state="$STATE_DIR/state.tsstate" \
+    --state=mem: \
     --socket="$STATE_DIR/tailscaled.sock" \
     --socks5-server=127.0.0.1:1055 \
     --outbound-http-proxy-listen=127.0.0.1:1056 \
