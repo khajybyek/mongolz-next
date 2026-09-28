@@ -70,7 +70,12 @@ jest.mock("@/lib/supabase/auth", () => ({
 
 jest.mock("@/lib/ml-client", () => ({ mlEmbed: jest.fn(async () => new Array(512).fill(0.1)) }));
 jest.mock("@/lib/pgvector", () => ({ vectorParam: (v: number[]) => JSON.stringify(v) }));
-jest.mock("@/lib/stream-ticket", () => ({ verifyStreamTicket: () => ({ valid: false }) }));
+// A ticket is accepted when it starts with "valid-" (and belongs to user-1),
+// anything else is expired / forged.
+jest.mock("@/lib/stream-ticket", () => ({
+  verifyStreamTicket: (ticket: string) =>
+    ticket.startsWith("valid-") ? { valid: true, userId: "user-1" } : { valid: false },
+}));
 jest.mock("@/lib/reveal-authority", () => ({
   readRevealAuthority: jest.fn(async () => ({ level: state.level as number })),
   canReadRevealOutput: () => true,
@@ -234,6 +239,14 @@ const call = {
   stream: (segment = "index.m3u8", cameraId = CAM) =>
     streamGet(
       new NextRequest(`https://app.test/api/ml/stream/${cameraId}/${segment}`, { headers: XFF }),
+      { params: Promise.resolve({ cameraId, segment }) },
+    ),
+  streamWithTicket: (ticket: string, segment = "index.m3u8", cameraId = CAM) =>
+    streamGet(
+      new NextRequest(
+        `https://app.test/api/ml/stream/${cameraId}/${segment}?ticket=${encodeURIComponent(ticket)}`,
+        { headers: XFF },
+      ),
       { params: Promise.resolve({ cameraId, segment }) },
     ),
   trail: (faceId = FACE) =>
@@ -457,6 +470,40 @@ describe("read-access ledger", () => {
   it("collapses a polling player to one row per camera per window", async () => {
     for (let i = 0; i < 10; i++) expect((await call.stream()).status).toBe(200);
     expect(rows(READ_ACTIONS.STREAM_VIEWED)).toHaveLength(1);
+  });
+
+  // ── ticket renewal (2026-09-28) ────────────────────────────────────
+  // Players renew their five-minute ticket (lib/stream-ticket-renewal.ts);
+  // neither an expired ticket nor a renewal may add ledger rows.
+  it("refuses an expired ticket without a refusal code and without a ledger row", async () => {
+    const res = await call.streamWithTicket("expired-t1");
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBeUndefined();
+    expect(audited).toHaveLength(0);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("collapses a stream watched across ticket renewals into one row", async () => {
+    for (const ticket of ["valid-t1", "valid-t2", "valid-t3"]) {
+      expect((await call.streamWithTicket(ticket)).status).toBe(200);
+      expect((await call.streamWithTicket(ticket, "index4.ts")).status).toBe(200);
+    }
+    const viewed = rows(READ_ACTIONS.STREAM_VIEWED);
+    expect(viewed).toHaveLength(1);
+    expect(String(viewed[0].detail)).not.toContain("valid-");
+  });
+
+  it("still applies the camera and grant checks to a renewed ticket", async () => {
+    state.role = "viewer";
+    state.grant = null;
+    const res = await call.streamWithTicket("valid-t2");
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "camera_not_authorized" });
+    state.role = "admin";
+    state.camera = { id: CAM, enabled: false };
+    const off = await call.streamWithTicket("valid-t3", "index5.ts");
+    expect(await off.json()).toMatchObject({ code: "camera_disabled" });
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it("honours a row written by another instance (cross-instance probe)", async () => {

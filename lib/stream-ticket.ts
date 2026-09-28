@@ -1,7 +1,11 @@
 import { pickHmacSecret } from "@/lib/auth/hmac-secret";
 import { hmacEqual, hmacSign } from "@/lib/auth/hmac";
+import { STREAM_TICKET_TTL_SEC } from "@/lib/stream-ticket-renewal";
 
-const TTL_SEC = 300; // 5 minutes
+// 5 minutes. Kept short on purpose: players renew before expiry
+// (lib/stream-ticket-renewal.ts, which owns the constant so the renewal
+// schedule and the lifetime cannot drift apart).
+const TTL_SEC = STREAM_TICKET_TTL_SEC;
 const PURPOSE = "mongolz-stream-ticket:v2";
 
 function getSecret(): string {

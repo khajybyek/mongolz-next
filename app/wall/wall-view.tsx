@@ -452,6 +452,10 @@ function CameraTile({
           src={streamUrl!}
           controls={false}
           className="absolute inset-0 w-full h-full object-contain bg-black"
+          // Tickets live five minutes; the player renews them through the
+          // same action (and checks) that issued the first one, so a wall
+          // left open does not freeze.
+          renewTicket={() => getStreamTicketAction(cam.camera_id)}
           // Only refusals are handled here; other failures keep the wall's
           // existing behaviour.
           onError={(_status, code) => {

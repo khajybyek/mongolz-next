@@ -163,10 +163,19 @@ export default async function CameraPermissionsPage({
                 </option>
               ))}
             </select>
-            <select name="permission" defaultValue="view" aria-label={t("perm_col_permission")} className="input text-sm">
+            <select
+              name="permission"
+              defaultValue="view"
+              aria-label={t("perm_col_permission")}
+              aria-describedby="perm-kinds-hint"
+              className="input text-sm"
+            >
               <option value="view">{t("perm_view")}</option>
               <option value="operate">{t("perm_operate")}</option>
             </select>
+            <p id="perm-kinds-hint" className="helper mt-0">
+              {t("perm_kinds_hint")}
+            </p>
             <button type="submit" className="btn-primary w-full text-sm">
               {t("perm_grant")}
             </button>

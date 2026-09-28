@@ -405,8 +405,8 @@ export function MultiCameraGrid({
   }
 
   // A refusal ends the stream for this page: drop the player and remember why.
-  // Anything else (a stopped stream, an expired ticket) stays a plain failure
-  // with the Retry that re-issues a ticket.
+  // Anything else (a stopped stream, a ticket the player could not renew)
+  // stays a plain failure with the Retry that re-issues a ticket.
   const onStreamError = useCallback(
     (id: string, code?: StreamDenyCode | null) => {
       if (code) {
@@ -704,6 +704,9 @@ function GridTile({
           src={streamUrl}
           controls={false}
           className="absolute inset-0 w-full h-full object-contain bg-black"
+          // Tickets live five minutes; the player renews them through the
+          // same action (and checks) that issued the first one.
+          renewTicket={() => getStreamTicketAction(cam.id)}
           onPlaying={onPlaying}
           onError={onError}
         />

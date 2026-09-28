@@ -264,6 +264,8 @@ mongolz-next/
 │   ├── ml-client.ts                 # FastAPI proxy helpers
 │   ├── camera-crypto.ts             # AES-GCM wrap/unwrap for RTSP URLs
 │   ├── stream-ticket.ts             # HMAC-signed HLS access
+│   ├── stream-ticket-renewal.ts     # players renew 5-min tickets before expiry
+│   ├── hls-playback.ts              # live HLS player (hls.js / native) + renewal
 │   ├── webhooks.ts                  # Slack / Discord / generic HMAC
 │   └── database.types.ts
 ├── ml-service/                      # FastAPI + InsightFace + FFmpeg

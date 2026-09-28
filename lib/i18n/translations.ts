@@ -467,7 +467,19 @@ export const T = {
   // Any row lets a viewer watch live (the gateway checks for a row, not its
   // permission value), so "view" must not claim "playback only".
   perm_view: { mn: "View — жагсаалт, бичлэг, шууд дүрс", en: "View — lists, playback and live video", kr: "View — 목록·재생·실시간 영상" },
-  perm_operate: { mn: "Удирдах — бичлэг эхлүүлэх/зогсоох", en: "Operate — start/stop recording", kr: "Operate — 녹화 시작/중지" },
+  // "operate" grants nothing more than "view" today: startCameraAction /
+  // stopCameraAction are admin-only whatever rows exist, so the label must not
+  // promise start/stop.
+  perm_operate: {
+    mn: "Operate — View-тэй адил (жагсаалт, бичлэг, шууд дүрс); эхлүүлэх/зогсоох нь зөвхөн админд",
+    en: "Operate — same as View (lists, playback, live video); start/stop stays admin-only",
+    kr: "Operate — View와 동일(목록·재생·실시간 영상); 시작/중지는 관리자 전용",
+  },
+  perm_kinds_hint: {
+    mn: "View болон Operate одоогоор ижил эрх олгоно: жагсаалт, бичлэг, шууд дүрс. Камерын бичлэгийг эхлүүлэх, зогсоох нь аль нь ч байсан зөвхөн админд.",
+    en: "View and Operate currently grant the same access: lists, playback and live video. Starting or stopping a camera's capture is admin-only whichever you pick.",
+    kr: "View와 Operate는 현재 같은 권한(목록·재생·실시간 영상)을 부여합니다. 카메라 캡처 시작·중지는 어느 쪽을 선택해도 관리자 전용입니다.",
+  },
   perm_grant: { mn: "Олгох", en: "Grant", kr: "부여" },
 
   // ── Suspects ──

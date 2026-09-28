@@ -852,6 +852,9 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
           <HlsPlayer
             src={streamUrl}
             className="w-full h-full"
+            // Tickets live five minutes; the player renews them through the
+            // same action (and checks) that issued the first one.
+            renewTicket={() => getStreamTicketAction(activeCam.id)}
             onError={(_status, code) => onStreamError(activeCam.id, code)}
           />
         ) : noLiveAccess ? (

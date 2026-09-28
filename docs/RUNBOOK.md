@@ -412,7 +412,9 @@ Rotating a secret changes live behaviour, so expect these:
 
 - `REAUTH_COOKIE_SECRET` → every step-up cookie is void; admins re-verify TOTP.
 - `SESSION_PIN_SECRET` → session pins stop matching; TOTP users are signed out once.
-- `STREAM_TICKET_SECRET` → in-flight HLS tickets stop verifying; viewers reload.
+- `STREAM_TICKET_SECRET` → in-flight HLS tickets stop verifying; open players
+  fetch a fresh ticket on the first refusal and carry on (a player whose
+  renewal fails too shows "Stream failed" on /grid; /wall and /live need a reload).
 - `CAMERA_URL_KEY` → until `--reencrypt` finishes, camera URLs decrypt via the
   PREV key; `/live` shows "camera address could not be read" if the PREV key is
   missing.

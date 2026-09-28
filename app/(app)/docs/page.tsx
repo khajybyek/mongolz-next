@@ -151,8 +151,16 @@ const sections = [
     icon: Camera,
     items: [
       { label: "Protocol", value: "HLS (HTTP Live Streaming) via FFmpeg" },
-      { label: "Player", value: "hls.js with ticket-authenticated segment requests" },
-      { label: "Ticket auth", value: "HMAC-SHA256 signed, 5-min TTL, timing-safe verify" },
+      {
+        label: "Player",
+        value:
+          "hls.js wherever MediaSource or ManagedMediaSource exists (Safari and iOS 17.1+ included), with the stream ticket on every playlist and segment request. Native HLS only as a fallback (older iOS, or the hls.js chunk failed to load): ticket on the playlist URL only",
+      },
+      {
+        label: "Ticket auth",
+        value:
+          "HMAC-SHA256 signed, 5-min TTL, timing-safe verify. Players renew the ticket after 195 s through the same server action (the native fallback reloads its source to pick it up, after the viewer resumes if paused) and once more on an expired-ticket 403; refusal codes stay final. The gateway re-checks the camera and the grant on every request",
+      },
       {
         label: "Masking",
         value:

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { probeStreamFailure, readStreamDenyCode, type StreamDenyCode } from "@/lib/live-access";
+import type { StreamDenyCode } from "@/lib/live-access";
+import { startHlsPlayback } from "@/lib/hls-playback";
 
 interface HlsPlayerProps {
   src: string;
@@ -9,6 +10,15 @@ interface HlsPlayerProps {
   autoPlay?: boolean;
   muted?: boolean;
   controls?: boolean;
+  /**
+   * Issues a fresh stream ticket for the camera in `src` — pass the page's
+   * `() => getStreamTicketAction(cameraId)`. Stream tickets live five
+   * minutes; with this the player renews its ticket before it runs out and
+   * every later playlist / segment request carries the newest one
+   * (lib/stream-ticket-renewal.ts). Without it the stream is refused once
+   * the first ticket expires.
+   */
+  renewTicket?: () => Promise<string>;
   /** Fired once the first frames are rendering. */
   onPlaying?: () => void;
   /**
@@ -16,8 +26,10 @@ interface HlsPlayerProps {
    * status is passed when the failure came from a response. `code` is set only
    * when the stream gateway refused the request (403 + camera_disabled |
    * camera_not_authorized | permission_check_failed): the player has already
-   * stopped loading, and the tile should say why instead of retrying. A 403
-   * without a code (e.g. an expired stream ticket) is an ordinary failure.
+   * stopped loading and renewing, and the tile should say why instead of
+   * retrying. A 403 without a code (an expired stream ticket) is first
+   * answered with one ticket renewal and one retry; it reaches this callback
+   * as an ordinary failure only when that did not help.
    */
   onError?: (status?: number, code?: StreamDenyCode | null) => void;
 }
@@ -28,118 +40,38 @@ export function HlsPlayer({
   autoPlay = true,
   muted = true,
   controls = true,
+  renewTicket,
   onPlaying,
   onError,
 }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  // Keep the latest callbacks in refs so the effect only re-runs on `src`.
+  // Keep the latest callbacks in refs so the effect only re-runs on `src`
+  // (pages pass inline arrows; a new function must not restart the stream).
   const playingRef = useRef(onPlaying);
   const errorRef = useRef(onError);
+  const renewRef = useRef(renewTicket);
   playingRef.current = onPlaying;
   errorRef.current = onError;
+  renewRef.current = renewTicket;
+  const canRenew = Boolean(renewTicket);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-
-    let hls: import("hls.js").default | undefined;
-    // The hls.js import is async; if `src` changes or the component unmounts
-    // before it resolves, the instance created afterwards would leak (keep
-    // polling segments forever). Guard with a cancelled flag.
-    let cancelled = false;
-
-    const srcUrl = new URL(src, window.location.origin);
-    const ticket = srcUrl.searchParams.get("ticket");
-
-    const handlePlaying = () => playingRef.current?.();
-    // Native HLS (Safari / iOS) reports no HTTP status, so ask the gateway
-    // once why the playlist failed — that is what turns a refusal into a
-    // readable reason instead of a generic error.
-    const handleNativeError = () => {
-      void probeStreamFailure(src).then((failure) => {
-        if (!cancelled) errorRef.current?.(failure.status, failure.code);
-      });
-    };
-    video.addEventListener("playing", handlePlaying);
-
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.addEventListener("error", handleNativeError);
-      video.src = src;
-      return () => {
-        cancelled = true;
-        video.removeEventListener("playing", handlePlaying);
-        video.removeEventListener("error", handleNativeError);
-      };
-    }
-
-    (async () => {
-      const { default: Hls } = await import("hls.js");
-      if (cancelled) return;
-      if (!Hls.isSupported()) {
-        video.addEventListener("error", handleNativeError);
-        video.src = src;
-        return;
-      }
-      hls = new Hls({
-        lowLatencyMode: true,
-        liveSyncDuration: 2,
-        xhrSetup: ticket
-          ? (xhr, url) => {
-              const u = new URL(url, window.location.origin);
-              u.searchParams.set("ticket", ticket);
-              xhr.open("GET", u.toString(), true);
-            }
-          : undefined,
-      });
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (!data.fatal) return;
-        // hls.js attaches the failing response on load errors.
-        const status =
-          typeof data.response === "object" && data.response
-            ? (data.response as { code?: number }).code
-            : undefined;
-        // A 403 is never fixed by reloading with the same ticket. It used to
-        // fall into the startLoad() branch below for playlist reloads and
-        // segments, so a grant revoked mid-stream (or a camera disabled
-        // meanwhile) left the player re-requesting forever behind a frozen
-        // frame. Stop loading and report — with the gateway's refusal code
-        // when there is one, so the tile can say why.
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && status === 403) {
-          hls?.stopLoad();
-          void (async () => {
-            let code = readStreamDenyCode(data.networkDetails);
-            if (!code) {
-              const probe = await probeStreamFailure(src);
-              code = probe.status === 403 ? probe.code : null;
-            }
-            if (!cancelled) errorRef.current?.(403, code);
-          })();
-          return;
-        }
-        // One recovery attempt for transient network / media glitches, then
-        // surface the failure so the tile can show a retry control.
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.details !== Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
-          hls?.startLoad();
-          return;
-        }
-        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-          hls?.recoverMediaError();
-          return;
-        }
-        errorRef.current?.(status);
-      });
-      hls.loadSource(src);
-      hls.attachMedia(video);
-    })();
-
-    return () => {
-      cancelled = true;
-      video.removeEventListener("playing", handlePlaying);
-      video.removeEventListener("error", handleNativeError);
-      hls?.destroy();
-      hls = undefined;
-    };
-  }, [src]);
+    return startHlsPlayback({
+      video,
+      src,
+      loadHls: async () => (await import("hls.js")).default,
+      renewTicket: canRenew
+        ? () => {
+            const renew = renewRef.current;
+            return renew ? renew() : Promise.reject(new Error("stream ticket renewal unavailable"));
+          }
+        : undefined,
+      onPlaying: () => playingRef.current?.(),
+      onError: (status, code) => errorRef.current?.(status, code),
+    });
+  }, [src, canRenew]);
 
   return (
     <video
