@@ -96,14 +96,18 @@ pg_net and the vault secrets all live inside the database, so when Postgres
 is down the monitor stops instead of reporting. `db_down` therefore means
 "the app cannot reach the database while Postgres itself still runs"
 (PostgREST, pooler, API key, network). Covering a full outage needs a probe
-outside Supabase — the concrete option is a GitHub Actions workflow on
-`schedule: "*/15 * * * *"` that calls `/api/uptime` and PostgREST
-`rpc/ping` and posts to the Telegram Bot API on a failure. It needs
-`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (and `SUPABASE_ANON_KEY`) as
-GitHub Actions secrets, which only the owner can add; the full recipe,
-including the Actions-minutes cost, is in
-[RUNBOOK §5](RUNBOOK.md#external-probe-covers-a-full-database-outage--owner-action).
-It is not in the repository yet.
+outside Supabase: `.github/workflows/uptime-probe.yml` runs
+`scripts/uptime-probe.cjs` on GitHub's runners every hour (`7 * * * *`, plus
+`workflow_dispatch`). It calls `/api/uptime` (three attempts, 20 s apart) and
+sends a Telegram message straight to the Bot API — no Supabase or Vercel on the
+alert path — when the web app stops or resumes answering, or when it answers
+that its database check fails or recovers (ML stays with pg_cron, so an ML
+incident is not reported twice). State is carried between runs with
+`actions/cache`, so each change is announced once. While web or database is
+down the job fails, and GitHub e-mails the owner about the failed scheduled
+run — that works even before the Telegram secrets exist. It needs
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` as GitHub Actions secrets
+([RUNBOOK §5](RUNBOOK.md#external-probe-covers-a-full-database-outage)).
 
 ## Trace propagation
 

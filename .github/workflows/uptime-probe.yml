@@ -1,0 +1,64 @@
+name: Uptime probe
+
+# External probe for the one outage the in-database monitor cannot report:
+# pg_cron (private.uptime_collect) runs inside Postgres, so a complete
+# database / Supabase outage silences it. This job calls the public
+# /api/uptime endpoint from GitHub's runners and alerts Telegram directly on
+# a web-app or database state change (scripts/uptime-probe.cjs). ML outages
+# stay with pg_cron, so the same incident is not reported twice.
+#
+# Secrets (owner, Settings → Secrets and variables → Actions):
+#   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID — the same values the
+#   telegram-alerts edge function uses. Without them the job still runs,
+#   records state and fails while the site is down, so GitHub e-mails the
+#   owner about the failed scheduled run.
+#
+# Cost: this repository is private and every job is billed as at least one
+# minute. Hourly is ~720 minutes a month; "*/30" doubles that and "*/15"
+# (~2 900) exceeds GitHub Free's 2 000. GitHub may delay scheduled runs.
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Probe aicctv.dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          sparse-checkout: scripts/uptime-probe.cjs
+          sparse-checkout-cone-mode: false
+
+      # Previous run's state (the newest cache whose key starts with the prefix).
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .uptime-state
+          key: uptime-state-${{ github.run_id }}
+          restore-keys: uptime-state-
+
+      - name: Probe /api/uptime and alert on state changes
+        run: node scripts/uptime-probe.cjs
+        env:
+          PROBE_URL: https://aicctv.dev/api/uptime
+          STATE_FILE: .uptime-state/state.json
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      # Saved even when the probe failed (site down), so the next run does not
+      # announce the same outage again.
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && hashFiles('.uptime-state/state.json') != ''
+        with:
+          path: .uptime-state
+          key: uptime-state-${{ github.run_id }}

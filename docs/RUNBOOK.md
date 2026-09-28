@@ -13,7 +13,7 @@ and [COMPLIANCE.md](COMPLIANCE.md) (legal mapping).
 | **RPO** (data loss tolerance) | ≤ 24 h | Supabase Postgres | Daily Vercel-Cron `backup-verify` + Supabase point-in-time backup (Pro tier feature; falls back to manual `pg_dump` on Free). |
 | **RPO** — alerts only | ≤ 5 min | Realtime + audit_log | Hash-chained audit means tampering is detectable even mid-window. |
 | **RTO** (downtime tolerance) | ≤ 60 min | Vercel + Supabase + Railway | Restore from backup ZIP + redeploy each tier. Drill timed at 35-50 min on staging copy. |
-| **MTTD** (detect) | ≤ 5–10 min for web app / DB-path / ML outages (a complete Postgres outage stops the in-DB probe — only an external probe detects it, §5); ≤ 24 h for failed-login spikes, backup-verify failures and overdue keys | pg_cron uptime probe (*/5) + Sentry; daily `/api/monitoring/error-rate`, daily `backup-verify`, weekly `key-rotation-check` | The Hobby plan allows at most one run per day per cron, so the scheduled checks cannot detect in minutes. Their alarms reach admins by push + Telegram (`lib/notify.ts#notifyOpsAlarm`) and appear on `/health` ("Scheduled checks"); Slack only if `SLACK_ALERT_WEBHOOK` is set. |
+| **MTTD** (detect) | ≤ 5–10 min for web app / DB-path / ML outages (a complete Postgres outage stops the in-DB probe; the hourly GitHub Actions probe covers it, §5); ≤ 24 h for failed-login spikes, backup-verify failures and overdue keys | pg_cron uptime probe (*/5) + Sentry; daily `/api/monitoring/error-rate`, daily `backup-verify`, weekly `key-rotation-check` | The Hobby plan allows at most one run per day per cron, so the scheduled checks cannot detect in minutes. Their alarms reach admins by push + Telegram (`lib/notify.ts#notifyOpsAlarm`) and appear on `/health` ("Scheduled checks"); Slack only if `SLACK_ALERT_WEBHOOK` is set. |
 | **MTTR** (resolve) | ≤ 30 min for P1 | Operator + this runbook |  |
 
 P1 = "users cannot log in" OR "live recording paused" OR "audit chain broken".
@@ -713,34 +713,39 @@ No Telegram on an outage usually means the vault secrets are missing
 rows at all means pg_cron is not running — i.e. the database itself is down
 or `cron.job` lost its schedule.
 
-#### External probe (covers a full database outage) — owner action
+#### External probe (covers a full database outage)
 
-Nothing inside Postgres can report that Postgres is down. The concrete
-option on the current plans is a GitHub Actions scheduled workflow:
+Nothing inside Postgres can report that Postgres is down, so
+`.github/workflows/uptime-probe.yml` probes from outside:
 
-- `on: schedule: - cron: "*/15 * * * *"` (GitHub may delay scheduled runs
-  by several minutes; 15 min is the realistic floor) plus
-  `workflow_dispatch` for a manual test.
-- One step: `curl -s -m 20 -o body.json -w '%{http_code}' https://aicctv.dev/api/uptime`;
-  treat anything except HTTP 200 with `"status":"ok"` as a failure, and also
-  run a PostgREST liveness call (`POST
-  https://ulybenitqmqjfxtaregp.supabase.co/rest/v1/rpc/ping` with the anon
-  key as `apikey`; `public.ping()` is granted to `anon` and touches no data)
-  so a database outage is named as such.
-- On failure: `curl` the Telegram Bot API `sendMessage` with
-  `chat_id=$TELEGRAM_CHAT_ID`. To avoid a message every 15 min, alert only
-  when the previous run of the workflow succeeded (or cache the last state
-  with `actions/cache`).
-- **Secrets the owner must add** (repository → Settings → Secrets and
-  variables → Actions): `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — the same
-  values the `telegram-alerts` edge function uses — and, for the PostgREST
-  call, `SUPABASE_ANON_KEY`. They are not in the repository and must not be.
-- Pin actions to commit SHAs like the existing workflows. On this private
-  repo every job is billed as at least one minute: `*/15` is ~2 900
-  minutes a month, above GitHub Free's 2 000 — use `*/30` (~1 450) on Free,
-  or keep `*/15` on a plan with 3 000+ minutes.
-
-Not added yet: it needs those secrets first.
+- **Schedule:** hourly at `:07` (`7 * * * *`) plus `workflow_dispatch` for a
+  manual run (`gh workflow run uptime-probe.yml`). GitHub may delay scheduled
+  runs by several minutes.
+- **Check:** `scripts/uptime-probe.cjs` calls `https://aicctv.dev/api/uptime`
+  up to three times, 20 s apart; the first healthy answer wins. The web app
+  counts as up only when it returns its JSON contract (`checks.db.ok`,
+  `checks.ml.ok`); a timeout, DNS/TLS error or Vercel HTML 5xx is "web down"
+  with the database unknown.
+- **Alerts:** one plain-text Telegram message per change — web down /
+  recovered, database down / recovered — sent to the Bot API directly (no
+  Supabase, no Vercel on the path). ML is left to the pg_cron monitor. State
+  (`.uptime-state/state.json`) is carried between runs with `actions/cache`;
+  a missing state counts as "all up", so an outage already under way is still
+  reported. A failed Telegram delivery keeps the old state so the next run
+  retries.
+- **Fallback:** while web or database is down the job exits 1; GitHub e-mails
+  the owner about each failed scheduled run, even without the Telegram
+  secrets.
+- **Owner action — secrets** (repository → Settings → Secrets and variables →
+  Actions, or `gh secret set TELEGRAM_BOT_TOKEN` / `gh secret set
+  TELEGRAM_CHAT_ID`, which prompt for the value): the same bot token and chat
+  id the `telegram-alerts` edge function uses. Until they exist the job logs a
+  warning instead of sending.
+- **Cost:** this private repository bills every job as at least one minute:
+  hourly ≈ 720 minutes a month. `*/30` doubles that; `*/15` (~2 900) exceeds
+  GitHub Free's 2 000 — only on a plan with 3 000+ minutes.
+- **Tests:** `__tests__/uptime-probe.test.ts` (classification, transitions,
+  retries, delivery failure, missing secrets, no token in logs).
 
 ---
 
