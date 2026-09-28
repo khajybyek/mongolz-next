@@ -53,7 +53,9 @@ jest.mock("@/lib/supabase/server", () => ({
 }));
 jest.mock("@/lib/supabase/auth", () => ({
   requireAdmin: jest.fn(async () => ({ profile: { role: "admin" } })),
-  requireUser: jest.fn(async () => ({ profile: { role: "admin" } })),
+  // The real AuthCtx always carries `user`; /wall reads user.id for the live
+  // grant lookup (admins skip the query, so no camera_permissions answer).
+  requireUser: jest.fn(async () => ({ user: { id: "u-admin", email: "admin@test" }, profile: { role: "admin" } })),
 }));
 jest.mock("@/lib/i18n/server", () => ({
   getT: async () => {

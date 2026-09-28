@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import { mlActiveCameras } from "@/lib/ml-client";
 import { failClosedCameraIds, privateCameraIds } from "@/lib/privacy-schedule";
 import type { CameraLivenessStatus } from "@/lib/database.types";
+import { loadLiveAllowed } from "@/lib/live-access";
 import { WallView } from "./wall-view";
 
 export const dynamic = "force-dynamic";
@@ -28,10 +29,13 @@ type WallCamera = {
    *  <FaceThumb faceId> through the unified endpoint (ADR 0009 / Tier 2).
    *  Null when no face has been detected on that camera yet. */
   latest_face_id: string | null;
+  /** Live video for this operator: admins always, viewers only with a
+   *  camera_permissions row (lib/live-access.ts). False → locked live tile. */
+  live_allowed: boolean;
 };
 
 export default async function WallPage() {
-  const { profile } = await requireUser();
+  const { user, profile } = await requireUser();
   const isAdmin = profile.role === "admin";
   // camera_health() is operator-aware: admins get every camera, viewers
   // only those user_can_see_camera() allows; auditors get 42501 (and the
@@ -57,6 +61,7 @@ export default async function WallPage() {
       faces_24h: Number(r.faces_24h),
       faces_1h: Number(r.faces_1h),
       latest_face_id: null,
+      live_allowed: false,
     }));
   } else {
     // RPC unavailable (error or non-operator) → plain enabled-camera list
@@ -75,7 +80,20 @@ export default async function WallPage() {
       faces_24h: 0,
       faces_1h: 0,
       latest_face_id: null,
+      live_allowed: false,
     }));
+  }
+
+  // Live verdict per camera — the same grant read the stream gateway makes.
+  // Re-read on every 10 s refresh, so a grant an admin adds unlocks the tile
+  // (and a revoked one locks it) without reloading the kiosk.
+  if (cameras.length > 0) {
+    const liveAllowed = await loadLiveAllowed(
+      supabase,
+      { userId: user.id, role: profile.role },
+      cameras.map((c) => c.camera_id),
+    );
+    cameras = cameras.map((c) => ({ ...c, live_allowed: liveAllowed[c.camera_id] === true }));
   }
 
   // For each camera, pick the latest detected face id (admin only — face

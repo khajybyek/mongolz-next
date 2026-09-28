@@ -6,6 +6,7 @@ import {
   Cctv,
   ImageOff,
   Loader2,
+  Lock,
   LogOut,
   Maximize2,
   Minimize2,
@@ -17,6 +18,8 @@ import { FaceThumb } from "@/components/face-thumb";
 import { HlsPlayer } from "@/components/hls-player";
 import { PrivacyModeBadge, PrivacyModeLegend } from "@/components/privacy-mode-badge";
 import { useT } from "@/lib/i18n/client";
+import type { LiveLock, StreamDenyCode } from "@/lib/live-access";
+import { LiveLockOverlay } from "@/components/live-lock-overlay";
 import { cn, formatDate } from "@/lib/utils";
 import {
   getStreamTicketAction,
@@ -33,6 +36,8 @@ type WallCamera = {
   faces_24h: number;
   faces_1h: number;
   latest_face_id: string | null;
+  /** Live video for this operator (admins always; viewers need a grant). */
+  live_allowed: boolean;
 };
 
 type Mode = "status" | "live";
@@ -59,7 +64,11 @@ function streamUrlFor(id: string, ticket: string): string {
  * 10 s from the server, which refreshes health rollups and the active list.
  *
  * Viewers get the same tiles (status, last seen, face counts, running
- * streams) read-only; starting / stopping a camera stays admin-only.
+ * streams) read-only; starting / stopping a camera stays admin-only. A camera
+ * the viewer holds no live grant for shows a locked live tile and is never
+ * attached; a refusal that arrives while the wall is open (grant revoked,
+ * camera disabled) locks the tile with the gateway's reason instead of
+ * leaving a frozen player.
  */
 export function WallView({
   cameras,
@@ -85,6 +94,9 @@ export function WallView({
   const [mode, setMode] = useState<Mode>("status");
   const [streams, setStreams] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState<Set<string>>(new Set());
+  // Gateway refusals seen while the wall is open (403 + code), per camera.
+  const [refused, setRefused] = useState<Map<string, StreamDenyCode>>(new Map());
+  const prevAllowedRef = useRef<Map<string, boolean>>(new Map());
   const rootRef = useRef<HTMLDivElement>(null);
   const streamsRef = useRef(streams);
   streamsRef.current = streams;
@@ -133,11 +145,34 @@ export function WallView({
     setStreams((prev) => new Map(prev).set(id, streamUrlFor(id, ticket)));
   }, []);
 
+  // The server re-reads grants on every refresh. Forget a refusal once it can
+  // no longer be true: the camera left the list (disabled) or a grant was
+  // added since (live_allowed went false → true).
+  useEffect(() => {
+    const prev = prevAllowedRef.current;
+    const next = new Map(cameras.map((c) => [c.camera_id, c.live_allowed]));
+    prevAllowedRef.current = next;
+    setRefused((cur) => {
+      let changed = false;
+      const out = new Map(cur);
+      for (const id of cur.keys()) {
+        if (!next.has(id) || (next.get(id) === true && prev.get(id) === false)) {
+          out.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? out : cur;
+    });
+  }, [cameras]);
+
   // Keep the stream map aligned with what the ML service reports as active.
+  // Locked cameras (no grant, or refused) are never attached: no ticket, no
+  // HLS request.
   useEffect(() => {
     if (mode !== "live") return;
     let cancelled = false;
-    const wanted = new Set(activeIds);
+    const allowed = new Set(cameras.filter((c) => c.live_allowed).map((c) => c.camera_id));
+    const wanted = new Set(activeIds.filter((id) => allowed.has(id) && !refused.has(id)));
     (async () => {
       for (const id of wanted) {
         if (cancelled) return;
@@ -164,7 +199,16 @@ export function WallView({
     return () => {
       cancelled = true;
     };
-  }, [activeIds, attach, mode]);
+  }, [activeIds, attach, cameras, mode, refused]);
+
+  const retry = useCallback((id: string) => {
+    setRefused((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
   async function toggleFullscreen() {
     try {
@@ -231,6 +275,7 @@ export function WallView({
   const cols = n === 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
   const display = focused ? cameras.filter((c) => c.camera_id === focused) : cameras;
   const liveCount = activeIds.length;
+  const noLiveAccess = !isAdmin && cameras.every((c) => !c.live_allowed);
 
   return (
     <div ref={rootRef} className="min-h-screen bg-bg flex flex-col">
@@ -288,6 +333,12 @@ export function WallView({
       {mode === "live" && !mlReachable && (
         <div className="px-4 py-2 text-xs text-warning bg-warning-soft border-b border-warning/30">{t("grid_ml_down")}</div>
       )}
+      {mode === "live" && noLiveAccess && (
+        <div className="px-4 py-2 text-xs text-info bg-info-soft border-b border-info/30 flex items-center gap-2">
+          <Lock className="w-3.5 h-3.5 shrink-0" aria-hidden />
+          {t("live_no_access_any")}
+        </div>
+      )}
       {/* The privacy badge's meaning, visible without hover (touch screens). */}
       {privateIds.some((id) => activeIds.includes(id)) && (
         <PrivacyModeLegend
@@ -307,6 +358,7 @@ export function WallView({
             focused={focused === c.camera_id}
             mode={mode}
             streamUrl={streams.get(c.camera_id)}
+            lock={!c.live_allowed ? "no_grant" : (refused.get(c.camera_id) ?? null)}
             isActive={activeIds.includes(c.camera_id)}
             privateMode={privateIds.includes(c.camera_id)}
             failClosed={failClosedIds.includes(c.camera_id)}
@@ -315,6 +367,8 @@ export function WallView({
             onToggleFocus={() => setFocused((cur) => (cur === c.camera_id ? null : c.camera_id))}
             onStart={() => startCam(c.camera_id)}
             onStop={() => stopCam(c.camera_id)}
+            onRefused={(code) => setRefused((prev) => new Map(prev).set(c.camera_id, code))}
+            onRetry={() => retry(c.camera_id)}
           />
         ))}
       </main>
@@ -327,6 +381,7 @@ function CameraTile({
   focused,
   mode,
   streamUrl,
+  lock,
   isActive,
   privateMode,
   failClosed,
@@ -335,11 +390,15 @@ function CameraTile({
   onToggleFocus,
   onStart,
   onStop,
+  onRefused,
+  onRetry,
 }: {
   cam: WallCamera;
   focused: boolean;
   mode: Mode;
   streamUrl: string | undefined;
+  /** Set when live video is unavailable to this operator, and why. */
+  lock: LiveLock | null;
   isActive: boolean;
   /** Capture is in private mode — explains a 0 face count too. */
   privateMode: boolean;
@@ -351,6 +410,10 @@ function CameraTile({
   onToggleFocus: () => void;
   onStart: () => void;
   onStop: () => void;
+  /** The gateway refused the stream (403 + code): lock the tile. */
+  onRefused: (code: StreamDenyCode) => void;
+  /** Clear a transient refusal (failed permission check) and attach again. */
+  onRetry: () => void;
 }) {
   const { t } = useT();
   const statusColor =
@@ -370,7 +433,8 @@ function CameraTile({
           ? "text-danger"
           : "text-text-muted";
 
-  const showVideo = mode === "live" && Boolean(streamUrl);
+  const liveLock = mode === "live" ? lock : null;
+  const showVideo = mode === "live" && Boolean(streamUrl) && !lock;
 
   return (
     <div
@@ -380,8 +444,20 @@ function CameraTile({
         focused && "min-h-[calc(100vh-100px)]",
       )}
     >
-      {showVideo ? (
-        <HlsPlayer src={streamUrl!} controls={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
+      {liveLock ? (
+        // Locked: no player, no request — say why, sized to the tile.
+        <LiveLockOverlay lock={liveLock} focused={focused} onRetry={onRetry} />
+      ) : showVideo ? (
+        <HlsPlayer
+          src={streamUrl!}
+          controls={false}
+          className="absolute inset-0 w-full h-full object-contain bg-black"
+          // Only refusals are handled here; other failures keep the wall's
+          // existing behaviour.
+          onError={(_status, code) => {
+            if (code) onRefused(code);
+          }}
+        />
       ) : mode === "live" ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-text-faint">
           <Cctv className="w-10 h-10 opacity-40" />

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Info, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { requireAdmin } from "@/lib/supabase/auth";
@@ -141,6 +141,17 @@ export default async function CameraPermissionsPage({
         </div>
 
         <div className="space-y-4">
+          {/* The two access levels differ on purpose (lib/live-access.ts):
+              the rows here decide both, but "no rows" means opposite things. */}
+          <div className="card space-y-2 text-xs leading-relaxed text-text-soft">
+            <h3 className="text-sm font-semibold text-text flex items-center gap-1.5">
+              <Info className="w-3.5 h-3.5 text-accent" aria-hidden />
+              {t("perm_levels_title")}
+            </h3>
+            <p>{t("perm_levels_lists")}</p>
+            <p>{t("perm_levels_live")}</p>
+          </div>
+
           <StepUpForm action={grantCameraPermissionAction} className="card space-y-3">
             <h3 className="text-sm font-semibold">{t("perm_grant_title")}</h3>
             <input type="hidden" name="camera_id" value={camera.id} />

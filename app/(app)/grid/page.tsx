@@ -12,6 +12,7 @@ import { failClosedCameraIds, privateCameraIds } from "@/lib/privacy-schedule";
 import { MultiCameraGrid, type GridCamera } from "./multi-camera-grid";
 import { PrivacyEnforcementNotice } from "@/components/privacy-enforcement-notice";
 import { probeMlPrivacyEnforcement } from "@/lib/health-probes";
+import { loadLiveAllowed } from "@/lib/live-access";
 
 export const dynamic = "force-dynamic";
 
@@ -44,14 +45,17 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * NVR grid for every operator. Admins start / stop cameras; viewers watch
  * whatever is running (the camera list + camera_health + the HLS proxy are
  * all filtered per user_can_see_camera, so a viewer only ever sees cameras
- * they are permitted to see). Auditors are confined to /audit.
+ * they are permitted to see). Live video is stricter than the list: a viewer
+ * needs a camera_permissions row for the camera, so tiles without one are
+ * locked up front (lib/live-access.ts) instead of failing on a 403.
+ * Auditors are confined to /audit.
  */
 export default async function GridPage({
   searchParams,
 }: {
   searchParams?: Promise<{ focus?: string | string[] }>;
 }) {
-  const { profile } = await requireUser();
+  const { user, profile } = await requireUser();
   // The middleware already confines auditors to /audit*; belt and braces.
   if (profile.role === "auditor") redirect("/audit");
   const canControl = profile.role === "admin";
@@ -84,6 +88,14 @@ export default async function GridPage({
     for (const r of (health.data ?? []) as HealthRow[]) healthById.set(r.camera_id, r);
   }
 
+  // Same grant read the stream gateway makes (user client, own rows via RLS);
+  // admins skip the query, a failed read locks the tiles rather than the page.
+  const liveAllowed = await loadLiveAllowed(
+    supabase,
+    { userId: user.id, role: profile.role },
+    (rows ?? []).map((c) => c.id),
+  );
+
   const cameras: GridCamera[] = (rows ?? []).map((c) => {
     const h = healthById.get(c.id);
     // Dot = liveness (frames arriving), from the capture loop's heartbeat.
@@ -100,6 +112,7 @@ export default async function GridPage({
       status,
       last_seen: h?.last_seen ?? null,
       faces_1h: Number(h?.faces_1h ?? 0),
+      liveAllowed: liveAllowed[c.id] === true,
     };
   });
 

@@ -161,7 +161,7 @@ const sections = [
       {
         label: "Access",
         value:
-          "Authenticated session, an enabled camera, and admin or an explicit camera_permissions grant on the playlist and every segment; each view writes STREAM_VIEWED and each refusal STREAM_DENIED. Grant access per camera on /cameras/<id>/permissions",
+          "Authenticated session, an enabled camera, and admin or an explicit camera_permissions grant on the playlist and every segment; each view writes STREAM_VIEWED and each refusal STREAM_DENIED. Grant access per camera on /cameras/<id>/permissions. Stricter than lists, camera health and playback, which stay default-allow: a camera with no grants is listed to every operator but its live video is admin-only — /cameras shows \"Live: admins only\" and viewers see a locked tile on /grid, /wall and /live instead of a stream error",
       },
       { label: "Grid view", value: "/grid — auto / 1 / 2×2 / 3×3 / 4×4 with paging (2 columns on phones)" },
     ],

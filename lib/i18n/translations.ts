@@ -450,21 +450,23 @@ export const T = {
   // ── Permissions page ──
   permissions_title_prefix: { mn: "Эрх —", en: "Permissions —", kr: "권한 —" },
   permissions_subtitle: {
-    mn: "Хэн ямар камерт хандах эрхтэйг тодорхой хязгаарлах. Хоосон бол бүх viewer/auditor хандана.",
-    en: "Restrict which users can access this camera. Empty list → all viewers/auditors can.",
-    kr: "이 카메라에 접근할 수 있는 사용자를 제한합니다. 비어 있으면 모든 viewer/auditor가 접근 가능합니다.",
+    mn: "Энэ камерыг хэн харах, хэн шууд үзэхийг тохируулна.",
+    en: "Choose who can see this camera and who can watch it live.",
+    kr: "이 카메라를 볼 수 있는 사용자와 실시간으로 볼 수 있는 사용자를 지정합니다.",
   },
   perm_col_email: { mn: "Имэйл", en: "Email", kr: "이메일" },
   perm_col_role: { mn: "Role", en: "Role", kr: "역할" },
   perm_col_permission: { mn: "Permission", en: "Permission", kr: "권한" },
   perm_empty: {
-    mn: "Хязгаарлалт байхгүй — бүх viewer/auditor хандана.",
-    en: "No restrictions — all viewers/auditors can access.",
-    kr: "제한 없음 — 모든 viewer/auditor가 접근 가능합니다.",
+    mn: "Эрх олгоогүй — бүх оператор энэ камерыг жагсаалт, төлөв, бичлэгт харна, харин шууд дүрсийг зөвхөн админ үзнэ.",
+    en: "No grants — every operator sees this camera in lists, health and playback, but live video is admin-only.",
+    kr: "부여된 권한 없음 — 모든 운영자가 목록·상태·재생에서 이 카메라를 볼 수 있지만, 실시간 영상은 관리자만 볼 수 있습니다.",
   },
   perm_grant_title: { mn: "Эрх олгох", en: "Grant access", kr: "권한 부여" },
   perm_pick_user: { mn: "— Хэрэглэгч сонгох —", en: "— Pick user —", kr: "— 사용자 선택 —" },
-  perm_view: { mn: "View — playback харах", en: "View — playback only", kr: "View — 재생만" },
+  // Any row lets a viewer watch live (the gateway checks for a row, not its
+  // permission value), so "view" must not claim "playback only".
+  perm_view: { mn: "View — жагсаалт, бичлэг, шууд дүрс", en: "View — lists, playback and live video", kr: "View — 목록·재생·실시간 영상" },
   perm_operate: { mn: "Удирдах — бичлэг эхлүүлэх/зогсоох", en: "Operate — start/stop recording", kr: "Operate — 녹화 시작/중지" },
   perm_grant: { mn: "Олгох", en: "Grant", kr: "부여" },
 
@@ -2176,8 +2178,70 @@ export const T = {
     kr: "audit_log 에 다음으로 기록됩니다:",
   },
   // ── live stream refusals (/api/ml/stream returns a `code`; the tile shows why) ──
-  grid_stream_forbidden: { mn: "Энэ камерыг шууд үзэх эрх олгогдоогүй", en: "You do not have live access to this camera", kr: "이 카메라의 실시간 영상 접근 권한이 없습니다" },
   grid_stream_disabled: { mn: "Камер идэвхгүй байна", en: "Camera is disabled", kr: "카메라가 비활성화되어 있습니다" },
+
+  // ── live access (lib/live-access.ts): lists/health/playback are default-allow,
+  //    live video needs admin or a camera_permissions grant ──
+  live_no_access: {
+    mn: "Энэ камерын шууд дүрсийг үзэх эрх танд алга — админаас хүснэ үү",
+    en: "You don't have live access to this camera — ask an administrator",
+    kr: "이 카메라의 실시간 영상 접근 권한이 없습니다 — 관리자에게 요청하세요",
+  },
+  live_no_access_short: { mn: "Шууд эрхгүй", en: "No live access", kr: "실시간 권한 없음" },
+  live_no_access_any: {
+    mn: "Танд аль ч камерын шууд дүрсийг үзэх эрх алга — админаас хүснэ үү. Камерын жагсаалт, бичлэг үзэх боломж хэвээр.",
+    en: "You don't have live access to any camera — ask an administrator. Camera lists and recordings stay available.",
+    kr: "어떤 카메라에도 실시간 영상 접근 권한이 없습니다 — 관리자에게 요청하세요. 카메라 목록과 녹화 영상은 계속 볼 수 있습니다.",
+  },
+  live_denied_disabled: {
+    mn: "Камер идэвхгүй болсон тул шууд дүрс зогслоо",
+    en: "This camera was disabled, so live video stopped",
+    kr: "카메라가 비활성화되어 실시간 영상이 중지되었습니다",
+  },
+  live_denied_disabled_short: { mn: "Камер идэвхгүй", en: "Camera disabled", kr: "카메라 비활성화" },
+  live_denied_check_failed_short: { mn: "Эрх шалгаж чадсангүй", en: "Access check failed", kr: "권한 확인 실패" },
+  live_denied_check_failed: {
+    mn: "Шууд үзэх эрхийг шалгаж чадсангүй — хэсэг хүлээгээд дахин оролдоно уу",
+    en: "Could not check your live access — try again in a moment",
+    kr: "실시간 접근 권한을 확인할 수 없습니다 — 잠시 후 다시 시도하세요",
+  },
+  cam_live_admins_only: { mn: "Шууд: зөвхөн админ", en: "Live: admins only", kr: "실시간: 관리자만" },
+  cam_live_users: { mn: "Шууд: {n} хэрэглэгч", en: "Live: {n} user(s)", kr: "실시간: 사용자 {n}명" },
+  cam_live_unknown: { mn: "Шууд: тодорхойгүй", en: "Live: unknown", kr: "실시간: 알 수 없음" },
+  cam_live_admins_only_tip: {
+    mn: "Энэ камерт шууд үзэх эрх хэнд ч олгогдоогүй тул шууд дүрсийг зөвхөн админ үзнэ. Жагсаалт, төлөв, бичлэг бүх операторт харагдсаар байна. Эрхийг «Эрх» хуудаснаас олгоно.",
+    en: "Nobody holds a live grant for this camera, so only admins can watch its live video. Lists, health and playback stay visible to every operator. Grant live access on the permissions page.",
+    kr: "이 카메라에 실시간 권한을 받은 사용자가 없어 실시간 영상은 관리자만 볼 수 있습니다. 목록·상태·재생은 모든 운영자에게 계속 표시됩니다. 권한 페이지에서 실시간 접근을 부여하세요.",
+  },
+  // Rows exist (an auditor's, an admin's) but none lets anyone watch live:
+  // the list level is already restricted, so the default-allow sentence
+  // above would be false here.
+  cam_live_admins_only_restricted_tip: {
+    mn: "Шууд дүрсийг зөвхөн админ үзнэ: энэ камерт эрхтэй хэрэглэгчдийн хэн нь ч шууд үзэх боломжгүй (auditor шууд дүрс хэзээ ч үзэхгүй). Жагсаалт, төлөв, бичлэгийг зөвхөн «Эрх» хуудсанд буй хэрэглэгчид болон админууд харна.",
+    en: "Only admins can watch live: none of the users listed for this camera can (auditors never get live video). Lists, health and playback are restricted to the listed users and admins. Manage access on the permissions page.",
+    kr: "실시간 영상은 관리자만 볼 수 있습니다. 이 카메라에 등록된 사용자 중 실시간으로 볼 수 있는 사람이 없습니다(감사자는 실시간 영상을 볼 수 없음). 목록·상태·재생은 등록된 사용자와 관리자만 볼 수 있습니다. 권한 페이지에서 관리하세요.",
+  },
+  cam_live_users_tip: {
+    mn: "Камер идэвхтэй үед админууд болон эрх олгогдсон {n} хэрэглэгч шууд дүрсийг үзнэ. Эрхийг «Эрх» хуудаснаас удирдана.",
+    en: "While the camera is enabled, admins and {n} user(s) with a grant can watch its live video. Manage grants on the permissions page.",
+    kr: "카메라가 활성화된 동안 관리자와 권한을 받은 사용자 {n}명이 실시간 영상을 볼 수 있습니다. 권한 페이지에서 관리하세요.",
+  },
+  cam_live_unknown_tip: {
+    mn: "Шууд үзэх эрхийн жагсаалтыг уншиж чадсангүй — «Эрх» хуудсыг нээнэ үү.",
+    en: "Could not read the live grants — open the permissions page.",
+    kr: "실시간 권한 목록을 읽을 수 없습니다 — 권한 페이지를 여세요.",
+  },
+  perm_levels_title: { mn: "Хандалтын хоёр түвшин", en: "Two levels of access", kr: "두 가지 접근 수준" },
+  perm_levels_lists: {
+    mn: "Жагсаалт, камерын төлөв, бичлэг: энд мөр байхгүй бол энэ камер бүх операторт харагдана. Эхний мөр нэмэгдмэгц зөвхөн жагсаалтад буй хэрэглэгчид (мөн админууд) харна.",
+    en: "Lists, camera health and playback: while this camera has no rows here, every operator sees it. The first row restricts it to the listed users (admins always see every camera).",
+    kr: "목록·카메라 상태·재생: 여기에 행이 없으면 모든 운영자가 이 카메라를 봅니다. 첫 행이 추가되면 목록의 사용자(와 관리자)만 볼 수 있습니다.",
+  },
+  perm_levels_live: {
+    mn: "Шууд дүрс: админ үргэлж үзнэ; бусад нь зөвхөн энд мөртэй бол. Мөр байхгүй бол шууд дүрсийг зөвхөн админ үзнэ. Камер идэвхтэй байх ёстой; auditor шууд дүрс хэзээ ч үзэхгүй.",
+    en: "Live video: admins always; everyone else only with a row here — no rows means live video is admin-only. The camera must also be enabled, and auditors never get live video.",
+    kr: "실시간 영상: 관리자는 항상, 그 외 사용자는 여기에 행이 있을 때만 볼 수 있습니다 — 행이 없으면 실시간 영상은 관리자 전용입니다. 카메라가 활성화되어 있어야 하며, 감사자는 실시간 영상을 볼 수 없습니다.",
+  },
 
   // ── /users refusals (server actions return these strings verbatim) ──
   users_err_invalid_input: { mn: "Оруулсан утга буруу байна", en: "Invalid input", kr: "입력값이 올바르지 않습니다" },

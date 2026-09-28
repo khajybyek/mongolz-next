@@ -28,6 +28,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUserApi, isAuthErr, type AuthCtx } from "@/lib/supabase/auth";
 import { verifyStreamTicket } from "@/lib/stream-ticket";
 import { recordAccess, READ_ACTIONS, ACCESS_THROTTLE_MS } from "@/lib/audit";
+import type { StreamDenyCode } from "@/lib/live-access";
 
 const ML_URL = process.env.NEXT_PUBLIC_ML_SERVICE_URL ?? "";
 const ML_TOKEN = process.env.ML_SERVICE_TOKEN ?? "";
@@ -37,8 +38,12 @@ function validSegment(segment: string): boolean {
   return segment === "index.m3u8" || segment.endsWith(".ts");
 }
 
-/** Refusal codes the player/tile can map to a reason instead of a black box. */
-type DenyCode = "camera_disabled" | "camera_not_authorized" | "permission_check_failed";
+/**
+ * Refusal codes the player/tile can map to a reason instead of a black box.
+ * Shared with lib/live-access.ts, which maps each one to a translated message
+ * and computes the same grant verdict up front so tiles lock before asking.
+ */
+type DenyCode = StreamDenyCode;
 
 export async function GET(
   request: NextRequest,

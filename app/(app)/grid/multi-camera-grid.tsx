@@ -23,6 +23,8 @@ import { cn, formatDate } from "@/lib/utils";
 import type { CameraRestartInfo } from "@/lib/camera-restarts";
 import { CameraReconnectLine, CameraRestartBadge } from "@/components/camera-restart-status";
 import { PrivacyModeBadge, PrivacyModeLegend } from "@/components/privacy-mode-badge";
+import type { LiveLock, StreamDenyCode } from "@/lib/live-access";
+import { LiveLockOverlay } from "@/components/live-lock-overlay";
 import {
   getActiveCamerasAction,
   getStreamTicketAction,
@@ -37,6 +39,13 @@ export interface GridCamera {
   status: "healthy" | "stale" | "offline" | "unknown";
   last_seen: string | null;
   faces_1h: number;
+  /**
+   * Whether the stream gateway will serve this operator the live video:
+   * admins always; viewers only with a camera_permissions row for the camera
+   * (computed server-side, lib/live-access.ts). A false tile is locked — no
+   * ticket, no HLS request, no start / retry.
+   */
+  liveAllowed: boolean;
 }
 
 type Tiles = 1 | 4 | 9 | 16;
@@ -73,7 +82,8 @@ const STATUS_DOT: Record<GridCamera["status"], string> = {
  * `canControl=false` (viewer) is the read-only NVR mode: no start / stop
  * anywhere, tiles wait for an admin to start a stream and attach on their
  * own. Layout, paging, focus, fullscreen and retry (which only re-issues a
- * stream ticket) stay available.
+ * stream ticket) stay available. A camera the viewer holds no live grant for
+ * renders as a locked tile and is never attached.
  */
 export function MultiCameraGrid({
   cameras,
@@ -107,10 +117,15 @@ export function MultiCameraGrid({
   const [streams, setStreams] = useState<Map<string, string>>(new Map());
   const [busy, setBusy] = useState<Map<string, "start" | "stop">>(new Map());
   const [failed, setFailed] = useState<Set<string>>(new Set());
-  // A 403 from the stream route is not a glitch: the camera is disabled or the
-  // operator has no grant for it, so the tile says that instead of offering a
-  // Retry that can never succeed.
-  const [denied, setDenied] = useState<Map<string, number>>(new Map());
+  // A refusal from the stream gateway (403 + code) is not a glitch: the camera
+  // was disabled or the grant revoked while the page was open. The tile says
+  // which, and the sync loop stops re-attaching it (no retry loop). Cleared by
+  // a successful attach (manual retry / admin start).
+  const [refused, setRefused] = useState<Map<string, StreamDenyCode>>(new Map());
+  // Every camera the ML service reports as streaming (known to this page),
+  // whether or not this operator may watch it — so the viewer notice does not
+  // claim "nothing is running" while locked tiles are live for others.
+  const [running, setRunning] = useState<Set<string>>(() => new Set(initialActive));
   const [playing, setPlaying] = useState<Set<string>>(new Set());
   const [focused, setFocused] = useState<string | null>(null);
   const [isFull, setIsFull] = useState(false);
@@ -136,6 +151,8 @@ export function MultiCameraGrid({
   streamsRef.current = streams;
   const busyRef = useRef(busy);
   busyRef.current = busy;
+  const refusedRef = useRef(refused);
+  refusedRef.current = refused;
   const focusedRef = useRef(focused);
   focusedRef.current = focused;
 
@@ -186,6 +203,12 @@ export function MultiCameraGrid({
       next.delete(id);
       return next;
     });
+    setRefused((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
   }, []);
 
   const detach = useCallback((id: string) => {
@@ -204,16 +227,21 @@ export function MultiCameraGrid({
   }, []);
 
   // Attach to streams that are already running and keep in sync with the ML
-  // service (streams started / stopped from the wall or another tab).
+  // service (streams started / stopped from the wall or another tab). Locked
+  // cameras (no live grant, or refused by the gateway) are never attached, so
+  // no ticket is issued and no HLS request is made for them.
   useEffect(() => {
     let cancelled = false;
     const known = new Set(cameras.map((c) => c.id));
+    const watchable = new Set(cameras.filter((c) => c.liveAllowed).map((c) => c.id));
 
     async function sync(ids: string[], ok: boolean) {
       if (cancelled) return;
       setReachable(ok);
       if (!ok) return;
-      const wanted = new Set(ids.filter((id) => known.has(id)));
+      const live = ids.filter((id) => known.has(id));
+      setRunning(new Set(live));
+      const wanted = new Set(live.filter((id) => watchable.has(id) && !refusedRef.current.has(id)));
       for (const id of wanted) {
         if (!streamsRef.current.has(id)) {
           try {
@@ -376,9 +404,29 @@ export function MultiCameraGrid({
     }
   }
 
+  // A refusal ends the stream for this page: drop the player and remember why.
+  // Anything else (a stopped stream, an expired ticket) stays a plain failure
+  // with the Retry that re-issues a ticket.
+  const onStreamError = useCallback(
+    (id: string, code?: StreamDenyCode | null) => {
+      if (code) {
+        setRefused((prev) => new Map(prev).set(id, code));
+        detach(id);
+        return;
+      }
+      setFailed((prev) => new Set(prev).add(id));
+    },
+    [detach],
+  );
+
+  const lockFor = (cam: GridCamera): LiveLock | null =>
+    !cam.liveAllowed ? "no_grant" : (refused.get(cam.id) ?? null);
+
   const focusedCam = focused ? cameras.find((c) => c.id === focused) ?? null : null;
   const fill = isFull || Boolean(focusedCam);
   const streamingCount = streams.size;
+  // Viewer with no live grant on any listed camera: one notice says so.
+  const noLiveAccess = !canControl && cameras.length > 0 && cameras.every((c) => !c.liveAllowed);
 
   const layoutOptions: Array<{ value: Layout; label: string }> = [
     { value: "auto", label: t("grid_auto") },
@@ -489,7 +537,10 @@ export function MultiCameraGrid({
       {!reachable ? (
         <Alert variant="warning">{t("grid_ml_down")}</Alert>
       ) : (
-        !isFull && (
+        // A viewer without any live grant gets the lock notice below instead
+        // of "running streams attach automatically", which would not be true.
+        !isFull &&
+        !noLiveAccess && (
           <p className="helper mt-0">{canControl ? t("grid_recording_note") : t("grid_viewer_readonly")}</p>
         )
       )}
@@ -499,8 +550,11 @@ export function MultiCameraGrid({
         <PrivacyModeLegend failClosed={[...failClosedIds].some((id) => privateIds.has(id))} />
       )}
 
+      {/* Viewer without any live grant: the tiles are locked — say why once. */}
+      {noLiveAccess && <Alert variant="info">{t("live_no_access_any")}</Alert>}
+
       {/* Viewer: ML is up but nothing is streaming — say so, keep the tiles. */}
-      {!canControl && reachable && synced && streamingCount === 0 && (
+      {!canControl && !noLiveAccess && reachable && synced && streamingCount === 0 && running.size === 0 && (
         <Alert variant="info">{t("grid_no_streams_viewer")}</Alert>
       )}
 
@@ -519,7 +573,7 @@ export function MultiCameraGrid({
               streamUrl={streams.get(focusedCam.id)}
               busy={busy.get(focusedCam.id) ?? null}
               failed={failed.has(focusedCam.id)}
-              deniedStatus={denied.get(focusedCam.id)}
+              lock={lockFor(focusedCam)}
               restart={restarts[focusedCam.id]}
               privateMode={privateIds.has(focusedCam.id)}
               failClosed={failClosedIds.has(focusedCam.id)}
@@ -531,10 +585,7 @@ export function MultiCameraGrid({
               onStop={() => stop(focusedCam)}
               onFocus={leaveFocus}
               onPlaying={() => setPlaying((p) => new Set(p).add(focusedCam.id))}
-              onError={(status) => {
-                setFailed((p) => new Set(p).add(focusedCam.id));
-                if (status) setDenied((p) => new Map(p).set(focusedCam.id, status));
-              }}
+              onError={(_status, code) => onStreamError(focusedCam.id, code)}
               onRetry={() => void attach(focusedCam.id)}
               reachable={reachable}
             />
@@ -552,7 +603,7 @@ export function MultiCameraGrid({
               streamUrl={streams.get(cam.id)}
               busy={busy.get(cam.id) ?? null}
               failed={failed.has(cam.id)}
-              deniedStatus={denied.get(cam.id)}
+              lock={lockFor(cam)}
               restart={restarts[cam.id]}
               privateMode={privateIds.has(cam.id)}
               failClosed={failClosedIds.has(cam.id)}
@@ -564,10 +615,7 @@ export function MultiCameraGrid({
               onStop={() => stop(cam)}
               onFocus={() => setFocused(cam.id)}
               onPlaying={() => setPlaying((p) => new Set(p).add(cam.id))}
-              onError={(status) => {
-                setFailed((p) => new Set(p).add(cam.id));
-                if (status) setDenied((p) => new Map(p).set(cam.id, status));
-              }}
+              onError={(_status, code) => onStreamError(cam.id, code)}
               onRetry={() => void attach(cam.id)}
               reachable={reachable}
             />
@@ -594,7 +642,7 @@ function GridTile({
   streamUrl,
   busy,
   failed,
-  deniedStatus,
+  lock,
   restart,
   privateMode,
   failClosed,
@@ -614,8 +662,8 @@ function GridTile({
   streamUrl: string | undefined;
   busy: "start" | "stop" | null;
   failed: boolean;
-  /** HTTP status when the stream was refused (403 = disabled or not granted). */
-  deniedStatus?: number;
+  /** Set when live video is unavailable to this operator, and why. */
+  lock: LiveLock | null;
   /** Set when the ML supervisor restarted this capture at least once, or
    *  when it is waiting to reconnect a dropped source (state "backoff"). */
   restart?: CameraRestartInfo;
@@ -632,14 +680,13 @@ function GridTile({
   onStop: () => void;
   onFocus: () => void;
   onPlaying: () => void;
-  onError: (status?: number) => void;
+  onError: (status?: number, code?: StreamDenyCode | null) => void;
   onRetry: () => void;
   reachable: boolean;
 }) {
   const { t } = useT();
-  const refused = deniedStatus === 403;
-  const live = Boolean(streamUrl) && playing && !failed;
-  const loading = busy !== null || (Boolean(streamUrl) && !playing && !failed);
+  const live = Boolean(streamUrl) && playing && !failed && !lock;
+  const loading = busy !== null || (Boolean(streamUrl) && !playing && !failed && !lock);
 
   return (
     <div
@@ -649,7 +696,10 @@ function GridTile({
         fill ? "h-full min-h-[160px]" : "aspect-video",
       )}
     >
-      {streamUrl && !failed ? (
+      {lock ? (
+        // Locked: no player, no request — say why, sized to the tile.
+        <LiveLockOverlay lock={lock} focused={focused} onRetry={onRetry} />
+      ) : streamUrl && !failed ? (
         <HlsPlayer
           src={streamUrl}
           controls={false}
@@ -661,13 +711,7 @@ function GridTile({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-text-faint">
           <Cctv className="w-8 h-8 opacity-40" />
           <span className="text-xs">
-            {failed
-              ? refused
-                ? t("grid_stream_forbidden")
-                : t("grid_stream_failed")
-              : canControl
-                ? t("grid_idle")
-                : t("grid_waiting_stream")}
+            {failed ? t("grid_stream_failed") : canControl ? t("grid_idle") : t("grid_waiting_stream")}
           </span>
           {/* Supervisor backoff: the source dropped and the ML service will
               retry on its own — say when, instead of looking merely idle. */}
@@ -694,20 +738,16 @@ function GridTile({
         </div>
       )}
 
-      {failed && (
+      {failed && !lock && (
         <div className="absolute inset-0 z-[3] flex flex-col items-center justify-center gap-2 bg-black/60 px-4 text-center">
-          <AlertTriangle className={cn("w-6 h-6", refused ? "text-danger" : "text-warning")} />
-          <span className="text-xs text-white/90">
-            {refused ? t("grid_stream_forbidden") : t("grid_stream_failed")}
-          </span>
-          {/* Retrying a refusal can never succeed — an admin has to grant
-              access on /cameras/<id>/permissions or re-enable the camera. */}
-          {!refused && (
-            <button type="button" onClick={onRetry} className="btn-secondary btn-sm relative z-[4]">
-              <RefreshCw className="w-3.5 h-3.5" />
-              {t("grid_retry")}
-            </button>
-          )}
+          <AlertTriangle className="w-6 h-6 text-warning" />
+          <span className="text-xs text-white/90">{t("grid_stream_failed")}</span>
+          {/* Refusals never get here — they lock the tile above, because an
+              admin has to grant access or re-enable the camera first. */}
+          <button type="button" onClick={onRetry} className="btn-secondary btn-sm relative z-[4]">
+            <RefreshCw className="w-3.5 h-3.5" />
+            {t("grid_retry")}
+          </button>
         </div>
       )}
 

@@ -418,7 +418,7 @@ RPC, so `khajybyek` and `khajybyek@gmail.com` both work.
 | Role | Scope |
 |---|---|
 | `admin` | full CRUD; reveal_level set per profile (0 = director) |
-| `viewer` | recordings + live; view-only NVR grid/wall (no start/stop); aggregate camera health only — no face crops or ids; no reveal |
+| `viewer` | recordings + live; view-only NVR grid/wall (no start/stop); aggregate camera health only — no face crops or ids; no reveal. Live video only for cameras with a `camera_permissions` grant for that viewer (lists, health and playback stay default-allow); other tiles show a locked "ask an administrator" state |
 | `auditor` | only `/audit*`; middleware blocks every other path |
 | `super_admin` | DB-locked flag; cannot be demoted/deleted via app or SQL by anyone except postgres / service_role / supabase_admin |
 

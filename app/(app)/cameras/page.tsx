@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { Power, Clock, Users } from "lucide-react";
+import { Power, Clock, Users, Lock } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { Badge } from "@/components/ui/badge";
 import { DeleteWithTotp } from "@/components/delete-with-totp";
 import { CameraDialog } from "@/components/camera-edit-dialog";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { mlActiveCameras } from "@/lib/ml-client";
@@ -17,6 +17,7 @@ import {
 import { cn, formatDate } from "@/lib/utils";
 import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { StepUpForm } from "@/components/step-up-form";
+import { liveAccessSummary, restrictedCameraIds, summarizeLiveGrants } from "@/lib/live-access";
 
 function displayCameraUrl(stored: string): string {
   try {
@@ -54,15 +55,43 @@ function cameraStatusKey(status: string | null | undefined) {
   }
 }
 
+/**
+ * Live grants per camera, counted the way the stream gateway honours them
+ * (distinct viewers; lib/live-access.ts), plus which cameras have any
+ * camera_permissions row at all — that, not the live count, decides whether
+ * lists / health / playback are still open to every operator. Read with the
+ * service client after requireAdmin(), exactly as /cameras/<id>/permissions
+ * reads them, so the summary here and the list behind the link always agree.
+ * `null` = the grants could not be read — the badge then says "unknown",
+ * never "admins only".
+ */
+async function loadLiveGrantCounts(): Promise<{ counts: Map<string, number>; restricted: Set<string> } | null> {
+  try {
+    const svc = createServiceClient();
+    const { data: grants, error } = await svc.from("camera_permissions").select("camera_id, user_id");
+    if (error) return null;
+    const rows = grants ?? [];
+    const restricted = restrictedCameraIds(rows);
+    const userIds = [...new Set(rows.map((g) => g.user_id))];
+    if (userIds.length === 0) return { counts: new Map(), restricted };
+    const { data: profiles, error: profErr } = await svc.from("profiles").select("id, role").in("id", userIds);
+    const roleByUser = profErr ? null : new Map((profiles ?? []).map((p) => [p.id, p.role as string]));
+    return { counts: summarizeLiveGrants(rows, roleByUser), restricted };
+  } catch {
+    return null;
+  }
+}
+
 export default async function CamerasPage() {
   await requireAdmin();
   const { t } = await getT();
   const supabase = await createClient();
 
-  const [{ data: rawCameras }, { data: healthRows }, active] = await Promise.all([
+  const [{ data: rawCameras }, { data: healthRows }, active, liveGrants] = await Promise.all([
     supabase.from("cameras").select("*").order("created_at", { ascending: false }),
     supabase.rpc("camera_health"),
     mlActiveCameras(),
+    loadLiveGrantCounts(),
   ]);
 
   const healthById = new Map<string, HealthRow>();
@@ -79,6 +108,11 @@ export default async function CamerasPage() {
     url: displayCameraUrl(c.url),
     health: healthById.get(c.id) ?? null,
     streaming: c.enabled && streamingIds.has(c.id),
+    live: liveAccessSummary(
+      liveGrants === null ? null : (liveGrants.counts.get(c.id) ?? 0),
+      liveGrants?.restricted.has(c.id) ?? false,
+      t,
+    ),
   }));
 
   const healthSummary = {
@@ -196,6 +230,20 @@ export default async function CamerasPage() {
                         {t("consent_badge")}
                       </span>
                     )}
+                    {/* Who may watch live: lists / health / playback are
+                        default-allow, live video needs a grant — without one
+                        it is admin-only, which nobody could tell before. */}
+                    <Link
+                      href={`/cameras/${c.id}/permissions` as never}
+                      title={c.live.title}
+                      aria-label={`${c.live.label} — ${t("permissions")}`}
+                      className="inline-flex hover:opacity-80 transition-opacity"
+                    >
+                      <Badge variant={c.live.adminsOnly ? "warning" : "muted"}>
+                        {c.live.adminsOnly ? <Lock className="w-3 h-3" aria-hidden /> : <Users className="w-3 h-3" aria-hidden />}
+                        {c.live.label}
+                      </Badge>
+                    </Link>
                   </div>
                   {c.health && c.health.last_seen && (
                     <div className="text-[10px] text-text-faint mb-1">

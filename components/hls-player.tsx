@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { probeStreamFailure, readStreamDenyCode, type StreamDenyCode } from "@/lib/live-access";
 
 interface HlsPlayerProps {
   src: string;
@@ -12,10 +13,13 @@ interface HlsPlayerProps {
   onPlaying?: () => void;
   /**
    * Fired on a fatal playback / network error (after hls.js gave up). The HTTP
-   * status is passed when the failure came from a response, so a tile can tell
-   * "no access to this camera" (403) apart from "the stream is not running".
+   * status is passed when the failure came from a response. `code` is set only
+   * when the stream gateway refused the request (403 + camera_disabled |
+   * camera_not_authorized | permission_check_failed): the player has already
+   * stopped loading, and the tile should say why instead of retrying. A 403
+   * without a code (e.g. an expired stream ticket) is an ordinary failure.
    */
-  onError?: (status?: number) => void;
+  onError?: (status?: number, code?: StreamDenyCode | null) => void;
 }
 
 export function HlsPlayer({
@@ -48,13 +52,21 @@ export function HlsPlayer({
     const ticket = srcUrl.searchParams.get("ticket");
 
     const handlePlaying = () => playingRef.current?.();
-    const handleNativeError = () => errorRef.current?.();
+    // Native HLS (Safari / iOS) reports no HTTP status, so ask the gateway
+    // once why the playlist failed — that is what turns a refusal into a
+    // readable reason instead of a generic error.
+    const handleNativeError = () => {
+      void probeStreamFailure(src).then((failure) => {
+        if (!cancelled) errorRef.current?.(failure.status, failure.code);
+      });
+    };
     video.addEventListener("playing", handlePlaying);
 
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.addEventListener("error", handleNativeError);
       video.src = src;
       return () => {
+        cancelled = true;
         video.removeEventListener("playing", handlePlaying);
         video.removeEventListener("error", handleNativeError);
       };
@@ -81,6 +93,29 @@ export function HlsPlayer({
       });
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (!data.fatal) return;
+        // hls.js attaches the failing response on load errors.
+        const status =
+          typeof data.response === "object" && data.response
+            ? (data.response as { code?: number }).code
+            : undefined;
+        // A 403 is never fixed by reloading with the same ticket. It used to
+        // fall into the startLoad() branch below for playlist reloads and
+        // segments, so a grant revoked mid-stream (or a camera disabled
+        // meanwhile) left the player re-requesting forever behind a frozen
+        // frame. Stop loading and report — with the gateway's refusal code
+        // when there is one, so the tile can say why.
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && status === 403) {
+          hls?.stopLoad();
+          void (async () => {
+            let code = readStreamDenyCode(data.networkDetails);
+            if (!code) {
+              const probe = await probeStreamFailure(src);
+              code = probe.status === 403 ? probe.code : null;
+            }
+            if (!cancelled) errorRef.current?.(403, code);
+          })();
+          return;
+        }
         // One recovery attempt for transient network / media glitches, then
         // surface the failure so the tile can show a retry control.
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.details !== Hls.ErrorDetails.MANIFEST_LOAD_ERROR) {
@@ -91,13 +126,6 @@ export function HlsPlayer({
           hls?.recoverMediaError();
           return;
         }
-        // hls.js attaches the failing response on load errors; a 403 from the
-        // stream route means the camera is disabled or not granted, which the
-        // tile should say instead of offering a Retry that can never work.
-        const status =
-          typeof data.response === "object" && data.response
-            ? (data.response as { code?: number }).code
-            : undefined;
         errorRef.current?.(status);
       });
       hls.loadSource(src);

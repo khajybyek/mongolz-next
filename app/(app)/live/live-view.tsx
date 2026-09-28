@@ -10,6 +10,7 @@ import {
   Square,
   AlertTriangle,
   Loader2,
+  Lock,
   Upload,
 } from "lucide-react";
 import { HlsPlayer } from "@/components/hls-player";
@@ -33,6 +34,7 @@ import { CameraReconnectLine, CameraRestartBadge } from "@/components/camera-res
 import { PrivacyModeBadge } from "@/components/privacy-mode-badge";
 import type { CameraRestartInfo } from "@/lib/camera-restarts";
 import { workflowCopy } from "@/lib/workflow-copy";
+import { isRetryableDenial, lacksAnyLiveAccess, streamDenyMessageKey, type StreamDenyCode } from "@/lib/live-access";
 
 interface Camera {
   id: string;
@@ -42,6 +44,10 @@ interface Camera {
   /** Operator switch. A disabled camera is never offered a Start button and
    *  the server action refuses it, so the switch means what it says. */
   enabled: boolean;
+  /** Whether the stream gateway would serve this operator: the camera is
+   *  enabled, and admin or a camera_permissions row (lib/live-access.ts).
+   *  False → no Watch button. */
+  liveAllowed: boolean;
 }
 
 type Mode = "device" | "phone" | "cctv" | "file";
@@ -736,6 +742,9 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
   // Running captures in private mode by schedule (ADR 0012).
   const [privateIds, setPrivateIds] = useState<Set<string>>(new Set());
   const [failClosedIds, setFailClosedIds] = useState<Set<string>>(new Set());
+  // Gateway refusals that no retry can fix (grant revoked, camera disabled)
+  // seen while the page is open: the row locks until the page is reloaded.
+  const [refused, setRefused] = useState<Map<string, StreamDenyCode>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -764,6 +773,7 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
   }, []);
 
   async function watch(c: Camera) {
+    if (!c.liveAllowed || refused.has(c.id)) return; // locked — no ticket, no request
     setError(null);
     setBusy(true);
     try {
@@ -819,16 +829,38 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
     setBusy(false);
   }
 
+  // A refusal from the stream gateway stops the player and says why; nothing
+  // retries it. Other playback failures keep their previous behaviour.
+  function onStreamError(cameraId: string, code?: StreamDenyCode | null) {
+    if (!code) return;
+    setActive((cur) => (cur === cameraId ? null : cur));
+    setError(t(streamDenyMessageKey(code)));
+    if (!isRetryableDenial(code)) setRefused((prev) => new Map(prev).set(cameraId, code));
+  }
+
   const activeCam = cameras.find((c) => c.id === active);
   const streamUrl = activeCam && ticket
     ? `/api/ml/stream/${encodeURIComponent(activeCam.id)}/index.m3u8?ticket=${encodeURIComponent(ticket)}`
     : null;
+  // Viewer who may list cameras but can watch none of the enabled ones.
+  const noLiveAccess = !canControl && lacksAnyLiveAccess(cameras);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
       <div className="card p-0 overflow-hidden bg-black aspect-video relative flex items-center justify-center">
-        {streamUrl ? (
-          <HlsPlayer src={streamUrl} className="w-full h-full" />
+        {streamUrl && activeCam ? (
+          <HlsPlayer
+            src={streamUrl}
+            className="w-full h-full"
+            onError={(_status, code) => onStreamError(activeCam.id, code)}
+          />
+        ) : noLiveAccess ? (
+          // The player area is always black: fixed light colours, not theme
+          // tokens (dark slate on black in the light theme).
+          <div className="flex flex-col items-center gap-2 text-white/80 text-sm text-center px-4">
+            <Lock className="w-6 h-6 text-white/60" aria-hidden />
+            {t("live_no_access_any")}
+          </div>
         ) : (
           <div className="text-text-muted text-sm text-center px-4">
             {t("live_cctv_press_start")}
@@ -875,7 +907,16 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
                 </div>
               )}
             </div>
-            {!canControl && c.enabled ? (
+            {!canControl && c.enabled && (!c.liveAllowed || refused.has(c.id)) ? (
+              // No grant (or refused while open): no Watch button, no ticket.
+              <span
+                className="inline-flex items-center gap-1 text-2xs uppercase tracking-wide text-text-faint border border-border rounded px-1.5 py-0.5 shrink-0"
+                title={t(refused.has(c.id) ? streamDenyMessageKey(refused.get(c.id)!) : "live_no_access")}
+              >
+                <Lock className="w-3 h-3" aria-hidden />
+                {t("live_no_access_short")}
+              </span>
+            ) : !canControl && c.enabled ? (
               active === c.id ? (
                 <button
                   type="button"
