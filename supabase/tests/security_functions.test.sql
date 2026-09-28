@@ -390,7 +390,8 @@ declare
   offenders text[] := '{}';
 begin
   foreach t in array array['cameras','retention_policies','camera_permissions','push_subscriptions',
-                           'webauthn_credentials','suspects','privacy_zones'] loop
+                           'webauthn_credentials','suspects','privacy_zones',
+                           'masking_schedules','recording_privacy_spans'] loop
     foreach r in array array['anon','authenticated'] loop
       foreach p in array array['INSERT','UPDATE','DELETE','TRUNCATE'] loop
         if has_table_privilege(r, 'public.' || t, p) then
