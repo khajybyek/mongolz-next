@@ -1,0 +1,99 @@
+# Dependabot version updates.
+#
+# Monthly, not weekly: security updates are not bound by this schedule once
+# Dependabot alerts are enabled for the repo, and monthly keeps the private
+# repo's Actions minutes low (the hourly uptime probe already spends most of
+# them). Minor + patch updates are grouped into one PR per ecosystem; majors
+# arrive one PR each.
+#
+# Dependabot PRs can run the full CI: .github/workflows/ci.yml and the
+# pull_request jobs in security.yml use no secrets (placeholder env only).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: monthly
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # Deliberately deferred migrations (Tailwind 4, TypeScript 7, zod 4,
+      # ESLint 10, recharts 3, lucide-react 1.x): each major needs code or
+      # config changes across the app, so it is done as planned work, not
+      # merged from a bot PR. Minor and patch updates still arrive.
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "recharts"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "lucide-react"
+        update-types: ["version-update:semver-major"]
+      # The runtime major is pinned by package.json engines (24.x, = Vercel) and
+      # CI; bump @types/node by hand together with it, not through Dependabot.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: pip
+    directory: "/ml-service"
+    schedule:
+      interval: monthly
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      pip-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Actions are pinned to commit SHAs with a version comment; Dependabot
+  # keeps that format when it bumps them.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: docker
+    directory: "/ml-service"
+    schedule:
+      interval: monthly
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      docker-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # python:3.11-slim -> 3.x-slim counts as a "minor" bump but changes the
+      # interpreter under every ML wheel (insightface, onnxruntime, OpenCV).
+      # CI runs pytest on setup-python 3.11 and never builds this image, so a
+      # green PR would prove nothing; move both together, deliberately.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-minor"]
