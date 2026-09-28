@@ -1894,6 +1894,10 @@ export type Database = {
           name: string
         }[]
       }
+      bind_mfa_session: {
+        Args: { p_method: string; p_session_id: string; p_user_id: string }
+        Returns: undefined
+      }
       camera_anomaly_scores: {
         Args: { p_baseline_days?: number; p_window_hours?: number }
         Returns: {
@@ -2048,6 +2052,7 @@ export type Database = {
           similarity: number
         }[]
       }
+      mfa_session_bound: { Args: { p_session_id: string }; Returns: boolean }
       mfa_status: { Args: never; Returns: Json }
       ping: { Args: never; Returns: boolean }
       rate_limit_hit: {
