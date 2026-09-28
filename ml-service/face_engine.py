@@ -30,6 +30,13 @@ class DetectedFace:
     quality: FaceQuality | None = None
 
 
+@dataclass
+class DetectedBox:
+    """A detector hit WITHOUT any biometric template (ADR 0012)."""
+    bbox: tuple[float, float, float, float]
+    confidence: float
+
+
 class FaceEngine:
     """InsightFace 512-dim ArcFace + RetinaFace."""
 
@@ -62,6 +69,32 @@ class FaceEngine:
             if emb.shape[0] != 512:
                 continue
             out.append(DetectedFace((x1, y1, x2, y2), float(f.det_score), emb))
+        return out
+
+    def detect_boxes(self, image_bytes: bytes) -> list[DetectedBox]:
+        """RetinaFace boxes only — the detection model alone, no landmark,
+        gender/age or ArcFace model, so no embedding is ever computed.
+
+        Used to place masks where identification is switched off (a camera in
+        `private` privacy mode, ADR 0012). Same detector, threshold and size
+        filter as ``detect_all``, so the boxes are the ones ``detect_all``
+        would have returned.
+        """
+        img = self._decode_image(image_bytes)
+        detector = self.app.det_model
+        try:
+            bboxes, _kpss = detector.detect(img, max_num=0, metric="default")
+        except TypeError:
+            # A detector whose keyword arguments changed (library update):
+            # the positional call is the stable part of the API. There is no
+            # fallback to the full pipeline — it would compute embeddings.
+            bboxes, _kpss = detector.detect(img)
+        out: list[DetectedBox] = []
+        for row in bboxes:
+            x1, y1, x2, y2, score = (float(v) for v in row[:5])
+            if x2 - x1 < 20 or y2 - y1 < 20:
+                continue
+            out.append(DetectedBox((x1, y1, x2, y2), score))
         return out
 
     def embed_single(self, image_bytes: bytes) -> np.ndarray | None:

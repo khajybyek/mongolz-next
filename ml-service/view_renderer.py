@@ -16,6 +16,15 @@ This module exposes:
     frame + InsightFace every Nth frame when an engine is given + a
     persistence cache + 35% padding), write a new H.264 MP4 via ffmpeg.
 
+  • ``protection`` (ADR 0012, both renderers) — a ``ProtectedTimeline`` of
+    the recording: frames captured in `private` mode are masked with the
+    detector alone (``FaceEngine.detect_boxes`` — no ArcFace embedding is
+    computed for them) and the strongest (VIP) mask, exactly as the live
+    pipeline masks them at capture. The caller passes
+    ``fail_closed_timeline()`` when the spans or the schedule cannot be read:
+    the whole recording is then masked that way — the masked view is still
+    served, never refused.
+
   • ``abort_encoder`` / ``finish_encoder`` / ``verify_rendered_video`` —
     the encoder-failure contract shared with ``reveal_job``: a render that
     lost frames must raise, never return a short file as if it were whole.
@@ -312,6 +321,7 @@ def render_blurred_view(
     engine=None,
     start_sec: float | None = None,
     end_sec: float | None = None,
+    protection=None,
 ) -> int:
     """Read ``input_mp4`` → mask every face → write ``output_mp4``.
 
@@ -323,7 +333,7 @@ def render_blurred_view(
     ``asyncio.to_thread`` so it does not stall the event loop.
     """
     try:
-        return _render(input_mp4, output_mp4, engine, start_sec, end_sec)
+        return _render(input_mp4, output_mp4, engine, start_sec, end_sec, protection)
     except BaseException:
         # A short file must not outlive the failure that produced it — the
         # endpoint also unlinks its `.part`, this makes the function's own
@@ -338,6 +348,7 @@ def _render(
     engine=None,
     start_sec: float | None = None,
     end_sec: float | None = None,
+    protection=None,
 ) -> int:
     cap = cv2.VideoCapture(input_mp4)
     if not cap.isOpened():
@@ -394,6 +405,8 @@ def _render(
     )
     frame_count = 0
     blurred_count = 0
+    protected_count = 0
+    offset0 = start_sec if bounded and start_sec is not None else 0.0
 
     try:
         try:
@@ -404,6 +417,11 @@ def _render(
                 if not ok or frame is None:
                     break
 
+                if protection is not None:
+                    # Offset of this frame on the recording's own timeline.
+                    private = protection.covers(offset0 + frame_count / fps)
+                    masker.embeddings_allowed = not private
+                    protected_count += private
                 out_frame = masker.mask(frame)
                 if out_frame is not frame:
                     blurred_count += 1
@@ -430,9 +448,9 @@ def _render(
     verify_rendered_video(output_mp4, frame_count, label="view")
 
     log.info(
-        "view rendered: %d frame(s), %d with face mask (%.1f%%)",
+        "view rendered: %d frame(s), %d with face mask (%.1f%%), %d in privacy mode",
         frame_count, blurred_count,
-        100.0 * blurred_count / max(1, frame_count),
+        100.0 * blurred_count / max(1, frame_count), protected_count,
     )
 
     # Bound the cache the moment we add to it (see the module docstring). The
@@ -444,8 +462,11 @@ def _render(
     return frame_count
 
 
-def render_blurred_frame(input_mp4: str, at_sec: float, engine=None) -> bytes:
-    """Return one fully masked JPEG frame for an evidence package."""
+def render_blurred_frame(input_mp4: str, at_sec: float, engine=None, protection=None) -> bytes:
+    """Return one fully masked JPEG frame for an evidence package.
+
+    ``protection``: see the module docstring — a frame captured in privacy
+    mode is masked with the detector alone and the strongest mask."""
     if at_sec < 0:
         raise RuntimeError("frame timestamp is invalid")
     cap = cv2.VideoCapture(input_mp4)
@@ -463,6 +484,8 @@ def render_blurred_frame(input_mp4: str, at_sec: float, engine=None) -> bytes:
             haar_min_size=_HAAR_MIN_SIZE,
             pad_ratio=_PAD_RATIO,
         )
+        if protection is not None:
+            masker.embeddings_allowed = not protection.covers(at_sec)
         masked = masker.mask(frame)
         encoded, jpeg = cv2.imencode(".jpg", masked, [cv2.IMWRITE_JPEG_QUALITY, 88])
         if not encoded:

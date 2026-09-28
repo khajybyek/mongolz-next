@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from supabase import Client, create_client
 
 from crypto_utils import decrypt_bytes, encrypt_bytes
+from privacy_schedule import CameraSchedule, PrivacySpanNotFound, schedule_from_rows
 
 log = logging.getLogger("mongolz-ml.storage")
 
@@ -973,6 +974,165 @@ class SupabaseStorage:
         except Exception as e:  # noqa: BLE001
             log.warning("camera_sessions list failed: %s", type(e).__name__)
             return []
+
+    # ── Privacy schedules (ADR 0012) ──────────────────────────
+    # Every helper RAISES on failure: callers fail closed (the cache answers
+    # "private", the reveal job refuses) or keep a span in memory and retry.
+    # They are synchronous — callers run them via asyncio.to_thread.
+    def load_privacy_schedule(self, camera_id: str) -> CameraSchedule | None:
+        """``cameras.privacy_default`` + the camera's ``masking_schedules``
+        windows, or None when the camera has no ``cameras`` row (→ standard).
+
+        A value the DB constraints would not allow (e.g. a pre-migration
+        ``masked`` mode) raises ValueError — never a half-applied schedule.
+        """
+        if not self.client:
+            raise RuntimeError("Supabase client is not configured")
+        camera = (
+            self.client.table("cameras")
+            .select("id, privacy_default, privacy_loosened_at")
+            .eq("id", camera_id)
+            .limit(1)
+            .execute()
+        )
+        rows = self._privacy_rows(camera, "cameras")
+        if not rows:
+            return None
+        windows = (
+            self.client.table("masking_schedules")
+            .select("window_mode, starts_at, ends_at, weekdays")
+            .eq("camera_id", camera_id)
+            .execute()
+        )
+        return schedule_from_rows(
+            rows[0].get("privacy_default"),
+            self._privacy_rows(windows, "masking_schedules"),
+            rows[0].get("privacy_loosened_at"),
+        )
+
+    def open_privacy_span(
+        self,
+        recording_id: str,
+        start_offset_sec: float,
+        source: str,
+        client_span_id: str | None = None,
+    ) -> int:
+        """Insert an open capture-time privacy span; returns its id.
+
+        With ``client_span_id`` (a UUID the pipeline generates once per span)
+        the write is an upsert on that key, so a retry after a lost response
+        finds the row the first attempt committed instead of leaving it open
+        forever beside a second one. The payload never carries
+        ``end_offset_sec``, so a retry cannot clear a close.
+
+        Fails (FK violation) while the recording row does not exist yet —
+        the pipeline keeps the span in memory and retries."""
+        if not self.client:
+            raise RuntimeError("Supabase client is not configured")
+        if source not in ("schedule", "fail_closed"):
+            raise ValueError(f"invalid privacy span source {source!r}")
+        row = {
+            "recording_id": recording_id,
+            "start_offset_sec": max(0.0, float(start_offset_sec)),
+            "source": source,
+        }
+        table = self.client.table("recording_privacy_spans")
+        if client_span_id:
+            row["client_span_id"] = str(client_span_id)
+            result = table.upsert(row, on_conflict="client_span_id").execute()
+        else:
+            result = table.insert(row).execute()
+        if not result.data:
+            raise RuntimeError("Database did not acknowledge privacy span")
+        return int(result.data[0]["id"])
+
+    def upsert_privacy_spans(self, recording_id: str, spans: list[dict]) -> None:
+        """Deliver a segment's spans with its recording (spool / recovery).
+
+        Each span is ``{client_span_id, start_offset_sec, end_offset_sec,
+        source}``; upserted on ``client_span_id`` so rows the live pipeline
+        already wrote are completed, never duplicated. An open span (end None)
+        is written without ``end_offset_sec`` so it cannot clear a close.
+        Raises on any failure — the spool keeps the delivery pending."""
+        if not self.client:
+            raise RuntimeError("Supabase client is not configured")
+        for span in spans:
+            source = span.get("source")
+            if source not in ("schedule", "fail_closed"):
+                raise ValueError(f"invalid privacy span source {source!r}")
+            row = {
+                "recording_id": recording_id,
+                "client_span_id": str(span["client_span_id"]),
+                "start_offset_sec": max(0.0, float(span["start_offset_sec"])),
+                "source": source,
+            }
+            if span.get("end_offset_sec") is not None:
+                row["end_offset_sec"] = float(span["end_offset_sec"])
+            result = (
+                self.client.table("recording_privacy_spans")
+                .upsert(row, on_conflict="client_span_id")
+                .execute()
+            )
+            if not result.data:
+                raise RuntimeError("Database did not acknowledge privacy span")
+
+    def ensure_recording_placeholder(self, recording_id: str, fields: dict) -> None:
+        """Make sure a recordings row exists WITHOUT marking it ready, so a
+        delivery can attach its privacy spans before the row becomes
+        playable/revealable. An existing row (placeholder or already
+        delivered) is left untouched (ON CONFLICT DO NOTHING)."""
+        if not self.client:
+            raise RuntimeError("Recording storage is not configured")
+        row = {
+            **fields,
+            "id": recording_id,
+            "capture_status": "capturing",
+            "has_original": False,
+            "original_path": None,
+        }
+        self.client.table("recordings").upsert(
+            row, on_conflict="id", ignore_duplicates=True
+        ).execute()
+
+    def close_privacy_span(self, span_id: int, end_offset_sec: float) -> None:
+        """Set ``end_offset_sec``. Idempotent (a retry after a lost response
+        writes the same value). Raises ``PrivacySpanNotFound`` (a LookupError)
+        when the span no longer exists (its recording was deleted) so the
+        caller can drop it."""
+        if not self.client:
+            raise RuntimeError("Supabase client is not configured")
+        result = (
+            self.client.table("recording_privacy_spans")
+            .update({"end_offset_sec": float(end_offset_sec)})
+            .eq("id", int(span_id))
+            .execute()
+        )
+        if not result.data:
+            raise PrivacySpanNotFound(f"privacy span {span_id} not found")
+
+    def list_privacy_spans(self, recording_id: str) -> list[dict]:
+        """Spans of one recording, oldest offset first. ``end_offset_sec``
+        None = never closed → readers treat it as "until the end"."""
+        if not self.client:
+            raise RuntimeError("Supabase client is not configured")
+        result = (
+            self.client.table("recording_privacy_spans")
+            .select("id, recording_id, start_offset_sec, end_offset_sec, source, created_at")
+            .eq("recording_id", recording_id)
+            .order("start_offset_sec")
+            .execute()
+        )
+        return self._privacy_rows(result, "recording_privacy_spans")
+
+    @staticmethod
+    def _privacy_rows(result, table: str) -> list[dict]:
+        """A select's rows. A response without a row list is an error, never
+        "no rows": for these tables "no rows" means standard / nothing
+        protected, so a malformed answer must not be read as one."""
+        data = getattr(result, "data", None)
+        if not isinstance(data, list):
+            raise RuntimeError(f"invalid {table} response")
+        return list(data)
 
     # ── Recording (хуучин wrapper, ID буцахгүй) ────────────
     async def insert_recording(

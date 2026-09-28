@@ -78,6 +78,18 @@ class FaceMasker:
     returning objects with ``bbox``, ``confidence`` and ``embedding``); None
     means Haar-only. ``tier_for`` maps an embedding to a privacy tier
     ("vip" / "standard" / "relaxed"); default "standard".
+
+    ``embeddings_allowed = False`` (a frame captured in `private` privacy
+    mode, ADR 0012 — live capture, the on-demand view, evidence exports and
+    reveal) switches identification off without weakening the mask: the
+    InsightFace pass uses the engine's detector-only ``detect_boxes`` and
+    NEVER ``detect_all``, so no ArcFace embedding is computed for that frame;
+    ``tier_for`` — which compares faces with the suspect watchlist — is never
+    called; and every box (Haar and InsightFace) gets ``blind_tier`` (default
+    "vip", the most protective mask) so nobody is masked more weakly than
+    identification would have allowed. An engine without a working
+    ``detect_boxes`` leaves such frames to Haar + the persistence cache and
+    logs an error once — computing an embedding is not the fallback.
     """
 
     def __init__(
@@ -93,9 +105,13 @@ class FaceMasker:
         persist_frames: int = 15,
         pad_ratio: float = 0.35,
         max_side: int = 640,
+        blind_tier: str = "vip",
     ):
         self.engine = engine
         self.tier_for = tier_for
+        self.embeddings_allowed = True
+        self.blind_tier = blind_tier if blind_tier in _TIER_RANK else "vip"
+        self._blind_fallback_logged = False
         self.haar_scale = haar_scale
         self.haar_neighbors = haar_neighbors
         self.haar_min_size = haar_min_size
@@ -122,7 +138,8 @@ class FaceMasker:
             minNeighbors=self.haar_neighbors,
             minSize=self.haar_min_size,
         )
-        return [((int(x), int(y), int(x + w), int(y + h)), "standard") for (x, y, w, h) in faces]
+        tier = "standard" if self.embeddings_allowed else self.blind_tier
+        return [((int(x), int(y), int(x + w), int(y + h)), tier) for (x, y, w, h) in faces]
 
     def _detect_insight(self, frame: np.ndarray) -> list[tuple[Box, str]]:
         if self.engine is None:
@@ -136,25 +153,52 @@ class FaceMasker:
         ok, encoded = cv2.imencode(".jpg", small)
         if not ok:
             return []
-        try:
-            detected = self.engine.detect_all(encoded.tobytes())
-        except Exception as e:  # noqa: BLE001 — detection failure must never expose a face; Haar+cache still apply
-            log.debug("InsightFace mask detection skipped: %s", e)
-            return []
+        jpeg = encoded.tobytes()
+        identify = self.embeddings_allowed
+        if identify:
+            try:
+                detected = self.engine.detect_all(jpeg)
+            except Exception as e:  # noqa: BLE001 — detection failure must never expose a face; Haar+cache still apply
+                log.debug("InsightFace mask detection skipped: %s", e)
+                return []
+        else:
+            # Privacy mode: the detector alone. Looked up on the class so a
+            # Mock engine cannot fabricate one. Never detect_all — it would
+            # compute an ArcFace embedding for a frame captured in private mode.
+            if getattr(type(self.engine), "detect_boxes", None) is None:
+                self._note_blind_unavailable("engine has no detect_boxes")
+                return []
+            try:
+                detected = self.engine.detect_boxes(jpeg)
+            except Exception as e:  # noqa: BLE001 — Haar + cache still apply
+                self._note_blind_unavailable(f"detect_boxes failed ({type(e).__name__})")
+                return []
         out: list[tuple[Box, str]] = []
         inv = 1.0 / scale
         for d in detected:
             if d.confidence < self.insight_min_confidence:
                 continue
             x1, y1, x2, y2 = (int(v * inv) for v in d.bbox)
-            tier = "standard"
-            if self.tier_for is not None:
+            if not identify:
+                tier = self.blind_tier  # no watchlist comparison; the strongest mask
+            elif self.tier_for is not None:
                 try:
                     tier = self.tier_for(d.embedding)
                 except Exception:  # noqa: BLE001
                     tier = "standard"
+            else:
+                tier = "standard"
             out.append(((x1, y1, x2, y2), tier))
         return out
+
+    def _note_blind_unavailable(self, reason: str) -> None:
+        if not self._blind_fallback_logged:
+            self._blind_fallback_logged = True
+            log.error(
+                "privacy-mode masking: %s — frames captured in private mode are masked by "
+                "Haar + the persistence cache only (no embedding is ever computed for them)",
+                reason,
+            )
 
     # ── public API ─────────────────────────────────────────────
     def step(self, frame: np.ndarray) -> list[CachedBox]:

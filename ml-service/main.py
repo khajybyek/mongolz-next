@@ -59,6 +59,14 @@ from face_engine import FaceEngine
 from camera_worker import CameraManager
 from storage import SupabaseStorage
 from recording_spool import get_recording_spool
+from privacy_schedule import get_privacy_schedule_cache, init_privacy_schedule_cache
+from privacy_protection import (
+    ProtectedTimeline,
+    fail_closed_timeline,
+    load_protected_timeline,
+    parse_duration,
+    parse_timestamp,
+)
 from durable_jobs import UploadStore, UploadWorker, RevealWorker, UploadConflict
 from crypto_utils import init_master_key, self_test as crypto_self_test, decrypt_bytes, master_key_candidates
 from demo_source import DEMO_FPS, DEMO_HEIGHT, DEMO_WIDTH, demo_name, is_demo_url, resolve_demo_source
@@ -175,6 +183,9 @@ async def lifespan(app: FastAPI):
     crypto_self_test()
     face_engine = FaceEngine()
     storage = SupabaseStorage()
+    # Per-camera privacy schedules (ADR 0012) for the capture pipeline,
+    # /edge/detect and the reveal job — before any camera can start.
+    init_privacy_schedule_cache(storage)
     recording_spool = get_recording_spool()
     recording_spool.start(storage)
     camera_manager = CameraManager(face_engine=face_engine, storage=storage, hls_dir=HLS_DIR)
@@ -260,6 +271,15 @@ async def require_token(authorization: str | None = Header(default=None)):
 
 
 # ── Health ──────────────────────────────────────────────────────
+# Versioned capability flags the web app checks before it presents a feature
+# as enforced (the web auto-deploys on push, this service is deployed by
+# hand — an older build silently ignores privacy schedules).
+#   privacy_schedules 1 = ADR 0012 enforced: capture (clock-bounded, spans
+#   delivered with each segment), /edge/detect, reveal, on-demand view and
+#   evidence renderers.
+PRIVACY_SCHEDULES_CAPABILITY = 1
+
+
 @app.get("/")
 def health():
     """Liveness + tunnel readiness.
@@ -277,6 +297,7 @@ def health():
         "active_cameras": camera_manager.active_count() if camera_manager else 0,
         "tunnel": tunnel_status(),
         "durable_uploads_ready": upload_store is not None,
+        "privacy_schedules": PRIVACY_SCHEDULES_CAPABILITY,
     }
 
 
@@ -361,6 +382,11 @@ def _edge_uuid(value: str, field: str) -> str:
         return str(UUID(value))
     except (ValueError, TypeError):
         raise HTTPException(400, f"invalid {field}")
+
+
+def _utc_now() -> datetime:
+    """Server receipt time for edge frames (a seam for tests)."""
+    return datetime.now(timezone.utc)
 
 
 def _edge_captured_at(value: str) -> str:
@@ -456,6 +482,11 @@ async def edge_detect_endpoint(
     receives the original acknowledgement without running inference twice.
     Only counts and integrity metadata are retained; the JPEG and biometric
     embeddings are discarded after inference.
+
+    Privacy schedule (ADR 0012): a frame captured while the camera was in
+    ``private`` mode is acknowledged without any inference (face_count 0).
+    ``privacy_mode`` reports the mode used; a duplicate delivery is not
+    re-evaluated and reports null.
     """
     if not face_engine or not storage or not storage.client:
         raise HTTPException(503, "service not ready")
@@ -497,15 +528,32 @@ async def edge_detect_endpoint(
             "face_count": int(existing.get("face_count") or 0),
             "duplicate": True,
             "capture_enabled": capture_enabled,
+            "privacy_mode": None,
         }
 
-    faces = await asyncio.to_thread(_detect_or_400, image_bytes)
+    # The schedule at CAPTURE time decides — but captured_at comes from the
+    # device clock (no RTC / not NTP-synced / running fast, or an old outbox
+    # entry), so the cache judges the capture as no later than receipt and a
+    # few seconds earlier than the device claims: private when the camera is
+    # private at receipt, anywhere between capture and receipt (≤ 1 h
+    # apart), or the schedule was loosened after the capture. Unreadable →
+    # private.
+    privacy_mode, privacy_source = await get_privacy_schedule_cache().edge_mode(
+        camera_id, datetime.fromisoformat(captured_at), _utc_now()
+    )
+    if privacy_mode == "standard":
+        face_count = len(await asyncio.to_thread(_detect_or_400, image_bytes))
+    else:
+        # No detection, no embedding: the frame is dropped unprocessed.
+        privacy_mode = "private"
+        face_count = 0
+        log.debug("edge event %s: camera in private mode (%s) — no inference", event_id[:8], privacy_source)
     try:
         await asyncio.to_thread(
             storage.insert_edge_event,
             event_id=event_id, agent_id=agent_id, camera_id=camera_id,
             captured_at=captured_at, payload_sha256=payload_sha256,
-            face_count=len(faces),
+            face_count=face_count,
         )
     except Exception as exc:
         # A concurrent retry can win the INSERT after our lookup. Accept it
@@ -522,12 +570,14 @@ async def edge_detect_endpoint(
                 "face_count": int(existing.get("face_count") or 0),
                 "duplicate": True,
                 "capture_enabled": capture_enabled,
+                "privacy_mode": None,
             }
         log.warning("edge event persist failed (%s): %s", event_id[:8], type(exc).__name__)
         raise HTTPException(503, "edge event was not durably acknowledged")
     return {
-        "ok": True, "event_id": event_id, "face_count": len(faces),
+        "ok": True, "event_id": event_id, "face_count": face_count,
         "duplicate": False, "capture_enabled": capture_enabled,
+        "privacy_mode": privacy_mode,
     }
 
 
@@ -653,7 +703,13 @@ def camera_active():
     ``cameras`` keeps its original meaning (running, HLS playable — older
     callers treat every entry as a stream). Supervised cameras that dropped
     and are waiting for a retry are listed separately under ``reconnecting``
-    with ``state = "backoff"`` and ``next_retry_at`` (ISO UTC or null)."""
+    with ``state = "backoff"`` and ``next_retry_at`` (ISO UTC or null).
+
+    ``privacy_mode`` (ADR 0012) is ``"standard"`` | ``"private"`` as of the
+    latest recognition tick, or null when not known yet / not capturing;
+    ``privacy_source`` says why (``"schedule"`` | ``"none"`` |
+    ``"fail_closed"`` — the schedule could not be read, so recognition is off
+    whatever the schedule says)."""
     if not camera_manager:
         return {"cameras": [], "reconnecting": []}
     return {
@@ -965,14 +1021,35 @@ async def render_view_endpoint(recording_id: str):
     return await _render_view_cold(recording_id, cache_path)
 
 
-async def _evidence_recording_blob(recording_id: str) -> tuple[bytes, int | None]:
+def _view_protection(recording_id: str, row: dict) -> ProtectedTimeline:
+    """Protected stretches of a recording for the masked renderers (ADR 0012).
+
+    Frames captured in privacy mode are masked with the detector alone and
+    the strongest mask. Any read failure treats the WHOLE recording as
+    protected — the masked view is still served (fail closed = stronger
+    masking, never a refusal). Synchronous: call it in a worker thread."""
+    try:
+        return load_protected_timeline(
+            storage, get_privacy_schedule_cache(), recording_id,
+            row.get("camera_id"), parse_timestamp(row.get("started_at")),
+            parse_duration(row.get("duration_sec")),
+        )
+    except Exception as exc:  # noqa: BLE001 — unknown ⇒ everything protected
+        log.warning(
+            "view: privacy protection of %s unreadable (%s) — masking the whole recording in privacy mode",
+            recording_id[:8], type(exc).__name__,
+        )
+        return fail_closed_timeline()
+
+
+async def _evidence_recording_blob(recording_id: str) -> tuple[bytes, int | None, ProtectedTimeline]:
     """Load the best available recording source for a fully masked export."""
     if not storage or not storage.client:
         raise HTTPException(503, "service not ready")
     try:
         result = await asyncio.to_thread(
             lambda: storage.client.table("recordings")
-            .select("original_path,storage_path,has_original,duration_sec,capture_status")
+            .select("original_path,storage_path,has_original,duration_sec,capture_status,camera_id,started_at")
             .eq("id", recording_id)
             .maybe_single()
             .execute()
@@ -996,7 +1073,9 @@ async def _evidence_recording_blob(recording_id: str) -> tuple[bytes, int | None
     except Exception as exc:
         log.warning("evidence: source preparation failed (%s): %s", recording_id[:8], type(exc).__name__)
         raise HTTPException(500, "recording source unavailable")
-    return blob, int(row["duration_sec"]) if row.get("duration_sec") is not None else None
+    protection = await asyncio.to_thread(_view_protection, recording_id, row)
+    duration = int(row["duration_sec"]) if row.get("duration_sec") is not None else None
+    return blob, duration, protection
 
 
 def _evidence_range(start_sec: float, end_sec: float, duration_sec: int | None) -> tuple[float, float]:
@@ -1012,7 +1091,7 @@ async def evidence_clip_endpoint(recording_id: str, start_sec: float, end_sec: f
     """Render the selected interval with every face masked."""
     if not _UUID_RE.match(recording_id):
         raise HTTPException(400, "invalid recording_id")
-    blob, duration = await _evidence_recording_blob(recording_id)
+    blob, duration, protection = await _evidence_recording_blob(recording_id)
     start_sec, end_sec = _evidence_range(start_sec, end_sec, duration)
     work = tempfile.mkdtemp(prefix="mongolz-evidence-")
     input_mp4 = os.path.join(work, "source.mp4")
@@ -1022,7 +1101,7 @@ async def evidence_clip_endpoint(recording_id: str, start_sec: float, end_sec: f
             handle.write(blob)
         async with _render_semaphore:
             await asyncio.to_thread(
-                render_blurred_view, input_mp4, output_mp4, face_engine, start_sec, end_sec
+                render_blurred_view, input_mp4, output_mp4, face_engine, start_sec, end_sec, protection
             )
         if not os.path.isfile(output_mp4) or os.path.getsize(output_mp4) < 1000:
             raise RuntimeError("empty clip")
@@ -1043,7 +1122,7 @@ async def evidence_frame_endpoint(recording_id: str, at_sec: float):
     """Return one masked representative JPEG for an evidence package."""
     if not _UUID_RE.match(recording_id):
         raise HTTPException(400, "invalid recording_id")
-    blob, duration = await _evidence_recording_blob(recording_id)
+    blob, duration, protection = await _evidence_recording_blob(recording_id)
     if at_sec < 0 or (duration is not None and at_sec > duration + 0.25):
         raise HTTPException(400, "invalid evidence timestamp")
     try:
@@ -1052,7 +1131,9 @@ async def evidence_frame_endpoint(recording_id: str, at_sec: float):
             with open(input_mp4, "wb") as handle:
                 handle.write(blob)
             async with _render_semaphore:
-                jpeg = await asyncio.to_thread(render_blurred_frame, input_mp4, at_sec, face_engine)
+                jpeg = await asyncio.to_thread(
+                    render_blurred_frame, input_mp4, at_sec, face_engine, protection
+                )
     except Exception as exc:
         log.warning("evidence: frame render failed (%s): %s", recording_id[:8], type(exc).__name__)
         raise HTTPException(500, "evidence frame render failed")
@@ -1073,7 +1154,7 @@ async def _render_view_cold(recording_id: str, cache_path: str):
         try:
             res = await asyncio.to_thread(
                 lambda: storage.client.table("recordings")
-                .select("original_path, has_original")
+                .select("original_path, has_original, camera_id, started_at, duration_sec")
                 .eq("id", recording_id)
                 .maybe_single()
                 .execute()
@@ -1102,6 +1183,10 @@ async def _render_view_cold(recording_id: str, cache_path: str):
             log.warning("view: download/decrypt failed (%s): %s", recording_id[:8], e)
             raise HTTPException(500, "could not prepare recording")
 
+        # Frames captured in privacy mode (ADR 0012) are masked without any
+        # embedding; unreadable protection masks the whole recording that way.
+        protection = await asyncio.to_thread(_view_protection, recording_id, res.data)
+
         # 3) Render via Haar + cubist (CPU-bound → off-loop thread).
         # Write to a `.part` sibling first then atomic-rename so partial
         # cache files never serve to clients. The global semaphore caps how
@@ -1115,7 +1200,9 @@ async def _render_view_cold(recording_id: str, cache_path: str):
                 f.write(blob)
             try:
                 async with _render_semaphore:
-                    await asyncio.to_thread(render_blurred_view, input_mp4, tmp_out, face_engine)
+                    await asyncio.to_thread(
+                        render_blurred_view, input_mp4, tmp_out, face_engine, None, None, protection
+                    )
             except Exception as e:
                 log.warning("view: render failed (%s): %s", recording_id[:8], e)
                 try:

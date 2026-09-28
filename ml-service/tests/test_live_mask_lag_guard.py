@@ -126,6 +126,24 @@ def test_file_and_demo_sources_never_hold(tmp_path, monkeypatch):
     assert s._should_hold(0.1, (8, 8, 3)) is False
 
 
+def test_baked_and_demo_sources_measure_the_backlog_without_holding(tmp_path, monkeypatch):
+    """Frames are never held in baked mode (every frame is masked) or for a
+    paced demo source, but the backlog is still measured: every segment
+    rotation re-anchors the capture clock from it (ADR 0012)."""
+    for blur_strategy, lag_guard in (("baked", True), ("on_demand", False)):
+        clock = [0.0]
+        s = _session(tmp_path, monkeypatch, clock)
+        s.blur_strategy = blur_strategy
+        s._lag_guard = lag_guard
+        s._lag_measured = True
+        s._last_masked = np.zeros((8, 8, 3), dtype=np.uint8)
+        assert s._should_hold(0.0, (8, 8, 3)) is False  # baseline
+        clock[0] = 91.0
+        assert s._should_hold(1.0, (8, 8, 3)) is False  # 90 s behind: measured, not held
+        assert s.live_lag_sec == 90.0 and s.held_frames == 0
+        assert s._live_backlog_sec(1.0) == 90.0
+
+
 def test_no_previous_masked_frame_means_mask_now(tmp_path, monkeypatch):
     clock = [0.0]
     s = _session(tmp_path, monkeypatch, clock)

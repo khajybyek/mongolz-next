@@ -70,7 +70,12 @@ async def recover_captures(storage, directory: str) -> None:
                         journal.unlink(missing_ok=True)
                         continue
                 try:
-                    await asyncio.to_thread(spool.enqueue, recording_id, data["row"], data["artifacts"])
+                    # The segment's privacy spans (ADR 0012) travel with it.
+                    spans = data.get("privacy_spans") or None
+                    await asyncio.to_thread(
+                        spool.enqueue, recording_id, data["row"], data["artifacts"],
+                        **({"privacy_spans": spans} if spans else {}),
+                    )
                 except FileNotFoundError:
                     # A delivery may win the race after has_pending above.
                     # enqueue checks sources while holding the spool lock.

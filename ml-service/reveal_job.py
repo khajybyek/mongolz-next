@@ -17,6 +17,15 @@ Blurred recording-аас тодорхой нэг (эсвэл олон) хүни�
         - max(sim) <  threshold → BLUR (Gaussian)
   4. Шинэ MP4 → Storage `revealed/<job_id>/<lease_token>.mp4`
   5. reveal_jobs.status='completed', output_path=...
+
+Privacy schedules (ADR 0012): footage captured while its camera was in
+`private` mode is NEVER revealed. Before anything is decrypted the job loads
+the protected stretches of the video — the capture-time spans the pipeline
+wrote (`recording_privacy_spans`) ∪ the camera's current schedule evaluated
+for the capture period — and refuses outright when they cover the whole
+recording (or the whole requested time range). While rendering, a protected
+frame is never matched (no embedding) and every face on it stays masked.
+Either read failing fails the job closed.
 """
 
 from __future__ import annotations
@@ -38,6 +47,21 @@ import numpy as np
 from crypto_utils import decrypt_bytes, master_key_candidates
 from face_masker import FaceMasker
 from hierarchical_keys import unseal_at_index
+from privacy_protection import (
+    ProtectedTimeline,
+    finite_float,
+    load_protected_timeline,
+    may_be_private,
+    merge_offsets,
+    parse_duration,
+    parse_timestamp,
+    span_offsets,
+)
+from privacy_schedule import (
+    PrivacyScheduleCache,
+    PrivacyScheduleUnavailable,
+    get_privacy_schedule_cache,
+)
 from view_renderer import abort_encoder, finish_encoder, verify_rendered_video
 
 # One reveal at a time: the frame loop is CPU-bound (InsightFace + cubist +
@@ -85,10 +109,64 @@ def _parse_reveal_level(value: object) -> int | None:
     return value
 
 
+# ── Privacy schedules (ADR 0012) ──────────────────────────────
+# Refusal messages start with a stable code in brackets: the web maps it to a
+# translated message (lib/reveal-errors.ts) and shows the text only as a
+# fallback. The text says what happened in Mongolian and English.
+PRIVACY_ZONES_UNAVAILABLE_MSG = (
+    "[privacy_rules_unavailable] Privacy rules unavailable; retry after restoring the "
+    "database connection"
+)
+PRIVACY_UNAVAILABLE_MSG = (
+    "[privacy_unavailable] Нууцлалын хуваарь уншигдсангүй — өгөгдлийн сангийн холболт "
+    "сэргэсний дараа дахин оролдоно уу / Privacy schedule unavailable; retry after "
+    "restoring the database connection"
+)
+# Spans alone cover it: captured in privacy mode — never revealable.
+PRIVACY_WHOLE_RECORDING_MSG = (
+    "[privacy_whole_recording] Бичлэг бүхэлдээ нууцлалын горимд бичигдсэн — reveal хийх "
+    "боломжгүй / captured entirely in privacy mode"
+)
+PRIVACY_WHOLE_RANGE_MSG = (
+    "[privacy_whole_range] Сонгосон хугацаа бүхэлдээ нууцлалын горимд бичигдсэн — reveal "
+    "хийх боломжгүй / the selected time range was captured entirely in privacy mode"
+)
+# Only the camera's CURRENT schedule covers it (a private window added after
+# capture, or capture-time spans that never reached the database): withheld
+# while that window exists — loosening it (TOTP step-up) releases the footage.
+PRIVACY_SCHEDULE_WHOLE_RECORDING_MSG = (
+    "[privacy_schedule_whole_recording] Бичлэг бүхэлдээ камерын одоогийн нууцлалын "
+    "хуваарьт хамрагдаж байна — reveal хийх боломжгүй / the whole recording is covered by "
+    "the camera's current privacy schedule"
+)
+PRIVACY_SCHEDULE_WHOLE_RANGE_MSG = (
+    "[privacy_schedule_whole_range] Сонгосон хугацаа бүхэлдээ камерын одоогийн нууцлалын "
+    "хуваарьт хамрагдаж байна — reveal хийх боломжгүй / the selected time range is covered "
+    "by the camera's current privacy schedule"
+)
+
+# Shared with the on-demand view / evidence renderers (privacy_protection).
+# The underscore names are kept for callers and tests that import them here.
+_parse_timestamp = parse_timestamp
+_finite_float = finite_float
+_parse_duration = parse_duration
+_span_offsets = span_offsets
+_merge_offsets = merge_offsets
+_may_be_private = may_be_private
+
+
 class RevealProcessor:
-    def __init__(self, engine: "FaceEngine", storage: "SupabaseStorage"):
+    def __init__(
+        self,
+        engine: "FaceEngine",
+        storage: "SupabaseStorage",
+        privacy_cache: PrivacyScheduleCache | None = None,
+    ):
         self.engine = engine
         self.storage = storage
+        # None = the process-wide cache (main.py lifespan, same storage).
+        # Only its uncached `schedule_strict` read is used here.
+        self.privacy_cache = privacy_cache
 
     async def run(self, job_id: str):
         if not self.storage.client:
@@ -134,7 +212,9 @@ class RevealProcessor:
         try:
             job_res = await asyncio.to_thread(lambda:
                 self.storage.client.table("reveal_jobs")
-                .select("*, recordings(filename, storage_path, camera_id)")
+                # started_at = capture time of the stored video's offset 0 and
+                # duration_sec = its length (ADR 0012 schedule → offsets).
+                .select("*, recordings(filename, storage_path, camera_id, started_at, duration_sec)")
                 .eq("id", job_id)
                 .maybe_single()
                 .execute()
@@ -183,7 +263,7 @@ class RevealProcessor:
         try:
             privacy_zones = await asyncio.to_thread(self._load_privacy_zones, camera_id_for_zones)
         except RuntimeError:
-            await self._fail(job_id, "Privacy rules unavailable; retry after restoring the database connection")
+            await self._fail(job_id, PRIVACY_ZONES_UNAVAILABLE_MSG)
             return
 
         # Recording UUID-ыг JOB-аас шууд авна (FK column).
@@ -193,6 +273,44 @@ class RevealProcessor:
         rec_uuid = job.get("recording_id") or recording.get("id")
         if not rec_uuid:
             await self._fail(job_id, "recording_id олдсонгүй (job-д ч, recordings JOIN-д ч)")
+            return
+
+        # Optional time-window — frame-уудыг scope-аас гадуурх бол бүх face-ыг
+        # mask-аар хадгална. Хоёулаа NULL бол хуучин whole-recording горим.
+        target_start_sec = job.get("target_start_sec")
+        target_end_sec = job.get("target_end_sec")
+        try:
+            target_start_sec = (
+                float(target_start_sec) if target_start_sec is not None else None
+            )
+            target_end_sec = (
+                float(target_end_sec) if target_end_sec is not None else None
+            )
+        except (TypeError, ValueError):
+            target_start_sec = None
+            target_end_sec = None
+
+        # Privacy schedule (ADR 0012) — footage captured in `private` mode is
+        # never revealed. Loaded next to the privacy zones and just as strict:
+        # an unreadable span table or schedule fails the job closed, and a
+        # recording protected end to end is refused before anything (sealed
+        # target embeddings, the encrypted original) is opened.
+        duration_sec = parse_duration(recording.get("duration_sec"))
+        try:
+            protection = await asyncio.to_thread(
+                self._load_privacy_protection,
+                rec_uuid,
+                camera_id_for_zones,
+                parse_timestamp(recording.get("started_at")),
+                duration_sec,
+            )
+        except PrivacyScheduleUnavailable as exc:
+            log.warning("Reveal %s: privacy schedule unavailable (%s)", job_id, exc)
+            await self._fail(job_id, PRIVACY_UNAVAILABLE_MSG)
+            return
+        refusal = self._privacy_refusal(protection, duration_sec, target_start_sec, target_end_sec)
+        if refusal:
+            await self._fail(job_id, refusal)
             return
 
         # Original (un-blurred) бичлэг шаардана. Lookup алдаа ≠ "бичлэг алга":
@@ -282,21 +400,6 @@ class RevealProcessor:
             except Exception:
                 watermark_at = None
 
-            # Optional time-window — frame-уудыг scope-аас гадуурх бол бүх face-ыг
-            # mask-аар хадгална. Хоёулаа NULL бол хуучин whole-recording горим.
-            target_start_sec = job.get("target_start_sec")
-            target_end_sec = job.get("target_end_sec")
-            try:
-                target_start_sec = (
-                    float(target_start_sec) if target_start_sec is not None else None
-                )
-                target_end_sec = (
-                    float(target_end_sec) if target_end_sec is not None else None
-                )
-            except (TypeError, ValueError):
-                target_start_sec = None
-                target_end_sec = None
-
             try:
                 duration = await asyncio.to_thread(
                     self._process_video,
@@ -310,6 +413,7 @@ class RevealProcessor:
                     target_start_sec=target_start_sec,
                     target_end_sec=target_end_sec,
                     privacy_zones=privacy_zones,
+                    protection=protection,
                 )
             except RevealLeaseLost:
                 raise
@@ -530,6 +634,7 @@ class RevealProcessor:
         target_start_sec: float | None = None,
         target_end_sec: float | None = None,
         privacy_zones: list[dict] | None = None,
+        protection: ProtectedTimeline | None = None,
     ) -> int:
         """Process video frame-by-frame, selectively un-masking target faces.
 
@@ -538,6 +643,12 @@ class RevealProcessor:
         (no reveal) regardless of similarity. Inside the range the existing
         selective-blur logic runs. Default (both None) keeps the legacy
         whole-recording behaviour.
+
+        `protection` (ADR 0012): a frame whose timestamp lies in a protected
+        stretch is never matched — no embedding is computed for it, not even
+        by the masker — and is emitted with every face masked. A render in
+        which every in-scope frame was protected reveals nothing and is
+        refused like a failed render.
 
         Failure contract (audit 4.6): every path that loses frames raises
         `RevealRenderError` and deletes the partial file. A reveal output is
@@ -556,6 +667,7 @@ class RevealProcessor:
                 target_start_sec=target_start_sec,
                 target_end_sec=target_end_sec,
                 privacy_zones=privacy_zones,
+                protection=protection,
             )
         except BaseException:
             # No half-written MP4 survives a failed render: a retry that reuses
@@ -584,6 +696,7 @@ class RevealProcessor:
         target_start_sec: float | None = None,
         target_end_sec: float | None = None,
         privacy_zones: list[dict] | None = None,
+        protection: ProtectedTimeline | None = None,
     ) -> int:
         cap = cv2.VideoCapture(input_mp4)
         if not cap.isOpened():
@@ -632,6 +745,12 @@ class RevealProcessor:
         last_match_boxes: list[tuple[int, int, int, int]] = []
         progress_step = max(1, total_frames // 20)  # 20 удаа progress update
         last_progress_update = 0
+        # ADR 0012 bookkeeping: in-scope frames, and those withheld because
+        # they were captured in privacy mode.
+        scope_frames = 0
+        withheld_frames = 0
+        withheld_by_span = 0
+        redetect = False
 
         try:
             while True:
@@ -657,7 +776,22 @@ class RevealProcessor:
                     )
                 )
 
-                if frame_idx % detect_every == 0:
+                # Captured in privacy mode (ADR 0012): never matched, never
+                # revealed. Checked on EVERY frame — boxes matched on an
+                # earlier standard frame are not carried into it either.
+                protected = protection is not None and protection.covers(frame_time_sec)
+                if in_scope:
+                    scope_frames += 1
+                if protected:
+                    if in_scope:
+                        withheld_frames += 1
+                        if protection.covered_by_spans(frame_time_sec):
+                            withheld_by_span += 1
+                    last_match_boxes = []
+                    # Match again on the first frame after the stretch.
+                    redetect = True
+                elif frame_idx % detect_every == 0 or redetect:
+                    redetect = False
                     if in_scope:
                         # Re-compute матч хэсгүүд — олон target-аас аль нэг нь тохирвол keep
                         last_match_boxes = self._find_target_boxes(
@@ -675,9 +809,11 @@ class RevealProcessor:
                         last_match_boxes = []
 
                 # Бүх нүүрийг blur, сонгосон бүс л original үлдэх (Haar only — fast)
-                # Scope-аас гадуур үед last_match_boxes хоосон тул бүгд masked.
+                # Scope-аас гадуур / privacy mode үед keep хоосон тул бүгд masked.
                 output = self._selective_blur(
-                    frame, last_match_boxes if in_scope else []
+                    frame,
+                    last_match_boxes if in_scope and not protected else [],
+                    identify=not protected,
                 )
 
                 # Watermark — accountability layer (admin email + timestamp)
@@ -720,6 +856,22 @@ class RevealProcessor:
 
             if frame_idx == 0:
                 raise RevealRenderError("Эх бичлэгээс нэг ч frame уншигдсангүй")
+            if withheld_frames:
+                log.info(
+                    "Reveal job %s — %d frame(s) ≈ %.1fs withheld: captured in privacy mode (ADR 0012)",
+                    job_id, withheld_frames, withheld_frames / fps if fps else 0.0,
+                )
+            if scope_frames and withheld_frames == scope_frames:
+                # Nothing could be revealed (e.g. a row without duration_sec
+                # skipped the pre-decrypt check): a fully masked "reveal" must
+                # not read as a completed job.
+                if withheld_by_span == withheld_frames:
+                    raise RevealRenderError(
+                        PRIVACY_WHOLE_RANGE_MSG if time_bounded else PRIVACY_WHOLE_RECORDING_MSG
+                    )
+                raise RevealRenderError(
+                    PRIVACY_SCHEDULE_WHOLE_RANGE_MSG if time_bounded else PRIVACY_SCHEDULE_WHOLE_RECORDING_MSG
+                )
         except BaseException:
             # Reap ffmpeg WITHOUT masking the failure that got us here.
             abort_encoder(encoder)
@@ -768,6 +920,61 @@ class RevealProcessor:
         except Exception as e:
             log.warning("Privacy zone load failed for %s: %s", camera_id, e)
             raise RuntimeError("privacy rules unavailable") from e
+
+    def _privacy_schedule_cache(self) -> PrivacyScheduleCache:
+        if self.privacy_cache is not None:
+            return self.privacy_cache
+        return get_privacy_schedule_cache()
+
+    def _load_privacy_protection(
+        self,
+        recording_id: str,
+        camera_id: str | None,
+        started_at: datetime | None,
+        duration_sec: float | None,
+    ) -> ProtectedTimeline:
+        """Protected stretches of one recording (ADR 0012) — the capture-time
+        spans ∪ the camera's current schedule (read fresh, widened by
+        PRIVACY_SCHEDULE_PAD_SEC); see ``privacy_protection``. Raises
+        ``PrivacyScheduleUnavailable`` when either cannot be read: the caller
+        fails the job closed."""
+        return load_protected_timeline(
+            self.storage, self._privacy_schedule_cache(),
+            recording_id, camera_id, started_at, duration_sec,
+        )
+
+    @staticmethod
+    def _privacy_refusal(
+        protection: ProtectedTimeline,
+        duration_sec: float | None,
+        target_start_sec: float | None,
+        target_end_sec: float | None,
+    ) -> str | None:
+        """Refusal message when nothing the job asks for may be revealed —
+        decided from the DB alone, before any decryption. The capture-time
+        spans alone covering it → "captured in privacy mode" (final); only
+        the current schedule covering it → "covered by the current schedule"
+        (released again if that window is loosened). Without a known duration
+        nothing is refused here; the render then withholds every protected
+        frame and refuses an output that reveals nothing."""
+        if not duration_sec:
+            return None
+        if protection.spans_cover_range(0.0, duration_sec):
+            return PRIVACY_WHOLE_RECORDING_MSG
+        if protection.covers_range(0.0, duration_sec):
+            return PRIVACY_SCHEDULE_WHOLE_RECORDING_MSG
+        if target_start_sec is not None and target_end_sec is not None:
+            start = max(0.0, target_start_sec)
+            # The render keeps frames with t <= target_end_sec in scope.
+            if target_end_sec < duration_sec:
+                end, inclusive = target_end_sec, True
+            else:
+                end, inclusive = duration_sec, False
+            if protection.spans_cover_range(start, end, end_inclusive=inclusive):
+                return PRIVACY_WHOLE_RANGE_MSG
+            if protection.covers_range(start, end, end_inclusive=inclusive):
+                return PRIVACY_SCHEDULE_WHOLE_RANGE_MSG
+        return None
 
     @staticmethod
     def _box_center_in_zone(
@@ -852,7 +1059,11 @@ class RevealProcessor:
         return matches
 
     def _selective_blur(
-        self, frame: np.ndarray, keep_boxes: list[tuple[int, int, int, int]]
+        self,
+        frame: np.ndarray,
+        keep_boxes: list[tuple[int, int, int, int]],
+        *,
+        identify: bool = True,
     ) -> np.ndarray:
         """Mask every detected face except the reveal targets (keep_boxes).
 
@@ -860,6 +1071,11 @@ class RevealProcessor:
         + persistence cache), so a non-target person is protected at least as
         well as in the baked/on-demand views — previously a frontal-only Haar
         pass here rendered profile/tilted bystanders in clear.
+
+        ``identify=False`` (a frame captured in privacy mode, ADR 0012): the
+        masker places its boxes with the detector alone, so not even the
+        masking pass computes an embedding for that frame. The mask itself is
+        the one a frame without any match gets.
         """
         if not hasattr(self, "_masker"):
             self._masker = FaceMasker(
@@ -869,6 +1085,7 @@ class RevealProcessor:
                 haar_min_size=(20, 20),
                 pad_ratio=0.35,
             )
+        self._masker.embeddings_allowed = identify
         return self._masker.mask(frame, keep_boxes)
 
     @staticmethod

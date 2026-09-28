@@ -207,7 +207,7 @@ def test_failed_view_render_never_publishes_cache(view_endpoint, tmp_path, monke
     import main
 
     client, rec_id, _ = view_endpoint
-    def fail_render(_input, output, _engine):
+    def fail_render(_input, output, _engine, *_range_and_protection):
         with open(output, "wb") as partial:
             partial.write(b"partial" * 500)
         raise RuntimeError("encoder failed")

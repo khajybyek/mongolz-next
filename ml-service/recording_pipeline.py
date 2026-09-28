@@ -27,13 +27,13 @@ import subprocess
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 
 # Korea Standard Time (UTC+9) — filename болон video overlay-д хэрэглэнэ
 KST = timezone(timedelta(hours=9))
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import cv2
 import numpy as np
@@ -47,6 +47,8 @@ from capture_journal import write_journal, check_capture_capacity
 from demo_source import is_demo_url, resolve_demo_source
 from face_masker import FaceMasker
 from hierarchical_keys import key_at_index, encrypt_face as _seal_embedding
+from privacy_protection import PRIVACY_SCHEDULE_PAD_SEC
+from privacy_schedule import PrivacyScheduleCache, PrivacySpanNotFound, get_privacy_schedule_cache
 
 
 def redact_url(url: str | int) -> str:
@@ -340,6 +342,207 @@ class SessionFaceMemory:
         entry.checked_at = now
 
 
+# ── Capture-time privacy spans (ADR 0012) ─────────────────────
+# A span is a stretch of ONE recording segment captured in `private` mode
+# (face recognition off, never revealable). Offsets are seconds of the
+# segment's own video timeline — the same timeline as faces.time_in_video_sec
+# and the reveal job's frame_time_sec.
+#
+# Retry spacing for span writes that failed (DB down, or the recording row not
+# delivered yet). The capture loop never waits for these writes.
+PRIVACY_SPAN_RETRY_SEC = _env_seconds("PRIVACY_SPAN_RETRY_SEC", 5.0, 0.5)
+# How long stop/finalize waits for the last span writes.
+PRIVACY_SPAN_FLUSH_TIMEOUT_SEC = 10.0
+_PRIVACY_SPAN_LOG_EVERY_SEC = 60.0
+
+# Capture-clock bound for the privacy decision (ADR 0012). A live frame's
+# capture instant is not known exactly: the source (PTS) clock is anchored to
+# the wall clock when the source opens and at every segment rotation, then
+# runs on its own (a slow or nominal-fps camera clock drifts), and frames can
+# be buffered before they reach the loop. So every live tick is judged over
+# [min(estimate, now) - PRIVACY_CLOCK_MARGIN_SEC, now] — `now` (the wall clock
+# when the frame is processed) can never be earlier than the capture — and is
+# private if ANY instant of that range is. The start of a private window can
+# therefore never be identified, at the price of recognition resuming a few
+# seconds after a private window ends.
+PRIVACY_CLOCK_MARGIN_SEC = _env_seconds("PRIVACY_CLOCK_MARGIN_SEC", 5.0, 0.0)
+_PRIVACY_CLOCK_LOG_EVERY_SEC = 300.0
+
+
+@dataclass(eq=False)
+class PrivacySpan:
+    recording_id: str
+    start: float
+    source: str                 # 'schedule' | 'fail_closed'
+    end: float | None = None
+    db_id: int | None = None    # recording_privacy_spans.id once inserted
+    close_saved: bool = False   # end_offset_sec persisted
+    in_flight: bool = False     # a write for this span is running
+    dropped: bool = False       # its recording row was deleted meanwhile
+    # recording_privacy_spans.client_span_id — the idempotency key of every
+    # write of this span (live open retries, spool delivery, recovery).
+    client_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def as_manifest(self) -> dict:
+        return {
+            "client_span_id": self.client_id,
+            "start_offset_sec": self.start,
+            "end_offset_sec": self.end,
+            "source": self.source,
+        }
+
+    @property
+    def needs_write(self) -> bool:
+        if self.dropped:
+            return False
+        return self.db_id is None or (self.end is not None and not self.close_saved)
+
+
+class PrivacySpanLedger:
+    """Per-session span bookkeeping, fed once per ArcFace tick.
+
+    Rules (ADR 0012):
+      * private and no open span in this segment → open one at the PREVIOUS
+        tick's offset (0 at the segment start): the switch happened somewhere
+        between the two ticks, so the boundary is covered conservatively;
+      * standard while a span is open → close it at the current offset;
+      * a ``fail_closed`` tick inside a span makes the span ``fail_closed``;
+      * segment rotation / finalize → ``close_segment`` at the final offset;
+        the next segment's first tick (offset 0) re-opens if still private.
+
+    Writes happen in ``flush`` (off the event loop, via asyncio.to_thread);
+    a span stays in memory until the DB has acknowledged it, so a missing
+    recording row or a DB outage only delays persistence. Every span also
+    travels with its segment: ``manifest_spans`` goes into the validated
+    capture journal and the spool manifest at finalize, and the delivery
+    upserts them (keyed by ``client_id``) before the row becomes ready — so a
+    session that ends before the DB is back loses nothing.
+    """
+
+    MIN_SPAN_SEC = 1e-3  # end_offset_sec > start_offset_sec (DB CHECK)
+
+    def __init__(self) -> None:
+        self.spans: list[PrivacySpan] = []  # not yet fully persisted (+ the open one)
+        self.open: PrivacySpan | None = None
+        self.prev_tick = 0.0
+        self.retry_at = 0.0
+        self.task: asyncio.Task | None = None
+        self.failures = 0
+        self._logged_at = 0.0
+        # Every span of a segment not yet handed to the spool (persisted or
+        # not) — the segment's delivery carries them.
+        self.by_recording: dict[str, list[PrivacySpan]] = {}
+        # Segments whose delivery manifest carries their spans.
+        self.handed_off: set[str] = set()
+
+    def _add(self, span: PrivacySpan) -> PrivacySpan:
+        self.spans.append(span)
+        self.by_recording.setdefault(span.recording_id, []).append(span)
+        return span
+
+    def manifest_spans(self, recording_id: str) -> list[dict]:
+        """The segment's spans for its delivery manifest / capture journal."""
+        return [s.as_manifest() for s in self.by_recording.get(recording_id, []) if not s.dropped]
+
+    def hand_off(self, recording_id: str) -> None:
+        """The segment's manifest (with its spans) is durable on disk."""
+        self.handed_off.add(recording_id)
+        self.by_recording.pop(recording_id, None)
+
+    def _close(self, span: PrivacySpan, end: float) -> None:
+        span.end = end if end > span.start else span.start + self.MIN_SPAN_SEC
+        if not any(s is span for s in self.spans):
+            self.spans.append(span)
+
+    def tick(self, recording_id: str, offset: float, mode: str, source: str) -> None:
+        start, self.prev_tick = self.prev_tick, offset
+        span = self.open
+        if span is not None and span.recording_id != recording_id:
+            # The segment changed without close_segment (should not happen):
+            # leave that span open — readers treat it as "until the end of the
+            # recording", which is where it really ended.
+            self.open = span = None
+        if mode == "private":
+            wanted = "fail_closed" if source == "fail_closed" else "schedule"
+            if span is None:
+                self.open = self._add(PrivacySpan(recording_id, start, wanted))
+            elif wanted == "fail_closed" and span.source != "fail_closed":
+                if span.db_id is None and not span.in_flight:
+                    span.source = "fail_closed"
+                else:
+                    # Already persisted as 'schedule': cover the whole stretch
+                    # with a fail_closed span and retire the old one here.
+                    self._close(span, offset)
+                    self.open = self._add(PrivacySpan(recording_id, span.start, "fail_closed"))
+        elif span is not None:
+            self._close(span, offset)
+            self.open = None
+
+    def close_segment(self, recording_id: str, final_offset: float) -> None:
+        span = self.open
+        if span is not None and span.recording_id == recording_id:
+            self._close(span, final_offset)
+            self.open = None
+        self.prev_tick = 0.0
+
+    def has_work(self) -> bool:
+        return any(s.needs_write for s in self.spans)
+
+    def pending(self) -> list[PrivacySpan]:
+        return [s for s in self.spans if s.needs_write]
+
+    def _prune(self) -> None:
+        self.spans = [s for s in self.spans if s.needs_write or s is self.open]
+
+    async def flush(self, storage, *, row_ready: Callable[[str], bool], camera_id: str = "?") -> bool:
+        """Persist pending spans in order. A failure blocks only the rest of
+        that recording's spans (e.g. its row is not delivered yet). Returns
+        True when nothing is left to write."""
+        blocked: set[str] = set()
+        while True:
+            span = next(
+                (s for s in self.spans if s.needs_write and s.recording_id not in blocked and not s.in_flight),
+                None,
+            )
+            if span is None:
+                break
+            if not row_ready(span.recording_id):
+                blocked.add(span.recording_id)
+                continue
+            span.in_flight = True
+            try:
+                if span.db_id is None:
+                    # Upsert on the span's client id: a retry after a lost
+                    # response finds the row the first attempt committed.
+                    span.db_id = int(await asyncio.to_thread(
+                        storage.open_privacy_span, span.recording_id, span.start, span.source,
+                        span.client_id,
+                    ))
+                else:
+                    await asyncio.to_thread(storage.close_privacy_span, span.db_id, span.end)
+                    span.close_saved = True
+                self.failures = 0
+            except PrivacySpanNotFound:
+                # The recording (and its spans) was deleted meanwhile.
+                log.warning("camera %s: privacy span of recording %s vanished — dropped",
+                            camera_id, span.recording_id)
+                span.dropped = True
+            except Exception as exc:  # noqa: BLE001 — retried; never stops capture
+                blocked.add(span.recording_id)
+                self.failures += 1
+                now = time.monotonic()
+                if self.failures == 1 or now - self._logged_at >= _PRIVACY_SPAN_LOG_EVERY_SEC:
+                    self._logged_at = now
+                    log.warning(
+                        "camera %s: privacy span write for recording %s failed (%s) — kept in memory, retrying",
+                        camera_id, span.recording_id, type(exc).__name__,
+                    )
+            finally:
+                span.in_flight = False
+        self._prune()
+        return not self.has_work()
+
+
 def _mosaic_anonymize(roi: np.ndarray, block_size: int = MOSAIC_BLOCK_SIZE) -> np.ndarray:
     """Face ROI-ийг irreversible mosaic болгоно (fallback хувилбар).
 
@@ -525,6 +728,7 @@ class RecordingSession:
         db_camera_id: str | None = None,
         recording_id: str | None = None,
         finalize_on_stop: bool = True,
+        privacy_cache: PrivacyScheduleCache | None = None,
     ):
         self.camera_id = camera_id
         self.camera_name = camera_name
@@ -591,6 +795,10 @@ class RecordingSession:
         self._last_capacity_check = 0.0
         # Live-lag guard state (see LIVE_MASK_LAG_SEC).
         self._lag_guard = False
+        # Backlog measured (baseline + live_lag_sec) even when frames are
+        # never held: baked and demo sources too — the rotation re-anchor
+        # needs it (ADR 0012).
+        self._lag_measured = False
         self._live_origin = 0.0
         self._lag_baseline: float | None = None
         self._last_masked: np.ndarray | None = None
@@ -684,6 +892,21 @@ class RecordingSession:
         # File mode-д ended_at - started_at нь processing time-ыг агуулдаг тул
         # бичлэгийн жинхэнэ урт тэрнийг ашигладаггүй.
         self.recorded_frames: int = 0
+
+        # Privacy schedule (ADR 0012), evaluated at every ArcFace tick for the
+        # frame's capture time. None = the process-wide cache.
+        # privacy_mode is reported by /camera/active (None until the first tick).
+        self.privacy_cache = privacy_cache
+        self.privacy_mode: str | None = None
+        self.privacy_source: str | None = None
+        self._privacy_ledger = PrivacySpanLedger()
+        # Widest capture-clock bound (seconds) seen at a tick, and when a
+        # bound wider than the reveal/view schedule pad was last logged.
+        self.capture_clock_bound_sec = 0.0
+        self._clock_logged_at = 0.0
+        # Serialises recordings-row inserts (rotation, face persist and the
+        # privacy span flush can all retry it).
+        self._row_open_lock = asyncio.Lock()
 
     @staticmethod
     def _validate_uuid(value: str | None) -> str | None:
@@ -851,6 +1074,208 @@ class RecordingSession:
             pass
 
     # ────────────────────────────────────────────
+    # Privacy schedule (ADR 0012)
+    # ────────────────────────────────────────────
+    @property
+    def privacy_spans(self) -> PrivacySpanLedger:
+        # Lazily created so sessions built without __init__ (tests) work too.
+        ledger = self.__dict__.get("_privacy_ledger")
+        if ledger is None:
+            ledger = self.__dict__["_privacy_ledger"] = PrivacySpanLedger()
+        return ledger
+
+    async def _privacy_mode_at(self, captured_at: datetime) -> tuple[str, str]:
+        """Privacy mode of a frame captured at ``captured_at``."""
+        return await self._privacy_mode_between(captured_at, captured_at)
+
+    async def _privacy_mode_between(self, lower: datetime, upper: datetime) -> tuple[str, str]:
+        """Privacy mode of a frame captured at some instant of [lower, upper]:
+        private if ANY instant of it is private (see PRIVACY_CLOCK_MARGIN_SEC).
+
+        No DB camera (browser uploads, ad-hoc ids) → standard. Never raises:
+        an unexpected error fails closed (private)."""
+        camera_id = getattr(self, "db_camera_id", None)
+        if not camera_id:
+            return "standard", "none"
+        try:
+            cache = getattr(self, "privacy_cache", None) or get_privacy_schedule_cache()
+            during = getattr(cache, "mode_during", None)
+            if during is not None:
+                return await during(camera_id, lower, upper)
+            # A cache without range support: private if either end is.
+            answers = [await cache.mode_at(camera_id, lower)]
+            if upper != lower:
+                answers.append(await cache.mode_at(camera_id, upper))
+            for wanted in ("fail_closed", "schedule", "none"):
+                for mode, source in answers:
+                    if mode == "private" and source == wanted:
+                        return mode, source
+            return answers[-1]
+        except Exception as exc:  # noqa: BLE001 — unknown ⇒ private
+            log.warning("camera %s: privacy mode evaluation failed (%s) — failing closed",
+                        self.camera_id, type(exc).__name__)
+            return "private", "fail_closed"
+
+    def _reanchor_capture_clock(
+        self, source_sec: float, *, arrived_at: datetime | None = None, backlog: float | None = None,
+    ) -> None:
+        """Re-anchor the source clock to the wall clock: the frame at
+        ``source_sec`` reached the loop at ``arrived_at`` (default: now) after
+        waiting ``backlog`` seconds in the source's buffer (default: the
+        backlog measured now). Called when a live source opens and at every
+        rotation, so the suspect-cache load, the schedule warm-up and the open
+        itself no longer stamp frames early, and a source clock that runs fast
+        cannot carry its drift beyond one segment."""
+        if backlog is None:
+            backlog = self._live_backlog_sec(source_sec)
+        at = arrived_at if arrived_at is not None else datetime.now(timezone.utc)
+        self.capture_started_at = at - timedelta(seconds=source_sec + max(0.0, backlog))
+
+    def _live_backlog_sec(self, source_sec: float) -> float:
+        """How long the frame at ``source_sec`` waited before the loop saw it,
+        measured now: monotonic time since the live origin minus the source
+        time, minus the connect baseline (see _should_hold, which keeps the
+        baseline for every live and demo source). Before the first measured
+        frame: the last measured lag (0 at the source open)."""
+        baseline = getattr(self, "_lag_baseline", None)
+        if baseline is None:
+            return max(0.0, float(getattr(self, "live_lag_sec", 0.0) or 0.0))
+        behind = time.monotonic() - getattr(self, "_live_origin", 0.0) - source_sec
+        return max(0.0, behind - baseline)
+
+    def _capture_bounds(self, source_sec: float) -> tuple[datetime, datetime, datetime]:
+        """``(estimate, lower, upper)`` of a frame's capture instant.
+
+        File mode (browser uploads): the source clock is all there is, so the
+        bound collapses to the estimate. Live: [min(estimate, now) - margin,
+        now] — see PRIVACY_CLOCK_MARGIN_SEC."""
+        estimate = self.capture_started_at + timedelta(seconds=source_sec)
+        if getattr(self, "_is_file_mode", False):
+            return estimate, estimate, estimate
+        upper = datetime.now(timezone.utc)
+        lower = min(estimate, upper) - timedelta(seconds=PRIVACY_CLOCK_MARGIN_SEC)
+        bound = (upper - lower).total_seconds()
+        if bound > getattr(self, "capture_clock_bound_sec", 0.0):
+            self.capture_clock_bound_sec = bound
+        if bound > PRIVACY_SCHEDULE_PAD_SEC:
+            now = time.monotonic()
+            if now - getattr(self, "_clock_logged_at", 0.0) >= _PRIVACY_CLOCK_LOG_EVERY_SEC:
+                self._clock_logged_at = now
+                log.warning(
+                    "camera %s: capture-time bound %.1fs exceeds PRIVACY_SCHEDULE_PAD_SEC=%.0fs — "
+                    "the pipeline stays conservative, the reveal/view schedule backstop is narrower",
+                    self.camera_id, bound, PRIVACY_SCHEDULE_PAD_SEC,
+                )
+        return estimate, lower, upper
+
+    def _note_privacy_tick(self, mode: str, source: str, offset: float) -> None:
+        old_mode = getattr(self, "privacy_mode", None)
+        old_source = getattr(self, "privacy_source", None)
+        self.privacy_mode, self.privacy_source = mode, source
+        first_standard = old_mode is None and mode == "standard"
+        fail_closed_changed = old_mode is not None and (
+            (source == "fail_closed") != (old_source == "fail_closed")
+        )
+        if (mode != old_mode and not first_standard) or fail_closed_changed:
+            (log.warning if source == "fail_closed" else log.info)(
+                "camera %s: privacy mode → %s (source=%s)", self.camera_id, mode, source,
+            )
+        # Masking stays on in both modes; only its identification part stops.
+        masker = getattr(self, "masker", None)
+        if masker is not None:
+            masker.embeddings_allowed = mode == "standard"
+        self.privacy_spans.tick(self.recording_id, offset, mode, source)
+        self._schedule_privacy_flush()
+
+    def _privacy_row_ready(self, recording_id: str) -> bool:
+        # The current segment's row may not exist yet (inserted at finalize
+        # after a failed open); earlier segments are attempted — their rows
+        # arrive with the spool delivery, and a failed attempt is retried.
+        return recording_id != self.recording_id or bool(getattr(self, "_row_inserted", False))
+
+    def _schedule_privacy_flush(self, *, force: bool = False) -> asyncio.Task | None:
+        """Start a background span flush if work is pending (one at a time,
+        spaced by PRIVACY_SPAN_RETRY_SEC after a failed pass)."""
+        ledger = self.privacy_spans
+        if ledger.task is not None and not ledger.task.done():
+            return ledger.task
+        if not ledger.has_work():
+            return None
+        if not force and time.monotonic() < ledger.retry_at:
+            return None
+        ledger.task = asyncio.create_task(self._flush_privacy_spans())
+        return ledger.task
+
+    async def _flush_privacy_spans(self) -> None:
+        ledger = self.privacy_spans
+        rid = self.recording_id
+        if (
+            not getattr(self, "_row_inserted", False)
+            and not getattr(self, "_delivery_enqueued", False)
+            and any(s.recording_id == rid for s in ledger.pending())
+        ):
+            # In private mode no ArcFace task runs, so nothing else would
+            # retry a recordings-row insert that failed at segment start.
+            try:
+                await self._open_recording_row()
+            except Exception as exc:  # noqa: BLE001 — retried next pass
+                log.debug("camera %s: recording row retry failed (%s)", self.camera_id, type(exc).__name__)
+        try:
+            done = await ledger.flush(self.storage, row_ready=self._privacy_row_ready,
+                                      camera_id=str(self.camera_id))
+        except Exception as exc:  # noqa: BLE001 — never stops the recording
+            log.warning("camera %s: privacy span flush failed (%s)", self.camera_id, type(exc).__name__)
+            done = False
+        ledger.retry_at = 0.0 if done else time.monotonic() + PRIVACY_SPAN_RETRY_SEC
+
+    def _privacy_close_segment(self) -> None:
+        """Close the current segment's open span at its final offset."""
+        ledger = self.__dict__.get("_privacy_ledger")
+        if ledger is None:
+            return
+        if ledger.open is not None:
+            fps = getattr(self, "fps", 0) or 0
+            final = self.recorded_frames / fps if fps else ledger.open.start
+            ledger.close_segment(self.recording_id, final)
+        ledger.prev_tick = 0.0
+
+    async def _settle_privacy_spans(self) -> None:
+        """At stop: close the open span and give pending writes a bounded
+        last chance. Never raises."""
+        ledger = self.__dict__.get("_privacy_ledger")
+        if ledger is None:
+            return
+        try:
+            self._privacy_close_segment()
+            deadline = time.monotonic() + PRIVACY_SPAN_FLUSH_TIMEOUT_SEC
+            for _ in range(2):  # the pass in flight (if any), then one fresh pass
+                task = self._schedule_privacy_flush(force=True)
+                remaining = deadline - time.monotonic()
+                if task is None or remaining <= 0:
+                    break
+                await asyncio.wait_for(asyncio.shield(task), remaining)
+                if not ledger.has_work():
+                    break
+        except Exception as exc:  # noqa: BLE001 — includes the timeout
+            log.warning("camera %s: privacy span settle interrupted (%s)", self.camera_id, type(exc).__name__)
+        pending = ledger.pending()
+        # Spans of a segment whose delivery manifest carries them are written
+        # by the spool together with the recording row (before it is ready).
+        carried = [s for s in pending if s.recording_id in ledger.handed_off]
+        lost = [s for s in pending if s.recording_id not in ledger.handed_off]
+        if carried:
+            log.info(
+                "camera %s: %d privacy span(s) travel with the queued delivery of %s",
+                self.camera_id, len(carried), ", ".join(sorted({s.recording_id for s in carried})),
+            )
+        if lost:
+            log.warning(
+                "camera %s: %d privacy span write(s) not persisted for recording(s) %s "
+                "(reveal still re-evaluates the schedule for that footage)",
+                self.camera_id, len(lost), ", ".join(sorted({s.recording_id for s in lost})),
+            )
+
+    # ────────────────────────────────────────────
     # Lifecycle
     # ────────────────────────────────────────────
     async def start(self):
@@ -968,6 +1393,7 @@ class RecordingSession:
             raise
         finally:
             shutil.rmtree(self.hls_dir, ignore_errors=True)
+            await self._settle_privacy_spans()
 
     def _never_opened(self) -> bool:
         return (
@@ -979,6 +1405,9 @@ class RecordingSession:
         )
 
     async def _finalize(self, *, deliver=True):
+        # The segment ends here: close its privacy span at the final offset
+        # (idempotent; spans are persisted by the flush, not by delivery).
+        self._privacy_close_segment()
         # Race-condition засвар: бүх in-flight arcface task-уудыг дуусгана
         # эс тэгвээс late-finishing face insert-ууд recording_id NULL хэвээр
         # үлдэх, faces_in_recording RPC-д харагдахгүй болно.
@@ -1060,17 +1489,30 @@ class RecordingSession:
         # No network call precedes the encrypted, fsynced delivery manifest.
         # Disk/encryption failures propagate; already-sealed artifacts and
         # sources awaiting encryption remain recoverable by the spool worker.
+        # ADR 0012: the segment's privacy spans travel with it (journal +
+        # spool manifest), so its delivery writes them before the row is
+        # ready even if the live span writes never got through.
+        ledger = self.__dict__.get("_privacy_ledger")
+        spans = ledger.manifest_spans(self.recording_id) if ledger is not None else []
         if hasattr(self, "rec_dir") and not self._is_file_mode:
             # Close+decode validation precedes the durable handoff marker.
             # fsync input files before committing their recoverable metadata.
             for artifact in artifacts:
                 with open(artifact["source"], "rb") as source:
                     os.fsync(source.fileno())
-            write_journal(self.journal_path, {
+            journal = {
                 "state": "validated", "recording_id": self.recording_id,
                 "row": fields, "artifacts": artifacts,
-            })
-        await asyncio.to_thread(spool.enqueue, self.recording_id, fields, artifacts)
+            }
+            if spans:
+                journal["privacy_spans"] = spans
+            write_journal(self.journal_path, journal)
+        await asyncio.to_thread(
+            spool.enqueue, self.recording_id, fields, artifacts,
+            **({"privacy_spans": spans} if spans else {}),
+        )
+        if ledger is not None and spans:
+            ledger.hand_off(self.recording_id)
         if hasattr(self, "rec_dir"):
             self.journal_path.unlink(missing_ok=True)
         self._delivery_enqueued = True
@@ -1088,9 +1530,25 @@ class RecordingSession:
     # Main loop
     # ────────────────────────────────────────────
     async def _rotate_segment(self, source_sec: float, width: int, height: int):
+        # The frame at source_sec reached the loop NOW. Closing the encoders
+        # and finalizing the old segment (ArcFace drain, full-decode
+        # validation, fsync, encryption) can block for many seconds, and the
+        # source buffers frames meanwhile — so the re-anchor below uses the
+        # arrival instant and the backlog measured here, never the time after
+        # that stall (which would stamp the whole next segment late and move
+        # the tick bound past the real capture instants; ADR 0012).
+        arrived_at = datetime.now(timezone.utc)
+        backlog = self._live_backlog_sec(source_sec)
+        # Close the privacy span at the old segment's final offset; the new
+        # segment's first tick (offset 0) re-opens one if still private.
+        self._privacy_close_segment()
         await self._close_writers(include_hls=False)
         await self._finalize(deliver=False)
         self.recording_id = str(uuid.uuid4())
+        # Re-anchor the capture clock (fast-clock drift never carries into
+        # the next segment); started_at = the capture estimate of the
+        # segment's frame 0.
+        self._reanchor_capture_clock(source_sec, arrived_at=arrived_at, backlog=backlog)
         self.started_at = self.capture_started_at + timedelta(seconds=source_sec)
         ts = self.started_at.astimezone(KST).strftime("%Y%m%d_%H%M%S")
         stem = f"{ts}_{self.recording_id}"
@@ -1120,6 +1578,18 @@ class RecordingSession:
             self._last_capacity_check = time.monotonic()
         if not self._is_file_mode and self.recorded_frames / self.fps >= self.segment_duration_sec:
             await self._rotate_segment(source_sec, w, h)
+        offset = self.recorded_frames / self.fps
+        tick = self.recorded_frames % max(1, round(self.fps)) == 0
+        if tick:
+            # ADR 0012: the camera's privacy schedule at CAPTURE time decides
+            # whether frames may be used for identification. Evaluated before
+            # masking: in `private` mode the masker places boxes with the
+            # detector alone (no embedding, no watchlist tier lookup).
+            # A live frame's capture instant is only known within a bound
+            # (PRIVACY_CLOCK_MARGIN_SEC): private if any instant of it is.
+            captured_at, lower, upper = self._capture_bounds(source_sec)
+            mode, source = await self._privacy_mode_between(lower, upper)
+            self._note_privacy_tick(mode, source, offset)
         original = source_frame.copy()
         # Every live viewer receives the privacy-filtered frame. The same
         # masking pass feeds the optional legacy baked recording so enabling
@@ -1141,13 +1611,15 @@ class RecordingSession:
         self._write_safe(self.hls, masked)
         self._draw_kst_timestamp(original, self.recorded_frames)
         self._write_safe(self.original_writer, original)
-        offset = self.recorded_frames / self.fps
-        if self.recorded_frames % max(1, round(self.fps)) == 0:
+        if tick:
             self.arcface_tasks = [t for t in self.arcface_tasks if not t.done()]
-            captured_at = self.capture_started_at + timedelta(seconds=source_sec)
-            self.arcface_tasks.append(asyncio.create_task(
-                self._process_arcface(original, source_offset_sec=offset, captured_at=captured_at)
-            ))
+            # `private` → no ArcFace task at all (no embeddings, face rows,
+            # crops, suspect matching or alerts). Tasks started before a flip
+            # finish: their frames were captured in standard mode.
+            if mode == "standard":
+                self.arcface_tasks.append(asyncio.create_task(
+                    self._process_arcface(original, source_offset_sec=offset, captured_at=captured_at)
+                ))
         self.recorded_frames += 1
         self.total_frames += 1
         self.capture_time_sec = source_sec
@@ -1167,8 +1639,13 @@ class RecordingSession:
         """True when the live loop lags real time by more than
         LIVE_MASK_LAG_SEC and a previous masked frame of the same size can be
         repeated. Only for live network sources writing the HLS stream in
-        on_demand mode (a baked recording must mask every frame)."""
-        if not getattr(self, "_lag_guard", False) or self.blur_strategy == "baked":
+        on_demand mode (a baked recording must mask every frame).
+
+        The backlog itself (baseline + ``live_lag_sec``) is measured for every
+        live and demo source, baked mode included, because every segment
+        rotation re-anchors the capture clock from it (ADR 0012)."""
+        guard = getattr(self, "_lag_guard", False) and self.blur_strategy != "baked"
+        if not (guard or getattr(self, "_lag_measured", False)):
             return False
         behind = time.monotonic() - self._live_origin - source_sec
         if self._lag_baseline is None or behind < self._lag_baseline:
@@ -1178,6 +1655,14 @@ class RecordingSession:
             self._hold_streak = 0
             return False
         lag = max(0.0, behind - self._lag_baseline)
+        if not guard:
+            # Measured, never held (baked must mask every frame; a demo
+            # source is paced). Without holding, a backlog cannot be told
+            # apart from a slow source clock, so both count as backlog and
+            # the rotation anchor errs early — the side the privacy bound
+            # tolerates.
+            self.live_lag_sec = lag
+            return False
         hold = (
             lag > LIVE_MASK_LAG_SEC
             and self._last_masked is not None
@@ -1217,6 +1702,10 @@ class RecordingSession:
 
     async def _run(self):
         await asyncio.to_thread(self._load_suspect_cache)
+        if self.db_camera_id:
+            # Warm the privacy schedule while the source opens, so the first
+            # tick does not wait for (or fail closed on) the initial read.
+            await self._privacy_mode_at(datetime.now(timezone.utc))
         shutil.rmtree(self.hls_dir, ignore_errors=True)
         os.makedirs(self.hls_dir, exist_ok=True)
         src = int(self.source_url) if isinstance(self.source_url, str) and self.source_url.isdigit() else self.source_url
@@ -1244,6 +1733,11 @@ class RecordingSession:
         self.fps = min(input_fps, 15.0) if self._is_file_mode else float(self.fps)
         self.source_duration_sec = self.cap.get(cv2.CAP_PROP_FRAME_COUNT) / input_fps if self._is_file_mode else 0
         self._source_opened = True
+        if not self._is_file_mode:
+            # Frame 0 (source time 0) is captured about now — not when
+            # __init__ ran before the suspect load, schedule warm-up and open.
+            self._reanchor_capture_clock(0.0)
+            self.started_at = self.capture_started_at
         self._journal_active()
         await self._open_recording_row()
         self._heartbeat_enabled = not self._is_file_mode and bool(self.db_camera_id)
@@ -1254,6 +1748,7 @@ class RecordingSession:
         live_origin = demo_due
         self._live_origin = live_origin
         self._lag_guard = not self._is_file_mode and not is_demo
+        self._lag_measured = not self._is_file_mode
         try:
             if not self._is_file_mode:
                 self.hls = _ffmpeg_hls_writer(self.hls_dir, w, h, self.fps)
@@ -1337,15 +1832,24 @@ class RecordingSession:
         cross-linked concurrent browser uploads (all camera_id NULL) and lost
         the seal context entirely if finalize never ran.
         """
-        try:
-            rec_id = await self.storage.insert_recording_returning_id(
-                recording_id=self.recording_id,
-                **self._capture_row(),
-            )
-            self._row_inserted = bool(rec_id)
-        except Exception as e:  # noqa: BLE001 — recording continues; finalize falls back to insert
-            log.warning("recording row open failed (will insert at finalize): %s", e)
-            self._row_inserted = False
+        lock = self.__dict__.get("_row_open_lock")
+        if lock is None:
+            lock = self.__dict__["_row_open_lock"] = asyncio.Lock()
+        async with lock:
+            if self._row_inserted:
+                return  # a concurrent retry (span flush / face persist) won
+            recording_id = self.recording_id
+            try:
+                rec_id = await self.storage.insert_recording_returning_id(
+                    recording_id=recording_id,
+                    **self._capture_row(),
+                )
+                if recording_id == self.recording_id:
+                    self._row_inserted = bool(rec_id)
+            except Exception as e:  # noqa: BLE001 — recording continues; finalize falls back to insert
+                log.warning("recording row open failed (will insert at finalize): %s", e)
+                if recording_id == self.recording_id:
+                    self._row_inserted = False
 
     @staticmethod
     def _write_safe(proc: subprocess.Popen | None, frame: np.ndarray):

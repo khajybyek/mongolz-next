@@ -194,6 +194,16 @@ class FakeStorage:
         self.uploads: list[tuple[str, str, int]] = []
         self.upload_error: Exception | None = None
         self.upload_returns: str | None = None
+        # recording_privacy_spans rows (ADR 0012) — none unless a test adds them.
+        self.spans: list[dict] = []
+        self.span_error: Exception | None = None
+        self.span_reads: list[str] = []
+
+    def list_privacy_spans(self, recording_id: str) -> list[dict]:
+        self.span_reads.append(recording_id)
+        if self.span_error:
+            raise self.span_error
+        return [dict(s) for s in self.spans if s.get("recording_id") == recording_id]
 
     def upload_bytes(self, bucket: str, path: str, data: bytes, content_type: str) -> str:
         if self.upload_error:

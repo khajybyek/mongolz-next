@@ -107,10 +107,19 @@ class RecordingSpool:
         manifest["state"] = "ready"
         self._save(directory, manifest)
 
-    def enqueue(self, recording_id: str, row: dict, artifacts: list[dict]) -> None:
+    def enqueue(
+        self,
+        recording_id: str,
+        row: dict,
+        artifacts: list[dict],
+        privacy_spans: list[dict] | None = None,
+    ) -> None:
         """Atomically register delivery, seal artifacts, then remove plaintext.
 
         artifacts: source, path (remote key), original (remote stays encrypted).
+        privacy_spans (ADR 0012): the segment's capture-time privacy spans
+        (``client_span_id, start_offset_sec, end_offset_sec, source``); the
+        delivery writes them before the row is marked ready.
         A local encryption/disk failure raises and preserves the manifest and
         every source not yet safely encrypted. Network is never needed here.
         """
@@ -120,6 +129,9 @@ class RecordingSpool:
             manifest_path = directory / "manifest.json"
             if manifest_path.exists():
                 manifest = json.loads(manifest_path.read_text())
+                if privacy_spans and not manifest.get("privacy_spans"):
+                    manifest["privacy_spans"] = list(privacy_spans)
+                    self._save(directory, manifest)
             else:
                 # A capture journal may outlive a successfully delivered
                 # manifest. Check under the same delivery lock, so replay
@@ -140,6 +152,8 @@ class RecordingSpool:
                         for index, a in enumerate(artifacts)
                     ],
                 }
+                if privacy_spans:
+                    manifest["privacy_spans"] = list(privacy_spans)
                 self._save(directory, manifest)
                 _sync_dir(self.root)
             self._prepare(directory, manifest)
@@ -156,8 +170,23 @@ class RecordingSpool:
             manifest = json.loads(manifest_path.read_text())
             if not force and manifest["next_retry_at"] > time.time():
                 return False
+            spans = manifest.get("privacy_spans") or []
+            stage = "prepare"
             try:
                 self._prepare(directory, manifest)
+                if spans:
+                    # ADR 0012: the spans reach the database BEFORE the row is
+                    # ready (has_original / capture_status='ready'), so the
+                    # footage is never revealable without them. The
+                    # placeholder is a no-op when the row already exists.
+                    # Written before the uploads, so a span write that keeps
+                    # failing (for example ML deployed before migration
+                    # 20260928100000) costs one database call per retry, not
+                    # a re-upload of the whole segment.
+                    stage = "privacy_spans"
+                    storage.ensure_recording_placeholder(recording_id, manifest["row"])
+                    storage.upsert_privacy_spans(recording_id, spans)
+                stage = "upload"
                 for artifact in manifest["artifacts"]:
                     ciphertext = (directory / artifact["file"]).read_bytes()
                     plaintext = decrypt_bytes(ciphertext, artifact["key_context"])
@@ -166,6 +195,7 @@ class RecordingSpool:
                     uploaded = storage.upload_bytes("recordings", artifact["path"], payload, content_type)
                     if uploaded != artifact["path"]:
                         raise RuntimeError("Storage did not acknowledge recording upload")
+                stage = "commit"
                 storage.commit_recording_delivery(recording_id, manifest["row"])
                 # Delete only after both remote objects AND the recording row
                 # are acknowledged. A crash before cleanup replays idempotently.
@@ -175,10 +205,22 @@ class RecordingSpool:
             except Exception as exc:
                 manifest["attempts"] += 1
                 manifest["last_error"] = type(exc).__name__
+                manifest["last_stage"] = stage
                 manifest["next_retry_at"] = time.time() + min(30 * 2 ** min(manifest["attempts"] - 1, 7), 3600)
                 self._save(directory, manifest)
                 log.error("Recording %s delivery pending (attempt %d, %s)",
                           recording_id, manifest["attempts"], manifest["last_error"])
+                if stage == "privacy_spans":
+                    # Not transient-looking on purpose: the footage stays in
+                    # the spool (encrypted, not playable, not revealable)
+                    # until its spans can be written, and capture stops once
+                    # the spool reaches RECORDING_MAX_PENDING_BYTES.
+                    log.error(
+                        "Recording %s: its privacy spans could not be written (%s) — delivery held "
+                        "until they are. Check that migration 20260928100000 (recording_privacy_spans) "
+                        "is applied and the database is reachable (ADR 0012)",
+                        recording_id, manifest["last_error"],
+                    )
         return delivered
 
     def has_pending(self, recording_id: str) -> bool:

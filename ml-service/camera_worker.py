@@ -149,6 +149,11 @@ class CameraManager:
                     "last_error": public_reason(sup.last_error) if sup else None,
                     "state": "running",
                     "next_retry_at": None,
+                    # ADR 0012: "standard" | "private" at the latest tick
+                    # (None before the first one), and why: "schedule" |
+                    # "none" | "fail_closed" (schedule unreadable → private).
+                    "privacy_mode": getattr(s, "privacy_mode", None),
+                    "privacy_source": getattr(s, "privacy_source", None),
                 }
             )
         return out
@@ -210,6 +215,8 @@ class CameraManager:
                     "last_error": public_reason(reason),
                     "state": "backoff",
                     "next_retry_at": retry_at,
+                    "privacy_mode": None,  # not capturing → unknown
+                    "privacy_source": None,
                 }
             )
         return out
