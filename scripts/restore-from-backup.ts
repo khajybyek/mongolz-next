@@ -37,6 +37,7 @@
  */
 
 import { validateBackupIntegrity, type BackupManifest } from "../lib/backup-integrity";
+import { upgradeLegacyBackupRows } from "../lib/backup-tables";
 import { config as loadEnv } from "dotenv";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -52,6 +53,7 @@ const ORDER = [
   "cameras",
   "suspects",
   "recordings",
+  "recording_privacy_spans",
   "faces",
   "clusters",
   "alert_rules",
@@ -75,8 +77,13 @@ const ORDER = [
   "audit_log",
 ] as const;
 
+/** Tables whose `id` is GENERATED ALWAYS AS IDENTITY — PostgREST cannot insert it. */
+const IDENTITY_TABLES = new Set(["incident_events", "recording_privacy_spans"]);
+
 const PK: Record<string, string> = {
   retention_policies: "resource",
+  // The identity id is regenerated; the pipeline's idempotency key is stable.
+  recording_privacy_spans: "client_span_id",
   incident_alerts: "incident_id,alert_id",
   incident_faces: "incident_id,face_id",
 };
@@ -92,6 +99,7 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   cameras: ["name", "url"],
   suspects: ["name", "image_path", "embedding"],
   recordings: ["filename", "storage_path"],
+  recording_privacy_spans: ["recording_id", "start_offset_sec"],
   faces: ["filename", "image_path", "embedding"],
   clusters: ["cluster_id", "face_id"],
   alert_rules: ["name"],
@@ -216,8 +224,10 @@ async function main() {
   // ── Preflight: read + check every table before writing anything ──
   const plans: Plan[] = [];
   for (const table of ORDER) {
-    const { rows, present } = readTable(tablesDir, table);
-    plans.push({ table, rows, present, missing: missingRequired(table, rows) });
+    const read = readTable(tablesDir, table);
+    // Older artifacts carry the pre-ADR-0012 privacy columns; map them first.
+    const rows = upgradeLegacyBackupRows(table, read.rows);
+    plans.push({ table, rows, present: read.present, missing: missingRequired(table, rows) });
   }
 
   console.log("\nPreflight");
@@ -278,6 +288,7 @@ async function main() {
    */
   const FK_PARENTS: Record<string, string[]> = {
     faces: ["recordings"],
+    recording_privacy_spans: ["recordings"],
     clusters: ["faces"],
     alerts: ["suspects", "faces"],
     reveal_jobs: ["recordings", "suspects", "faces"],
@@ -320,9 +331,10 @@ async function main() {
       continue;
     }
 
-    // incident_events.id is GENERATED ALWAYS and has no inbound references.
-    // Let PostgreSQL assign fresh IDs while preserving the immutable events.
-    const rows = p.table === "incident_events"
+    // incident_events.id and recording_privacy_spans.id are GENERATED ALWAYS
+    // and have no inbound references. Let PostgreSQL assign fresh IDs while
+    // preserving the rows themselves.
+    const rows = IDENTITY_TABLES.has(p.table)
       ? p.rows.map(({ id: _identity, ...row }) => row)
       : [...p.rows];
     if (p.table === "audit_log") {

@@ -6,6 +6,8 @@ import { getT } from "@/lib/i18n/server";
 import { isProductionRuntime, missingProductionSecrets } from "@/lib/env-check";
 import { errorReportingEnabled, serverErrorReportingDsn } from "@/lib/error-reporting";
 import { HealthDashboard } from "./health-dashboard";
+import { PrivacyEnforcementNotice } from "@/components/privacy-enforcement-notice";
+import { probeMlPrivacyEnforcement } from "@/lib/health-probes";
 
 export default async function HealthPage() {
   await requireAdmin();
@@ -25,12 +27,16 @@ export default async function HealthPage() {
   const browserReporting = errorReportingEnabled();
   const serverReporting = serverErrorReportingDsn() !== undefined;
   const reportingOk = browserReporting && serverReporting;
+  // Privacy schedules (ADR 0012) are enforced only by an ML build that says so.
+  const privacyEnforcement = await probeMlPrivacyEnforcement();
 
   return (
     <>
       <PageHeader title={t("nav_health")} subtitle={t("health_subtitle")} />
       <div className="space-y-4">
         <HealthDashboard />
+
+        <PrivacyEnforcementNotice state={privacyEnforcement} t={t} showWhenEnforced />
 
         <div className={`card flex items-start gap-3 ${severe ? "border border-danger/30" : ""}`}>
           {configOk ? (

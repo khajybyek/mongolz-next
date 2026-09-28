@@ -122,9 +122,9 @@ export function CameraDialog(props: Props) {
     }
   }
 
-  // Edits answer REAUTH_REQUIRED when no TOTP step-up is fresh. The built
-  // submission is parked here, the TOTP prompt opens on top of this dialog,
-  // and the SAME submission is retried after a correct code.
+  // Adds and edits answer REAUTH_REQUIRED when no TOTP step-up is fresh. The
+  // built submission is parked here, the TOTP prompt opens on top of this
+  // dialog, and the SAME submission is retried after a correct code.
   const [needsTotp, setNeedsTotp] = useState(false);
   const pendingEdit = useRef<FormData | null>(null);
 
@@ -146,7 +146,7 @@ export function CameraDialog(props: Props) {
 
   function submitEdit(fd: FormData) {
     startTransition(async () => {
-      const res = await updateCameraAction(fd);
+      const res = fd.has("id") ? await updateCameraAction(fd) : await addCameraAction(fd);
       if ("error" in res) {
         if (res.error === "REAUTH_REQUIRED") {
           pendingEdit.current = fd;
@@ -168,19 +168,8 @@ export function CameraDialog(props: Props) {
     fd.append("url", url);
     fd.append("cam_type", camType);
 
-    if (isEdit && camera) {
-      fd.append("id", camera.id);
-      submitEdit(fd);
-      return;
-    }
-    startTransition(async () => {
-      const res = await addCameraAction(fd);
-      if ("error" in res) {
-        fail(res.error);
-        return;
-      }
-      finishOk();
-    });
+    if (isEdit && camera) fd.append("id", camera.id);
+    submitEdit(fd);
   }
 
   const hint = TYPE_HINTS[camType];

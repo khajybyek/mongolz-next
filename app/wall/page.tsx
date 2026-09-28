@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { mlActiveCameras } from "@/lib/ml-client";
+import { failClosedCameraIds, privateCameraIds } from "@/lib/privacy-schedule";
 import type { CameraLivenessStatus } from "@/lib/database.types";
 import { WallView } from "./wall-view";
 
@@ -115,8 +116,17 @@ export default async function WallPage() {
   const active = await mlActiveCameras();
   const enabledIds = new Set(cameras.map((c) => c.camera_id));
   const activeIds = (active ?? []).map((a) => a.camera_id).filter((id) => enabledIds.has(id));
+  const privateIds = privateCameraIds(active ?? [], enabledIds);
+  const failClosedIds = failClosedCameraIds(active ?? [], enabledIds);
 
   return (
-    <WallView cameras={cameras} isAdmin={isAdmin} activeIds={activeIds} mlReachable={active !== null} />
+    <WallView
+      cameras={cameras}
+      isAdmin={isAdmin}
+      activeIds={activeIds}
+      privateIds={privateIds}
+      failClosedIds={failClosedIds}
+      mlReachable={active !== null}
+    />
   );
 }

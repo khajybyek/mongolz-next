@@ -4,6 +4,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireOperator } from "@/lib/supabase/auth";
 import { mlCameraSupervision, mlStartCamera, mlStopCamera } from "@/lib/ml-client";
 import { restartInfoFor, type CameraRestartInfo } from "@/lib/camera-restarts";
+import { failClosedCameraIds, privateCameraIds } from "@/lib/privacy-schedule";
 import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { issueStreamTicket } from "@/lib/stream-ticket";
 
@@ -97,6 +98,17 @@ export interface ActiveCamerasResult {
    * whose source dropped and that the ML supervisor will try again.
    */
   restarts: Record<string, CameraRestartInfo>;
+  /**
+   * Streaming cameras the caller may see whose capture is in private mode by
+   * schedule right now (ADR 0012: no recognition, no alerts, no reveal).
+   * Empty for ML builds that do not report `privacy_mode`.
+   */
+  privateIds: string[];
+  /**
+   * The subset of `privateIds` that is private because the ML service could
+   * not read the schedule (fail-closed) — an outage, not a window.
+   */
+  failClosedIds: string[];
 }
 
 /**
@@ -109,13 +121,21 @@ export interface ActiveCamerasResult {
 export async function getActiveCamerasAction(): Promise<ActiveCamerasResult> {
   await requireOperator();
   const status = await mlCameraSupervision();
-  if (status === null) return { reachable: false, ids: [], restarts: {} };
+  if (status === null) return { reachable: false, ids: [], restarts: {}, privateIds: [], failClosedIds: [] };
   const known = [...status.active, ...status.reconnecting];
   const candidates = [...new Set(known.map((c) => c.camera_id).filter((id) => UUID_RE.test(id)))];
-  if (candidates.length === 0) return { reachable: true, ids: [], restarts: {} };
+  if (candidates.length === 0) return { reachable: true, ids: [], restarts: {}, privateIds: [], failClosedIds: [] };
   const supabase = await createClient();
   const { data } = await supabase.from("cameras").select("id").in("id", candidates).eq("enabled", true);
   const visible = new Set((data ?? []).map((c) => c.id));
   const ids = [...new Set(status.active.map((c) => c.camera_id))].filter((id) => visible.has(id));
-  return { reachable: true, ids, restarts: restartInfoFor(known, visible) };
+  return {
+    reachable: true,
+    ids,
+    restarts: restartInfoFor(known, visible),
+    // Only running captures evaluate the schedule; a camera in backoff has
+    // no current mode to show.
+    privateIds: privateCameraIds(status.active, visible),
+    failClosedIds: failClosedCameraIds(status.active, visible),
+  };
 }

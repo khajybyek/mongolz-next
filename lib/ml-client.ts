@@ -104,6 +104,19 @@ export interface ActiveCamera {
   state?: "running" | "backoff" | null;
   /** When the supervisor will next try to reconnect (ISO UTC), backoff only. */
   next_retry_at?: string | null;
+  /**
+   * Capture-time privacy mode from the camera's schedule (ML ≥ 2026-09-28).
+   * "private" = face recognition, face rows, alerts and edge inference are
+   * off and the footage cannot be revealed; masking is on in both modes.
+   * null / absent = not evaluated yet, or an older ML build.
+   */
+  privacy_mode?: "standard" | "private" | null;
+  /**
+   * Why: "schedule" (evaluated from the camera's schedule), "none" (no
+   * schedule applies) or "fail_closed" (the ML service could not read the
+   * schedule, so recognition is paused whatever the schedule says).
+   */
+  privacy_source?: "schedule" | "none" | "fail_closed" | null;
 }
 
 /** Everything the ML supervisor knows: streaming cameras and cameras in backoff. */

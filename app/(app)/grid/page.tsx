@@ -8,7 +8,10 @@ import { requireUser } from "@/lib/supabase/auth";
 import { getT } from "@/lib/i18n/server";
 import { mlCameraSupervision } from "@/lib/ml-client";
 import { restartInfoFor } from "@/lib/camera-restarts";
+import { failClosedCameraIds, privateCameraIds } from "@/lib/privacy-schedule";
 import { MultiCameraGrid, type GridCamera } from "./multi-camera-grid";
+import { PrivacyEnforcementNotice } from "@/components/privacy-enforcement-notice";
+import { probeMlPrivacyEnforcement } from "@/lib/health-probes";
 
 export const dynamic = "force-dynamic";
 
@@ -102,6 +105,9 @@ export default async function GridPage({
 
   const enabledIds = new Set(cameras.map((c) => c.id));
   const initialActive = (active ?? []).map((a) => a.camera_id).filter((id) => enabledIds.has(id));
+  // An ML build without the privacy-schedule capability ignores schedules
+  // (and sends no privacy badge) — say so; "ML down" is shown by the grid.
+  const privacyEnforcement = active !== null ? await probeMlPrivacyEnforcement() : "unreachable";
 
   return (
     <>
@@ -116,6 +122,11 @@ export default async function GridPage({
           </Link>
         }
       />
+      {privacyEnforcement === "not_enforced" && (
+        <div className="mb-4">
+          <PrivacyEnforcementNotice state={privacyEnforcement} t={t} />
+        </div>
+      )}
       {cameras.length === 0 ? (
         <Empty
           message={canControl ? t("grid_no_cameras") : t("grid_no_cameras_viewer")}
@@ -136,6 +147,8 @@ export default async function GridPage({
             [...(supervision?.active ?? []), ...(supervision?.reconnecting ?? [])],
             enabledIds,
           )}
+          initialPrivate={privateCameraIds(supervision?.active ?? [], enabledIds)}
+          initialFailClosed={failClosedCameraIds(supervision?.active ?? [], enabledIds)}
           initialFocus={initialFocus}
           canControl={canControl}
         />

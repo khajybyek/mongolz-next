@@ -22,6 +22,14 @@ import { FaceThumb } from "@/components/face-thumb";
 import { Empty } from "@/components/ui/empty";
 import { PageHeader } from "@/components/ui/page-header";
 import { workflowCopy, workflowStatus } from "@/lib/workflow-copy";
+import {
+  buildPrivacySchedule,
+  formatOffsetRanges,
+  privacySpanRanges,
+  scheduleProtectedOffsets,
+  spanOffsets,
+  type ScheduleWindowRow,
+} from "@/lib/privacy-schedule";
 import type { FaceInRecording } from "@/lib/database.types";
 
 // Cache хийхгүй — faces background processing-аар нэмэгддэг тул хэзээ нээгдсэн
@@ -89,6 +97,40 @@ export default async function PlaybackDetailPage({
       });
     }
   }
+
+  // Capture-time privacy spans (ADR 0012), read through the same RLS client
+  // as the recording: the policy lets an operator see the spans of a
+  // recording they can see. A read error only hides the notice — the reveal
+  // job enforces the spans (and the schedule) on its own.
+  const { data: spanRows } = await supabase
+    .from("recording_privacy_spans")
+    .select("start_offset_sec, end_offset_sec, source")
+    .eq("recording_id", rec.id)
+    .order("start_offset_sec");
+  const privacySpans = privacySpanRanges(spanRows ?? []);
+
+  // The camera's CURRENT schedule also withholds stretches from reveal — the
+  // reveal job's backstop, and a private window added after capture
+  // ("retroactive" tightening). Evaluated here only to SAY so (same rules,
+  // same 60 s margin as the job); the job enforces it itself. Unreadable →
+  // no notice rather than a guess.
+  let scheduleRanges: ReturnType<typeof scheduleProtectedOffsets> = [];
+  if (rec.camera_id) {
+    const [{ data: cam }, { data: windows }] = await Promise.all([
+      supabase.from("cameras").select("privacy_default").eq("id", rec.camera_id).maybeSingle(),
+      supabase.from("masking_schedules").select("window_mode, starts_at, ends_at, weekdays").eq("camera_id", rec.camera_id),
+    ]);
+    if (cam && windows) {
+      const schedule = buildPrivacySchedule(cam.privacy_default, windows as ScheduleWindowRow[]);
+      scheduleRanges = scheduleProtectedOffsets(schedule, rec.started_at, rec.duration_sec);
+    }
+  }
+  const scheduleRangeLabels = formatOffsetRanges(scheduleRanges);
+  const revealPrivacy = {
+    spans: spanOffsets(spanRows ?? []),
+    schedule: scheduleRanges,
+    durationSec: rec.duration_sec ?? null,
+  };
 
   // Face metadata — admin only. Viewer-д face илрүүлэлтийн өгөгдөл харагдахгүй
   // (RLS-ийн нэг хэсэг — privacy-preserving design).
@@ -184,6 +226,7 @@ export default async function PlaybackDetailPage({
               isAdmin={isAdmin}
               durationSec={rec.duration_sec ?? null}
               initialFaceId={initialFaceId}
+              revealPrivacy={revealPrivacy}
             />
           ) : (
             <div className="card aspect-video bg-black flex items-center justify-center text-text-muted text-sm">
@@ -213,6 +256,49 @@ export default async function PlaybackDetailPage({
               )}
             </Row>
           </div>
+
+          {privacySpans.length > 0 && (
+            <div className="card border border-accent/30 bg-accent/5 space-y-2">
+              <div className="flex items-start gap-2.5">
+                <Lock className="w-4 h-4 text-accent mt-0.5 shrink-0" aria-hidden />
+                <div className="space-y-1 min-w-0">
+                  <h3 className="section-title text-accent">{t("pb_privacy_spans_title")}</h3>
+                  <p className="text-xs text-text-soft leading-relaxed">{t("pb_privacy_spans_desc")}</p>
+                  <ul className="flex flex-wrap gap-1.5 pt-1">
+                    {privacySpans.map((span, i) => (
+                      <li
+                        key={`${span.start}-${i}`}
+                        className="badge bg-accent/15 text-accent font-mono"
+                        title={span.failClosed ? t("pb_privacy_fail_closed") : undefined}
+                      >
+                        {span.start}–{span.end ?? t("pb_privacy_until_end")}
+                        {span.failClosed && <span className="font-sans"> · {t("pb_privacy_fail_closed")}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {scheduleRangeLabels.length > 0 && (
+            <div className="card border border-accent/20 space-y-2">
+              <div className="flex items-start gap-2.5">
+                <Lock className="w-4 h-4 text-accent mt-0.5 shrink-0" aria-hidden />
+                <div className="space-y-1 min-w-0">
+                  <h3 className="section-title text-accent">{t("pb_privacy_schedule_title")}</h3>
+                  <p className="text-xs text-text-soft leading-relaxed">{t("pb_privacy_schedule_desc")}</p>
+                  <ul className="flex flex-wrap gap-1.5 pt-1">
+                    {scheduleRangeLabels.map((range, i) => (
+                      <li key={`${range.start}-${i}`} className="badge bg-accent/10 text-accent font-mono">
+                        {range.start}–{range.end ?? t("pb_privacy_until_end")}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
 
           {isAdmin ? (
             <div className="card space-y-2">

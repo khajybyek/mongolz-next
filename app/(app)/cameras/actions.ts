@@ -6,6 +6,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { protectCameraUrlForStorage , unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
+import { scheduleSecurityEvent } from "@/lib/notify";
 import { mlTestCamera, type CameraTestResult, mlStopCamera } from "@/lib/ml-client";
 import type { CameraType } from "@/lib/database.types";
 
@@ -72,10 +73,21 @@ function validCameraUrl(url: string, camType: CamType): boolean {
   return ok.includes(u.protocol) && Boolean(u.hostname);
 }
 
+/**
+ * Adding a camera widens what is captured AND starts from the column defaults
+ * (enabled, privacy_default = standard, no schedule windows). Without the
+ * second factor a stolen admin session could register a second row for a feed
+ * whose camera is `private` (the source URL is visible on /cameras) and get
+ * full recognition on it — defeating the TOTP step-up that loosening a
+ * schedule requires (ADR 0012). So adding needs the step-up too, and the
+ * other admins are told.
+ */
 export async function addCameraAction(
   formData: FormData,
 ): Promise<{ error: string } | { ok: true }> {
   const { user } = await requireAdmin();
+  const reauth = await ensureFreshReauth(user.id);
+  if (reauth) return reauth;
   const { t } = await getT();
   const name = String(formData.get("name") ?? "").trim();
   const url = String(formData.get("url") ?? "").trim();
@@ -108,6 +120,12 @@ export async function addCameraAction(
       user_email: user.email,
     });
   } catch {}
+  scheduleSecurityEvent({
+    action: "CAMERA_ADD",
+    actorId: user.id,
+    actorEmail: user.email,
+    detail: `Name: ${name} type: ${camType}`,
+  });
 
   revalidatePath("/cameras");
   return { ok: true };

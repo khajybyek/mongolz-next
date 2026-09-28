@@ -43,6 +43,11 @@ const sections = [
       { label: "Dedup threshold", value: "Cosine similarity ≥ 0.35" },
       { label: "Alert threshold", value: "Cosine similarity ≥ 0.45" },
       { label: "Quality scoring", value: "Laplacian variance (sharpness) + brightness + size" },
+      {
+        label: "Privacy schedule",
+        value:
+          "Per-camera windows (Asia/Seoul, /cameras/<id>/schedule) can only make protection stronger (ADR 0012). standard = today's behaviour; private = no ArcFace embeddings, face rows/crops, suspect matching, alerts or edge inference, and the reveal job keeps frames captured then masked. Every masking path (live, on-demand view, evidence exports, reveal) masks private frames with the detector alone and the VIP mask. Evaluated at capture time, once per second of video, over a capture-time bound (camera clock to wall clock): private if any instant is. Spans travel with each segment's delivery; reveal and view renderers add the current schedule with a 60 s margin. The ML service re-reads the schedule every 30 s and fails closed (private, never revealable) after 10 min without a readable schedule; GET / reports privacy_schedules so the web can warn about an older ML build. Loosening needs a TOTP step-up",
+      },
     ],
   },
   {
@@ -66,7 +71,7 @@ const sections = [
         value:
           "HMAC-SHA256 signed tickets (5-min TTL); playlist and every segment require an enabled camera plus admin or an explicit camera_permissions grant, and each view is written to the audit log",
       },
-      { label: "Step-up auth", value: "15-min cookie for reveal, user/role changes and backup download" },
+      { label: "Step-up auth", value: "15-min cookie for reveal, user/role changes, backup download, adding a camera and loosening a privacy schedule" },
       { label: "Rate limiting", value: "5 step-up attempts/min, 5 TOTP login failures/15 min, 20 reveals/hour (audit_log based)" },
       { label: "Headers", value: "CSP nonce, HSTS, X-Frame-Options DENY, CORP" },
       { label: "Audit", value: "Hash-chain audit log with verify_audit_chain()" },
@@ -86,7 +91,7 @@ const sections = [
       { label: "POST /search", value: "Image → suspect matches via pgvector" },
       { label: "POST /camera/start", value: "Start RTSP / webcam / demo:// capture" },
       { label: "POST /camera/stop", value: "Stop camera capture" },
-      { label: "GET /camera/active", value: "Running capture sessions (restart count, last error)" },
+      { label: "GET /camera/active", value: "Running capture sessions (restart count, last error, privacy_mode, privacy_source)" },
       { label: "POST /process-upload", value: "Browser MP4 upload, chunk-assembled (async)" },
       { label: "POST /reveal/run", value: "Selective unblur job (4-eyes approved only)" },
       { label: "GET /recording/{id}/view", value: "On-demand masked playback render (ADR 0010), disk-cached" },
@@ -101,9 +106,9 @@ const sections = [
     titleKey: "docs_sec_database" as TranslationKey,
     icon: Database,
     items: [
-      { label: "Schema", value: "23 tables in public, RLS enabled on every one. Core tables below; the rest cover auth (webauthn_*, totp_used_codes, push_subscriptions), policy (alert_rules, camera_permissions, masking_schedules, privacy_zones, retention_*), and ops (camera_sessions, uptime_checks, webhooks, web_vitals)" },
+      { label: "Schema", value: "23 tables in public, RLS enabled on every one. Core tables below; the rest cover auth (webauthn_*, totp_used_codes, push_subscriptions), policy (alert_rules, camera_permissions, masking_schedules = privacy schedule windows, recording_privacy_spans = capture-time privacy facts, privacy_zones, retention_*), and ops (camera_sessions, uptime_checks, webhooks, web_vitals)" },
       { label: "profiles", value: "Role (admin/viewer/auditor), TOTP config, is_super_admin, reveal_level" },
-      { label: "cameras", value: "RTSP/HTTP/USB/webcam/demo sources (encrypted URL)" },
+      { label: "cameras", value: "RTSP/HTTP/USB/webcam/demo sources (encrypted URL) + privacy_default (standard | private)" },
       { label: "suspects", value: "Name + ArcFace 512-dim embedding + privacy tier" },
       { label: "faces", value: "Detected faces (bbox + embedding + recording + chain_index/crop_sealed)" },
       { label: "alerts", value: "Suspect match events + workflow state (new/acknowledged/closed)" },

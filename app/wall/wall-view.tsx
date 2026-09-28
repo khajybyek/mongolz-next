@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { FaceThumb } from "@/components/face-thumb";
 import { HlsPlayer } from "@/components/hls-player";
+import { PrivacyModeBadge, PrivacyModeLegend } from "@/components/privacy-mode-badge";
 import { useT } from "@/lib/i18n/client";
 import { cn, formatDate } from "@/lib/utils";
 import {
@@ -64,11 +65,17 @@ export function WallView({
   cameras,
   isAdmin,
   activeIds,
+  privateIds = [],
+  failClosedIds = [],
   mlReachable,
 }: {
   cameras: WallCamera[];
   isAdmin: boolean;
   activeIds: string[];
+  /** Streaming cameras in private mode (ADR 0012). */
+  privateIds?: string[];
+  /** Subset of privateIds: private because the schedule was unreadable. */
+  failClosedIds?: string[];
   mlReachable: boolean;
 }) {
   const { t } = useT();
@@ -281,6 +288,13 @@ export function WallView({
       {mode === "live" && !mlReachable && (
         <div className="px-4 py-2 text-xs text-warning bg-warning-soft border-b border-warning/30">{t("grid_ml_down")}</div>
       )}
+      {/* The privacy badge's meaning, visible without hover (touch screens). */}
+      {privateIds.some((id) => activeIds.includes(id)) && (
+        <PrivacyModeLegend
+          className="px-4 py-1.5 border-b border-border/60"
+          failClosed={failClosedIds.some((id) => activeIds.includes(id))}
+        />
+      )}
 
       <main
         className="flex-1 grid gap-1 p-1"
@@ -294,6 +308,8 @@ export function WallView({
             mode={mode}
             streamUrl={streams.get(c.camera_id)}
             isActive={activeIds.includes(c.camera_id)}
+            privateMode={privateIds.includes(c.camera_id)}
+            failClosed={failClosedIds.includes(c.camera_id)}
             busy={busy.has(c.camera_id)}
             canControl={isAdmin && mlReachable}
             onToggleFocus={() => setFocused((cur) => (cur === c.camera_id ? null : c.camera_id))}
@@ -312,6 +328,8 @@ function CameraTile({
   mode,
   streamUrl,
   isActive,
+  privateMode,
+  failClosed,
   busy,
   canControl,
   onToggleFocus,
@@ -323,6 +341,10 @@ function CameraTile({
   mode: Mode;
   streamUrl: string | undefined;
   isActive: boolean;
+  /** Capture is in private mode — explains a 0 face count too. */
+  privateMode: boolean;
+  /** …because the ML service could not read the schedule (fail-closed). */
+  failClosed: boolean;
   busy: boolean;
   /** Admin with the ML service reachable — the only case that renders start / stop. */
   canControl: boolean;
@@ -387,8 +409,9 @@ function CameraTile({
         <span className="font-semibold truncate max-w-[200px]">{cam.name}</span>
       </div>
 
-      {/* Top-right: LIVE badge or status text */}
-      <div className="absolute top-2 right-2 z-[2] pointer-events-none">
+      {/* Top-right: privacy mode + LIVE badge or status text */}
+      <div className="absolute top-2 right-2 z-[2] flex items-center gap-1.5 pointer-events-none">
+        {privateMode && isActive && <PrivacyModeBadge className="bg-bg/80 backdrop-blur" failClosed={failClosed} />}
         {showVideo ? (
           <span className="inline-flex items-center gap-1.5 rounded bg-danger text-white text-[10px] font-bold tracking-wider px-2 py-1">
             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" aria-hidden />

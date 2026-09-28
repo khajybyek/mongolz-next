@@ -325,8 +325,9 @@ export type Database = {
           created_by: string | null
           enabled: boolean
           id: string
-          mask_default: string
           name: string
+          privacy_default: string
+          privacy_loosened_at: string | null
           url: string
         }
         Insert: {
@@ -337,8 +338,9 @@ export type Database = {
           created_by?: string | null
           enabled?: boolean
           id?: string
-          mask_default?: string
           name: string
+          privacy_default?: string
+          privacy_loosened_at?: string | null
           url: string
         }
         Update: {
@@ -349,8 +351,9 @@ export type Database = {
           created_by?: string | null
           enabled?: boolean
           id?: string
-          mask_default?: string
           name?: string
+          privacy_default?: string
+          privacy_loosened_at?: string | null
           url?: string
         }
         Relationships: [
@@ -1180,6 +1183,44 @@ export type Database = {
           },
         ]
       }
+      recording_privacy_spans: {
+        Row: {
+          client_span_id: string
+          created_at: string
+          end_offset_sec: number | null
+          id: number
+          recording_id: string
+          source: string
+          start_offset_sec: number
+        }
+        Insert: {
+          client_span_id?: string
+          created_at?: string
+          end_offset_sec?: number | null
+          id?: never
+          recording_id: string
+          source?: string
+          start_offset_sec: number
+        }
+        Update: {
+          client_span_id?: string
+          created_at?: string
+          end_offset_sec?: number | null
+          id?: never
+          recording_id?: string
+          source?: string
+          start_offset_sec?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recording_privacy_spans_recording_id_fkey"
+            columns: ["recording_id"]
+            isOneToOne: false
+            referencedRelation: "recordings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recordings: {
         Row: {
           blur_strategy: string
@@ -1927,7 +1968,7 @@ export type Database = {
         }
         Returns: string
       }
-      effective_mask_mode: {
+      effective_privacy_mode: {
         Args: { p_at?: string; p_camera_id: string }
         Returns: string
       }

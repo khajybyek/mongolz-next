@@ -25,6 +25,46 @@ export async function probeMl(timeoutMs = 4000): Promise<Probe> {
   }
 }
 
+/**
+ * The ML capability the web needs before it presents privacy schedules as
+ * enforced (ml-service/main.py PRIVACY_SCHEDULES_CAPABILITY). The web
+ * auto-deploys on push; the ML service is deployed by hand, and an older
+ * build ignores schedules completely.
+ */
+export const REQUIRED_PRIVACY_SCHEDULES_CAPABILITY = 1;
+
+export type PrivacyEnforcement = "enforced" | "not_enforced" | "unreachable";
+
+/** Classify the ML `GET /` body (pure — unit-tested). */
+export function privacyEnforcementFromHealth(body: unknown): Exclude<PrivacyEnforcement, "unreachable"> {
+  if (body && typeof body === "object") {
+    const flag = (body as { privacy_schedules?: unknown }).privacy_schedules;
+    if (typeof flag === "number" && Number.isFinite(flag) && flag >= REQUIRED_PRIVACY_SCHEDULES_CAPABILITY) {
+      return "enforced";
+    }
+  }
+  return "not_enforced";
+}
+
+/**
+ * Does the running ML build enforce privacy schedules? "unreachable" when it
+ * does not answer (recognition is not running then either), "not_enforced"
+ * when it answers without the capability (an older build / rollback).
+ */
+export async function probeMlPrivacyEnforcement(timeoutMs = 3000): Promise<PrivacyEnforcement> {
+  if (!ML_URL) return "unreachable";
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const res = await fetch(`${ML_URL}/`, { signal: ctrl.signal, cache: "no-store" });
+    clearTimeout(timer);
+    if (!res.ok) return "unreachable";
+    return privacyEnforcementFromHealth(await res.json().catch(() => null));
+  } catch {
+    return "unreachable";
+  }
+}
+
 export async function probeDb(timeoutMs = 4000): Promise<Probe> {
   if (!SUPA_URL || !SUPA_ANON) return { ok: false, ms: 0 };
   const t0 = Date.now();

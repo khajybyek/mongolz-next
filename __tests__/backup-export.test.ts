@@ -155,6 +155,7 @@ beforeEach(() => {
     audit_log: [],
     camera_permissions: [],
     masking_schedules: [],
+    recording_privacy_spans: [],
     privacy_zones: [],
     retention_policies: [],
     clusters: [],

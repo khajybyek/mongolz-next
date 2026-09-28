@@ -22,6 +22,7 @@ import { useT } from "@/lib/i18n/client";
 import { cn, formatDate } from "@/lib/utils";
 import type { CameraRestartInfo } from "@/lib/camera-restarts";
 import { CameraReconnectLine, CameraRestartBadge } from "@/components/camera-restart-status";
+import { PrivacyModeBadge, PrivacyModeLegend } from "@/components/privacy-mode-badge";
 import {
   getActiveCamerasAction,
   getStreamTicketAction,
@@ -81,12 +82,18 @@ export function MultiCameraGrid({
   initialFocus = null,
   canControl,
   initialRestarts = {},
+  initialPrivate = [],
+  initialFailClosed = [],
 }: {
   cameras: GridCamera[];
   initialActive: string[];
   mlReachable: boolean;
   /** ML supervisor restarts per streaming camera (count + last reason). */
   initialRestarts?: Record<string, CameraRestartInfo>;
+  /** Streaming cameras whose capture is in private mode (ADR 0012). */
+  initialPrivate?: string[];
+  /** Subset of initialPrivate: private because the schedule was unreadable. */
+  initialFailClosed?: string[];
   /** Camera id from `?focus=` — focused on mount (starting stays an explicit click). */
   initialFocus?: string | null;
   /** Admins start / stop cameras; viewers only watch running streams. */
@@ -109,6 +116,8 @@ export function MultiCameraGrid({
   const [isFull, setIsFull] = useState(false);
   const [reachable, setReachable] = useState(mlReachable);
   const [restarts, setRestarts] = useState<Record<string, CameraRestartInfo>>(initialRestarts);
+  const [privateIds, setPrivateIds] = useState<Set<string>>(() => new Set(initialPrivate));
+  const [failClosedIds, setFailClosedIds] = useState<Set<string>>(() => new Set(initialFailClosed));
   const [bulk, setBulk] = useState<"start" | "stop" | null>(null);
   // True once the first attach pass has run, so the viewer "no streams"
   // notice does not flash while tickets for running streams are fetched.
@@ -227,7 +236,11 @@ export function MultiCameraGrid({
     const timer = window.setInterval(async () => {
       try {
         const r = await getActiveCamerasAction();
-        if (!cancelled && r.reachable) setRestarts(r.restarts ?? {});
+        if (!cancelled && r.reachable) {
+          setRestarts(r.restarts ?? {});
+          setPrivateIds(new Set(r.privateIds ?? []));
+          setFailClosedIds(new Set(r.failClosedIds ?? []));
+        }
         await sync(r.ids, r.reachable);
       } catch {
         /* transient — try again next tick */
@@ -481,6 +494,11 @@ export function MultiCameraGrid({
         )
       )}
 
+      {/* The privacy badge's meaning, visible without hover (touch screens). */}
+      {reachable && [...privateIds].some((id) => cameras.some((c) => c.id === id)) && (
+        <PrivacyModeLegend failClosed={[...failClosedIds].some((id) => privateIds.has(id))} />
+      )}
+
       {/* Viewer: ML is up but nothing is streaming — say so, keep the tiles. */}
       {!canControl && reachable && synced && streamingCount === 0 && (
         <Alert variant="info">{t("grid_no_streams_viewer")}</Alert>
@@ -503,6 +521,8 @@ export function MultiCameraGrid({
               failed={failed.has(focusedCam.id)}
               deniedStatus={denied.get(focusedCam.id)}
               restart={restarts[focusedCam.id]}
+              privateMode={privateIds.has(focusedCam.id)}
+              failClosed={failClosedIds.has(focusedCam.id)}
               playing={playing.has(focusedCam.id)}
               fill
               focused
@@ -534,6 +554,8 @@ export function MultiCameraGrid({
               failed={failed.has(cam.id)}
               deniedStatus={denied.get(cam.id)}
               restart={restarts[cam.id]}
+              privateMode={privateIds.has(cam.id)}
+              failClosed={failClosedIds.has(cam.id)}
               playing={playing.has(cam.id)}
               fill={fill}
               focused={false}
@@ -574,6 +596,8 @@ function GridTile({
   failed,
   deniedStatus,
   restart,
+  privateMode,
+  failClosed,
   playing,
   fill,
   focused,
@@ -595,6 +619,10 @@ function GridTile({
   /** Set when the ML supervisor restarted this capture at least once, or
    *  when it is waiting to reconnect a dropped source (state "backoff"). */
   restart?: CameraRestartInfo;
+  /** Capture is in private mode: no recognition / alerts / reveal. */
+  privateMode: boolean;
+  /** …because the ML service could not read the schedule (fail-closed). */
+  failClosed: boolean;
   playing: boolean;
   fill: boolean;
   focused: boolean;
@@ -693,8 +721,11 @@ function GridTile({
         <span className="font-semibold truncate text-text">{cam.name}</span>
       </div>
 
-      {/* Top-right: LIVE / type */}
-      <div className="absolute top-2 right-2 z-[3] pointer-events-none">
+      {/* Top-right: privacy mode + LIVE / type */}
+      <div className="absolute top-2 right-2 z-[3] flex items-center gap-1.5 pointer-events-none">
+        {privateMode && Boolean(streamUrl) && (
+          <PrivacyModeBadge className="bg-bg/80 backdrop-blur" failClosed={failClosed} />
+        )}
         {live ? (
           <span className="inline-flex items-center gap-1.5 rounded-md bg-danger text-white text-[10px] font-bold tracking-wider px-2 py-1">
             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" aria-hidden />

@@ -38,7 +38,7 @@ export const BACKUP_TABLES: Record<string, TableSpec> = {
   },
   cameras: {
     columns:
-      "id, name, cam_type, url, enabled, consent_required, consent_text, mask_default, created_by, created_at",
+      "id, name, cam_type, url, enabled, consent_required, consent_text, privacy_default, privacy_loosened_at, created_by, created_at",
     note:
       "url is an AES-256-GCM ciphertext produced with CAMERA_URL_KEY. It is exported because the column is NOT NULL and cameras are unreachable without it; it stays unreadable unless the restore environment holds that key (or CAMERA_URL_KEY_PREV).",
   },
@@ -52,6 +52,10 @@ export const BACKUP_TABLES: Record<string, TableSpec> = {
   alert_rules: { columns: "*" },
   audit_log: { columns: "*" },
   recordings: { columns: "*" },
+  recording_privacy_spans: {
+    columns: "*",
+    note: "Capture-time privacy facts (ADR 0012) — the reveal job refuses to un-mask these spans, so they must survive a restore. id is an identity key the restore tool regenerates; nothing references it. client_span_id is the natural key the restore upserts on, so a second run does not duplicate spans.",
+  },
   faces: {
     columns:
       "id, filename, image_path, camera_id, recording_id, detected_at, bbox, source_offset_sec, detection_confidence, chain_index, crop_sealed, cluster_id, reviewed, review_label, reviewed_by, reviewed_at",
@@ -197,3 +201,30 @@ export const BACKUP_STORAGE_SOURCES: Record<string, PathSource[]> = {
     },
   ],
 };
+
+/**
+ * Rows from a backup taken before 20260928100000_privacy_schedules_enforced
+ * (ADR 0012) still carry the retired model: `cameras.mask_default` (column
+ * dropped) and `masking_schedules.window_mode` 'masked' | 'revealed' (now
+ * rejected by the CHECK). Map them exactly as the migration mapped the live
+ * rows so an older artifact stays restorable: mask_default is dropped (every
+ * camera became privacy_default 'standard', the column default), masked →
+ * private, revealed → standard. Current rows pass through unchanged.
+ */
+export function upgradeLegacyBackupRows(
+  table: string,
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  if (table === "cameras") {
+    return rows.map(({ mask_default: _retired, ...row }) => row);
+  }
+  if (table === "masking_schedules") {
+    const legacy: Record<string, string> = { masked: "private", revealed: "standard" };
+    return rows.map((row) =>
+      typeof row.window_mode === "string" && row.window_mode in legacy
+        ? { ...row, window_mode: legacy[row.window_mode] }
+        : row,
+    );
+  }
+  return rows;
+}

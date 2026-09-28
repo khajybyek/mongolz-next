@@ -107,7 +107,7 @@ function main() {
     enabled: false,
     consent_required: false,
     consent_text: null,
-    mask_default: "masked",
+    privacy_default: "standard",
     created_by: null,
     created_at: new Date().toISOString(),
   }];

@@ -1,22 +1,26 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
+import { StepUpForm } from "@/components/step-up-form";
+import { PrivacyEnforcementNotice } from "@/components/privacy-enforcement-notice";
+import { probeMlPrivacyEnforcement } from "@/lib/health-probes";
 import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getServerLang, getT } from "@/lib/i18n/server";
+import { isPrivacyMode, type PrivacyMode } from "@/lib/privacy-schedule";
 import {
   addScheduleAction,
   deleteScheduleAction,
-  setMaskDefaultAction,
+  setPrivacyDefaultAction,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 interface ScheduleRow {
   id: string;
-  window_mode: "masked" | "revealed";
+  window_mode: PrivacyMode;
   starts_at: string;
   ends_at: string;
   weekdays: number;
@@ -47,6 +51,17 @@ function weekdaysLabel(mask: number, lang: string): string {
   return parts.join(", ");
 }
 
+/**
+ * Per-camera privacy schedule (ADR 0012). Enforced by the ML service at
+ * capture time: "private" windows switch off face recognition, face rows,
+ * alerts and edge inference, and block reveal of the footage captured then.
+ * Masking is on in both modes. Every form that can loosen the schedule is a
+ * StepUpForm — the action answers REAUTH_REQUIRED when a TOTP step-up is due.
+ *
+ * "Enforced" is only true while the RUNNING ML build says so: the page probes
+ * the ML service's `privacy_schedules` capability and warns when it is
+ * missing (an older build ignores schedules) or the service is unreachable.
+ */
 export default async function CameraSchedulePage({
   params,
 }: {
@@ -58,9 +73,10 @@ export default async function CameraSchedulePage({
   const { id } = await params;
 
   const svc = createServiceClient();
+  const enforcementPromise = probeMlPrivacyEnforcement();
   const { data: camera } = await svc
     .from("cameras")
-    .select("id, name, cam_type, mask_default")
+    .select("id, name, cam_type, privacy_default")
     .eq("id", id)
     .single();
 
@@ -74,14 +90,16 @@ export default async function CameraSchedulePage({
 
   const rows = (schedules ?? []) as ScheduleRow[];
 
-  // Evaluate current effective mode
-  // An evaluation error must not render as "masked" (it used to fall back to
-  // that, hiding a broken schedule behind the safe-sounding answer).
-  const { data: nowMode, error: nowModeError } = await svc.rpc("effective_mask_mode", {
+  // The mode the ML service applies to frames captured right now (the SQL
+  // evaluator mirrors ml-service/privacy_schedule.py). An evaluation error
+  // must not render as either mode — it says "could not evaluate" instead.
+  const { data: nowMode, error: nowModeError } = await svc.rpc("effective_privacy_mode", {
     p_camera_id: id,
   });
   const modeLabel = (mode: string | null | undefined) =>
-    mode === "masked" ? t("schedule_mode_masked") : mode === "revealed" ? t("schedule_mode_revealed") : mode ?? "—";
+    mode === "private" ? t("schedule_mode_private") : mode === "standard" ? t("schedule_mode_standard") : mode ?? "—";
+  const cameraDefault: PrivacyMode = isPrivacyMode(camera.privacy_default) ? camera.privacy_default : "standard";
+  const enforcement = await enforcementPromise;
 
   return (
     <>
@@ -97,22 +115,40 @@ export default async function CameraSchedulePage({
         title={`${t("schedule_title_prefix")} ${camera.name}`}
         subtitle={t("schedule_subtitle")}
       />
-      <div className="mb-4 rounded-xl border border-warning/40 bg-warning-soft px-4 py-3 text-xs text-warning leading-relaxed">
-        {t("schedule_preview_note")}
+
+      {enforcement !== "enforced" && (
+        <div className="mb-4">
+          <PrivacyEnforcementNotice state={enforcement} t={t} />
+        </div>
+      )}
+
+      <div className="card mb-4 space-y-2">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-accent" aria-hidden />
+          {t("schedule_explain_title")}
+        </h3>
+        <ul className="list-disc pl-5 space-y-1 text-xs text-text-soft leading-relaxed">
+          <li>{t("schedule_explain_masking")}</li>
+          <li>{t("schedule_explain_private")}</li>
+          <li>{t("schedule_explain_capture")}</li>
+          <li>{t("schedule_explain_retroactive")}</li>
+          <li>{t("schedule_explain_stepup")}</li>
+        </ul>
+        <p className="text-[10px] text-text-muted leading-relaxed">{t("schedule_explain_example")}</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 mt-4">
         <div className="space-y-4">
-          {/* Add new schedule */}
-          <form action={addScheduleAction} className="card space-y-3">
+          {/* Add new window — a standard window is loosening (TOTP step-up) */}
+          <StepUpForm action={addScheduleAction} className="card space-y-3">
             <h3 className="text-sm font-semibold">{t("schedule_new_window")}</h3>
             <input type="hidden" name="camera_id" value={camera.id} />
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               <div>
                 <label className="label" htmlFor="sched-mode">{t("schedule_col_mode")}</label>
-                <select id="sched-mode" name="window_mode" defaultValue="revealed" className="input text-sm">
-                  <option value="revealed">{t("schedule_mode_revealed")}</option>
-                  <option value="masked">{t("schedule_mode_masked")}</option>
+                <select id="sched-mode" name="window_mode" defaultValue="private" className="input text-sm">
+                  <option value="private">{t("schedule_mode_private")}</option>
+                  <option value="standard">{t("schedule_mode_standard")}</option>
                 </select>
               </div>
               <div>
@@ -121,7 +157,7 @@ export default async function CameraSchedulePage({
                   id="sched-starts"
                   name="starts_at"
                   placeholder="HH:MM"
-                  pattern="([01][0-9]|2[0-3]):[0-5][0-9]|24:00"
+                  pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
                   defaultValue="09:00"
                   required
                   className="input text-sm"
@@ -167,16 +203,16 @@ export default async function CameraSchedulePage({
               />
             </div>
             <p id="sched-weekdays-hint" className="text-[10px] text-text-muted leading-relaxed">
-              {t("schedule_weekdays_hint")}
+              {t("schedule_weekdays_hint")} {t("schedule_time_hint")}
             </p>
             <button type="submit" className="btn-primary w-full">
               {t("schedule_add_window")}
             </button>
-          </form>
+          </StepUpForm>
 
           {/* Schedule list */}
           {rows.length === 0 ? (
-            <Empty message={`${t("schedule_empty")} (${modeLabel(camera.mask_default)})`} />
+            <Empty message={`${t("schedule_empty")} (${modeLabel(cameraDefault)})`} />
           ) : (
             <div className="tbl-wrap">
               <table className="tbl">
@@ -195,9 +231,9 @@ export default async function CameraSchedulePage({
                       <td>
                         <span
                           className={`badge ${
-                            r.window_mode === "masked"
+                            r.window_mode === "private"
                               ? "bg-accent/15 text-accent"
-                              : "bg-warning/15 text-warning"
+                              : "bg-text-muted/15 text-text-soft"
                           }`}
                         >
                           {modeLabel(r.window_mode)}
@@ -213,17 +249,20 @@ export default async function CameraSchedulePage({
                         <span className="text-text-muted">{r.note ?? "—"}</span>
                       </td>
                       <td className="num">
-                        <form action={deleteScheduleAction} className="inline">
+                        {/* Deleting a private window is loosening: the action
+                            reads the row's mode from the database and asks
+                            for TOTP when it has to. */}
+                        <StepUpForm action={deleteScheduleAction} className="inline">
                           <input type="hidden" name="id" value={r.id} />
-                          <input type="hidden" name="camera_id" value={camera.id} />
                           <button
                             type="submit"
                             className="p-1.5 rounded hover:bg-danger/15 text-text-soft hover:text-danger"
                             title={t("delete")}
+                            aria-label={t("delete")}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        </form>
+                        </StepUpForm>
                       </td>
                     </tr>
                   ))}
@@ -233,7 +272,7 @@ export default async function CameraSchedulePage({
           )}
         </div>
 
-        {/* Right side: default + current state */}
+        {/* Right side: current state + default */}
         <div className="space-y-4">
           <div className="card">
             <h3 className="text-xs uppercase tracking-wide text-text-soft mb-2">
@@ -244,7 +283,7 @@ export default async function CameraSchedulePage({
             ) : (
               <div
                 className={`text-2xl font-bold ${
-                  nowMode === "masked" ? "text-accent" : "text-warning"
+                  nowMode === "private" ? "text-accent" : "text-text"
                 }`}
               >
                 {modeLabel(nowMode)}
@@ -255,26 +294,27 @@ export default async function CameraSchedulePage({
             </p>
           </div>
 
-          <form action={setMaskDefaultAction} className="card space-y-2">
+          <StepUpForm action={setPrivacyDefaultAction} className="card space-y-2">
             <h3 className="text-xs uppercase tracking-wide text-text-soft">
               {t("schedule_default_mode")}
             </h3>
             <input type="hidden" name="camera_id" value={camera.id} />
             <select
-              name="mask_default"
-              defaultValue={camera.mask_default}
+              name="privacy_default"
+              defaultValue={cameraDefault}
+              aria-label={t("schedule_default_mode")}
               className="input text-sm"
             >
-              <option value="masked">{t("schedule_default_masked")}</option>
-              <option value="revealed">{t("schedule_default_revealed")}</option>
+              <option value="standard">{t("schedule_default_standard")}</option>
+              <option value="private">{t("schedule_default_private")}</option>
             </select>
             <button type="submit" className="btn-secondary w-full text-sm">
               {t("save")}
             </button>
             <p className="text-[10px] text-text-muted leading-relaxed">
-              {t("schedule_default_warning")}
+              {t("schedule_default_hint")}
             </p>
-          </form>
+          </StepUpForm>
         </div>
       </div>
     </>

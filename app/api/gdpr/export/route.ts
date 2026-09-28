@@ -40,7 +40,7 @@ const AUTHORED = [
   { file: "face_reviews.json", what: "face review labels you assigned (ids only, no crops or templates)", table: "faces", select: "id, review_label, reviewed_at", column: "reviewed_by", order: "reviewed_at" },
   { file: "alert_rules.json", what: "alert rules you created", table: "alert_rules", select: "id, name, enabled, suspect_id, camera_id, min_similarity, created_at", column: "created_by", order: "created_at" },
   { file: "privacy_zones.json", what: "privacy zones you created", table: "privacy_zones", select: "id, name, camera_id, enabled, reason, created_at", column: "created_by", order: "created_at" },
-  { file: "masking_schedules.json", what: "masking schedules you created", table: "masking_schedules", select: "id, camera_id, window_mode, starts_at, ends_at, weekdays, note, created_at", column: "created_by", order: "created_at" },
+  { file: "privacy_schedules.json", what: "privacy schedule windows you created", table: "masking_schedules", select: "id, camera_id, window_mode, starts_at, ends_at, weekdays, note, created_at", column: "created_by", order: "created_at" },
   { file: "webhooks.json", what: "webhooks you created (url and signing secret omitted)", table: "webhooks", select: "id, name, kind, enabled, events, created_at", column: "created_by", order: "created_at" },
   { file: "retention_policies.json", what: "retention policies you last changed", table: "retention_policies", select: "resource, retention_days, enabled, updated_at", column: "updated_by", order: "updated_at" },
 ] as const satisfies ReadonlyArray<{

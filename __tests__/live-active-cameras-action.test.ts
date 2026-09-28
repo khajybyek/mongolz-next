@@ -105,21 +105,57 @@ describe("getActiveCamerasAction", () => {
     ]);
   });
 
+  it("lists visible running cameras that are in private mode by schedule, nothing else", async () => {
+    mockMl.status = {
+      active: [
+        { camera_id: VISIBLE_RUNNING, state: "running", privacy_mode: "private" },
+        { camera_id: HIDDEN_RUNNING, state: "running", privacy_mode: "private" },
+      ],
+      reconnecting: [{ camera_id: VISIBLE_BACKOFF, state: "backoff", privacy_mode: "private" }],
+    };
+    const res = await getActiveCamerasAction();
+    expect(res.privateIds).toEqual([VISIBLE_RUNNING]);
+
+    mockMl.status = { active: [{ camera_id: VISIBLE_RUNNING, privacy_mode: "standard" }], reconnecting: [] };
+    expect((await getActiveCamerasAction()).privateIds).toEqual([]);
+    // An ML build without the field reports no private camera.
+    mockMl.status = { active: [{ camera_id: VISIBLE_RUNNING }], reconnecting: [] };
+    expect((await getActiveCamerasAction()).privateIds).toEqual([]);
+  });
+
+  it("tells a fail-closed capture (schedule unreadable) apart from a private window", async () => {
+    mockMl.status = {
+      active: [
+        { camera_id: VISIBLE_RUNNING, state: "running", privacy_mode: "private", privacy_source: "fail_closed" },
+        { camera_id: HIDDEN_RUNNING, state: "running", privacy_mode: "private", privacy_source: "fail_closed" },
+      ],
+      reconnecting: [],
+    };
+    const res = await getActiveCamerasAction();
+    expect(res.privateIds).toEqual([VISIBLE_RUNNING]);
+    expect(res.failClosedIds).toEqual([VISIBLE_RUNNING]);
+    mockMl.status = {
+      active: [{ camera_id: VISIBLE_RUNNING, privacy_mode: "private", privacy_source: "schedule" }],
+      reconnecting: [],
+    };
+    expect((await getActiveCamerasAction()).failClosedIds).toEqual([]);
+  });
+
   it("shows nothing to a caller who may list no camera", async () => {
     mockDb.visible = [];
     const res = await getActiveCamerasAction();
-    expect(res).toEqual({ reachable: true, ids: [], restarts: {} });
+    expect(res).toEqual({ reachable: true, ids: [], restarts: {}, privateIds: [], failClosedIds: [] });
   });
 
   it("reports an unreachable ML service without querying the database", async () => {
     mockMl.status = null;
-    expect(await getActiveCamerasAction()).toEqual({ reachable: false, ids: [], restarts: {} });
+    expect(await getActiveCamerasAction()).toEqual({ reachable: false, ids: [], restarts: {}, privateIds: [], failClosedIds: [] });
     expect(mockDb.queries).toHaveLength(0);
   });
 
   it("skips the database when the ML service reports nothing", async () => {
     mockMl.status = { active: [], reconnecting: [] };
-    expect(await getActiveCamerasAction()).toEqual({ reachable: true, ids: [], restarts: {} });
+    expect(await getActiveCamerasAction()).toEqual({ reachable: true, ids: [], restarts: {}, privateIds: [], failClosedIds: [] });
     expect(mockDb.queries).toHaveLength(0);
   });
 });

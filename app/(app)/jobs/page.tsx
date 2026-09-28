@@ -11,6 +11,7 @@ import { WorkflowPagination } from "@/components/workflow-pagination";
 import { WorkflowRefresh } from "@/components/workflow-refresh";
 import { isActiveUpload } from "@/lib/recording-upload";
 import { RevealOutcome, UploadJobDetails } from "./job-outcome";
+import { revealErrorText } from "@/lib/reveal-errors";
 
 export const dynamic = "force-dynamic";
 const REVEAL_ACTIVE = ["pending_approval", "queued", "processing"] as const;
@@ -62,7 +63,7 @@ export default async function JobsPage({ searchParams }: { searchParams?: Promis
           <div className="flex flex-wrap justify-between gap-2"><span className="text-xs font-mono text-text-soft">{job.id.slice(0, 8)} · {job.method}</span><JobStatus status={job.status} label={workflowStatus(job.status, lang)} /></div>
           <p className="text-xs text-text-muted">{job.requested_email ?? "—"} · {formatDate(job.created_at)}{job.completed_at ? ` → ${formatDate(job.completed_at)}` : ""}</p>
           {(job.status === "queued" || job.status === "processing") && <Progress value={job.progress ?? 0} />}
-          {(job.error_message || job.rejected_reason) && <p role="alert" className="text-xs text-danger break-words">{job.error_message || job.rejected_reason}</p>}
+          {(job.error_message || job.rejected_reason) && <p role="alert" className="text-xs text-danger break-words">{revealErrorText(job.error_message, t) || job.rejected_reason}</p>}
           <div className="flex flex-wrap gap-2"><a className="btn-secondary btn-sm" href={`/playback/${job.recording_id}`}>{c.recording}</a>{job.status === "pending_approval" && <a className="btn-primary btn-sm" href="/reveal-approvals">{c.approval}</a>}</div>
           {job.status === "completed" && <RevealOutcome jobId={job.id} />}
         </article>)}

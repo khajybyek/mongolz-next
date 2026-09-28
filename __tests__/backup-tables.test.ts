@@ -16,6 +16,7 @@ import {
   BACKUP_NOT_EXPORTED,
   BACKUP_STORAGE_SOURCES,
   BACKUP_TABLES,
+  upgradeLegacyBackupRows,
 } from "@/lib/backup-tables";
 
 const ROOT = path.join(__dirname, "..");
@@ -122,5 +123,33 @@ describe("restore tool knows every exported table", () => {
     before("incidents", "face_search_presets");
     before("suspects", "face_search_presets");
     before("cameras", "face_search_presets");
+  });
+});
+
+describe("older backups stay restorable after ADR 0012", () => {
+  it("drops cameras.mask_default and keeps every other column", () => {
+    const rows = upgradeLegacyBackupRows("cameras", [
+      { id: "c1", name: "Gate", mask_default: "masked" },
+      { id: "c2", name: "Lobby", privacy_default: "private" },
+    ]);
+    expect(rows).toEqual([
+      { id: "c1", name: "Gate" },
+      { id: "c2", name: "Lobby", privacy_default: "private" },
+    ]);
+  });
+
+  it("maps the retired window modes the way the migration did", () => {
+    const rows = upgradeLegacyBackupRows("masking_schedules", [
+      { id: "w1", window_mode: "masked" },
+      { id: "w2", window_mode: "revealed" },
+      { id: "w3", window_mode: "private" },
+      { id: "w4", window_mode: "standard" },
+    ]);
+    expect(rows.map((r) => r.window_mode)).toEqual(["private", "standard", "private", "standard"]);
+  });
+
+  it("leaves unrelated tables untouched", () => {
+    const rows = [{ id: "r1", mask_default: "masked", window_mode: "revealed" }];
+    expect(upgradeLegacyBackupRows("recordings", rows)).toBe(rows);
   });
 });

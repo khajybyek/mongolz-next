@@ -19,6 +19,14 @@ import { revealScopeCopy, REVEAL_REASON_MIN, REVEAL_REASON_MAX } from "@/lib/rev
 import { useT } from "@/lib/i18n/client";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import { useModalFocus } from "@/lib/use-modal-focus";
+import {
+  revealBlockedByPrivacy,
+  revealCanContinue,
+  revealPrivacyVerdict,
+  type OffsetRange,
+  type RevealMethod,
+} from "@/lib/privacy-schedule";
+import { revealErrorText } from "@/lib/reveal-errors";
 
 interface Suspect {
   id: string;
@@ -53,7 +61,7 @@ const REVEAL_ERROR_KEYS: Record<string, TranslationKey> = {
   REFERENCE_SEAL_FAILED: "pb_reveal_start_failed",
   START_FAILED: "pb_reveal_start_failed",
 };
-type Method = "upload" | "suspect" | "detected_face";
+type Method = RevealMethod;
 
 export function RevealModal({
   recordingId,
@@ -63,6 +71,7 @@ export function RevealModal({
   initialTimeWindow,
   maskedUrl,
   recordingDurationSec,
+  privacy,
   onClose,
 }: {
   recordingId: string;
@@ -81,6 +90,9 @@ export function RevealModal({
   /** If set, pre-enable the time window and seed start/end. Used by the
    *  FaceTimeline "Reveal range" quick-launch button. */
   initialTimeWindow?: { start: number; end: number } | null;
+  /** Stretches the reveal job keeps masked (ADR 0012) — capture-time spans
+   *  and the camera's current schedule — judged against the row's duration. */
+  privacy?: { spans: OffsetRange[]; schedule: OffsetRange[]; durationSec: number | null };
   onClose: () => void;
 }) {
   const { t, lang } = useT();
@@ -129,11 +141,24 @@ export function RevealModal({
     error_message?: string | null;
   } | null>(null);
 
-  // Method-аас хамаарч "Үргэлжлүүлэх" товчийг enable
-  const canContinue =
-    (method === "upload" && photo) ||
-    (method === "suspect" && suspectId) ||
-    (method === "detected_face" && faceIds.size > 0);
+  // ADR 0012: what the job will do with this range, judged like the job does
+  // before decrypting. A fully protected request is refused by the job only
+  // after a second admin approved it — say so here and do not send it.
+  const privacyVerdict = revealPrivacyVerdict(
+    privacy?.spans ?? [],
+    privacy?.schedule ?? [],
+    privacy?.durationSec,
+    windowEnabled ? { start: windowStart, end: windowEnd } : null,
+  );
+  const privacyBlocked = revealBlockedByPrivacy(privacyVerdict);
+
+  // Method-аас хамаарч "Үргэлжлүүлэх" товчийг enable — and never for a range
+  // the job would refuse, whatever the method.
+  const canContinue = revealCanContinue(privacyVerdict, method, {
+    photo: !!photo,
+    suspect: !!suspectId,
+    faceCount: faceIds.size,
+  });
 
   // initialFaceIds-аас сонгогдсон preview
   const initialFaces = useMemo(
@@ -152,6 +177,7 @@ export function RevealModal({
 
   // Step "method" → "reauth"
   function continueToReauth() {
+    if (privacyBlocked) return; // the job would refuse it after approval
     setError(null);
     setStep("reauth");
   }
@@ -536,6 +562,25 @@ export function RevealModal({
                 </div>
               )}
 
+              {privacyVerdict !== "none" && (
+                <div
+                  role={privacyBlocked ? "alert" : undefined}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-xs flex gap-2",
+                    privacyBlocked ? "border-danger/30 bg-danger/5 text-danger" : "border-accent/30 bg-accent/5 text-text-soft",
+                  )}
+                >
+                  <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden />
+                  <span>
+                    {privacyVerdict === "spans"
+                      ? t("pb_reveal_privacy_blocked_spans")
+                      : privacyVerdict === "schedule"
+                        ? t("pb_reveal_privacy_blocked_schedule")
+                        : t("pb_reveal_privacy_partial")}
+                  </span>
+                </div>
+              )}
+
               <div>
                 <label htmlFor="reveal-reason" className="label">{copy.reason}</label>
                 <textarea id="reveal-reason" required minLength={REVEAL_REASON_MIN} maxLength={REVEAL_REASON_MAX}
@@ -741,7 +786,7 @@ export function RevealModal({
                   <div>
                     <div className="font-medium text-danger">{t("pb_reveal_failed")}</div>
                     <div className="text-xs text-text-soft mt-0.5">
-                      {job.error_message ?? t("ui_error_title")}
+                      {revealErrorText(job.error_message, t) ?? t("ui_error_title")}
                     </div>
                   </div>
                 </div>

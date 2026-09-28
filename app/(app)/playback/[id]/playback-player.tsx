@@ -8,6 +8,7 @@ import { RevealModal } from "./reveal-modal";
 import { FaceThumb } from "@/components/face-thumb";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
+import type { OffsetRange } from "@/lib/privacy-schedule";
 
 interface Suspect {
   id: string;
@@ -43,6 +44,7 @@ export function PlaybackPlayer({
   isAdmin,
   durationSec,
   initialFaceId,
+  revealPrivacy,
 }: {
   recordingId: string;
   videoUrl: string;
@@ -54,6 +56,10 @@ export function PlaybackPlayer({
   durationSec: number | null;
   /** From ?face=… — if set, seek the player there on metadata load. */
   initialFaceId?: string | null;
+  /** Stretches the reveal job keeps masked (ADR 0012): capture-time spans and
+   *  the camera's current schedule, as video offsets; `durationSec` is the
+   *  recording row's length the job judges by. */
+  revealPrivacy?: { spans: OffsetRange[]; schedule: OffsetRange[]; durationSec: number | null };
 }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
@@ -357,6 +363,7 @@ export function PlaybackPlayer({
           initialTimeWindow={initialTimeWindow}
           maskedUrl={videoUrl}
           recordingDurationSec={liveDuration ?? durationSec}
+          privacy={revealPrivacy}
           onClose={close}
         />
       )}

@@ -336,13 +336,73 @@ export const T = {
   // ── Schedule page ──
   schedule_title_prefix: { mn: "Хуваарь —", en: "Schedule —", kr: "일정 —" },
   schedule_subtitle: {
-    mn: "Цаг тус бүрд masked / revealed горимыг сонгох. Хоосон бол default → 24/7 mask.",
-    en: "Choose masked/revealed mode per time window. Empty list → default = 24/7 masked.",
-    kr: "시간대별로 masked/revealed 모드를 선택하세요. 비어 있으면 default = 24/7 masked.",
+    mn: "Цагийн цонх бүрд нууцлалын горим сонгоно (Asia/Seoul). Цонхноос гадуур default горим үйлчилнэ.",
+    en: "Pick a privacy mode per time window (Asia/Seoul). Outside every window the default mode applies.",
+    kr: "시간대별로 프라이버시 모드를 선택합니다(Asia/Seoul). 어떤 시간대에도 속하지 않으면 기본 모드가 적용됩니다.",
   },
   schedule_new_window: { mn: "Шинэ window нэмэх", en: "Add new window", kr: "새 시간대 추가" },
-  schedule_mode_revealed: { mn: "Илрэх (revealed)", en: "Revealed", kr: "공개 (revealed)" },
-  schedule_mode_masked: { mn: "Масктай (masked)", en: "Masked", kr: "마스킹 (masked)" },
+  schedule_mode_standard: { mn: "Стандарт", en: "Standard", kr: "표준" },
+  schedule_mode_private: { mn: "Нууцлал", en: "Private", kr: "프라이버시" },
+  schedule_explain_title: { mn: "Горимууд юу хийдэг вэ", en: "What the modes do", kr: "모드별 동작" },
+  schedule_explain_masking: {
+    mn: "Нүүрний маск үргэлж идэвхтэй — шууд дамжуулалт болон playback аль ч горимд маскласан хэвээр. Хуваарь хэзээ ч видеог илрүүлэхгүй; илрүүлэлт зөвхөн 4-eyes reveal-ээр хийгдэнэ.",
+    en: "Face masking is always on — live view and playback stay masked in both modes. A schedule never un-masks video; un-masking is only ever the 4-eyes reveal.",
+    kr: "얼굴 마스킹은 항상 켜져 있습니다 — 두 모드 모두 실시간 화면과 재생은 마스킹된 상태입니다. 일정은 영상의 마스킹을 절대 해제하지 않으며, 해제는 오직 4-eyes reveal로만 가능합니다.",
+  },
+  schedule_explain_private: {
+    mn: "«Нууцлал» горимд нүүр таних, нүүрний бичлэг/зураг хадгалах, сэжигтэн тулгах, сэрэмжлүүлэг, edge inference бүгд унтарна. Тэр үед бичигдсэн хэсгийг reveal хийх боломжгүй.",
+    en: "Private switches off face recognition, stored faces and crops, suspect matching, alerts and edge inference. Footage captured in private mode can never be revealed.",
+    kr: "프라이버시 모드에서는 얼굴 인식, 얼굴 기록·크롭 저장, 용의자 매칭, 알림, 엣지 추론이 모두 꺼집니다. 이 모드에서 촬영된 영상은 reveal할 수 없습니다.",
+  },
+  schedule_explain_capture: {
+    mn: "Горим нь кадр бичигдэх мөчид үйлчилнэ, үзэх үед биш. Цонхны хил дээр ML үйлчилгээ аюулгүй тал руу хазайдаг: нууцлалын цонх дууссанаас хойш хэдэн секундын дараа л таних дахин асна. Өөрчлөлт ажиллаж буй камерт ихэвчлэн 30 орчим секундэд хүрнэ; ML өгөгдлийн санг уншиж чадахгүй бол сүүлд уншсан хуваарийг 10 минут хүртэл хэрэглээд, дараа нь танихыг зогсооно.",
+    en: "The mode applies when a frame is captured, not when it is watched. At a window boundary the ML service errs on the safe side: recognition resumes a few seconds after a private window ends. A change usually reaches running cameras within about 30 seconds; if the ML service cannot read the database it keeps the last schedule it read for up to 10 minutes, then pauses recognition.",
+    kr: "모드는 시청 시점이 아니라 프레임이 촬영되는 시점에 적용됩니다. 시간대 경계에서 ML 서비스는 안전한 쪽을 택합니다: 프라이버시 시간대가 끝나고 몇 초 뒤에야 인식이 다시 켜집니다. 변경 사항은 보통 약 30초 안에 실행 중인 카메라에 반영되며, ML 서비스가 데이터베이스를 읽지 못하면 마지막으로 읽은 일정을 최대 10분간 사용한 뒤 인식을 중지합니다.",
+  },
+  schedule_explain_retroactive: {
+    mn: "Нууцлалын цонх нэмэх эсвэл default-ыг нууцлал болгох нь тэр цагт АЛЬ ХЭДИЙН бичигдсэн (стандарт горимд) бичлэгийг ч reveal-ээс хасна — цонх байгаа л бол. Дараа нь сулруулбал (TOTP) тэр бичлэг дахин reveal хийгдэх боломжтой болно; аль хэдийн танигдсан нүүр устахгүй. Нууцлалын горимд бичигдсэн бичлэг хожим юу ч өөрчлөгдсөн reveal хийгдэхгүй.",
+    en: "Adding a private window or switching the default to private also withholds footage ALREADY recorded in those hours (in standard mode) from reveal — for as long as the window exists. Loosening it later (TOTP step-up) makes that footage revealable again; faces already identified are not deleted. Footage captured in private mode stays unrevealable whatever changes later.",
+    kr: "프라이버시 시간대를 추가하거나 기본값을 프라이버시로 바꾸면 해당 시간에 이미 (표준 모드로) 녹화된 영상도 그 시간대가 존재하는 동안 reveal에서 제외됩니다. 나중에 완화하면(TOTP 재인증) 그 영상은 다시 reveal할 수 있게 되며, 이미 식별된 얼굴은 삭제되지 않습니다. 프라이버시 모드로 촬영된 영상은 이후 무엇이 바뀌어도 reveal할 수 없습니다.",
+  },
+  schedule_explain_stepup: {
+    mn: "Хамгаалалтыг сулруулах (стандарт цонх нэмэх, нууцлалын цонх устгах, default-ыг стандарт болгох) нь TOTP баталгаажуулалт шаардаж, бусад админд мэдэгдэнэ. Чангатгах нь нэг товшилт.",
+    en: "Loosening (adding a standard window, deleting a private one, switching the default to standard) needs a TOTP step-up and notifies the other admins. Tightening is one click.",
+    kr: "보호를 완화하는 변경(표준 시간대 추가, 프라이버시 시간대 삭제, 기본값을 표준으로 변경)은 TOTP 재인증이 필요하며 다른 관리자에게 알림이 갑니다. 강화는 한 번의 클릭으로 됩니다.",
+  },
+  schedule_explain_example: {
+    mn: "Жишээ: 09:00–18:00 нууцлал (ажилтан, үйлчлүүлэгчийг хэзээ ч танихгүй), ажлын бус цагт стандарт (халдагчийг таньж сэрэмжлүүлнэ) — зорилгын хязгаарлалт, өгөгдлийг цөөрүүлэх (GDPR Art.5(1)(b)(c), Art.25).",
+    en: "Example: 09:00–18:00 private (staff and customers are never identified), standard after hours (recognition and alerts for intruders) — purpose limitation and data minimisation by time (GDPR Art.5(1)(b)(c), Art.25).",
+    kr: "예: 09:00–18:00 프라이버시(직원과 고객은 절대 식별되지 않음), 업무 시간 외에는 표준(침입자 인식 및 알림) — 시간 기반 목적 제한 및 데이터 최소화(GDPR Art.5(1)(b)(c), Art.25).",
+  },
+  schedule_time_hint: {
+    mn: "Дуусах цаг 24:00 байж болно; эхлэх нь болохгүй. Эхлэх > дуусах бол шөнийн цонх — эхэлсэн өдөртөө хамаарна (Ба 22:00–06:00 нь Бя 02:00-г хамарна). Бүтэн өдөр: 00:00–24:00.",
+    en: "End may be 24:00, start may not. Start after end = overnight window, owned by the day it starts (Fri 22:00–06:00 covers Sat 02:00). Whole day: 00:00–24:00.",
+    kr: "종료는 24:00이 될 수 있지만 시작은 안 됩니다. 시작이 종료보다 늦으면 야간 시간대이며 시작한 요일에 속합니다(금 22:00–06:00은 토 02:00 포함). 하루 전체: 00:00–24:00.",
+  },
+  schedule_err_time_format: { mn: "Цагийг HH:MM хэлбэрээр оруулна уу", en: "Enter times as HH:MM", kr: "시간은 HH:MM 형식으로 입력하세요" },
+  schedule_err_same_time: {
+    mn: "Эхлэх, дуусах цаг ижил байж болохгүй — бүтэн өдөрт 00:00–24:00 ашиглана уу",
+    en: "Start and end cannot be the same — use 00:00–24:00 for a whole day",
+    kr: "시작과 종료가 같을 수 없습니다 — 하루 전체는 00:00–24:00을 사용하세요",
+  },
+  schedule_err_start_24: {
+    mn: "Цонх 24:00-д эхэлж болохгүй (24:00 нь зөвхөн дуусах цаг)",
+    en: "A window cannot start at 24:00 (24:00 is an end time only)",
+    kr: "시간대는 24:00에 시작할 수 없습니다(24:00은 종료 시간 전용)",
+  },
+  schedule_err_invalid: { mn: "Буруу утга", en: "Invalid input", kr: "잘못된 입력" },
+  schedule_err_not_found: {
+    mn: "Цонх олдсонгүй — аль хэдийн устгагдсан байж магадгүй",
+    en: "Window not found — it may already have been removed",
+    kr: "시간대를 찾을 수 없습니다 — 이미 삭제되었을 수 있습니다",
+  },
+  schedule_err_camera_not_found: { mn: "Камер олдсонгүй", en: "Camera not found", kr: "카메라를 찾을 수 없습니다" },
+  schedule_err_conflict: {
+    mn: "Энэ хооронд өөр хүн өөрчилсөн — хуудсыг сэргээгээд дахин оролдоно уу",
+    en: "Someone changed this meanwhile — reload the page and try again",
+    kr: "그 사이에 다른 사람이 변경했습니다 — 페이지를 새로고침하고 다시 시도하세요",
+  },
+  schedule_err_save_failed: { mn: "Хадгалж чадсангүй", en: "Could not save", kr: "저장하지 못했습니다" },
   schedule_note_placeholder: {
     mn: "Тэмдэглэл (optional) — ажлын цаг гэх мэт",
     en: "Note (optional) — e.g. working hours",
@@ -366,17 +426,25 @@ export const T = {
   },
   schedule_current_state: { mn: "Одоогийн төлөв", en: "Current state", kr: "현재 상태" },
   schedule_current_hint: {
-    mn: "Asia/Seoul цагаар одоо. Шинэ recording-д энэ горим хэрэглэгдэнэ.",
-    en: "Now in Asia/Seoul. This mode applies to new recordings.",
-    kr: "현재 Asia/Seoul 기준. 새 녹화에 이 모드가 적용됩니다.",
+    mn: "Хадгалсан хуваарийн дагуух горим (Asia/Seoul, одоо). Ажиллаж буй камер өөрчлөлтийг ихэвчлэн 30 орчим секундэд, ML өгөгдлийн санг уншиж чадахгүй бол 10 минут хүртэл хугацаанд хэрэглэнэ; бодитоор юу хэрэглэгдэж байгааг /grid дээрх шууд тэмдэг харуулна.",
+    en: "Mode per the saved schedule (Asia/Seoul, now). Running cameras apply edits usually within about 30 s, or up to 10 min if the ML service cannot read the database; the live badge on /grid shows what is actually applied.",
+    kr: "저장된 일정에 따른 모드(Asia/Seoul, 현재). 실행 중인 카메라는 보통 약 30초 안에, ML 서비스가 데이터베이스를 읽지 못하면 최대 10분 안에 변경을 적용합니다. 실제로 적용 중인 상태는 /grid의 실시간 배지에 표시됩니다.",
   },
   schedule_default_mode: { mn: "Default горим (window-аас гадуур)", en: "Default mode (outside windows)", kr: "기본 모드 (시간대 외)" },
-  schedule_default_masked: { mn: "Masked (24/7 maskingtei — recommended)", en: "Masked (24/7 — recommended)", kr: "Masked (24/7 — 권장)" },
-  schedule_default_revealed: { mn: "Revealed (window-уудаас зөвхөн masked үед)", en: "Revealed (masked only during windows)", kr: "Revealed (시간대만 masked)" },
-  schedule_default_warning: {
-    mn: "⚠️ 'Revealed' default нь privacy-preserving шаардлагыг сулруулна. Зөвхөн хатуу хяналттай ажлын талбарт.",
-    en: "⚠️ 'Revealed' default weakens privacy guarantees. Only for strict-access workspaces.",
-    kr: "⚠️ 'Revealed' 기본은 프라이버시 보호를 약화시킵니다. 엄격한 통제 환경에서만.",
+  schedule_default_standard: {
+    mn: "Стандарт — нүүр таних, сэрэмжлүүлэг идэвхтэй",
+    en: "Standard — recognition and alerts on",
+    kr: "표준 — 얼굴 인식 및 알림 켜짐",
+  },
+  schedule_default_private: {
+    mn: "Нууцлал — нүүр таних унтарсан, reveal хийхгүй",
+    en: "Private — no recognition, no reveal",
+    kr: "프라이버시 — 인식 없음, reveal 불가",
+  },
+  schedule_default_hint: {
+    mn: "Default-ыг стандарт болгох нь цонхноос гадуур нүүр танихыг дахин асаана — TOTP баталгаажуулалт шаардана.",
+    en: "Switching the default to standard turns recognition back on outside windows — it needs a TOTP step-up.",
+    kr: "기본값을 표준으로 바꾸면 시간대 밖에서 얼굴 인식이 다시 켜집니다 — TOTP 재인증이 필요합니다.",
   },
 
   // ── Permissions page ──
@@ -1672,11 +1740,6 @@ export const T = {
   status_db_down: { mn: "Холбогдохгүй байна", en: "Unreachable", kr: "연결 불가" },
   err_admin_only: { mn: "Энэ хуудас зөвхөн админд зориулагдсан.", en: "That page is admin-only.", kr: "해당 페이지는 관리자 전용입니다." },
   err_forbidden: { mn: "Танд энэ хуудсанд хандах эрх байхгүй.", en: "You do not have access to that page.", kr: "해당 페이지에 접근할 권한이 없습니다." },
-  schedule_preview_note: {
-    mn: "Анхаар: mask хуваарь одоогоор бодлогын урьдчилсан тохиргоо — ML pipeline бүх бичлэгийг үргэлж blur хийдэг. Хуваарийг pipeline-д холбох хүртэл \"revealed\" цонх ямар ч нөлөөгүй.",
-    en: "Note: masking schedules are a policy preview for now — the ML pipeline always blurs every recording. A \"revealed\" window has no effect until the schedule is wired into the pipeline.",
-    kr: "참고: 마스킹 일정은 현재 정책 미리보기입니다. ML 파이프라인은 모든 녹화를 항상 블러 처리하며, 파이프라인에 연결되기 전까지 \"revealed\" 창은 효과가 없습니다.",
-  },
   ui_error_title: { mn: "Алдаа гарлаа", en: "Something went wrong", kr: "문제가 발생했습니다" },
   ui_error_desc: { mn: "Энэ хуудсыг ачаалахад алдаа гарлаа. Алдааг автоматаар бүртгэлээ.", en: "This page failed to load. The error has been reported automatically.", kr: "페이지를 불러오지 못했습니다. 오류가 자동으로 보고되었습니다." },
   ui_retry: { mn: "Дахин оролдох", en: "Try again", kr: "다시 시도" },
@@ -1856,7 +1919,11 @@ export const T = {
   pb_window_end: { mn: "Дуусах", en: "End", kr: "종료" },
   pb_window_note: { mn: "Энэ хүрээнээс гадуурх frame-ууд бүхэлдээ блюртэй үлдэнэ — \"principle of least privilege\".", en: "Frames outside this window stay fully blurred — principle of least privilege.", kr: "이 범위 밖의 프레임은 모두 블러 상태로 유지됩니다 — 최소 권한 원칙." },
   pb_window_selected: { mn: "Сонгосон хүрээ:", en: "Selected window:", kr: "선택한 범위:" },
-  pb_window_off_note: { mn: "Идэвхгүй үед бичлэгийн бүх хугацаанд reveal хийгдэнэ.", en: "When off, the whole recording is revealed.", kr: "비활성 시 녹화 전체가 공개됩니다." },
+  pb_window_off_note: {
+    mn: "Идэвхгүй үед бичлэг бүхэлдээ хамрагдана; нууцлалын горимд бичигдсэн эсвэл камерын нууцлалын хуваарьт хамрагдсан хэсэг маскласан хэвээр үлдэнэ.",
+    en: "When off, the whole recording is in scope; stretches captured in privacy mode or covered by the camera's privacy schedule stay masked.",
+    kr: "비활성 시 녹화 전체가 대상이며, 프라이버시 모드로 촬영되었거나 카메라의 프라이버시 일정에 포함된 구간은 마스킹된 상태로 남습니다.",
+  },
   pb_continue: { mn: "Үргэлжлүүлэх", en: "Continue", kr: "계속" },
   pb_selected_from_video: { mn: "Видеоноос сонгосон", en: "Selected from the video:", kr: "영상에서 선택됨:" },
   pb_faces_will_reveal: { mn: "нүүр дээр reveal хийгдэнэ", en: "face(s) will be revealed", kr: "명의 얼굴이 공개됩니다" },
@@ -2754,6 +2821,117 @@ export const T = {
   live_rtc_failed: { mn: "WebRTC амжилтгүй", en: "WebRTC failed", kr: "WebRTC 실패" },
   live_rtc_publisher: { mn: "Илгээгч", en: "Publisher", kr: "송신측" },
   live_rtc_subscriber: { mn: "Хүлээн авагч (WebRTC loopback)", en: "Subscriber (WebRTC loopback)", kr: "수신측 (WebRTC 루프백)" },
+
+  // Privacy schedules (ADR 0012) — playback notice + live badges.
+  pb_privacy_spans_title: { mn: "Нууцлалын горимд бичигдсэн", en: "Captured in privacy mode", kr: "프라이버시 모드로 촬영됨" },
+  pb_privacy_spans_desc: {
+    mn: "Эдгээр хэсэгт нүүр танигдаагүй бөгөөд reveal хийх боломжгүй (маск хэвээр үлдэнэ).",
+    en: "Faces in these parts were not identified and cannot be revealed (they stay masked).",
+    kr: "이 구간의 얼굴은 식별되지 않았으며 reveal할 수 없습니다(마스킹 유지).",
+  },
+  pb_privacy_until_end: { mn: "төгсгөл хүртэл", en: "until the end", kr: "끝까지" },
+  pb_privacy_fail_closed: {
+    mn: "хуваарь уншигдаагүй — хамгаалсан",
+    en: "schedule unreadable — protected anyway",
+    kr: "일정을 읽지 못함 — 보호 적용",
+  },
+  privacy_mode_badge: { mn: "Нууцлалын горим", en: "Privacy mode", kr: "프라이버시 모드" },
+  privacy_mode_badge_title: {
+    mn: "Хуваарийн дагуу нууцлалын горимд: нүүр таних, сэрэмжлүүлэг унтарсан, энэ үеийн бичлэгийг reveal хийхгүй. Маск идэвхтэй.",
+    en: "Private by schedule: no face recognition or alerts, and footage captured now cannot be revealed. Masking stays on.",
+    kr: "일정에 따라 프라이버시 모드: 얼굴 인식과 알림이 꺼지고 지금 촬영되는 영상은 reveal할 수 없습니다. 마스킹은 유지됩니다.",
+  },
+  privacy_mode_badge_fail_closed: { mn: "Таних түр зогссон", en: "Recognition paused", kr: "인식 일시 중지" },
+  privacy_mode_badge_fail_closed_title: {
+    mn: "ML үйлчилгээ энэ камерын нууцлалын хуваарийг уншиж чадахгүй байгаа тул хаалттай горимд орсон: нүүр таних, сэрэмжлүүлэг унтарсан, энэ үеийн бичлэг хамгаалагдсан (хэзээ ч reveal хийгдэхгүй). Энэ нь хуваарийн цонх биш, тасалдал юм. Маск идэвхтэй.",
+    en: "The ML service cannot read this camera's privacy schedule, so it fails closed: no face recognition or alerts, and footage captured now is recorded as protected (never revealable). This is an outage, not a schedule window. Masking stays on.",
+    kr: "ML 서비스가 이 카메라의 프라이버시 일정을 읽을 수 없어 안전 모드로 전환했습니다: 얼굴 인식과 알림이 꺼지고 지금 촬영되는 영상은 보호 대상으로 기록됩니다(절대 reveal 불가). 일정의 시간대가 아니라 장애입니다. 마스킹은 유지됩니다.",
+  },
+  privacy_mode_legend: {
+    mn: "Нууцлалын горим: нүүр таних, нүүр хадгалах, сэрэмжлүүлэг байхгүй, тэр үед бичигдсэн бичлэгийг хэзээ ч reveal хийхгүй. Нүүр аль ч горимд маскласан.",
+    en: "Privacy mode: no face recognition, stored faces or alerts, and footage captured then can never be revealed. Faces stay masked in every mode.",
+    kr: "프라이버시 모드: 얼굴 인식·얼굴 저장·알림이 없으며 그때 촬영된 영상은 절대 reveal할 수 없습니다. 얼굴은 모든 모드에서 마스킹됩니다.",
+  },
+  privacy_mode_legend_fail_closed: {
+    mn: "«Таних түр зогссон» нь хуваарь уншигдаагүй (тасалдал) гэсэн үг, цонх биш.",
+    en: "“Recognition paused” means the schedule could not be read (an outage), not a window.",
+    kr: "“인식 일시 중지”는 일정을 읽지 못했다는 뜻(장애)이며 시간대가 아닙니다.",
+  },
+  privacy_enforcement_title: {
+    mn: "Нууцлалын хуваарийн мөрдөлт (ML үйлчилгээ)",
+    en: "Privacy schedule enforcement (ML service)",
+    kr: "프라이버시 일정 적용 (ML 서비스)",
+  },
+  privacy_enforcement_ok: {
+    mn: "Ажиллаж буй ML үйлчилгээ нууцлалын хуваарийг мөрдөж байна.",
+    en: "The running ML service enforces privacy schedules.",
+    kr: "실행 중인 ML 서비스가 프라이버시 일정을 적용하고 있습니다.",
+  },
+  privacy_enforcement_missing: {
+    mn: "Ажиллаж буй ML үйлчилгээ нууцлалын хуваарийг мөрддөг гэж мэдээлэхгүй байна (хуучин build эсвэл rollback). Хуваарь хадгалагдсан ч үл тоомсорлогдоно: нууцлалын цонхонд ч нүүр таних, сэрэмжлүүлэг ажиллаж, хамгаалалтын хэсэг бичигдэхгүй. Одоогийн ML үйлчилгээг deploy хийнэ үү.",
+    en: "The running ML service does NOT report privacy-schedule enforcement (an older build or a rollback). Schedules are saved but ignored: recognition and alerts run inside private windows and no protected stretches are recorded. Deploy the current ML service.",
+    kr: "실행 중인 ML 서비스가 프라이버시 일정 적용을 보고하지 않습니다(이전 빌드 또는 롤백). 일정은 저장되지만 무시되어 프라이버시 시간대에도 인식과 알림이 동작하고 보호 구간이 기록되지 않습니다. 현재 ML 서비스를 배포하세요.",
+  },
+  privacy_enforcement_unreachable: {
+    mn: "ML үйлчилгээнд холбогдож чадсангүй, мөрдөлтийг баталгаажуулах боломжгүй. Унтарсан үед ямар ч нүүр танигдахгүй; сэргэсний дараа дахин шалгана уу.",
+    en: "The ML service is not reachable, so enforcement cannot be confirmed. While it is down nothing is recognised at all; check again once it is back.",
+    kr: "ML 서비스에 연결할 수 없어 적용 여부를 확인할 수 없습니다. 중단된 동안에는 아무것도 인식되지 않으며, 복구된 뒤 다시 확인하세요.",
+  },
+  pb_privacy_schedule_title: {
+    mn: "Камерын одоогийн хуваарь reveal-ээс хасаж буй хэсэг",
+    en: "Withheld by the camera's current schedule",
+    kr: "카메라의 현재 일정으로 제외된 구간",
+  },
+  pb_privacy_schedule_desc: {
+    mn: "Камерын нууцлалын хуваарь эдгээр хэсгийг (цонх бүрийн эргэн тойронд 60 секундын зайтай) хамардаг тул reveal тэдгээрийг маскласан хэвээр үлдээнэ — стандарт горимд бичигдсэн бичлэгийг ч. Цонх байгаа л бол ийм байна: сулруулбал (TOTP) дахин reveal хийх боломжтой болно.",
+    en: "The camera's privacy schedule covers these stretches (including a 60-second margin around each window), so a reveal keeps them masked — even footage captured in standard mode. This lasts while the window exists: loosening it (TOTP step-up) releases them.",
+    kr: "카메라의 프라이버시 일정이 이 구간(각 시간대 앞뒤 60초 여유 포함)을 포함하므로 reveal 시 마스킹된 상태로 남습니다 — 표준 모드로 촬영된 영상도 마찬가지입니다. 시간대가 존재하는 동안 유지되며, 완화하면(TOTP 재인증) 다시 reveal할 수 있습니다.",
+  },
+  pb_reveal_privacy_blocked_spans: {
+    mn: "Сонгосон хугацаа бүхэлдээ нууцлалын горимд бичигдсэн — хэзээ ч reveal хийгдэхгүй. Зөвшөөрөл авсны дараа ч татгалзах тул хүсэлт илгээгдэхгүй.",
+    en: "The whole selected range was captured in privacy mode — it can never be revealed. The job would refuse it after approval, so the request is not sent.",
+    kr: "선택한 구간 전체가 프라이버시 모드로 촬영되어 절대 reveal할 수 없습니다. 승인 후에도 거부되므로 요청을 보내지 않습니다.",
+  },
+  pb_reveal_privacy_blocked_schedule: {
+    mn: "Камерын одоогийн нууцлалын хуваарь сонгосон хугацааг бүхэлд нь хамардаг тул reveal ажил зөвшөөрлийн дараа татгалзана. Өөр хугацаа сонгох эсвэл эхлээд хуваарийг сулруулна уу (TOTP).",
+    en: "The camera's current privacy schedule covers the whole selected range, so the reveal job would refuse it after approval. Pick another range, or loosen the schedule first (TOTP step-up).",
+    kr: "카메라의 현재 프라이버시 일정이 선택한 구간 전체를 포함하므로 reveal 작업이 승인 후 거부합니다. 다른 구간을 선택하거나 먼저 일정을 완화하세요(TOTP 재인증).",
+  },
+  pb_reveal_privacy_partial: {
+    mn: "Сонгосон хугацааны зарим хэсэг нууцлалын горимд бичигдсэн эсвэл камерын хуваарьт хамрагдсан — гаралтад маскласан хэвээр үлдэнэ.",
+    en: "Parts of the selected range were captured in privacy mode or are covered by the camera's schedule — they stay masked in the output.",
+    kr: "선택한 구간의 일부가 프라이버시 모드로 촬영되었거나 카메라 일정에 포함되어 결과물에서 마스킹된 상태로 남습니다.",
+  },
+  reveal_err_privacy_unavailable: {
+    mn: "Нууцлалын хуваарь уншигдаагүй тул reveal зогссон (юу ч тайлагдаагүй). Өгөгдлийн сангийн холболт сэргэсний дараа дахин оролдоно уу.",
+    en: "The privacy schedule could not be read, so the reveal was stopped (nothing was decrypted). Retry once the database connection is back.",
+    kr: "프라이버시 일정을 읽지 못해 reveal이 중지되었습니다(아무것도 복호화되지 않음). 데이터베이스 연결이 복구되면 다시 시도하세요.",
+  },
+  reveal_err_privacy_rules_unavailable: {
+    mn: "Нууцлалын бүс уншигдаагүй тул reveal зогссон. Өгөгдлийн сангийн холболт сэргэсний дараа дахин оролдоно уу.",
+    en: "Privacy zones could not be read, so the reveal was stopped. Retry once the database connection is back.",
+    kr: "프라이버시 구역을 읽지 못해 reveal이 중지되었습니다. 데이터베이스 연결이 복구되면 다시 시도하세요.",
+  },
+  reveal_err_privacy_whole_recording: {
+    mn: "Бичлэг бүхэлдээ нууцлалын горимд бичигдсэн — хэзээ ч reveal хийгдэхгүй.",
+    en: "The whole recording was captured in privacy mode — it can never be revealed.",
+    kr: "녹화 전체가 프라이버시 모드로 촬영되어 절대 reveal할 수 없습니다.",
+  },
+  reveal_err_privacy_whole_range: {
+    mn: "Сонгосон хугацаа бүхэлдээ нууцлалын горимд бичигдсэн — хэзээ ч reveal хийгдэхгүй.",
+    en: "The selected time range was captured entirely in privacy mode — it can never be revealed.",
+    kr: "선택한 시간 구간 전체가 프라이버시 모드로 촬영되어 절대 reveal할 수 없습니다.",
+  },
+  reveal_err_privacy_schedule_whole_recording: {
+    mn: "Камерын одоогийн нууцлалын хуваарь бичлэгийг бүхэлд нь хамардаг тул reveal хийгдээгүй. Тэр цонхыг сулруулбал (TOTP) л дахин reveal хийх боломжтой болно.",
+    en: "The camera's current privacy schedule covers the whole recording, so it was not revealed. It becomes revealable again only if that window is loosened (TOTP step-up).",
+    kr: "카메라의 현재 프라이버시 일정이 녹화 전체를 포함하므로 reveal되지 않았습니다. 해당 시간대를 완화해야만(TOTP 재인증) 다시 reveal할 수 있습니다.",
+  },
+  reveal_err_privacy_schedule_whole_range: {
+    mn: "Камерын одоогийн нууцлалын хуваарь сонгосон хугацааг бүхэлд нь хамардаг тул reveal хийгдээгүй. Тэр цонхыг сулруулбал (TOTP) л дахин reveal хийх боломжтой болно.",
+    en: "The camera's current privacy schedule covers the whole selected range, so it was not revealed. It becomes revealable again only if that window is loosened (TOTP step-up).",
+    kr: "카메라의 현재 프라이버시 일정이 선택한 구간 전체를 포함하므로 reveal되지 않았습니다. 해당 시간대를 완화해야만(TOTP 재인증) 다시 reveal할 수 있습니다.",
+  },
 } as const;
 
 export type TranslationKey = keyof typeof T;

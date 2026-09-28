@@ -30,6 +30,7 @@ import {
 } from "@/lib/recording-upload";
 import { UploadJobPanel } from "@/components/upload-job-panel";
 import { CameraReconnectLine, CameraRestartBadge } from "@/components/camera-restart-status";
+import { PrivacyModeBadge } from "@/components/privacy-mode-badge";
 import type { CameraRestartInfo } from "@/lib/camera-restarts";
 import { workflowCopy } from "@/lib/workflow-copy";
 
@@ -732,6 +733,9 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
   // whether a dropped source is waiting to reconnect. Polled for admins too —
   // a camera stuck in backoff otherwise just looks idle.
   const [restarts, setRestarts] = useState<Record<string, CameraRestartInfo>>({});
+  // Running captures in private mode by schedule (ADR 0012).
+  const [privateIds, setPrivateIds] = useState<Set<string>>(new Set());
+  const [failClosedIds, setFailClosedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -742,7 +746,11 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
         setRunning(new Set(res.ids));
         // Unreachable ML: keep the last known restart info rather than
         // blanking it (same as /grid).
-        if (res.reachable) setRestarts(res.restarts ?? {});
+        if (res.reachable) {
+          setRestarts(res.restarts ?? {});
+          setPrivateIds(new Set(res.privateIds ?? []));
+          setFailClosedIds(new Set(res.failClosedIds ?? []));
+        }
       } catch {
         if (!cancelled) setRunning(new Set());
       }
@@ -856,7 +864,10 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
           >
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">{c.name}</div>
-              <div className="text-[10px] text-text-muted uppercase">{c.cam_type}</div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] text-text-muted uppercase">{c.cam_type}</span>
+                {c.enabled && privateIds.has(c.id) && <PrivacyModeBadge failClosed={failClosedIds.has(c.id)} />}
+              </div>
               {c.enabled && restarts[c.id] && (
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] leading-tight">
                   <CameraRestartBadge info={restarts[c.id]} />
