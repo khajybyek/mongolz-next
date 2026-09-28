@@ -71,7 +71,7 @@ jobs:
 
       # Runs on direct pushes too (this repo commits straight to main): scan
       # the pushed range rather than the whole history each time.
-      - uses: trufflesecurity/trufflehog@ddc015e5ed99942b2253d8ea16a0586a01ef2ab1 # v3.88.0
+      - uses: trufflesecurity/trufflehog@4dd8831c5f12599465d4d45c3c447b4018a34c85 # v3.97.9
         with:
           path: .
           base: ${{ github.event_name == 'push' && github.event.before || '' }}
@@ -93,7 +93,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Run Nuclei
-        uses: projectdiscovery/nuclei-action@32a91c0da7be14c07b0ade6c14fa0f6e78d97c9c # v3.1.0
+        uses: projectdiscovery/nuclei-action@cc153d0541e1adf8a42bbe31c0a4fb2376147538 # v3.1.1
         with:
           # v3 takes ONE `args` string; the v2 inputs `target` / `flags` are
           # silently ignored, which left this job scanning nothing.
