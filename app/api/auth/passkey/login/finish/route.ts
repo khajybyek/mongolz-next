@@ -3,12 +3,14 @@ import { headers } from "next/headers";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { finishAuthentication } from "@/lib/auth/webauthn";
 import { bindSessionPin } from "@/lib/auth/session-pin";
+import { bindMintedSession } from "@/lib/auth/mfa-session";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 
 /**
  * Step 2 of passkey login. Verifies the WebAuthn assertion the browser
  * produced, then mints a real Supabase session via the admin magic-link
- * trick (generateLink + verifyOtp).
+ * trick (generateLink + verifyOtp) and binds it for the data tier
+ * (lib/auth/mfa-session.ts, migration 20260928120000).
  *
  * Body: { user_handle: uuid, response: AuthenticationResponseJSON }
  */
@@ -80,7 +82,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "could not mint session" }, { status: 500 });
   }
 
-  // 3. Audit + session pin (best-effort).
+  // 3. Bind the session: private.mfa_ok() refuses a TOTP profile's session
+  //    the app did not bind after a verified factor (a mailbox holder can
+  //    mint the same shape straight from GoTrue). On failure the new session
+  //    has already been signed out locally — answer like a failed mint.
+  const bound = await bindMintedSession({
+    svc,
+    userClient: supabase,
+    accessToken: verify.data?.session?.access_token,
+    userId: profile.id,
+    userEmail: profile.email,
+    method: "passkey",
+    ip,
+  });
+  if (!bound) {
+    return NextResponse.json({ error: "could not mint session" }, { status: 500 });
+  }
+
+  // 4. Audit + session pin (best-effort).
   try {
     await svc.from("audit_log").insert({
       action: "PASSKEY_LOGIN",

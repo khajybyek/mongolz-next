@@ -156,6 +156,12 @@ key format in `rate_limit_hit()` first).
 Edge-function switch: `CLAUDE_MODEL` (Supabase Edge secret for
 `claude-analysis`, optional) overrides the default model; the function falls
 back through its sonnet/haiku chain when the chosen model refuses or fails.
+The function also spends one unit of `ai_analysis:<user id>` in
+`private.rate_limits` per request (60 per admin per hour, then `429` with
+`Retry-After`; a counter error also answers `429`). To let an admin back in
+early, delete that row. It refuses with `403 second factor required` whenever
+`rpc/mfa_status` says `mfa_ok: false` for the caller's token (password-only or
+unbound session), and follows both `private.security_settings` switches.
 
 ### 2.5 Post-mortem (within 5 business days)
 
@@ -886,23 +892,61 @@ super-admin-only admin creation, server-written push subscriptions,
    (new `security_event` kind — until redeployed these messages render as a blank
    suspect alert) and `... deploy claude-analysis` (refuses password-only tokens,
    reads context under the caller's RLS).
-2. **E-mail-minted sessions pass the data-tier MFA gate (OPEN — high).**
+2. **E-mail-minted sessions passed the data-tier MFA gate (CLOSED in code —
+   migration `20260928120000_mfa_session_binding`, ADR 0011 "Session binding").**
    `POST /auth/v1/otp` / `/auth/v1/recover` for an EXISTING admin yields a session
-   whose `amr` is `otp`/`recovery`; `private.mfa_ok()` only refuses `amr=[password]`,
-   and it cannot tell these from the sessions the app itself mints after TOTP /
-   passkey (same `generateLink + verifyOtp` mechanism). It was deliberately NOT
-   tightened in code: any stricter rule risks refusing the app's own sessions (the
-   2026-09-08 lock-out). Until the TOTP seed is migrated to Supabase-native MFA
-   (`aal2`) do all of:
-   - Supabase Dashboard → Authentication → Hooks → **Send Email hook** that drops
-     `magiclink`, `recovery`, `email_change` and `reauthentication` mails (the app
-     never sends e-mail: it uses admin `generateLink`, which is unaffected). With no
-     mail delivered, a mailbox holder cannot obtain the token.
-   - Authentication → Rate limits → e-mail sent per hour = the minimum.
-   - Admin mailboxes (both admins + super admin) must have their own 2FA.
-   - Weekly: `select s.user_id, c.authentication_method, c.created_at from auth.mfa_amr_claims c join auth.sessions s on s.id = c.session_id where c.authentication_method in ('magiclink','recovery') order by c.created_at desc limit 20;`
-     — a row without a LOGIN / PASSKEY_LOGIN audit row in the same minute is an incident
-     (the app's own logins show as `otp`).
+   whose `amr` (`otp` — GoTrue 2.189 reports `otp` for magic-link and recovery
+   exchanges too) is indistinguishable from the sessions the app mints after TOTP /
+   passkey (same `generateLink + verifyOtp` mechanism), so `private.mfa_ok()` let it
+   through. The app now binds every session it mints after a verified factor
+   (`private.mfa_sessions`, written only by the service-role RPC
+   `public.bind_mfa_session`), and `mfa_ok()` refuses a TOTP profile's session
+   whose `session_id` claim is not bound. A mailbox session reads nothing.
+   - **Deploy order: web first, then the migration** (`npx supabase db push
+     --linked`, then `npm run gen:types`). The reverse order blanks every TOTP
+     admin's console until the web is live. After the migration each TOTP admin is
+     signed out once (`/login?error=session_rebind`, audit `SESSION_REBIND_REQUIRED`)
+     and signs in again; viewers / auditors see nothing. Redeploy the edge function
+     with the web: `npx supabase functions deploy claude-analysis --project-ref <ref>`
+     — it now gates on `rpc/mfa_status` (the data tier's own verdict) instead of a
+     local `amr` copy, so an unbound mailbox session gets `403` before any audit row
+     or model call; it also caps model calls at 60 per admin per hour (`429`).
+   - **Rolling the web back** to a build older than this change while the migration
+     is applied (Vercel Instant Rollback / promote-previous) requires
+     `update private.security_settings set mfa_session_binding = false, updated_at = now(), updated_by = '<incident> — <who>';`
+     **FIRST**, or every TOTP admin reads an empty console: the old web mints
+     unbound sessions and never sends anyone back to `/login`, so signing in again
+     does not help. Re-arm (`= true`) after rolling forward. Sessions minted
+     meanwhile are bound only if the new web minted them; the rest are signed out
+     once (`session_rebind`) after re-arming.
+   - **Verify** from a real session: `rpc/mfa_status` must return
+     `"session_id_present": true, "mfa_ok": true` (post-deploy check in ADR 0011).
+     `MFA_SESSION_BIND_FAILED` audit rows mean a login minted a session it could not
+     bind (the login failed with `signin_failed`) — investigate.
+   - **Kill switch** (instant, binding only; the `amr=[password]` refusal stays):
+     `update private.security_settings set mfa_session_binding = false, updated_at = now(), updated_by = '<incident> — <who>';`
+     With it off the web also stops forcing re-logins. If `bind_mfa_session` itself
+     fails for everyone (every TOTP login ends in `signin_failed`), arm the switch AND
+     `drop function public.bind_mfa_session(uuid, uuid, text);` — the web treats a
+     missing bind RPC as a deploy gap and finishes logins unbound. Full rollback in
+     the migration header.
+   - Optional defence in depth (no longer required for the data tier): Supabase
+     Dashboard → Authentication → Hooks → **Send Email hook** that drops `magiclink`,
+     `recovery`, `email_change` and `reauthentication` mails (the app never sends
+     e-mail: it uses admin `generateLink`, which is unaffected); Authentication →
+     Rate limits → e-mail sent per hour = the minimum; admin mailboxes (both admins +
+     super admin) keep their own 2FA. Why keep them: a mailbox holder can still mint
+     a session and use GoTrue's own `/auth/v1/user` with it — e.g. set a new password
+     (`secure_password_change` mails the reauthentication code to the same mailbox).
+     That locks the admin out of the password step without an audit row, but still
+     yields no data: the data tier refuses the unbound session, the Next tier refuses
+     it (no session pin), and the app still asks for TOTP / a passkey.
+   - Weekly: `select s.user_id, p.email, c.authentication_method, c.created_at, (m.session_id is not null) as bound from auth.mfa_amr_claims c join auth.sessions s on s.id = c.session_id join public.profiles p on p.id = s.user_id and p.totp_enabled left join private.mfa_sessions m on m.session_id = s.id order by c.created_at desc limit 20;`
+     — an unbound (`bound = false`) session of a TOTP account with no LOGIN /
+     PASSKEY_LOGIN audit row in the same minute is an e-mail-minted session: an
+     attempt, and an incident even though it reads nothing. (Right after the
+     migration, sessions minted before it also show as unbound until their owners
+     sign in again.)
 3. **Edge agent uses the master `ML_SERVICE_TOKEN` (OPEN — medium, latent:
    `edge_agents` has 0 rows).** Do not deploy an agent on a customer LAN until the ML
    service accepts a per-agent ingest token on `/edge/*` only. If one must be

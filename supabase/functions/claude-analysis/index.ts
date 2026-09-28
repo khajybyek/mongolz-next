@@ -18,6 +18,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { AI_RATE_LIMIT, aiRateLimit, secondFactorOk } from "./gate.ts";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 // Current-generation model IDs (no date suffixes — these are complete as-is).
@@ -97,26 +98,6 @@ ${(ctx.recentAlerts ?? []).map((a: any) => `- ${a.suspect_name} (${Math.round(a.
 - Өнөөдрийн alert: ${ctx.todayAlerts}`;
 }
 
-/**
- * True when the (gateway-verified) JWT proves nothing but a password.
- * Mirrors private.mfa_ok(): only an amr made up ENTIRELY of "password"
- * entries is refused; anything unreadable fails open, so the sessions the app
- * mints after TOTP / passkey (amr = otp) are never turned away.
- */
-function passwordOnlyToken(token: string): boolean {
-  try {
-    const part = token.split(".")[1] ?? "";
-    const claims = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/")));
-    const amr = claims?.amr;
-    if (!Array.isArray(amr) || amr.length === 0) return false;
-    return amr.every((e: unknown) =>
-      (typeof e === "string" ? e : (e as { method?: unknown })?.method) === "password",
-    );
-  } catch {
-    return false;
-  }
-}
-
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -152,13 +133,16 @@ Deno.serve(async (req) => {
 
   // ── Second factor ──
   // This function is reachable straight from the internet with any valid
-  // user JWT, bypassing the Next proxy (requireAdminApi). A token from the
-  // public password grant (amr = [password]) must not read alert data: same
-  // rule the app (totp_required) and the data tier (private.mfa_ok) apply.
+  // user JWT, bypassing the Next proxy (requireAdminApi). Neither a token
+  // from the public password grant (amr = [password]) nor an e-mail-minted
+  // session (/auth/v1/otp, /auth/v1/recover: amr = otp, but not bound by the
+  // app after a verified factor) may spend a model call or write an audit
+  // row: the verdict is the data tier's own (public.mfa_status ->
+  // private.mfa_ok), not a local copy of its rules. Fails closed.
   if (!profile.totp_enabled) {
     return new Response(JSON.stringify({ error: "totp_required" }), { status: 403 });
   }
-  if (passwordOnlyToken(authHeader.slice(7))) {
+  if (!(await secondFactorOk(supabase))) {
     return new Response(JSON.stringify({ error: "second factor required" }), { status: 403 });
   }
 
@@ -188,15 +172,26 @@ Deno.serve(async (req) => {
   // may see, so the function can never hand out more than PostgREST would.
   const svc = supabase;
 
+  // Service role is used for the usage quota and the audit insert ONLY.
+  const ledger = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  );
+
+  // ── Usage quota ── (AI_RATE_LIMIT model calls per admin per hour)
+  const quota = await aiRateLimit(ledger, user.id);
+  if (quota.limited) {
+    console.warn(`[claude-analysis] quota refused for ${user.id} (max ${AI_RATE_LIMIT.max}/h or counter error)`);
+    return new Response(
+      JSON.stringify({ error: "rate limited", retry_after_sec: quota.retryAfterSec }),
+      { status: 429, headers: { "Content-Type": "application/json", "Retry-After": String(quota.retryAfterSec) } },
+    );
+  }
+
   // Leave a trace BEFORE the data is read or the model is called (it used to
   // be written only after a successful answer, so a failed or aborted call
-  // that had already pulled the context left nothing). Service role is used
-  // for this insert ONLY.
+  // that had already pulled the context left nothing).
   try {
-    const ledger = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
     await ledger.from("audit_log").insert({
       action: "AI_ANALYSIS",
       detail: `mode=${body.mode}`,

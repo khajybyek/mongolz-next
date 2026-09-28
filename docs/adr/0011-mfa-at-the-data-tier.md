@@ -1,6 +1,6 @@
 # 0011 — Prove the second factor at the data tier
 
-* **Status:** Accepted
+* **Status:** Accepted (amended 2026-09-28: session binding)
 * **Date:** 2026-09-08
 * **Relates to:** [0005](0005-supabase-rls-as-authorization.md) (RLS as the authorization boundary), [0006](0006-step-up-totp-reauth.md) (step-up TOTP)
 * **Fixes:** finding 4.1 of `docs/audits/2026-09-08-full-audit.mn.md`
@@ -253,3 +253,143 @@ curl -s -X POST "https://<ref>.supabase.co/rest/v1/rpc/mfa_status" \
 
 If `amr_present` is ever `false` for an app-minted session, the gate has gone
 silently permissive — treat that as an incident and revisit native MFA.
+
+## Session binding (2026-09-28)
+
+Migration `20260928120000_mfa_session_binding.sql` closes the gap the table
+above already shows: the row "App login, TOTP user → `otp`" is not unique to
+the app. Anyone who controls an admin's **mailbox** can ask GoTrue for a
+session without the password or the TOTP seed — `POST /auth/v1/otp` or
+`/auth/v1/recover` with the public anon key, then follow the mailed link. The
+session that comes back carries `amr = [otp]` (GoTrue 2.189 reports `otp` for
+magic-link and recovery exchanges alike, verified on a local stack), exactly
+like the one `verifyTotpAction` and the passkey finish route mint with
+`generateLink + verifyOtp`. `mfa_ok()` could not tell them apart, so a
+mailbox was as good as the second factor (RUNBOOK §5a item 2, left open on
+2026-09-17 because any stricter *amr* rule would also refuse the app's own
+sessions).
+
+**Decision: prove the factor per session, server-side.** The distinguishing
+fact is not in the token; it is that *our server* verified a factor right
+before minting it. So the server writes that down:
+
+1. `private.mfa_sessions(session_id → auth.sessions ON DELETE CASCADE,
+   user_id, method ∈ {totp, recovery_code, passkey})`, written only by
+   `public.bind_mfa_session(session, user, method)` — SECURITY DEFINER,
+   service_role only. It refuses a session that does not exist or belongs to
+   another user, is idempotent, and never re-points a binding.
+2. Every app-side mint binds its session immediately, with the `session_id`
+   claim read from the access token GoTrue has just returned to the server
+   (`lib/auth/mfa-session.ts#bindMintedSession`): TOTP code, recovery code
+   (same path), passkey. If the RPC is missing (web deployed before the
+   migration: `PGRST202` / `42883`) the login continues unbound; any other
+   failure signs the new session out (`scope: "local"`) and fails the login
+   with `signin_failed` plus an `MFA_SESSION_BIND_FAILED` audit row — an
+   unbound session would only render an empty console.
+3. `private.mfa_ok()` keeps every branch in the Decision table and adds one
+   after the `amr` check: **TOTP profile + binding enforced + readable
+   `session_id` claim + no binding row for that session and user → refuse.**
+   The FK cascade removes the row when GoTrue deletes the session (sign-out,
+   refresh-token reuse, user deletion), so a signed-out session's still-valid
+   access token is refused too.
+4. `public.mfa_session_bound(session)` (service_role only) answers "would the
+   data tier accept this session?". The central session loader
+   (`lib/supabase/auth.ts#loadSession`) asks it for TOTP profiles only, after
+   the session pin: unbound → local sign-out, `SESSION_REBIND_REQUIRED` audit
+   row, pages to `/login?error=session_rebind` ("for security, please sign in
+   again"), API routes `401 {"error":"session_rebind"}`. RPC missing, RPC
+   error, NULL answer or an unreadable token → nobody is signed out (the
+   database still enforces). `session_rebind` is a terminal login error in
+   the middleware, so a failed sign-out cannot loop `/login ⇄ /dashboard`.
+   Viewers and auditors pay nothing (no token read, no RPC).
+
+| Situation (TOTP profile) | Before | Now |
+|---|---|---|
+| Session minted by the app after TOTP / recovery code / passkey | allow | allow (bound) |
+| Mailbox session: `/auth/v1/otp`, `/auth/v1/recover`, magic link | **allow** | **refuse** (unbound) |
+| Any session minted before the migration, or by the new web before it | allow | refuse → web signs it out once, re-login binds |
+| Token of a signed-out session (not yet expired) | allow | refuse (binding cascaded away) |
+| `amr = [password]`, bound or not | refuse | refuse |
+| No readable `session_id` claim | allow | **allow** — fail open, cannot determine |
+| `mfa_session_binding = false` or `mfa_required = false` | — | allow; `mfa_session_bound` answers true, the web stops forcing re-logins |
+
+**Why fail open on a missing `session_id`.** GoTrue writes `session_id` into
+every access token it issues for a user session and the claim is covered by
+the signature, so only hand-built claims (direct SQL, tests) reach that
+branch — the same trade as the missing-`amr` branch. `public.mfa_status()`
+now also reports `session_id_present`; the post-deploy check above becomes:
+
+```bash
+# expect: {"aal":"aal1","mfa_ok":true,"methods":["otp"],"amr_present":true,"session_id_present":true}
+```
+
+**Why an FK to `auth.sessions`.** It is the only way the binding can never
+outlive its session without a sweeper. `postgres` (the role `db push` uses)
+holds `REFERENCES` on `auth.sessions` — the same grant shape that lets
+`profiles` reference `auth.users` — and a DELETE issued by GoTrue's role
+(`supabase_auth_admin`, which has no privilege on schema `private`) still
+cascades, because referential actions run as the referencing table's owner.
+Proven on a throwaway local project before hand-off. Should the cloud grant
+ever be missing, the migration fails atomically and the web keeps running
+unbound — the pre-migration state, not a lock-out.
+
+**Deploy order: web first, then the migration.** The web tolerates both RPCs
+being absent; the database without a binding-aware web would refuse every TOTP
+session with nothing to send the admin back to `/login`. After the migration
+every TOTP admin signs in once more. The same state follows a **web rollback**
+to a build older than this change while the migration is applied (the old web
+mints unbound sessions and never forces a re-login), so a rollback starts with
+the binding kill switch below and re-arms it after rolling forward (RUNBOOK
+§5a.2).
+
+**Edge function.** `claude-analysis` is reachable with any valid user JWT
+without the Next proxy, and its gate used to be a local copy of the `amr`
+rule — which an unbound mailbox session (`amr = otp`) passed, so it could
+write `AI_ANALYSIS` rows under the admin's name and spend model calls on the
+project's key without limit. It now asks `public.mfa_status()` with the
+caller's token and refuses (403, fail closed) unless `mfa_ok` is true: the
+data tier's own verdict, including this binding and both kill switches, and
+any later rule. `mfa_status()` has been granted to `authenticated` since
+20260908110000, so the function needs nothing from this migration. It also
+spends one unit of a per-admin quota (`public.rate_limit_hit`, 60 per hour,
+`429`) before the audit row and the model call.
+
+**Alternatives considered.** *Stricter `amr` rules* — impossible: the app's
+own sessions have the same `amr`. *A custom access-token hook stamping a
+claim* — the stamp would have to be set by our server before GoTrue issues
+the token, i.e. the same binding table plus a new moving part in the
+token-issuing path (a failing hook takes login down for everyone). *Native
+MFA (`aal2`)* — still the long-term destination and still compatible: a
+native-MFA session would be bound by the same login flow. *Send Email hook /
+mailbox 2FA only* — configuration outside the repository, invisible to tests
+and silently lost on a project move; kept as optional defence in depth
+(RUNBOOK §5a.2).
+
+**Kill switch.** `update private.security_settings set mfa_session_binding =
+false` disables only this branch (the `amr = [password]` refusal stays);
+`mfa_required = false` still disables everything. Re-running the migration
+never re-arms a disabled switch.
+
+**What it still does not fix.** A bound session is a bearer token (see
+Consequences). A mailbox holder can still use GoTrue's own `/auth/v1/user`
+with an unbound session — e.g. set a new password — which locks the admin out
+of the password step without an audit row but yields no data; the Send Email
+hook closes that too. The edge function `claude-analysis` refuses an unbound
+token before its audit row and model call (see "Edge function" above).
+
+**Verification (2026-09-28).** `supabase/tests/mfa_session_binding.test.sql`
+on a throwaway local project (CLI 2.95.4, Postgres 17.6): grants, bind
+refusals (other user, missing session, unknown method, NULLs, re-point),
+idempotency, every `mfa_ok()` branch including the fail-open ones, both kill
+switches, RLS on `faces` (bound 1 row, unbound 0, non-TOTP unaffected), and
+the cascade on session and user deletion; 20 of 20 mutants of the migration
+killed. End to end against local GoTrue 2.189 + PostgREST 14: the token
+carries `session_id`, a refresh keeps it, an unbound app-shaped session and a
+recovery session read 0 faces, the bound one reads the face, sign-out removes
+the binding and the unexpired token reads 0, a missing RPC answers `PGRST202`.
+The edge-function gate: the same SQL file asks `public.mfa_status()` as
+`authenticated` (bound → `mfa_ok: true`, unbound mailbox session → `false`;
+a mutant reporting `false` for everyone is caught), and
+`__tests__/claude-analysis-gate.test.ts` pins the verdict handling (fail
+closed on errors and odd shapes), the quota and the order gate → quota →
+audit row → context read → model call in `index.ts` (`deno check` clean).

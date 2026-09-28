@@ -150,7 +150,10 @@ export async function updateSession(request: NextRequest) {
   // transient profile read or a half-finished erasure is enough to cause it.
   // `session_pin` is deliberately NOT here: that path revokes the session
   // globally first, so a surviving session means the pin check passed.
-  const TERMINAL_LOGIN_ERRORS = new Set(["server_config", "no_profile"]);
+  // `session_rebind` IS here: the loader signs the unbound session out
+  // locally, and if that sign-out failed (GoTrue unreachable) the surviving
+  // session would otherwise bounce /login -> /dashboard -> /login forever.
+  const TERMINAL_LOGIN_ERRORS = new Set(["server_config", "no_profile", "session_rebind"]);
   if (
     user &&
     path === "/login" &&

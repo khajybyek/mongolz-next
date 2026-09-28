@@ -47,6 +47,7 @@ This document applies STRIDE to MONGOLZ Security's three trust zones:
 |---|---|---|
 | Stolen password reuse | Rate limit (5 fails/email/15min, 10/IP/15min) + TOTP 2FA + WebAuthn passkey + audit (`LOGIN_FAILED`) | ✓ |
 | Stolen session cookie | Session pin (User-Agent fingerprint, HMAC-signed, 7-day TTL) — stops replay from a different browser only; network binding dropped 2026-09-23, see R7 | ⚠ partial |
+| Admin mailbox takeover → e-mail-minted session (`/auth/v1/otp`, `/auth/v1/recover`, magic link) used straight against PostgREST | Session binding (ADR 0011, migration `20260928120000`): the app binds every session it mints after a verified TOTP code, recovery code or passkey (`private.mfa_sessions`, service-role-only `bind_mfa_session`); `private.mfa_ok()` refuses a TOTP profile's unbound `session_id`, so the mailbox session reads nothing through RLS or the gated RPCs; binding rows cascade away with the session. The Next tier refuses it too (no session pin), and so does the `claude-analysis` edge function, which gates on `rpc/mfa_status` (the data tier's own verdict) and caps model calls at 60 per admin per hour. Fails open only on a token without a `session_id` claim (GoTrue always issues one); kill switch `mfa_session_binding`. Residual: the session still works on GoTrue's own `/auth/v1/user` (e.g. a password change) — Send Email hook + mailbox 2FA (RUNBOOK §5a.2) | ✓ |
 | Replay of TOTP code | `consume_totp_code` RPC tracks `(user_id, code_hash)` in `totp_used_codes` table, 90s TTL | ✓ |
 | Username enumeration | `email_for_username` RPC service-role only (revoked from anon/authenticated), generic 400 on /login | ✓ |
 | ML-service identity spoofing | `hmac.compare_digest` on `ML_SERVICE_TOKEN` bearer, dual-key rotation supported | ✓ |
@@ -156,4 +157,4 @@ Threat model is re-reviewed:
 - After any incident postmortem
 - Quarterly even with no changes (capstone scope: at the time of paper revision)
 
-Last review: 2026-09-28 (privacy schedules enforced, ADR 0012: new assets, tampering / disclosure / DoS rows, R8, R9; same day: capture-time bound, spans delivered with the footage, camera-add step-up, no UPDATE on `recordings`, embedding-free view renderers). Previous: 2026-05-18 by primary author. Next: when WebAuthn discoverable-login lands (planned).
+Last review: 2026-09-28 (privacy schedules enforced, ADR 0012: new assets, tampering / disclosure / DoS rows, R8, R9; same day: capture-time bound, spans delivered with the footage, camera-add step-up, no UPDATE on `recordings`, embedding-free view renderers; same day: MFA session binding — spoofing row for e-mail-minted sessions, ADR 0011 amendment). Previous: 2026-05-18 by primary author. Next: when WebAuthn discoverable-login lands (planned).

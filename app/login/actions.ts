@@ -16,6 +16,7 @@ import {
 import { hashCode } from "@/lib/totp-recovery";
 import { sanitizeNextPath } from "@/lib/auth/safe-next";
 import { bindSessionPin } from "@/lib/auth/session-pin";
+import { bindMintedSession } from "@/lib/auth/mfa-session";
 import {
   setPreTotpCookie,
   readPreTotpCookie,
@@ -242,8 +243,9 @@ export async function signInAction(formData: FormData) {
  * STEP 2 — Verify the second factor: a 6-digit TOTP code or a one-time
  * recovery code (XXXXX-XXXXX). Uses the pre-TOTP cookie to know which user
  * is mid-flow, then signs them in via Supabase service-role admin →
- * magiclink exchange. Cookie is cleared on success, on expiry, and once the
- * user is rate-limited.
+ * magiclink exchange and binds that session for the data tier
+ * (lib/auth/mfa-session.ts). Cookie is cleared on success, on expiry, and
+ * once the user is rate-limited.
  *
  * Brute-force posture: per-user (5 wrong codes / 15 min) AND the per-email /
  * per-IP login lock, so a password holder cannot grind the 6-digit space.
@@ -403,6 +405,25 @@ export async function verifyTotpAction(formData: FormData) {
   });
 
   if (verify.error) {
+    await clearPreTotpCookie();
+    return redirect(loginUrl("signin_failed"));
+  }
+
+  // Tell the data tier this session passed the second factor. A mailbox
+  // holder can mint a session of exactly this shape straight from GoTrue;
+  // private.mfa_ok() refuses the ones that are not bound (migration
+  // 20260928120000). If the bind fails, bindMintedSession has already ended
+  // the new session — an unbound one would only render an empty console.
+  const bound = await bindMintedSession({
+    svc,
+    userClient: supabase,
+    accessToken: verify.data?.session?.access_token,
+    userId: profile.id,
+    userEmail: profile.email,
+    method: isRecovery ? "recovery_code" : "totp",
+    ip,
+  });
+  if (!bound) {
     await clearPreTotpCookie();
     return redirect(loginUrl("signin_failed"));
   }

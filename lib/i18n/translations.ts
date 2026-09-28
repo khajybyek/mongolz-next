@@ -1710,6 +1710,7 @@ export const T = {
   login_err_signin_failed: { mn: "Нэвтрэлтийг дуусгаж чадсангүй. Дахин оролдоно уу.", en: "Could not complete sign-in. Please try again.", kr: "로그인을 완료할 수 없습니다. 다시 시도하세요." },
   login_err_no_profile: { mn: "Энэ бүртгэлд профайл алга. Админтай холбогдоно уу.", en: "No profile for this account. Contact an administrator.", kr: "이 계정의 프로필이 없습니다. 관리자에게 문의하세요." },
   login_err_session_pin: { mn: "Аюулгүй байдлын үүднээс сессийг хаасан (өөр төхөөрөмж/сүлжээ). Дахин нэвтэрнэ үү.", en: "Your session was closed for security (different device or network). Sign in again.", kr: "보안상 세션이 종료되었습니다(다른 기기/네트워크). 다시 로그인하세요." },
+  login_err_session_rebind: { mn: "Аюулгүй байдлын үүднээс дахин нэвтэрнэ үү.", en: "For security, please sign in again.", kr: "보안을 위해 다시 로그인해 주세요." },
   login_err_callback: { mn: "Нэвтрэх холбоос хүчингүй эсвэл хугацаа нь дууссан.", en: "The sign-in link is invalid or expired.", kr: "로그인 링크가 유효하지 않거나 만료되었습니다." },
   login_err_server_config: { mn: "Серверийн тохиргооны алдаа: нэвтрэлтийн гарын үсгийн нууц түлхүүр тохируулагдаагүй байна. Системийн админд мэдэгдэнэ үү.", en: "Server configuration error: the sign-in signing secret is not set. Please notify the system administrator.", kr: "서버 구성 오류: 로그인 서명 키가 설정되지 않았습니다. 시스템 관리자에게 알려 주세요." },
   login_err_boundary_desc: { mn: "Нэвтрэх хуудсанд алдаа гарлаа. Алдааг автоматаар бүртгэлээ — дахин оролдоно уу.", en: "The sign-in page hit an error. It has been reported automatically — please try again.", kr: "로그인 페이지에서 오류가 발생했습니다. 자동으로 보고되었습니다 — 다시 시도해 주세요." },

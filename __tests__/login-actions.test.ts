@@ -88,6 +88,28 @@ function auditActions(): string[] {
 }
 
 const USER = { id: "11111111-1111-4111-8111-111111111111", email: "op@example.test" };
+const SESSION_ID = "33333333-3333-4333-8333-333333333333";
+
+function b64url(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
+
+/** The access token GoTrue returns from verifyOtp (signature irrelevant here). */
+function accessToken(claims: Record<string, unknown> = {}): string {
+  const payload = { sub: USER.id, role: "authenticated", session_id: SESSION_ID, amr: [{ method: "otp" }], ...claims };
+  return `${b64url({ alg: "HS256", typ: "JWT" })}.${b64url(payload)}.c2ln`;
+}
+
+function mintedSession(claims: Record<string, unknown> = {}) {
+  return { data: { session: { access_token: accessToken(claims) } }, error: null };
+}
+
+/** rpc() replies by function name; bind_mfa_session succeeds unless a test says otherwise. */
+let rpcReplies: Record<string, { data: unknown; error: { code?: string; message?: string } | null }> = {};
+
+function bindCalls() {
+  return rpc.mock.calls.filter((c) => c[0] === "bind_mfa_session");
+}
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -177,7 +199,9 @@ describe("verifyTotpAction (second factor)", () => {
     profileRow = totpProfile();
     jest.mocked(readPreTotpCookie).mockResolvedValue({ ok: true, userId: USER.id });
     generateLink.mockResolvedValue({ data: { properties: { hashed_token: "tok" } }, error: null });
-    verifyOtp.mockResolvedValue({ error: null });
+    verifyOtp.mockResolvedValue(mintedSession());
+    rpcReplies = { bind_mfa_session: { data: null, error: null } };
+    rpc.mockImplementation(async (fn: string) => rpcReplies[fn] ?? { data: null, error: null });
   });
 
   it("malformed code bounces back to the TOTP step without spending anything", async () => {
@@ -208,9 +232,23 @@ describe("verifyTotpAction (second factor)", () => {
     expect(auditActions()).toEqual(["LOGIN"]);
   });
 
+  it("binds the freshly minted session to the TOTP factor for the data tier", async () => {
+    jest.mocked(checkTotpCode).mockResolvedValue({ ok: true } as never);
+    const to = await redirectOf(verifyTotpAction(form({ totp_code: "123456", next: "/grid" })));
+    expect(to).toBe("/grid");
+    expect(bindCalls()).toEqual([
+      ["bind_mfa_session", { p_session_id: SESSION_ID, p_user_id: USER.id, p_method: "totp" }],
+    ]);
+    // Bound after the mint, before the login is recorded.
+    const verifyOrder = verifyOtp.mock.invocationCallOrder[0]!;
+    const bindOrder = rpc.mock.invocationCallOrder[rpc.mock.calls.findIndex((c) => c[0] === "bind_mfa_session")]!;
+    expect(bindOrder).toBeGreaterThan(verifyOrder);
+    expect(signOut).not.toHaveBeenCalled();
+  });
+
   it("valid recovery code is consumed atomically and refunds both budgets", async () => {
     jest.mocked(checkRateLimit).mockResolvedValue({ ok: true } as never);
-    rpc.mockResolvedValue({ data: true, error: null });
+    rpcReplies.consume_recovery_code = { data: true, error: null };
     const to = await redirectOf(verifyTotpAction(form({ totp_code: "abcde-fghjk" })));
     expect(to).toBe("/dashboard");
     expect(rpc).toHaveBeenCalledWith("consume_recovery_code", {
@@ -221,6 +259,76 @@ describe("verifyTotpAction (second factor)", () => {
     expect(release).toHaveBeenCalledTimes(1);
     expect(checkTotpCode).not.toHaveBeenCalled();
     expect(auditActions()).toEqual(["TOTP_RECOVERY_USED", "LOGIN"]);
+    expect(bindCalls()).toEqual([
+      ["bind_mfa_session", { p_session_id: SESSION_ID, p_user_id: USER.id, p_method: "recovery_code" }],
+    ]);
+  });
+
+  describe("session binding outcomes", () => {
+    let consoleWarn: jest.SpyInstance;
+    let consoleError: jest.SpyInstance;
+
+    beforeEach(() => {
+      jest.mocked(checkTotpCode).mockResolvedValue({ ok: true } as never);
+      consoleWarn = jest.spyOn(console, "warn").mockImplementation(() => {});
+      consoleError = jest.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      consoleWarn.mockRestore();
+      consoleError.mockRestore();
+    });
+
+    it.each(["PGRST202", "42883"])(
+      "bind RPC not deployed yet (%s): the login finishes unbound (web ships before the migration)",
+      async (code) => {
+        rpcReplies.bind_mfa_session = { data: null, error: { code, message: "Could not find the function" } };
+        const to = await redirectOf(verifyTotpAction(form({ totp_code: "123456", next: "/alerts" })));
+        expect(to).toBe("/alerts");
+        expect(signOut).not.toHaveBeenCalled();
+        expect(bindSessionPin).toHaveBeenCalledWith(USER.id);
+        expect(auditActions()).toEqual(["LOGIN"]);
+      },
+    );
+
+    it("any other bind failure ends the new session locally and fails with signin_failed", async () => {
+      rpcReplies.bind_mfa_session = {
+        data: null,
+        error: { code: "22023", message: "bind_mfa_session: session belongs to another user" },
+      };
+      const to = await redirectOf(verifyTotpAction(form({ totp_code: "123456", next: "/alerts" })));
+      expect(to).toBe("/login?error=signin_failed");
+      expect(signOut).toHaveBeenCalledWith({ scope: "local" });
+      expect(signOut).not.toHaveBeenCalledWith({ scope: "global" });
+      expect(clearPreTotpCookie).toHaveBeenCalled();
+      expect(bindSessionPin).not.toHaveBeenCalled();
+      expect(auditActions()).toEqual(["MFA_SESSION_BIND_FAILED"]);
+    });
+
+    it("a recovery-code login whose bind fails also ends in signin_failed (the code stays spent)", async () => {
+      jest.mocked(checkRateLimit).mockResolvedValue({ ok: true } as never);
+      rpcReplies.consume_recovery_code = { data: true, error: null };
+      rpcReplies.bind_mfa_session = { data: null, error: { code: "XX000", message: "boom" } };
+      const to = await redirectOf(verifyTotpAction(form({ totp_code: "ABCDEFGHJK" })));
+      expect(to).toBe("/login?error=signin_failed");
+      expect(signOut).toHaveBeenCalledWith({ scope: "local" });
+      expect(auditActions()).toEqual(["TOTP_RECOVERY_USED", "MFA_SESSION_BIND_FAILED"]);
+    });
+
+    it("a minted token without a session id is never left unbound", async () => {
+      verifyOtp.mockResolvedValue(mintedSession({ session_id: undefined }));
+      const to = await redirectOf(verifyTotpAction(form({ totp_code: "123456" })));
+      expect(to).toBe("/login?error=signin_failed");
+      expect(bindCalls()).toEqual([]);
+      expect(signOut).toHaveBeenCalledWith({ scope: "local" });
+    });
+
+    it("a minted token for another user is never bound", async () => {
+      verifyOtp.mockResolvedValue(mintedSession({ sub: "22222222-2222-4222-8222-222222222222" }));
+      const to = await redirectOf(verifyTotpAction(form({ totp_code: "123456" })));
+      expect(to).toBe("/login?error=signin_failed");
+      expect(bindCalls()).toEqual([]);
+    });
   });
 
   it("unknown recovery code keeps both charges", async () => {

@@ -222,7 +222,7 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 | 13. FastAPI `/docs` | disabled in production (`ALLOW_API_DOCS=1` to re-enable) |
 | 14. Dual-key crypto | `ML_ENCRYPTION_KEY_PREV` fallback during rotation |
 | 15. Webhook HMAC | SHA-256 signing for generic destinations |
-| 16. Second factor at the data tier | RLS restrictive policies AND `private.mfa_ok()` on the ten personal-data tables (`faces`, `alerts`, `recordings`, `cameras`, `suspects`, `clusters`, `reveal_jobs`, `audit_log`, `webhooks`, `camera_sessions`), the admin-writable configuration tables (`retention_policies`, `alert_rules`, `privacy_zones`, `masking_schedules`, `camera_permissions`), `storage.objects`, and inside the four SECURITY DEFINER RPCs, which RLS cannot reach. If a profile has TOTP enabled, its token must carry an `amr` method other than `password` — so an admin password plus the public anon key can no longer read or write through PostgREST. Fails open when the claim is unreadable; `profiles` and the auth-flow tables are deliberately not gated; kill switch `update private.security_settings set mfa_required = false` (ADR 0011, `docs/adr/0011-mfa-at-the-data-tier.md`) |
+| 16. Second factor at the data tier | RLS restrictive policies AND `private.mfa_ok()` on the ten personal-data tables (`faces`, `alerts`, `recordings`, `cameras`, `suspects`, `clusters`, `reveal_jobs`, `audit_log`, `webhooks`, `camera_sessions`), the admin-writable configuration tables (`retention_policies`, `alert_rules`, `privacy_zones`, `masking_schedules`, `camera_permissions`), `storage.objects`, and inside the four SECURITY DEFINER RPCs, which RLS cannot reach. If a profile has TOTP enabled, its token must carry an `amr` method other than `password` — so an admin password plus the public anon key can no longer read or write through PostgREST — and, since 2026-09-28, its `session_id` must be bound in `private.mfa_sessions`, which only the login flows write (service-role `bind_mfa_session`) right after a verified TOTP code, recovery code or passkey — so a magic-link / recovery session from a hijacked admin mailbox reads nothing either; an unbound session is signed out by the web (`/login?error=session_rebind`). Fails open when a claim is unreadable; `profiles` and the auth-flow tables are deliberately not gated; kill switch `update private.security_settings set mfa_required = false` (ADR 0011, `docs/adr/0011-mfa-at-the-data-tier.md`) |
 | 17. Privacy schedules | tightening only (ADR 0012): `private` windows turn off the recognition step at capture (no embeddings, face rows, crops or alerts; every masking path uses the detector alone for those frames) and block reveal of footage captured in them; no setting can un-mask video. Loosening needs a TOTP step-up + admin notification + audit row; `masking_schedules` is service-role-write only; capture-time facts live in `recording_privacy_spans` (not on `recordings`, which `authenticated` cannot UPDATE) and travel with each segment's delivery; the ML side fails closed after 10 min without a readable schedule |
 
 ---
@@ -398,7 +398,8 @@ Full start-to-finish audit (DB → auth → API → UI → ML). Highlights:
   `BLUR_STRATEGY=baked`.
 - **0011 — Second factor at the data tier** (`docs/adr/0011-mfa-at-the-data-tier.md`):
   restrictive RLS policies require `private.mfa_ok()`, so a TOTP account's
-  password-only token reaches no personal data.
+  password-only token reaches no personal data; amended 2026-09-28 with session
+  binding, so neither does an e-mail-minted (magic-link / recovery) session.
 - **0012 — Privacy schedules can only tighten protection**
   (`docs/adr/0012-privacy-schedules-tightening-only.md`): `standard` / `private`
   modes evaluated at capture time; `private` turns the recognition step off and

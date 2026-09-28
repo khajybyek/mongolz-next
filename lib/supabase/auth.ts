@@ -1,13 +1,14 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
-import { createClient } from "./server";
+import { createClient, createServiceClient } from "./server";
 import {
   PUBLIC_PROFILE_COLUMNS as PUBLIC_PROFILE_COLUMN_LIST,
   isUserRole,
   type PublicProfile,
 } from "@/lib/database.types";
 import { checkSessionPin, type PinResult } from "@/lib/auth/session-pin";
+import { currentSessionBinding } from "@/lib/auth/mfa-session";
 import { flag } from "@/lib/flags";
 
 // Single source of truth with the PublicProfile type (lib/database.types.ts).
@@ -48,6 +49,8 @@ type SessionState =
   | { kind: "no-profile" }
   | { kind: "unavailable" }
   | { kind: "pin-rejected"; ctx: AuthCtx; reason: string }
+  /** TOTP session the data tier would refuse (not bound after a factor). */
+  | { kind: "rebind"; ctx: AuthCtx }
   | { kind: "ok"; ctx: AuthCtx };
 
 /**
@@ -104,8 +107,9 @@ export function pinRevocationScope(reason: string): "local" | "global" {
  * Memoised per render with React `cache()`: a layout and its page both call
  * requireUser(), and without this every request ran the pin check twice —
  * on a rejection that meant two SESSION_PIN_REJECTED rows and two sign-out
- * calls. Outside a React render (route handlers, server actions, tests)
- * `cache` calls straight through.
+ * calls. The same memo keeps the session-binding lookup of a TOTP user to one
+ * RPC per render. Outside a React render (route handlers, server actions,
+ * tests) `cache` calls straight through; those call a helper once anyway.
  */
 const loadSession = cache(async function loadSession(): Promise<SessionState> {
   const supabase = await createClient();
@@ -158,7 +162,6 @@ const loadSession = cache(async function loadSession(): Promise<SessionState> {
     // changing IP looks identical to one who simply logged out. The next
     // request has no session, so this cannot loop.
     try {
-      const { createServiceClient } = await import("./server");
       await createServiceClient().from("audit_log").insert({
         action: "SESSION_PIN_REJECTED",
         detail: `reason: ${pin.reason}`,
@@ -167,6 +170,39 @@ const loadSession = cache(async function loadSession(): Promise<SessionState> {
       });
     } catch {}
     return { kind: "pin-rejected", ctx, reason: pin.reason };
+  }
+
+  // Session binding (migration 20260928120000). private.mfa_ok() refuses a
+  // TOTP profile's session unless the app bound it right after a verified
+  // second factor, so an unbound one — minted before binding shipped, or by a
+  // mailbox holder straight from GoTrue — would only render an empty console.
+  // Send it back to /login instead. TOTP profiles only: nobody else pays for
+  // the extra call. Anything undeterminable (RPC not deployed, RPC error,
+  // unreadable token) signs nobody out; the database still enforces.
+  if (profile.totp_enabled) {
+    const binding = await currentSessionBinding(supabase, createServiceClient(), user.id);
+    if (binding === "unbound") {
+      // LOCAL: only this session was minted without a binding — the user's
+      // bound sessions on other devices stay signed in. The revocation also
+      // happens server-side, so the middleware's getUser() finds no session
+      // and /login renders instead of bouncing back here; `session_rebind`
+      // is also a terminal login error there in case the sign-out failed.
+      try {
+        await supabase.auth.signOut({ scope: "local" });
+      } catch {
+        // Cookie writes are impossible from a Server Component — fine, the
+        // server-side revocation is what matters.
+      }
+      try {
+        await createServiceClient().from("audit_log").insert({
+          action: "SESSION_REBIND_REQUIRED",
+          detail: "session not bound to a verified second factor",
+          user_id: user.id,
+          user_email: ctx.user.email,
+        });
+      } catch {}
+      return { kind: "rebind", ctx };
+    }
   }
   return { kind: "ok", ctx };
 });
@@ -178,6 +214,7 @@ export async function requireUser(): Promise<AuthCtx> {
   if (s.kind === "no-profile") redirect("/login?error=no_profile");
   if (s.kind === "unavailable") redirect("/login?error=server_config");
   if (s.kind === "pin-rejected") redirect("/login?error=session_pin");
+  if (s.kind === "rebind") redirect("/login?error=session_rebind");
   return s.ctx;
 }
 
@@ -225,6 +262,9 @@ async function apiSession(opts: ApiAuthOptions): Promise<ApiAuthResult> {
   }
   if (s.kind === "pin-rejected") {
     return { error: NextResponse.json({ error: "session_invalid" }, { status: 401 }) };
+  }
+  if (s.kind === "rebind") {
+    return { error: NextResponse.json({ error: "session_rebind" }, { status: 401 }) };
   }
   const role = s.ctx.profile.role;
   const ownAccount = opts.allowAuditor === true || opts.ownAccount === true;

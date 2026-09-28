@@ -23,6 +23,7 @@ const ERROR_KEYS: Record<string, TranslationKey> = {
   signin_failed: "login_err_signin_failed",
   no_profile: "login_err_no_profile",
   session_pin: "login_err_session_pin",
+  session_rebind: "login_err_session_rebind",
   totp_enrolled: "login_err_totp_enrolled",
   callback_failed: "login_err_callback",
   server_config: "login_err_server_config",

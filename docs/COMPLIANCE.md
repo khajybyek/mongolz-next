@@ -96,10 +96,15 @@ The database now checks the token itself. Ten tables (`faces`, `alerts`,
 an `amr` method other than `password`. Sessions the application mints after a
 verified TOTP or passkey step qualify; a raw `grant_type=password` token does
 not. Accounts without TOTP (viewer, auditor) are unaffected. See
-[ADR 0011](adr/0011-mfa-at-the-data-tier.md).
+[ADR 0011](adr/0011-mfa-at-the-data-tier.md). Since 2026-09-28 the check is
+also bound to the session itself: the application records every session it
+mints after a verified TOTP code, recovery code or passkey, and the database
+refuses a TOTP account's session it did not record — so a session obtained
+from a magic-link or recovery e-mail (someone controlling the admin's
+mailbox) reaches no personal data either.
 
 State the limits with the control: it is **fail-open** where it cannot tell
-(a token with no readable `amr` claim is allowed, so that a change in the auth
+(a token with no readable `amr` or `session_id` claim is allowed, so that a change in the auth
 provider cannot lock the operator out), `profiles` and the tables read during
 login are deliberately not gated, `service_role` still bypasses RLS entirely,
 and a session that has already passed TOTP remains a bearer token — this closes

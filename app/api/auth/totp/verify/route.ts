@@ -84,10 +84,14 @@ export async function POST(request: NextRequest) {
     });
 
     // The session this enrolment was made from is password-only (amr =
-    // ["password"]). From the moment totp_enabled flips, the data-tier gate
-    // (private.mfa_ok, migration 20260908110000) refuses that token, so the
-    // console would render empty until the operator happened to sign out.
-    // End it here and tell the client to send them back to login.
+    // ["password"]) and was never bound to a second factor. From the moment
+    // totp_enabled flips, the data-tier gate (private.mfa_ok, migrations
+    // 20260908110000 + 20260928120000) refuses that token, so the console
+    // would render empty until the operator happened to sign out. End it
+    // (default scope: every session of the account) and tell the client to
+    // send them back to login — the TOTP login mints and binds a fresh one.
+    // Not re-minted here: binding stays reserved for sessions the login
+    // flows mint right after verifying the factor at login.
     try {
       const user = await createClient();
       await user.auth.signOut();
