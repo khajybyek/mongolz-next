@@ -1,5 +1,9 @@
 import { formatRetryClockKst, reconnectText, restartInfoFor } from "@/lib/camera-restarts";
 import { t as translate, type TranslationKey } from "@/lib/i18n/translations";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { LangProvider } from "@/lib/i18n/client";
+import { CameraReconnectLine, CameraRestartBadge } from "@/components/camera-restart-status";
 
 describe("restartInfoFor", () => {
   const base = { camera_name: null, started_at: null, fps: 15 };
@@ -133,5 +137,41 @@ describe("reconnectText", () => {
       "Reconnecting — retrying shortly",
     );
     expect(reconnectText({ ...backoff, state: "running", nextRetryAt: null }, en, now)).toBeNull();
+  });
+});
+
+describe("compact reconnect / restart markup (phone tiles)", () => {
+  const info = {
+    count: 5,
+    lastError: "source dropped (no frames)",
+    state: "backoff" as const,
+    nextRetryAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+  };
+  const render = (el: ReturnType<typeof createElement>) =>
+    renderToStaticMarkup(createElement(LangProvider, { initial: "en", children: el }));
+
+  it("shows only the HH:mm of the next try, and the whole sentence to screen readers", () => {
+    const html = render(createElement(CameraReconnectLine, { info, onDark: true, compact: true }));
+    const clock = formatRetryClockKst(info.nextRetryAt)!;
+    expect(html).toContain(`<span aria-hidden="true" class="truncate tabular-nums">${clock}</span>`);
+    expect(html).toContain(`<span class="sr-only">${reconnectText(info, (k) => translate(k, "en"))}</span>`);
+  });
+
+  it("falls back to the sentence when no time is known, with the same markup", () => {
+    const due = { ...info, nextRetryAt: null };
+    const html = render(createElement(CameraReconnectLine, { info: due, onDark: true, compact: true }));
+    expect(html).toContain(`class="truncate tabular-nums">${translate("camera_reconnecting", "en")}`);
+  });
+
+  it("the compact restart badge reads ×N, the words stay for screen readers", () => {
+    const html = render(createElement(CameraRestartBadge, { info, onDark: true, compact: true }));
+    expect(html).toContain('<span aria-hidden="true" class="whitespace-nowrap">×5</span>');
+    expect(html).toContain(`<span class="sr-only">${translate("grid_restarted", "en")} ×5</span>`);
+  });
+
+  it("the full variants are unchanged", () => {
+    const html = render(createElement(CameraRestartBadge, { info, onDark: true }));
+    expect(html).toContain(`${translate("grid_restarted", "en")} ×5`);
+    expect(html).not.toContain('aria-hidden="true" class="whitespace-nowrap"');
   });
 });

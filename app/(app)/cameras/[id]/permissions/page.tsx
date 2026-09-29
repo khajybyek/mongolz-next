@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Info, Trash2 } from "lucide-react";
+import { ArrowLeft, Info } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { requireAdmin } from "@/lib/supabase/auth";
@@ -11,17 +11,18 @@ import {
   revokeCameraPermissionAction,
 } from "./actions";
 import { StepUpForm } from "@/components/step-up-form";
+import {
+  grantHasNoLiveEffect,
+  groupGrantsByUser,
+  isGrantableRole,
+  permissionLabelKey,
+  roleLabelKey,
+  type GrantProfile,
+  type PermissionRow,
+} from "./grants";
+import { RevokeGrantButton } from "./revoke-grant-button";
 
 export const dynamic = "force-dynamic";
-
-interface PermRow {
-  id: string;
-  user_id: string;
-  permission: "view" | "operate";
-  created_at: string;
-  user_email: string | null;
-  user_role: string | null;
-}
 
 export default async function CameraPermissionsPage({
   params,
@@ -46,26 +47,34 @@ export default async function CameraPermissionsPage({
     .eq("camera_id", id)
     .order("created_at", { ascending: false });
 
-  const rows = (perms ?? []) as PermRow[];
+  const rows = (perms ?? []) as PermissionRow[];
   const userIds = Array.from(new Set(rows.map((r) => r.user_id)));
+  const profiles = new Map<string, GrantProfile>();
   if (userIds.length) {
-    const { data: profiles } = await svc
+    const { data } = await svc
       .from("profiles")
       .select("id, email, role")
       .in("id", userIds);
-    const map = new Map((profiles ?? []).map((p) => [p.id, p]));
-    rows.forEach((r) => {
-      const p = map.get(r.user_id);
-      r.user_email = p?.email ?? null;
-      r.user_role = p?.role ?? null;
-    });
+    for (const p of data ?? []) profiles.set(p.id, { email: p.email, role: p.role });
   }
+  // One row per person: both kinds grant the same access, and the revoke
+  // removes every row the user holds (actions.ts).
+  const grants = groupGrantsByUser(rows, profiles);
 
-  const { data: candidates } = await svc
+  // Viewers only: admins watch every camera anyway and auditors never get
+  // live video, so offering them a grant would promise nothing real.
+  const { data: candidateRows } = await svc
     .from("profiles")
     .select("id, email, role")
-    .neq("role", "admin")
+    .eq("role", "viewer")
     .order("email");
+  const candidates = (candidateRows ?? []).filter((u) => isGrantableRole(u.role));
+
+  const revoke = revokeCameraPermissionAction.bind(null, camera.id);
+  const roleLabel = (role: string | null) => {
+    const key = roleLabelKey(role);
+    return key ? t(key) : (role ?? "—");
+  };
 
   return (
     <>
@@ -84,56 +93,76 @@ export default async function CameraPermissionsPage({
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 mt-4">
         <div className="space-y-4">
-          {rows.length === 0 ? (
+          {grants.length === 0 ? (
             <Empty message={t("perm_empty")} />
           ) : (
             <div className="tbl-wrap">
-              <table className="tbl">
+              {/* Phones: the role moves under the e-mail (its own column would
+                  squeeze the address into 4-character lines) and the long mn
+                  permission header may wrap. */}
+              <table className="tbl tbl-tight">
                 <thead>
                   <tr>
                     <th>{t("perm_col_email")}</th>
-                    <th>{t("perm_col_role")}</th>
-                    <th>{t("perm_col_permission")}</th>
+                    <th className="hidden sm:table-cell">{t("perm_col_role")}</th>
+                    <th className="whitespace-normal sm:whitespace-nowrap">{t("perm_col_permission")}</th>
                     <th className="num">{t("col_actions")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.id}>
-                      <td>
-                        <span className="font-medium text-text">
-                          {r.user_email ?? r.user_id.slice(0, 8)}
-                        </span>
-                      </td>
-                      <td>
-                        <span
-                          className={`badge ${
-                            r.user_role === "auditor"
-                              ? "bg-warning/15 text-warning"
-                              : "bg-text-muted/15 text-text-soft"
-                          }`}
-                        >
-                          {r.user_role ?? "—"}
-                        </span>
-                      </td>
-                      <td>
-                        <span className="badge bg-accent/15 text-accent">{r.permission}</span>
-                      </td>
-                      <td className="num">
-                        <form action={revokeCameraPermissionAction} className="inline">
-                          <input type="hidden" name="id" value={r.id} />
-                          <input type="hidden" name="camera_id" value={camera.id} />
-                          <button
-                            type="submit"
-                            className="p-1.5 rounded hover:bg-danger/15 text-text-soft hover:text-danger"
-                            title={t("delete")}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </form>
-                      </td>
-                    </tr>
-                  ))}
+                  {grants.map((g) => {
+                    const userLabel = g.email ?? g.user_id.slice(0, 8);
+                    const noLive = grantHasNoLiveEffect(g.role);
+                    const roleBadge = (
+                      <span
+                        className={`badge ${
+                          g.role === "auditor"
+                            ? "bg-warning/15 text-warning"
+                            : "bg-text-muted/15 text-text-soft"
+                        }`}
+                      >
+                        {roleLabel(g.role)}
+                      </span>
+                    );
+                    return (
+                      <tr key={g.user_id}>
+                        <td>
+                          {/* A 9rem floor keeps ordinary addresses on one line;
+                              only a longer one wraps, and only where it must. */}
+                          <span className="block min-w-[9rem] font-medium text-text [overflow-wrap:anywhere]">
+                            {userLabel}
+                          </span>
+                          <div className="mt-1 sm:hidden">{roleBadge}</div>
+                        </td>
+                        <td className="hidden sm:table-cell">{roleBadge}</td>
+                        <td>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {g.permissions.map((p) => (
+                              <span key={p} className="badge bg-accent/15 text-accent">
+                                {t(permissionLabelKey(p))}
+                              </span>
+                            ))}
+                          </div>
+                          {/* Auditors never reach the stream gateway: this row
+                              gives no live video, it only keeps the camera
+                              restricted to the listed users. */}
+                          {noLive && (
+                            <p className="text-2xs text-text-muted mt-1" title={t("perm_auditor_no_live_tip")}>
+                              {t("perm_auditor_no_live")}
+                            </p>
+                          )}
+                        </td>
+                        <td className="num">
+                          <RevokeGrantButton
+                            userId={g.user_id}
+                            userLabel={userLabel}
+                            isLastGrant={grants.length === 1}
+                            action={revoke}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -155,11 +184,11 @@ export default async function CameraPermissionsPage({
           <StepUpForm action={grantCameraPermissionAction} className="card space-y-3">
             <h3 className="text-sm font-semibold">{t("perm_grant_title")}</h3>
             <input type="hidden" name="camera_id" value={camera.id} />
-            <select name="user_id" required aria-label={t("perm_pick_user")} className="input text-sm">
+            <select name="user_id" required aria-label={t("perm_pick_user")} className="select text-sm">
               <option value="">{t("perm_pick_user")}</option>
-              {(candidates ?? []).map((u) => (
+              {candidates.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.email} ({u.role})
+                  {u.email} ({roleLabel(u.role)})
                 </option>
               ))}
             </select>
@@ -168,7 +197,7 @@ export default async function CameraPermissionsPage({
               defaultValue="view"
               aria-label={t("perm_col_permission")}
               aria-describedby="perm-kinds-hint"
-              className="input text-sm"
+              className="select text-sm"
             >
               <option value="view">{t("perm_view")}</option>
               <option value="operate">{t("perm_operate")}</option>

@@ -23,8 +23,9 @@ import { cn, formatDate } from "@/lib/utils";
 import type { CameraRestartInfo } from "@/lib/camera-restarts";
 import { CameraReconnectLine, CameraRestartBadge } from "@/components/camera-restart-status";
 import { PrivacyModeBadge, PrivacyModeLegend } from "@/components/privacy-mode-badge";
-import type { LiveLock, StreamDenyCode } from "@/lib/live-access";
-import { LiveLockOverlay } from "@/components/live-lock-overlay";
+import { liveLockLayout, type LiveLock, type StreamDenyCode } from "@/lib/live-access";
+import { LiveLockOverlay, useTileSize } from "@/components/live-lock-overlay";
+import { compactTileBadges, idleTileLabelKey, privacyLegendState, showsPrivacyBadge } from "@/lib/grid-tiles";
 import {
   getActiveCamerasAction,
   getStreamTicketAction,
@@ -427,6 +428,16 @@ export function MultiCameraGrid({
   const streamingCount = streams.size;
   // Viewer with no live grant on any listed camera: one notice says so.
   const noLiveAccess = !canControl && cameras.length > 0 && cameras.every((c) => !c.liveAllowed);
+  // The legend follows the badges on screen (private AND attached AND not
+  // locked), not merely "some camera is private".
+  const legend = privacyLegendState(
+    (focusedCam ? [focusedCam] : visible).map((cam) => ({
+      privateMode: privateIds.has(cam.id),
+      failClosed: failClosedIds.has(cam.id),
+      attached: streams.has(cam.id),
+      locked: lockFor(cam) !== null,
+    })),
+  );
 
   const layoutOptions: Array<{ value: Layout; label: string }> = [
     { value: "auto", label: t("grid_auto") },
@@ -546,9 +557,7 @@ export function MultiCameraGrid({
       )}
 
       {/* The privacy badge's meaning, visible without hover (touch screens). */}
-      {reachable && [...privateIds].some((id) => cameras.some((c) => c.id === id)) && (
-        <PrivacyModeLegend failClosed={[...failClosedIds].some((id) => privateIds.has(id))} />
-      )}
+      {reachable && legend.show && <PrivacyModeLegend failClosed={legend.failClosed} />}
 
       {/* Viewer without any live grant: the tiles are locked — say why once. */}
       {noLiveAccess && <Alert variant="info">{t("live_no_access_any")}</Alert>}
@@ -685,11 +694,26 @@ function GridTile({
   reachable: boolean;
 }) {
   const { t } = useT();
+  const tileRef = useRef<HTMLDivElement>(null);
+  const tile = useTileSize(tileRef);
   const live = Boolean(streamUrl) && playing && !failed && !lock;
   const loading = busy !== null || (Boolean(streamUrl) && !playing && !failed && !lock);
+  // Supervisor backoff: the source dropped and the ML service will retry on
+  // its own — the tile says when, instead of looking merely idle.
+  const backoff = restart?.state === "backoff";
+  const idleKey = idleTileLabelKey({ failed, backoff, canControl });
+  const idleLabel = idleKey ? t(idleKey) : null;
+  // How much the idle body may say without running under the name chip and
+  // the meta bar — the same measurement the lock overlay uses. On a phone
+  // tile there is no band at all: the body goes screen-reader-only and the
+  // reconnect line moves into the meta bar.
+  const bodyLayout = liveLockLayout(tile, { focused, retry: false });
+  const reconnectInMeta = backoff && bodyLayout === "icon";
+  const badge = showsPrivacyBadge({ privateMode, failClosed, attached: Boolean(streamUrl), locked: lock !== null });
 
   return (
     <div
+      ref={tileRef}
       className={cn(
         "group relative bg-black rounded-xl overflow-hidden border transition-colors",
         live ? "border-danger/40" : "border-border hover:border-border-strong",
@@ -710,16 +734,22 @@ function GridTile({
           onPlaying={onPlaying}
           onError={onError}
         />
+      ) : bodyLayout === "icon" ? (
+        idleLabel && <span className="sr-only">{idleLabel}</span>
       ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-text-faint">
-          <Cctv className="w-8 h-8 opacity-40" />
-          <span className="text-xs">
-            {failed ? t("grid_stream_failed") : canControl ? t("grid_idle") : t("grid_waiting_stream")}
-          </span>
-          {/* Supervisor backoff: the source dropped and the ML service will
-              retry on its own — say when, instead of looking merely idle. */}
-          {restart?.state === "backoff" && (
-            <CameraReconnectLine info={restart} className="max-w-[90%] px-2 text-2xs" />
+        // Tiles are always black: fixed light colours, not theme tokens.
+        // top-10 / bottom-14 = LIVE_TILE_OVERLAYS (name chip, meta bar).
+        <div className="absolute inset-x-0 top-10 bottom-14 flex flex-col items-center justify-center gap-1.5 px-3 text-center">
+          {bodyLayout === "full" ? (
+            <>
+              <Cctv className="w-8 h-8 shrink-0 text-white/30" aria-hidden />
+              {idleLabel && <span className="text-xs text-white/70">{idleLabel}</span>}
+              {backoff && <CameraReconnectLine info={restart} onDark className="max-w-full text-2xs" />}
+            </>
+          ) : backoff ? (
+            <CameraReconnectLine info={restart} onDark className="max-w-full text-2xs" />
+          ) : (
+            idleLabel && <span className="max-w-full truncate text-2xs text-white/70">{idleLabel}</span>
           )}
         </div>
       )}
@@ -734,7 +764,9 @@ function GridTile({
 
       {loading && (
         <div className="absolute inset-0 z-[2] flex items-center justify-center bg-black/40 pointer-events-none">
-          <span className="inline-flex items-center gap-2 text-xs text-white/90 bg-bg/70 rounded-lg px-3 py-1.5">
+          {/* Fixed dark chip: bg-bg is white in the light theme, which made
+              the white label unreadable. */}
+          <span className="inline-flex items-center gap-2 text-xs text-white/90 bg-black/70 rounded-lg px-3 py-1.5">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
             {busy === "stop" ? t("grid_stopping") : t("grid_starting")}
           </span>
@@ -754,54 +786,77 @@ function GridTile({
         </div>
       )}
 
-      {/* Top-left: status + name */}
-      <div className="absolute top-2 left-2 z-[3] flex items-center gap-2 bg-bg/70 backdrop-blur rounded-md px-2 py-1 text-xs pointer-events-none max-w-[70%]">
-        <span
-          className={cn("w-2 h-2 rounded-full shrink-0", STATUS_DOT[cam.status], cam.status === "healthy" && "animate-pulse")}
-          title={`${t("cam_health_liveness")}: ${cam.status}`}
-          aria-label={`${t("cam_health_liveness")}: ${cam.status}`}
-        />
-        <span className="font-semibold truncate text-text">{cam.name}</span>
-      </div>
-
-      {/* Top-right: privacy mode + LIVE / type */}
-      <div className="absolute top-2 right-2 z-[3] flex items-center gap-1.5 pointer-events-none">
-        {privateMode && Boolean(streamUrl) && (
-          <PrivacyModeBadge className="bg-bg/80 backdrop-blur" failClosed={failClosed} />
-        )}
-        {live ? (
-          <span className="inline-flex items-center gap-1.5 rounded-md bg-danger text-white text-[10px] font-bold tracking-wider px-2 py-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" aria-hidden />
-            {t("grid_live")}
-          </span>
-        ) : (
-          <span className="rounded-md bg-bg/70 backdrop-blur text-[10px] font-mono uppercase text-text-soft px-2 py-1">
-            {cam.cam_type}
-          </span>
-        )}
+      {/* Top row: status + name (left), privacy mode + LIVE / type (right).
+          One flex row, so on a narrow tile the name truncates instead of
+          disappearing under the badges. */}
+      <div className="absolute top-2 inset-x-2 z-[3] flex items-center justify-between gap-1.5 pointer-events-none">
+        <div className="min-w-0 flex items-center gap-2 bg-bg/70 backdrop-blur rounded-md px-2 py-1 text-xs">
+          <span
+            className={cn("w-2 h-2 rounded-full shrink-0", STATUS_DOT[cam.status], cam.status === "healthy" && "animate-pulse")}
+            title={`${t("cam_health_liveness")}: ${cam.status}`}
+            aria-label={`${t("cam_health_liveness")}: ${cam.status}`}
+          />
+          <span className="font-semibold truncate text-text">{cam.name}</span>
+        </div>
+        <div className="shrink-0 flex items-center gap-1.5">
+          {badge && (
+            <PrivacyModeBadge
+              className="bg-bg/80 backdrop-blur"
+              failClosed={failClosed}
+              compact={compactTileBadges(tile, focused)}
+            />
+          )}
+          {live ? (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-danger text-white text-[10px] font-bold tracking-wider px-2 py-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" aria-hidden />
+              {t("grid_live")}
+            </span>
+          ) : (
+            // Fixed dark chip: the tile is always black.
+            <span className="rounded-md bg-black/60 backdrop-blur text-[10px] font-mono uppercase text-white/70 px-2 py-1">
+              {cam.cam_type}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Bottom bar: meta + controls */}
       <div className="absolute bottom-0 inset-x-0 z-[3] flex items-center justify-between gap-2 px-2 py-1.5 bg-gradient-to-t from-black/80 to-transparent text-[10px] text-white/85">
-        <span className="truncate pointer-events-none">
-          {cam.last_seen ? `${t("wall_last")}: ${formatDate(cam.last_seen)}` : t("wall_no_detection")}
-          {" · "}
-          <span className="font-mono">{cam.faces_1h}/1h</span>
-          {restart && restart.count > 0 && (
-            <>
-              {" · "}
-              <CameraRestartBadge info={restart} className="ml-0.5" />
-            </>
-          )}
-        </span>
+        {reconnectInMeta && restart ? (
+          // Phone tile: no room in the body, and the retry time is the one
+          // fact the operator cannot get anywhere else. Beside the 44 px tile
+          // buttons there are ~60 px, so the line shows just "↻ HH:mm" and
+          // the restart count sits under it as "⚠ ×N" (whole sentences stay
+          // for screen readers).
+          <span className="min-w-0 flex flex-col gap-0.5 leading-tight pointer-events-none">
+            <CameraReconnectLine info={restart} onDark compact className="min-w-0" />
+            <CameraRestartBadge info={restart} onDark compact />
+          </span>
+        ) : (
+          <span className="truncate pointer-events-none">
+            {cam.last_seen ? `${t("wall_last")}: ${formatDate(cam.last_seen)}` : t("wall_no_detection")}
+            {" · "}
+            <span className="font-mono">{cam.faces_1h}/1h</span>
+            {restart && restart.count > 0 && (
+              <>
+                {" · "}
+                <CameraRestartBadge info={restart} onDark className="ml-0.5" />
+              </>
+            )}
+          </span>
+        )}
         <span className="flex items-center gap-1 shrink-0">
+          {/* No Play on a locked tile: the gateway just refused this camera
+              (or the operator holds no grant), so a start could only fail
+              again; a failed permission check has its own Retry. */}
           {canControl &&
+            !lock &&
             (streamUrl ? (
               <button
                 type="button"
                 onClick={onStop}
                 disabled={busy !== null}
-                className="btn-icon w-8 h-8 min-w-0 bg-bg/70 text-danger hover:bg-danger/20"
+                className="btn-icon w-8 h-8 min-w-0 bg-bg/70 text-danger enabled:hover:bg-danger/20"
                 aria-label={`${t("grid_stop")}: ${cam.name}`}
                 title={t("grid_stop")}
               >
@@ -812,7 +867,7 @@ function GridTile({
                 type="button"
                 onClick={onStart}
                 disabled={busy !== null || !reachable}
-                className="btn-icon w-8 h-8 min-w-0 bg-bg/70 text-accent hover:bg-accent/20"
+                className="btn-icon w-8 h-8 min-w-0 bg-bg/70 text-accent enabled:hover:bg-accent/20"
                 aria-label={`${t("grid_play")}: ${cam.name}`}
                 title={t("grid_play")}
               >

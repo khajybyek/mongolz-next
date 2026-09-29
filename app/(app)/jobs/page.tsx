@@ -11,7 +11,8 @@ import { WorkflowPagination } from "@/components/workflow-pagination";
 import { WorkflowRefresh } from "@/components/workflow-refresh";
 import { isActiveUpload } from "@/lib/recording-upload";
 import { RevealOutcome, UploadJobDetails } from "./job-outcome";
-import { revealErrorText } from "@/lib/reveal-errors";
+import { revealErrorText, revealWithheldByPrivacy } from "@/lib/reveal-errors";
+import { Lock } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 const REVEAL_ACTIVE = ["pending_approval", "queued", "processing"] as const;
@@ -59,14 +60,19 @@ export default async function JobsPage({ searchParams }: { searchParams?: Promis
     {!admin && kind === "reveal" && <Empty message={c.noAccess} />}
     <div className="space-y-6">
       {showReveal && <section className="space-y-3"><h2 className="section-title">{c.reveal}{revealTotal.state === "ok" ? ` · ${revealTotal.value}` : ""}</h2>
-        {reveals.state !== "ok" || revealTotal.state !== "ok" ? <Empty message={reveals.state === "denied" || revealTotal.state === "denied" ? c.noAccess : c.unavailable} /> : !reveals.rows.length ? <Empty message={c.noResults} /> : reveals.rows.map((job) => <article key={job.id} className="card space-y-3">
-          <div className="flex flex-wrap justify-between gap-2"><span className="text-xs font-mono text-text-soft">{job.id.slice(0, 8)} · {job.method}</span><JobStatus status={job.status} label={workflowStatus(job.status, lang)} /></div>
+        {reveals.state !== "ok" || revealTotal.state !== "ok" ? <Empty message={reveals.state === "denied" || revealTotal.state === "denied" ? c.noAccess : c.unavailable} /> : !reveals.rows.length ? <Empty message={c.noResults} /> : reveals.rows.map((job) => {
+          // A privacy-policy refusal (ADR 0012) is final — "withheld", not a
+          // failure that invites a retry that can never succeed.
+          const withheld = job.status === "failed" && revealWithheldByPrivacy(job.error_message);
+          return <article key={job.id} className="card space-y-3">
+          <div className="flex flex-wrap justify-between gap-2"><span className="text-xs font-mono text-text-soft">{job.id.slice(0, 8)} · {job.method}</span>{withheld ? <span className="badge bg-accent/15 text-accent"><Lock className="h-3 w-3" aria-hidden />{t("reveal_withheld_privacy")}</span> : <JobStatus status={job.status} label={workflowStatus(job.status, lang)} />}</div>
           <p className="text-xs text-text-muted">{job.requested_email ?? "—"} · {formatDate(job.created_at)}{job.completed_at ? ` → ${formatDate(job.completed_at)}` : ""}</p>
           {(job.status === "queued" || job.status === "processing") && <Progress value={job.progress ?? 0} />}
-          {(job.error_message || job.rejected_reason) && <p role="alert" className="text-xs text-danger break-words">{revealErrorText(job.error_message, t) || job.rejected_reason}</p>}
+          {withheld ? <p className="text-xs text-text-soft break-words">{revealErrorText(job.error_message, t)}</p> : (job.error_message || job.rejected_reason) && <p role="alert" className="text-xs text-danger break-words">{revealErrorText(job.error_message, t) || job.rejected_reason}</p>}
           <div className="flex flex-wrap gap-2"><a className="btn-secondary btn-sm" href={`/playback/${job.recording_id}`}>{c.recording}</a>{job.status === "pending_approval" && <a className="btn-primary btn-sm" href="/reveal-approvals">{c.approval}</a>}</div>
           {job.status === "completed" && <RevealOutcome jobId={job.id} />}
-        </article>)}
+        </article>;
+        })}
         {revealTotal.state === "ok" && <WorkflowPagination path="/jobs" params={queryParams} pageKey="reveal_page" page={revealPage} total={revealTotal.value} pageSize={JOB_PAGE_SIZE} lang={lang} />}
       </section>}
       {showUpload && <section className="space-y-3"><h2 className="section-title">{c.upload}{uploadTotal.state === "ok" ? ` · ${uploadTotal.value}` : ""}</h2>

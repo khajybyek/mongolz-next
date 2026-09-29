@@ -17,6 +17,7 @@ import {
   type ScheduleChange,
   type ScheduleWindowRow,
 } from "@/lib/privacy-schedule";
+import { weekdaysFromForm } from "./weekdays";
 
 /**
  * Privacy schedules are ENFORCED by the ML service (ADR 0012): a "private"
@@ -49,6 +50,7 @@ type Messages = {
   timeFormat: string;
   sameTime: string;
   start24: string;
+  weekdays: string;
 };
 
 function scheduleSchema(msg: Messages) {
@@ -58,7 +60,11 @@ function scheduleSchema(msg: Messages) {
       window_mode: modeSchema,
       starts_at: z.string().regex(TIME_RE, msg.timeFormat),
       ends_at: z.string().regex(TIME_RE, msg.timeFormat),
-      weekdays: z.coerce.number().int().min(1).max(127),
+      weekdays: z.coerce
+        .number({ invalid_type_error: msg.weekdays })
+        .int(msg.weekdays)
+        .min(1, msg.weekdays)
+        .max(127, msg.weekdays),
       note: z.string().max(200).optional(),
     })
     .refine((v) => v.starts_at !== "24:00", { message: msg.start24, path: ["starts_at"] })
@@ -186,12 +192,13 @@ export async function addScheduleAction(formData: FormData): Promise<ActionResul
     timeFormat: t("schedule_err_time_format"),
     sameTime: t("schedule_err_same_time"),
     start24: t("schedule_err_start_24"),
+    weekdays: t("schedule_err_weekdays"),
   }).safeParse({
     camera_id: formData.get("camera_id"),
     window_mode: formData.get("window_mode"),
     starts_at: formData.get("starts_at"),
     ends_at: formData.get("ends_at"),
-    weekdays: formData.get("weekdays"),
+    weekdays: weekdaysFromForm(formData),
     note: formData.get("note") || undefined,
   });
   if (!parsed.success) {

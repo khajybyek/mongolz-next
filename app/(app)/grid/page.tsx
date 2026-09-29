@@ -13,6 +13,7 @@ import { MultiCameraGrid, type GridCamera } from "./multi-camera-grid";
 import { PrivacyEnforcementNotice } from "@/components/privacy-enforcement-notice";
 import { probeMlPrivacyEnforcement } from "@/lib/health-probes";
 import { loadLiveAllowed } from "@/lib/live-access";
+import { streamingCountFor } from "@/lib/grid-tiles";
 
 export const dynamic = "force-dynamic";
 
@@ -118,6 +119,9 @@ export default async function GridPage({
 
   const enabledIds = new Set(cameras.map((c) => c.id));
   const initialActive = (active ?? []).map((a) => a.camera_id).filter((id) => enabledIds.has(id));
+  // A viewer's "streaming" counts only the running cameras they may watch,
+  // the same streams the grid toolbar counts (a locked tile is not one).
+  const streamingForOperator = streamingCountFor(canControl, initialActive, liveAllowed);
   // An ML build without the privacy-schedule capability ignores schedules
   // (and sends no privacy badge) — say so; "ML down" is shown by the grid.
   const privacyEnforcement = active !== null ? await probeMlPrivacyEnforcement() : "unreachable";
@@ -126,7 +130,7 @@ export default async function GridPage({
     <>
       <PageHeader
         title={t("grid_title")}
-        subtitle={`${cameras.length} ${t("grid_active_cameras")} · ${initialActive.length} ${t("grid_streaming")}`}
+        subtitle={`${cameras.length} ${t("grid_active_cameras")} · ${streamingForOperator} ${t("grid_streaming")}`}
         icon={<LayoutGrid className="w-5 h-5" />}
         actions={
           <Link href={"/wall" as never} className="btn-secondary btn-sm">

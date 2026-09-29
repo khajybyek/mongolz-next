@@ -5,6 +5,7 @@ import { Eye, Scissors } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n/client";
 import { FaceThumb } from "@/components/face-thumb";
+import { formatVideoOffset as fmt } from "@/lib/privacy-schedule";
 
 export interface TimelineFace {
   id: string;
@@ -31,6 +32,9 @@ interface Props {
   /** When set, a "Reveal range" button appears in the header; click → open
    *  reveal modal pre-seeded with the time window covering all detected faces. */
   onRevealRange?: (startSec: number, endSec: number, faceIds: string[]) => void;
+  /** Set when every reveal of this recording would be refused (ADR 0012) —
+   *  replaces the reveal buttons' tooltips with the reason. */
+  revealBlockedHint?: string;
 }
 
 /**
@@ -52,6 +56,7 @@ export function FaceTimeline({
   title,
   onRevealFace,
   onRevealRange,
+  revealBlockedHint,
 }: Props) {
   const { t } = useT();
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -126,7 +131,7 @@ export function FaceTimeline({
                   sortedFaces.map((f) => f.id),
                 );
               }}
-              title={t("pb_reveal_range_hint")}
+              title={revealBlockedHint ?? t("pb_reveal_range_hint")}
               className="btn-outline btn-sm"
             >
               <Scissors className="w-3 h-3" />
@@ -226,7 +231,10 @@ export function FaceTimeline({
                   >
                     #{f.display_no}
                   </span>
-                  <span className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 via-black/40 to-transparent px-1 py-0.5 text-[9px] font-mono text-white text-right pointer-events-none">
+                  {/* One line, left-aligned, clear of the sealed-crop shield
+                      (bottom-right, from 18 px in): "1:09:13" at 9 px mono is
+                      ~38 px of the 60 px inside the border, so it never wraps. */}
+                  <span className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 via-black/40 to-transparent pl-0.5 pr-[18px] py-0.5 text-[9px] font-mono text-white text-left whitespace-nowrap pointer-events-none">
                     {fmt(f.time_in_video_sec)}
                   </span>
                   {onRevealFace && (
@@ -236,7 +244,7 @@ export function FaceTimeline({
                         e.stopPropagation();
                         onRevealFace(f);
                       }}
-                      title={`${t("pb_reveal_this_face")} — #${f.display_no}`}
+                      title={revealBlockedHint ?? `${t("pb_reveal_this_face")} — #${f.display_no}`}
                       aria-label={`${t("pb_reveal_this_face")} #${f.display_no}`}
                       className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-accent text-bg inline-flex items-center justify-center opacity-0 group-hover/face:opacity-100 focus:opacity-100 transition shadow-overlay"
                     >
@@ -251,11 +259,4 @@ export function FaceTimeline({
       </div>
     </div>
   );
-}
-
-function fmt(sec: number): string {
-  if (!Number.isFinite(sec) || sec < 0) return "—";
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
 }

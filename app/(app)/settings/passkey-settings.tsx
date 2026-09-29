@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Fingerprint, Trash2, Loader2, Plus, AlertCircle, CheckCircle2 } from "lucide-react";
 import { TotpPrompt } from "@/components/totp-prompt";
 import { useT } from "@/lib/i18n/client";
+import type { TranslationKey } from "@/lib/i18n/translations";
 import { formatDate } from "@/lib/utils";
 
 interface Credential {
@@ -31,6 +32,26 @@ function bufToB64u(buf: ArrayBuffer | Uint8Array): string {
   let s = "";
   for (const b of bytes) s += String.fromCharCode(b);
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * WebAuthn transport ids ("internal", "hybrid", …) → readable labels.
+ * Unknown ids are dropped rather than shown raw; duplicates collapse.
+ */
+const TRANSPORT_KEYS: Record<string, TranslationKey> = {
+  internal: "set_pk_tr_internal",
+  hybrid: "set_pk_tr_hybrid",
+  cable: "set_pk_tr_hybrid",
+  usb: "set_pk_tr_usb",
+  nfc: "set_pk_tr_nfc",
+  ble: "set_pk_tr_ble",
+};
+
+function transportLabels(transports: readonly string[], t: (key: TranslationKey) => string): string[] {
+  const labels = transports
+    .filter((id) => Object.hasOwn(TRANSPORT_KEYS, id))
+    .map((id) => t(TRANSPORT_KEYS[id]));
+  return [...new Set(labels)];
 }
 
 /** `canEnrol` = false for an admin without TOTP (the step-up cannot succeed). */
@@ -208,7 +229,7 @@ export function PasskeySettings({ canEnrol = true }: { canEnrol?: boolean }) {
         <div>
           <h3 className="section-title flex items-center gap-2">
             <Fingerprint className="w-4 h-4 text-accent" />
-            Passkey
+            {t("set_pk_title")}
           </h3>
           <p className="text-xs text-text-soft mt-1 max-w-md leading-relaxed">
             {t("set_pk_desc")}
@@ -269,7 +290,7 @@ export function PasskeySettings({ canEnrol = true }: { canEnrol?: boolean }) {
                 <div className="text-text-muted">
                   {/* KST like every other operator timestamp (was browser locale / zone). */}
                   {formatDate(c.created_at)} ·{" "}
-                  {c.transports.length > 0 ? c.transports.join(", ") : "—"}
+                  {transportLabels(c.transports ?? [], t).join(", ") || "—"}
                 </div>
               </div>
               <button

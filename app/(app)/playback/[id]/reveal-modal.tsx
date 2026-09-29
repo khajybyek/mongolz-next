@@ -20,13 +20,15 @@ import { useT } from "@/lib/i18n/client";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import { useModalFocus } from "@/lib/use-modal-focus";
 import {
+  formatVideoOffset as fmtSec,
   revealBlockedByPrivacy,
   revealCanContinue,
   revealPrivacyVerdict,
   type OffsetRange,
   type RevealMethod,
 } from "@/lib/privacy-schedule";
-import { revealErrorText } from "@/lib/reveal-errors";
+import { revealErrorText, revealWithheldByPrivacy } from "@/lib/reveal-errors";
+import { workflowStatus } from "@/lib/workflow-copy";
 
 interface Suspect {
   id: string;
@@ -151,6 +153,26 @@ export function RevealModal({
     windowEnabled ? { start: windowStart, end: windowEnd } : null,
   );
   const privacyBlocked = revealBlockedByPrivacy(privacyVerdict);
+  // Window disabled → the request covers the whole recording, so the copy
+  // must say "recording", not "selected range".
+  const privacyNotice = privacyVerdict === "none" ? null : (
+    <div
+      role={privacyBlocked ? "alert" : undefined}
+      className={cn(
+        "rounded-lg border px-3 py-2 text-xs flex gap-2",
+        privacyBlocked ? "border-danger/30 bg-danger/5 text-danger" : "border-accent/30 bg-accent/5 text-text-soft",
+      )}
+    >
+      <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden />
+      <span>
+        {privacyVerdict === "spans"
+          ? t(windowEnabled ? "pb_reveal_privacy_blocked_spans" : "pb_reveal_privacy_blocked_spans_recording")
+          : privacyVerdict === "schedule"
+            ? t(windowEnabled ? "pb_reveal_privacy_blocked_schedule" : "pb_reveal_privacy_blocked_schedule_recording")
+            : t(windowEnabled ? "pb_reveal_privacy_partial" : "pb_reveal_privacy_partial_recording")}
+      </span>
+    </div>
+  );
 
   // Method-аас хамаарч "Үргэлжлүүлэх" товчийг enable — and never for a range
   // the job would refuse, whatever the method.
@@ -322,7 +344,7 @@ export function RevealModal({
         <div className="sticky top-0 z-10 flex items-start justify-between gap-2 border-b border-text-muted/5 bg-bg-secondary/95 p-4 backdrop-blur sm:p-5">
           <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
             <h2 id="reveal-modal-title" className="min-w-0 font-semibold flex items-center gap-2">
-              <Lock className="w-4 h-4 text-accent" />
+              <Lock className="w-4 h-4 shrink-0 text-accent" aria-hidden />
               {t("pb_modal_title")}
             </h2>
             <RevealAuthorityBadge />
@@ -345,6 +367,9 @@ export function RevealModal({
           {/* ─── STEP 1: Method ─── */}
           {step === "method" && (
             <div className="space-y-4">
+              {/* A refused request is said FIRST — before the operator picks a
+                  method or uploads a photo that can never be sent. */}
+              {privacyBlocked && privacyNotice}
               <div className="grid grid-cols-1 min-[480px]:grid-cols-3 gap-2">
                 <MethodCard
                   active={method === "upload"}
@@ -562,24 +587,7 @@ export function RevealModal({
                 </div>
               )}
 
-              {privacyVerdict !== "none" && (
-                <div
-                  role={privacyBlocked ? "alert" : undefined}
-                  className={cn(
-                    "rounded-lg border px-3 py-2 text-xs flex gap-2",
-                    privacyBlocked ? "border-danger/30 bg-danger/5 text-danger" : "border-accent/30 bg-accent/5 text-text-soft",
-                  )}
-                >
-                  <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden />
-                  <span>
-                    {privacyVerdict === "spans"
-                      ? t("pb_reveal_privacy_blocked_spans")
-                      : privacyVerdict === "schedule"
-                        ? t("pb_reveal_privacy_blocked_schedule")
-                        : t("pb_reveal_privacy_partial")}
-                  </span>
-                </div>
-              )}
+              {!privacyBlocked && privacyNotice}
 
               <div>
                 <label htmlFor="reveal-reason" className="label">{copy.reason}</label>
@@ -701,7 +709,7 @@ export function RevealModal({
                 </div>
               </div>
               <div className="text-[10px] text-text-muted font-mono">
-                job {job.id.slice(0, 8)} · status: pending_approval
+                {job.id.slice(0, 8)} · {workflowStatus(job.status, lang)}
               </div>
             </div>
           )}
@@ -723,7 +731,7 @@ export function RevealModal({
                     />
                   </div>
                   <div className="text-[10px] text-text-muted mt-1.5">
-                    {job.status} · {job.progress}%
+                    {workflowStatus(job.status, lang)} · {job.progress}%
                   </div>
                 </div>
               )}
@@ -781,15 +789,36 @@ export function RevealModal({
                   </div>
                 </>
               ) : (
-                <div className="bg-danger/5 border border-danger/30 rounded-lg p-4 flex gap-2">
-                  <AlertTriangle className="w-5 h-5 text-danger shrink-0" />
-                  <div>
-                    <div className="font-medium text-danger">{t("pb_reveal_failed")}</div>
-                    <div className="text-xs text-text-soft mt-0.5">
-                      {revealErrorText(job.error_message, t) ?? t("ui_error_title")}
+                <>
+                  {/* A privacy-policy refusal is final (ADR 0012): shown as
+                      "withheld", not as a failure that invites a retry. */}
+                  {revealWithheldByPrivacy(job.error_message) ? (
+                    <div role="alert" className="bg-accent/5 border border-accent/30 rounded-lg p-4 flex gap-2">
+                      <Lock className="w-5 h-5 text-accent shrink-0" aria-hidden />
+                      <div>
+                        <div className="font-medium text-accent">{t("reveal_withheld_privacy")}</div>
+                        <div className="text-xs text-text-soft mt-0.5">
+                          {revealErrorText(job.error_message, t)}
+                        </div>
+                      </div>
                     </div>
+                  ) : (
+                    <div role="alert" className="bg-danger/5 border border-danger/30 rounded-lg p-4 flex gap-2">
+                      <AlertTriangle className="w-5 h-5 text-danger shrink-0" aria-hidden />
+                      <div>
+                        <div className="font-medium text-danger">{t("pb_reveal_failed")}</div>
+                        <div className="text-xs text-text-soft mt-0.5">
+                          {revealErrorText(job.error_message, t) ?? t("ui_error_title")}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex justify-end">
+                    <button type="button" onClick={onClose} className="btn-ghost">
+                      {t("rt_dismiss")}
+                    </button>
                   </div>
-                </div>
+                </>
               )}
             </div>
           )}
@@ -810,12 +839,16 @@ function Stepper({ current }: { current: Step }) {
   const idx = steps.findIndex((s) => s.key === current);
 
   return (
-    <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide">
+    <div className="flex flex-wrap items-stretch gap-1.5 text-[10px] uppercase tracking-wide">
       {steps.map((s, i) => (
         <div
           key={s.key}
+          aria-current={i === idx ? "step" : undefined}
           className={cn(
-            "flex-1 px-2 py-1.5 rounded-md text-center transition",
+            // Whole pills: a label never breaks inside a word. The pills share
+            // the row's spare width; when a language's labels do not fit one
+            // row, whole pills wrap to the next instead of overflowing.
+            "flex-[1_0_auto] px-2 py-1.5 rounded-md text-center whitespace-nowrap transition",
             i < idx && "bg-accent/15 text-accent",
             i === idx && "bg-accent/25 text-accent font-bold",
             i > idx && "bg-text-muted/5 text-text-muted"
@@ -928,13 +961,6 @@ function SideBySidePlayer({
   );
 }
 
-function fmtSec(sec: number): string {
-  if (!Number.isFinite(sec) || sec < 0) return "—";
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
 function MethodCard({
   active,
   onClick,
@@ -1000,8 +1026,8 @@ function RevealAuthorityBadge() {
           : `${t("pb_authority_level")} L${level} — ${t("pb_authority_min_chain")} ${level}`
       }
     >
-      <Lock className="w-3 h-3" />
-      {isDirector ? "Director" : `${t("pb_level")} ${level}`}
+      <Lock className="w-3 h-3" aria-hidden />
+      {isDirector ? t("pb_authority_director") : `${t("pb_level")} ${level}`}
     </span>
   );
 }

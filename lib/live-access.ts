@@ -321,7 +321,13 @@ export function restrictedCameraIds(
   return new Set(grants.map((g) => g.camera_id));
 }
 
-export type LiveAccessSummary = { label: string; title: string; adminsOnly: boolean };
+/**
+ * `state` lets the page pick the badge tone and icon: a read failure
+ * ("unknown") must not look like a routine grant count, and a disabled camera
+ * is refused to everyone — admins included — whatever the grants say.
+ */
+export type LiveAccessState = "disabled" | "unknown" | "admins_only" | "users";
+export type LiveAccessSummary = { label: string; title: string; adminsOnly: boolean; state: LiveAccessState };
 
 /**
  * Label + tooltip for one camera on /cameras. `count` is the live-grant count
@@ -330,21 +336,27 @@ export type LiveAccessSummary = { label: string; title: string; adminsOnly: bool
  * the grants could not be read — say so instead of claiming "admins only".
  * "Admins only" has two tooltips because the rows that grant no live video
  * still decide the list level: only with zero rows does the camera stay
- * visible to every operator.
+ * visible to every operator. `enabled === false` wins over everything: the
+ * gateway refuses a disabled camera to every role (liveAllowedForCamera).
  */
 export function liveAccessSummary(
   count: number | null,
   restricted: boolean,
   t: (key: TranslationKey) => string,
+  enabled = true,
 ): LiveAccessSummary {
+  if (!enabled) {
+    return { label: t("cam_live_disabled"), title: t("cam_live_disabled_tip"), adminsOnly: false, state: "disabled" };
+  }
   if (count === null) {
-    return { label: t("cam_live_unknown"), title: t("cam_live_unknown_tip"), adminsOnly: false };
+    return { label: t("cam_live_unknown"), title: t("cam_live_unknown_tip"), adminsOnly: false, state: "unknown" };
   }
   if (count <= 0) {
     return {
       label: t("cam_live_admins_only"),
       title: t(restricted ? "cam_live_admins_only_restricted_tip" : "cam_live_admins_only_tip"),
       adminsOnly: true,
+      state: "admins_only",
     };
   }
   const n = String(count);
@@ -352,5 +364,6 @@ export function liveAccessSummary(
     label: t("cam_live_users").replace("{n}", n),
     title: t("cam_live_users_tip").replace("{n}", n),
     adminsOnly: false,
+    state: "users",
   };
 }

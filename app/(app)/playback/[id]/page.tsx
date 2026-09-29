@@ -25,11 +25,15 @@ import { workflowCopy, workflowStatus } from "@/lib/workflow-copy";
 import {
   buildPrivacySchedule,
   formatOffsetRanges,
+  formatVideoOffset,
   privacySpanRanges,
+  revealBlockedByPrivacy,
+  revealPrivacyVerdict,
   scheduleProtectedOffsets,
   spanOffsets,
   type ScheduleWindowRow,
 } from "@/lib/privacy-schedule";
+import { revealWithheldByPrivacy } from "@/lib/reveal-errors";
 import type { FaceInRecording } from "@/lib/database.types";
 
 // Cache хийхгүй — faces background processing-аар нэмэгддэг тул хэзээ нээгдсэн
@@ -131,6 +135,20 @@ export default async function PlaybackDetailPage({
     schedule: scheduleRanges,
     durationSec: rec.duration_sec ?? null,
   };
+  // The whole recording is protected (spans, or spans + current schedule):
+  // every reveal request would be refused by the job — the modal already
+  // refuses to send one. Said here so the info card and the Reveal CTA stop
+  // promising a reveal (ADR 0012 §5/§7). Presentation only.
+  const revealWithheld = revealBlockedByPrivacy(
+    revealPrivacyVerdict(revealPrivacy.spans, revealPrivacy.schedule, revealPrivacy.durationSec, null),
+  );
+  // The first privacy card on the page — the Reveal CTA links to it, since
+  // on a phone the cards render well below the player.
+  const privacyNoticeId = privacySpans.length > 0
+    ? "privacy-spans"
+    : scheduleRangeLabels.length > 0
+      ? "privacy-schedule"
+      : null;
 
   // Face metadata — admin only. Viewer-д face илрүүлэлтийн өгөгдөл харагдахгүй
   // (RLS-ийн нэг хэсэг — privacy-preserving design).
@@ -189,6 +207,7 @@ export default async function PlaybackDetailPage({
     requested_email: string | null;
     approved_email: string | null;
     rejected_email: string | null;
+    error_message: string | null;
     created_at: string;
     completed_at: string | null;
   };
@@ -196,7 +215,7 @@ export default async function PlaybackDetailPage({
     ? await supabase
         .from("reveal_jobs")
         .select(
-          "id, status, method, threshold, target_start_sec, target_end_sec, requested_email, approved_email, rejected_email, created_at, completed_at",
+          "id, status, method, threshold, target_start_sec, target_end_sec, requested_email, approved_email, rejected_email, error_message, created_at, completed_at",
         )
         .eq("recording_id", id)
         .order("created_at", { ascending: false })
@@ -227,6 +246,8 @@ export default async function PlaybackDetailPage({
               durationSec={rec.duration_sec ?? null}
               initialFaceId={initialFaceId}
               revealPrivacy={revealPrivacy}
+              revealWithheld={revealWithheld}
+              privacyNoticeId={privacyNoticeId}
             />
           ) : (
             <div className="card aspect-video bg-black flex items-center justify-center text-text-muted text-sm">
@@ -250,7 +271,13 @@ export default async function PlaybackDetailPage({
             </Row>
             <Row icon={ShieldCheck} label={t("rec_original")}>
               {rec.has_original ? (
-                <span className="text-success">{t("rec_original_kept")}</span>
+                !isAdmin ? (
+                  <span className="text-text-muted">{t("rec_original_kept_admin_only")}</span>
+                ) : revealWithheld ? (
+                  <span className="text-text-muted">{t("rec_original_kept_withheld")}</span>
+                ) : (
+                  <span className="text-success">{t("rec_original_kept")}</span>
+                )
               ) : (
                 <span className="text-text-muted">{t("rec_original_missing")}</span>
               )}
@@ -258,7 +285,7 @@ export default async function PlaybackDetailPage({
           </div>
 
           {privacySpans.length > 0 && (
-            <div className="card border border-accent/30 bg-accent/5 space-y-2">
+            <div id="privacy-spans" className="card border border-accent/30 bg-accent/5 space-y-2 scroll-mt-24">
               <div className="flex items-start gap-2.5">
                 <Lock className="w-4 h-4 text-accent mt-0.5 shrink-0" aria-hidden />
                 <div className="space-y-1 min-w-0">
@@ -268,10 +295,13 @@ export default async function PlaybackDetailPage({
                     {privacySpans.map((span, i) => (
                       <li
                         key={`${span.start}-${i}`}
-                        className="badge bg-accent/15 text-accent font-mono"
+                        // .badge is nowrap; a long fail-closed label must wrap
+                        // inside the card instead of running past its border.
+                        className={`badge bg-accent/15 text-accent font-mono max-w-full flex-wrap whitespace-normal text-left${span.failClosed ? " rounded-lg" : ""}`}
                         title={span.failClosed ? t("pb_privacy_fail_closed") : undefined}
                       >
-                        {span.start}–{span.end ?? t("pb_privacy_until_end")}
+                        {span.start}
+                        {span.end !== null ? `–${span.end}` : <span className="font-sans"> – {t("pb_privacy_until_end")}</span>}
                         {span.failClosed && <span className="font-sans"> · {t("pb_privacy_fail_closed")}</span>}
                       </li>
                     ))}
@@ -282,7 +312,7 @@ export default async function PlaybackDetailPage({
           )}
 
           {scheduleRangeLabels.length > 0 && (
-            <div className="card border border-accent/20 space-y-2">
+            <div id="privacy-schedule" className="card border border-accent/20 space-y-2 scroll-mt-24">
               <div className="flex items-start gap-2.5">
                 <Lock className="w-4 h-4 text-accent mt-0.5 shrink-0" aria-hidden />
                 <div className="space-y-1 min-w-0">
@@ -290,8 +320,9 @@ export default async function PlaybackDetailPage({
                   <p className="text-xs text-text-soft leading-relaxed">{t("pb_privacy_schedule_desc")}</p>
                   <ul className="flex flex-wrap gap-1.5 pt-1">
                     {scheduleRangeLabels.map((range, i) => (
-                      <li key={`${range.start}-${i}`} className="badge bg-accent/10 text-accent font-mono">
-                        {range.start}–{range.end ?? t("pb_privacy_until_end")}
+                      <li key={`${range.start}-${i}`} className="badge bg-accent/10 text-accent font-mono max-w-full flex-wrap whitespace-normal text-left">
+                        {range.start}
+                        {range.end !== null ? `–${range.end}` : <span className="font-sans"> – {t("pb_privacy_until_end")}</span>}
                       </li>
                     ))}
                   </ul>
@@ -367,7 +398,10 @@ export default async function PlaybackDetailPage({
                 {t("pb_reveal_history_title")} ({revealHistory.length})
               </h3>
               <ul className="space-y-1.5 max-h-72 overflow-y-auto">
-                {revealHistory.map((h) => (
+                {revealHistory.map((h) => {
+                  // A privacy-policy refusal is final, not a failure to retry.
+                  const withheld = h.status === "failed" && revealWithheldByPrivacy(h.error_message);
+                  return (
                   <li
                     key={h.id}
                     className="text-[11px] leading-relaxed border-l-2 pl-2 py-1"
@@ -375,6 +409,8 @@ export default async function PlaybackDetailPage({
                       borderColor:
                         h.status === "completed"
                           ? "rgb(34 197 94 / 0.6)"
+                          : withheld
+                          ? "rgb(0 212 255 / 0.4)"
                           : h.status === "rejected" || h.status === "failed"
                           ? "rgb(244 63 94 / 0.6)"
                           : "rgb(0 212 255 / 0.4)",
@@ -383,6 +419,8 @@ export default async function PlaybackDetailPage({
                     <div className="flex items-center gap-1.5 text-text">
                       {h.status === "completed" ? (
                         <CheckCircle2 className="w-3 h-3 text-success shrink-0" />
+                      ) : withheld ? (
+                        <Lock className="w-3 h-3 text-accent shrink-0" aria-label={t("reveal_withheld_privacy")} />
                       ) : h.status === "rejected" || h.status === "failed" ? (
                         <XCircle className="w-3 h-3 text-danger shrink-0" />
                       ) : (
@@ -397,7 +435,7 @@ export default async function PlaybackDetailPage({
                         <>
                           <span className="text-text-muted">·</span>
                           <span className="text-accent font-mono">
-                            ⏱ {fmtSec(h.target_start_sec)}→{fmtSec(h.target_end_sec)}
+                            ⏱ {formatVideoOffset(h.target_start_sec)}→{formatVideoOffset(h.target_end_sec)}
                           </span>
                         </>
                       )}
@@ -416,9 +454,13 @@ export default async function PlaybackDetailPage({
                       {h.threshold !== null && (
                         <span className="text-text-muted"> · {t("pb_threshold")} {h.threshold}</span>
                       )}
+                      {withheld && (
+                        <span className="text-accent"> · {t("reveal_withheld_privacy")}</span>
+                      )}
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -426,13 +468,6 @@ export default async function PlaybackDetailPage({
       </div>
     </>
   );
-}
-
-function fmtSec(sec: number): string {
-  if (!Number.isFinite(sec) || sec < 0) return "—";
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function Row({
@@ -447,7 +482,8 @@ function Row({
   return (
     <div className="flex items-start gap-2 text-xs">
       <Icon className="w-3.5 h-3.5 text-text-muted mt-0.5 shrink-0" />
-      <div className="text-text-muted w-20 shrink-0">{label}</div>
+      {/* w-24: the longest label ("Шифрлэгдсэн", mn) fits whole — a label never breaks mid-word. */}
+      <div className="text-text-muted w-24 shrink-0">{label}</div>
       <div className="text-text flex-1">{children}</div>
     </div>
   );

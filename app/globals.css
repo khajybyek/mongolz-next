@@ -110,6 +110,13 @@ body {
   overflow-wrap: break-word;
 }
 
+/* Hangul breaks between any two syllables by default ("관리하세 / 요").
+   Keep Korean words whole and wrap at spaces; overflow-wrap above still
+   breaks a single over-long word, and `break-all` utilities still win. */
+html[lang="ko"] body {
+  word-break: keep-all;
+}
+
 * {
   @apply border-border;
 }
@@ -258,6 +265,12 @@ body {
     min-width: 36px;
     @apply bg-text-muted/[0.04] text-text-soft hover:bg-text-muted/[0.08] hover:text-text;
   }
+  /* .btn:disabled does not reach icon buttons; without this a disabled one
+     (e.g. a tile's Play while the ML service is down) looks clickable. */
+  .btn-icon:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
 
   /* ─────────── Inputs ─────────── */
   .input {
@@ -391,6 +404,13 @@ body {
   }
   :where(.tbl td) {
     @apply px-4 py-3 text-text-soft;
+  }
+  /* Tables whose columns only just fit a phone: tighter side padding below
+     `sm` (4 columns × 32 px of padding is a third of a 358 px wrapper).
+     :where() keeps it at one class of specificity, so a utility on the cell
+     still wins. */
+  .tbl-tight :where(th, td) {
+    @apply px-2.5 sm:px-4;
   }
 
   /* ─────────── Tabs ─────────── */

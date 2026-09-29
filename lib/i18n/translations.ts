@@ -273,8 +273,8 @@ export const T = {
   no: { mn: "Үгүй", en: "No", kr: "아니오" },
   enabled: { mn: "Идэвхтэй", en: "Enabled", kr: "사용" },
   disabled: { mn: "Идэвхгүй", en: "Disabled", kr: "사용 안 함" },
-  on: { mn: "On", en: "On", kr: "켜짐" },
-  off: { mn: "Off", en: "Off", kr: "꺼짐" },
+  on: { mn: "Асаалттай", en: "On", kr: "켜짐" },
+  off: { mn: "Унтраалттай", en: "Off", kr: "꺼짐" },
   next_btn: { mn: "Дараа", en: "Next", kr: "다음" },
   prev_btn: { mn: "Өмнөх", en: "Previous", kr: "이전" },
   upload: { mn: "Илгээх", en: "Upload", kr: "업로드" },
@@ -329,30 +329,30 @@ export const T = {
   cameras_subtitle: { mn: "Бүртгэлтэй камерууд", en: "Registered cameras", kr: "등록된 카메라" },
   schedule: { mn: "Хуваарь", en: "Schedule", kr: "일정" },
   permissions: { mn: "Эрх", en: "Permissions", kr: "권한" },
-  consent_on: { mn: "✓ Consent ON — даран унтраах", en: "✓ Consent ON — click to disable", kr: "✓ Consent ON — 클릭하여 비활성화" },
-  consent_off: { mn: "○ Consent off — идэвхжүүлэх", en: "○ Consent off — enable", kr: "○ Consent off — 활성화" },
-  consent_badge: { mn: "Consent", en: "Consent", kr: "동의 필요" },
+  consent_on: { mn: "✓ Зөвшөөрөл шаардлагатай — даран унтраах", en: "✓ Consent required — click to turn off", kr: "✓ 동의 필요 — 클릭하여 해제" },
+  consent_off: { mn: "○ Зөвшөөрөл шаардахгүй — асаах", en: "○ Consent not required — turn on", kr: "○ 동의 불필요 — 켜기" },
+  consent_badge: { mn: "Зөвшөөрөл шаардлагатай", en: "Consent required", kr: "동의 필요" },
 
   // ── Schedule page ──
   schedule_title_prefix: { mn: "Хуваарь —", en: "Schedule —", kr: "일정 —" },
   schedule_subtitle: {
-    mn: "Цагийн цонх бүрд нууцлалын горим сонгоно (Asia/Seoul). Цонхноос гадуур default горим үйлчилнэ.",
+    mn: "Цагийн цонх бүрд нууцлалын горим сонгоно (Asia/Seoul). Цонхноос гадуур үндсэн горим үйлчилнэ.",
     en: "Pick a privacy mode per time window (Asia/Seoul). Outside every window the default mode applies.",
     kr: "시간대별로 프라이버시 모드를 선택합니다(Asia/Seoul). 어떤 시간대에도 속하지 않으면 기본 모드가 적용됩니다.",
   },
-  schedule_new_window: { mn: "Шинэ window нэмэх", en: "Add new window", kr: "새 시간대 추가" },
+  schedule_new_window: { mn: "Шинэ цонх нэмэх", en: "Add new window", kr: "새 시간대 추가" },
   schedule_mode_standard: { mn: "Стандарт", en: "Standard", kr: "표준" },
   schedule_mode_private: { mn: "Нууцлал", en: "Private", kr: "프라이버시" },
   schedule_explain_title: { mn: "Горимууд юу хийдэг вэ", en: "What the modes do", kr: "모드별 동작" },
   schedule_explain_masking: {
-    mn: "Нүүрний маск үргэлж идэвхтэй — шууд дамжуулалт болон playback аль ч горимд маскласан хэвээр. Хуваарь хэзээ ч видеог илрүүлэхгүй; илрүүлэлт зөвхөн 4-eyes reveal-ээр хийгдэнэ.",
+    mn: "Нүүрний маск үргэлж идэвхтэй — шууд дамжуулалт болон бичлэг тоглуулах аль ч горимд маскласан хэвээр. Хуваарь хэзээ ч видеог илрүүлэхгүй; нүүрийг зөвхөн хоёр дахь админы зөвшөөрлөөр ил болгоно.",
     en: "Face masking is always on — live view and playback stay masked in both modes. A schedule never un-masks video; un-masking is only ever the 4-eyes reveal.",
-    kr: "얼굴 마스킹은 항상 켜져 있습니다 — 두 모드 모두 실시간 화면과 재생은 마스킹된 상태입니다. 일정은 영상의 마스킹을 절대 해제하지 않으며, 해제는 오직 4-eyes reveal로만 가능합니다.",
+    kr: "얼굴 마스킹은 항상 켜져 있습니다 — 두 모드 모두 실시간 화면과 재생은 마스킹된 상태입니다. 일정은 영상의 마스킹을 절대 해제하지 않으며, 해제는 오직 다른 관리자의 승인을 거친 공개로만 가능합니다.",
   },
   schedule_explain_private: {
-    mn: "«Нууцлал» горимд нүүр таних, нүүрний бичлэг/зураг хадгалах, сэжигтэн тулгах, сэрэмжлүүлэг, edge inference бүгд унтарна. Тэр үед бичигдсэн хэсгийг reveal хийх боломжгүй.",
+    mn: "«Нууцлал» горимд нүүр таних, нүүрний бичлэг/зураг хадгалах, сэжигтэн тулгах, сэрэмжлүүлэг, захын төхөөрөмж дээрх боловсруулалт бүгд унтарна. Тэр үед бичигдсэн хэсгийн нүүрийг ил болгох боломжгүй.",
     en: "Private switches off face recognition, stored faces and crops, suspect matching, alerts and edge inference. Footage captured in private mode can never be revealed.",
-    kr: "프라이버시 모드에서는 얼굴 인식, 얼굴 기록·크롭 저장, 용의자 매칭, 알림, 엣지 추론이 모두 꺼집니다. 이 모드에서 촬영된 영상은 reveal할 수 없습니다.",
+    kr: "프라이버시 모드에서는 얼굴 인식, 얼굴 기록·크롭 저장, 용의자 매칭, 알림, 엣지 추론이 모두 꺼집니다. 이 모드에서 촬영된 영상은 공개할 수 없습니다.",
   },
   schedule_explain_capture: {
     mn: "Горим нь кадр бичигдэх мөчид үйлчилнэ, үзэх үед биш. Цонхны хил дээр ML үйлчилгээ аюулгүй тал руу хазайдаг: нууцлалын цонх дууссанаас хойш хэдэн секундын дараа л таних дахин асна. Өөрчлөлт ажиллаж буй камерт ихэвчлэн 30 орчим секундэд хүрнэ; ML өгөгдлийн санг уншиж чадахгүй бол сүүлд уншсан хуваарийг 10 минут хүртэл хэрэглээд, дараа нь танихыг зогсооно.",
@@ -360,12 +360,12 @@ export const T = {
     kr: "모드는 시청 시점이 아니라 프레임이 촬영되는 시점에 적용됩니다. 시간대 경계에서 ML 서비스는 안전한 쪽을 택합니다: 프라이버시 시간대가 끝나고 몇 초 뒤에야 인식이 다시 켜집니다. 변경 사항은 보통 약 30초 안에 실행 중인 카메라에 반영되며, ML 서비스가 데이터베이스를 읽지 못하면 마지막으로 읽은 일정을 최대 10분간 사용한 뒤 인식을 중지합니다.",
   },
   schedule_explain_retroactive: {
-    mn: "Нууцлалын цонх нэмэх эсвэл default-ыг нууцлал болгох нь тэр цагт АЛЬ ХЭДИЙН бичигдсэн (стандарт горимд) бичлэгийг ч reveal-ээс хасна — цонх байгаа л бол. Дараа нь сулруулбал (TOTP) тэр бичлэг дахин reveal хийгдэх боломжтой болно; аль хэдийн танигдсан нүүр устахгүй. Нууцлалын горимд бичигдсэн бичлэг хожим юу ч өөрчлөгдсөн reveal хийгдэхгүй.",
+    mn: "Нууцлалын цонх нэмэх эсвэл үндсэн горимыг нууцлал болгох нь тэр цагт АЛЬ ХЭДИЙН бичигдсэн (стандарт горимд) бичлэгийг ч ил болгохоос хасна — цонх байгаа л бол. Дараа нь сулруулбал (TOTP) тэр бичлэгийг дахин ил болгох боломжтой болно; аль хэдийн танигдсан нүүр устахгүй. Нууцлалын горимд бичигдсэн бичлэгийг хожим юу ч өөрчлөгдсөн ил болгохгүй.",
     en: "Adding a private window or switching the default to private also withholds footage ALREADY recorded in those hours (in standard mode) from reveal — for as long as the window exists. Loosening it later (TOTP step-up) makes that footage revealable again; faces already identified are not deleted. Footage captured in private mode stays unrevealable whatever changes later.",
-    kr: "프라이버시 시간대를 추가하거나 기본값을 프라이버시로 바꾸면 해당 시간에 이미 (표준 모드로) 녹화된 영상도 그 시간대가 존재하는 동안 reveal에서 제외됩니다. 나중에 완화하면(TOTP 재인증) 그 영상은 다시 reveal할 수 있게 되며, 이미 식별된 얼굴은 삭제되지 않습니다. 프라이버시 모드로 촬영된 영상은 이후 무엇이 바뀌어도 reveal할 수 없습니다.",
+    kr: "프라이버시 시간대를 추가하거나 기본값을 프라이버시로 바꾸면 해당 시간에 이미 (표준 모드로) 녹화된 영상도 그 시간대가 존재하는 동안 공개에서 제외됩니다. 나중에 완화하면(TOTP 재인증) 그 영상은 다시 공개할 수 있게 되며, 이미 식별된 얼굴은 삭제되지 않습니다. 프라이버시 모드로 촬영된 영상은 이후 무엇이 바뀌어도 공개할 수 없습니다.",
   },
   schedule_explain_stepup: {
-    mn: "Хамгаалалтыг сулруулах (стандарт цонх нэмэх, нууцлалын цонх устгах, default-ыг стандарт болгох) нь TOTP баталгаажуулалт шаардаж, бусад админд мэдэгдэнэ. Чангатгах нь нэг товшилт.",
+    mn: "Хамгаалалтыг сулруулах (стандарт цонх нэмэх, нууцлалын цонх устгах, үндсэн горимыг стандарт болгох) нь TOTP баталгаажуулалт шаардаж, бусад админд мэдэгдэнэ. Чангатгах нь нэг товшилт.",
     en: "Loosening (adding a standard window, deleting a private one, switching the default to standard) needs a TOTP step-up and notifies the other admins. Tightening is one click.",
     kr: "보호를 완화하는 변경(표준 시간대 추가, 프라이버시 시간대 삭제, 기본값을 표준으로 변경)은 TOTP 재인증이 필요하며 다른 관리자에게 알림이 갑니다. 강화는 한 번의 클릭으로 됩니다.",
   },
@@ -404,25 +404,20 @@ export const T = {
   },
   schedule_err_save_failed: { mn: "Хадгалж чадсангүй", en: "Could not save", kr: "저장하지 못했습니다" },
   schedule_note_placeholder: {
-    mn: "Тэмдэглэл (optional) — ажлын цаг гэх мэт",
+    mn: "Тэмдэглэл (заавал биш) — ажлын цаг гэх мэт",
     en: "Note (optional) — e.g. working hours",
     kr: "메모 (선택) — 예: 근무 시간",
   },
-  schedule_add_window: { mn: "Window нэмэх", en: "Add window", kr: "시간대 추가" },
-  schedule_weekdays_hint: {
-    mn: "Жишээ: 127 = өдөр бүр · 62 = Да-Ба ажлын өдрүүд · 65 = Ня+Бя амралт",
-    en: "Examples: 127 = every day · 62 = Mon-Fri · 65 = Sun+Sat",
-    kr: "예시: 127 = 매일 · 62 = 월-금 · 65 = 일+토",
-  },
+  schedule_add_window: { mn: "Цонх нэмэх", en: "Add window", kr: "시간대 추가" },
   schedule_col_mode: { mn: "Горим", en: "Mode", kr: "모드" },
   schedule_col_time: { mn: "Цаг", en: "Time", kr: "시간" },
   schedule_col_weekdays: { mn: "Өдрүүд", en: "Weekdays", kr: "요일" },
   schedule_col_note: { mn: "Тэмдэглэл", en: "Note", kr: "메모" },
   schedule_col_action: { mn: "Үйлдэл", en: "Action", kr: "작업" },
   schedule_empty: {
-    mn: "Window бүртгэгдээгүй — default ажиллаж байна.",
-    en: "No windows — default mode is in effect.",
-    kr: "시간대가 없음 — 기본 모드가 적용됩니다.",
+    mn: "Цонх бүртгэгдээгүй — үндсэн горим ({mode}) үйлчилж байна.",
+    en: "No windows — the default mode ({mode}) is in effect.",
+    kr: "시간대가 없음 — 기본 모드({mode})가 적용됩니다.",
   },
   schedule_current_state: { mn: "Одоогийн төлөв", en: "Current state", kr: "현재 상태" },
   schedule_current_hint: {
@@ -430,19 +425,19 @@ export const T = {
     en: "Mode per the saved schedule (Asia/Seoul, now). Running cameras apply edits usually within about 30 s, or up to 10 min if the ML service cannot read the database; the live badge on /grid shows what is actually applied.",
     kr: "저장된 일정에 따른 모드(Asia/Seoul, 현재). 실행 중인 카메라는 보통 약 30초 안에, ML 서비스가 데이터베이스를 읽지 못하면 최대 10분 안에 변경을 적용합니다. 실제로 적용 중인 상태는 /grid의 실시간 배지에 표시됩니다.",
   },
-  schedule_default_mode: { mn: "Default горим (window-аас гадуур)", en: "Default mode (outside windows)", kr: "기본 모드 (시간대 외)" },
+  schedule_default_mode: { mn: "Үндсэн горим (цонхноос гадуур)", en: "Default mode (outside windows)", kr: "기본 모드 (시간대 외)" },
   schedule_default_standard: {
     mn: "Стандарт — нүүр таних, сэрэмжлүүлэг идэвхтэй",
     en: "Standard — recognition and alerts on",
     kr: "표준 — 얼굴 인식 및 알림 켜짐",
   },
   schedule_default_private: {
-    mn: "Нууцлал — нүүр таних унтарсан, reveal хийхгүй",
+    mn: "Нууцлал — нүүр таних унтарсан, ил болгохгүй",
     en: "Private — no recognition, no reveal",
-    kr: "프라이버시 — 인식 없음, reveal 불가",
+    kr: "프라이버시 — 인식 없음, 공개 불가",
   },
   schedule_default_hint: {
-    mn: "Default-ыг стандарт болгох нь цонхноос гадуур нүүр танихыг дахин асаана — TOTP баталгаажуулалт шаардана.",
+    mn: "Үндсэн горимыг стандарт болгох нь цонхноос гадуур нүүр танихыг дахин асаана — TOTP баталгаажуулалт шаардана.",
     en: "Switching the default to standard turns recognition back on outside windows — it needs a TOTP step-up.",
     kr: "기본값을 표준으로 바꾸면 시간대 밖에서 얼굴 인식이 다시 켜집니다 — TOTP 재인증이 필요합니다.",
   },
@@ -455,8 +450,8 @@ export const T = {
     kr: "이 카메라를 볼 수 있는 사용자와 실시간으로 볼 수 있는 사용자를 지정합니다.",
   },
   perm_col_email: { mn: "Имэйл", en: "Email", kr: "이메일" },
-  perm_col_role: { mn: "Role", en: "Role", kr: "역할" },
-  perm_col_permission: { mn: "Permission", en: "Permission", kr: "권한" },
+  perm_col_role: { mn: "Үүрэг", en: "Role", kr: "역할" },
+  perm_col_permission: { mn: "Эрхийн түвшин", en: "Permission", kr: "권한" },
   perm_empty: {
     mn: "Эрх олгоогүй — бүх оператор энэ камерыг жагсаалт, төлөв, бичлэгт харна, харин шууд дүрсийг зөвхөн админ үзнэ.",
     en: "No grants — every operator sees this camera in lists, health and playback, but live video is admin-only.",
@@ -464,21 +459,18 @@ export const T = {
   },
   perm_grant_title: { mn: "Эрх олгох", en: "Grant access", kr: "권한 부여" },
   perm_pick_user: { mn: "— Хэрэглэгч сонгох —", en: "— Pick user —", kr: "— 사용자 선택 —" },
-  // Any row lets a viewer watch live (the gateway checks for a row, not its
-  // permission value), so "view" must not claim "playback only".
-  perm_view: { mn: "View — жагсаалт, бичлэг, шууд дүрс", en: "View — lists, playback and live video", kr: "View — 목록·재생·실시간 영상" },
-  // "operate" grants nothing more than "view" today: startCameraAction /
-  // stopCameraAction are admin-only whatever rows exist, so the label must not
-  // promise start/stop.
-  perm_operate: {
-    mn: "Operate — View-тэй адил (жагсаалт, бичлэг, шууд дүрс); эхлүүлэх/зогсоох нь зөвхөн админд",
-    en: "Operate — same as View (lists, playback, live video); start/stop stays admin-only",
-    kr: "Operate — View와 동일(목록·재생·실시간 영상); 시작/중지는 관리자 전용",
-  },
+  // Level names only — a closed <select> cut the long labels off mid-word
+  // and lost the important half. What the levels grant lives in
+  // perm_kinds_hint, rendered right under the picker (aria-describedby).
+  // "operate" grants nothing more than "view" today (startCameraAction /
+  // stopCameraAction are admin-only whatever rows exist): the name must not
+  // promise start/stop, and the hint says so.
+  perm_view: { mn: "Харах", en: "View", kr: "보기" },
+  perm_operate: { mn: "Удирдах", en: "Operate", kr: "운영" },
   perm_kinds_hint: {
-    mn: "View болон Operate одоогоор ижил эрх олгоно: жагсаалт, бичлэг, шууд дүрс. Камерын бичлэгийг эхлүүлэх, зогсоох нь аль нь ч байсан зөвхөн админд.",
-    en: "View and Operate currently grant the same access: lists, playback and live video. Starting or stopping a camera's capture is admin-only whichever you pick.",
-    kr: "View와 Operate는 현재 같은 권한(목록·재생·실시간 영상)을 부여합니다. 카메라 캡처 시작·중지는 어느 쪽을 선택해도 관리자 전용입니다.",
+    mn: "«Харах» болон «Удирдах» одоогоор ижил эрх олгоно: жагсаалт, бичлэг, шууд дүрс. Камерын бичлэгийг эхлүүлэх, зогсоох нь аль нь ч байсан зөвхөн админд. Нэг хэрэглэгч камер бүрт нэг л түвшинтэй — дахин олговол өмнөхийг солино.",
+    en: "View and Operate currently grant the same access: lists, playback and live video. Starting or stopping a camera's capture is admin-only whichever you pick. A user holds one level per camera — granting again replaces it.",
+    kr: "「보기」와 「운영」은 현재 같은 권한(목록·재생·실시간 영상)을 부여합니다. 카메라 캡처 시작·중지는 어느 쪽을 선택해도 관리자 전용입니다. 사용자는 카메라마다 하나의 수준만 가지며, 다시 부여하면 기존 수준을 대체합니다.",
   },
   perm_grant: { mn: "Олгох", en: "Grant", kr: "부여" },
 
@@ -544,7 +536,7 @@ export const T = {
   users_pass: { mn: "Нууц үг (8+)", en: "Password (8+)", kr: "비밀번호 (8+)" },
   users_full_name: { mn: "Бүтэн нэр (optional)", en: "Full name (optional)", kr: "이름 (선택)" },
   users_create: { mn: "Үүсгэх", en: "Create", kr: "생성" },
-  users_role: { mn: "Role", en: "Role", kr: "역할" },
+  users_role: { mn: "Үүрэг", en: "Role", kr: "역할" },
   users_2fa: { mn: "2FA", en: "2FA", kr: "2FA" },
   users_created: { mn: "Үүсгэсэн", en: "Created", kr: "생성됨" },
   users_actions: { mn: "Үйлдэл", en: "Actions", kr: "작업" },
@@ -553,16 +545,16 @@ export const T = {
   // ── Playback ──
   playback_title: { mn: "Бичлэг тоглуулах", en: "Playback", kr: "재생" },
   playback_subtitle: { mn: "Бичлэгүүдийн жагсаалт", en: "Recording list", kr: "녹화 목록" },
-  playback_back: { mn: "← Буцах", en: "← Back", kr: "← 뒤로" },
+  playback_back: { mn: "Буцах", en: "Back", kr: "뒤로" },
   playback_no_recording: { mn: "Бичлэг олдсонгүй", en: "Recording not found", kr: "녹화를 찾을 수 없습니다" },
   rec_info: { mn: "Бичлэгийн мэдээлэл", en: "Recording info", kr: "녹화 정보" },
   rec_started: { mn: "Эхэлсэн", en: "Started", kr: "시작" },
   rec_duration: { mn: "Үргэлжлэх", en: "Duration", kr: "길이" },
   rec_camera: { mn: "Камер", en: "Camera", kr: "카메라" },
-  rec_encrypted: { mn: "Encrypted", en: "Encrypted", kr: "암호화" },
-  rec_encrypted_yes: { mn: "Тийм (Storage RLS)", en: "Yes (Storage RLS)", kr: "예 (Storage RLS)" },
+  rec_encrypted: { mn: "Шифрлэгдсэн", en: "Encrypted", kr: "암호화" },
+  rec_encrypted_yes: { mn: "Тийм (AES-256-GCM)", en: "Yes (AES-256-GCM)", kr: "예 (AES-256-GCM)" },
   rec_encrypted_no: { mn: "Үгүй", en: "No", kr: "아니오" },
-  rec_original: { mn: "Original", en: "Original", kr: "원본" },
+  rec_original: { mn: "Эх хувь", en: "Original", kr: "원본" },
   rec_original_kept: { mn: "Хадгалагдсан · Reveal боломжтой", en: "Kept · Reveal possible", kr: "보존됨 · 공개 가능" },
   rec_original_missing: { mn: "Алга — reveal боломжгүй", en: "Missing — reveal not possible", kr: "없음 — 공개 불가" },
   detected_faces_count: { mn: "Илрүүлсэн нүүр", en: "Detected faces", kr: "감지된 얼굴" },
@@ -1007,16 +999,16 @@ export const T = {
   },
   save_btn: { mn: "Хадгалах", en: "Save", kr: "저장" },
 
-  // ─── TOTP step-up dialog (admin user CRUD) ───
+  // ─── TOTP step-up dialog (every sensitive action; callers may pass a reason) ───
   totp_prompt_title: {
     mn: "2FA баталгаажуулалт",
     en: "2FA verification",
     kr: "2FA 확인",
   },
   totp_prompt_desc: {
-    mn: "Хэрэглэгчийн мэдээлэл өөрчлөх нь мэдрэмтгий үйлдэл — нэг удаагийн TOTP кодоо оруулна уу.",
-    en: "Modifying users is a sensitive action — enter your one-time TOTP code.",
-    kr: "사용자 변경은 민감한 작업입니다 — 일회용 TOTP 코드를 입력하세요.",
+    mn: "Энэ нь мэдрэмтгий үйлдэл — нэг удаагийн TOTP кодоо оруулна уу.",
+    en: "This is a sensitive action — enter your one-time TOTP code.",
+    kr: "민감한 작업입니다 — 일회용 TOTP 코드를 입력하세요.",
   },
   totp_prompt_label: {
     mn: "Authenticator app кодыг оруулна уу",
@@ -1597,7 +1589,8 @@ export const T = {
   susp_view: { mn: "Үзэх", en: "View", kr: "보기" },
 
   // ── Camera health ──
-  cam_status_healthy: { mn: "Аюулгүй", en: "Healthy", kr: "정상" },
+  // Liveness (frames arriving), not a security verdict — "Аюулгүй" read as "safe".
+  cam_status_healthy: { mn: "Хэвийн", en: "Healthy", kr: "정상" },
   cam_status_stale: { mn: "Удааширсан", en: "Stale", kr: "지연됨" },
   cam_status_offline: { mn: "Унтарсан", en: "Offline", kr: "오프라인" },
   cam_status_unknown: { mn: "Тодорхойгүй", en: "Unknown", kr: "알 수 없음" },
@@ -1658,7 +1651,11 @@ export const T = {
   push_test: { mn: "Туршилт мэдэгдэл", en: "Send test", kr: "테스트 전송" },
   push_status_enabled: { mn: "Идэвхтэй", en: "Active", kr: "활성" },
   push_status_disabled: { mn: "Идэвхгүй", en: "Inactive", kr: "비활성" },
-  push_blocked: { mn: "Browser-ийн зөвшөөрөл хаагдсан.", en: "Browser permission blocked.", kr: "브라우저 권한이 차단되었습니다." },
+  push_blocked: {
+    mn: "Энэ сайтын мэдэгдлийг browser хаасан байна — browser-ийн сайтын тохиргооноос зөвшөөрөөд хуудсаа дахин ачаална уу.",
+    en: "Notifications are blocked for this site — allow them in your browser's site settings, then reload the page.",
+    kr: "이 사이트의 알림이 차단되었습니다 — 브라우저의 사이트 설정에서 허용한 뒤 페이지를 새로고침하세요.",
+  },
   push_unsupported: { mn: "Энэ browser push дэмжихгүй.", en: "This browser does not support push.", kr: "이 브라우저는 푸시를 지원하지 않습니다." },
 
   // ── Performance budget ──
@@ -1950,13 +1947,14 @@ export const T = {
   pb_reveal_success: { mn: "Reveal амжилттай!", en: "Reveal complete!", kr: "공개 완료!" },
   pb_reveal_success_desc: { mn: "Зөвхөн сонгосон хүний нүүр илэрхий, бусад нь blur-тэй хэвээр", en: "Only the selected person is visible; everyone else stays blurred", kr: "선택한 사람만 보이고 나머지는 블러 상태로 유지됩니다" },
   pb_reveal_failed: { mn: "Reveal амжилтгүй", en: "Reveal failed", kr: "공개 실패" },
-  pb_step_pick: { mn: "1. Хүн сонгох", en: "1. Pick person", kr: "1. 대상 선택" },
-  pb_step_auth: { mn: "2. Баталгаажуулалт", en: "2. Auth", kr: "2. 인증" },
-  pb_step_process: { mn: "3. Боловсруулах", en: "3. Process", kr: "3. 처리" },
-  pb_step_done: { mn: "4. Дуусах", en: "4. Done", kr: "4. 완료" },
+  // Short mn labels: the four pills share one row on a 390 px phone.
+  pb_step_pick: { mn: "1. Сонгох", en: "1. Pick person", kr: "1. 대상 선택" },
+  pb_step_auth: { mn: "2. Нууц үг", en: "2. Auth", kr: "2. 인증" },
+  pb_step_process: { mn: "3. Явц", en: "3. Process", kr: "3. 처리" },
+  pb_step_done: { mn: "4. Дууссан", en: "4. Done", kr: "4. 완료" },
   pb_masked_label: { mn: "Mask хийсэн (эх бичлэг)", en: "Masked (original)", kr: "마스킹됨 (원본)" },
   pb_revealed_label: { mn: "Илчилсэн", en: "Revealed", kr: "공개됨" },
-  pb_authority_director_hint: { mn: "Director — бүх нүүрийг reveal хийх эрхтэй (chain level 0)", en: "Director — may reveal every face (chain level 0)", kr: "Director — 모든 얼굴을 공개할 수 있음 (chain level 0)" },
+  pb_authority_director_hint: { mn: "Захирал — бүх нүүрийг reveal хийх эрхтэй (chain level 0)", en: "Director — may reveal every face (chain level 0)", kr: "디렉터 — 모든 얼굴을 공개할 수 있음 (chain level 0)" },
   pb_authority_level: { mn: "Reveal эрх", en: "Reveal authority", kr: "공개 권한" },
   pb_authority_min_chain: { mn: "unseal хийх нүүрний chain_index доод хязгаар:", en: "minimum chain_index to unseal:", kr: "unseal 가능한 최소 chain_index:" },
   pb_level: { mn: "Түвшин", en: "Level", kr: "레벨" },
@@ -2074,7 +2072,7 @@ export const T = {
   camd_title_add: { mn: "Камер нэмэх", en: "Add camera", kr: "카메라 추가" },
   camd_title_edit: { mn: "Камер засах", en: "Edit camera", kr: "카메라 수정" },
   camd_desc_add: { mn: "Шинэ камер нэмэхийн өмнө URL-ийг шалгаж болно.", en: "You can test the URL before adding the camera.", kr: "카메라를 추가하기 전에 URL을 테스트할 수 있습니다." },
-  camd_desc_edit: { mn: "Нэр, URL, төрөл солих. Хадгалахад нууц үгээ дахин асууж магадгүй.", en: "Change the name, URL or type. Saving may ask you to re-authenticate.", kr: "이름, URL, 유형을 변경합니다. 저장 시 재인증을 요구할 수 있습니다." },
+  camd_desc_edit: { mn: "Нэр, URL, төрөл солих. Хадгалахад TOTP кодоор дахин баталгаажуулж магадгүй.", en: "Change the name, URL or type. Saving may ask you to re-authenticate.", kr: "이름, URL, 유형을 변경합니다. 저장 시 재인증을 요구할 수 있습니다." },
   camd_name_placeholder: { mn: "жишээ: Үүдний камер", en: "e.g. Front door camera", kr: "예: 정문 카메라" },
   camd_url: { mn: "URL", en: "URL", kr: "URL" },
   camd_type_rtsp: { mn: "RTSP", en: "RTSP", kr: "RTSP" },
@@ -2229,7 +2227,7 @@ export const T = {
   // the list level is already restricted, so the default-allow sentence
   // above would be false here.
   cam_live_admins_only_restricted_tip: {
-    mn: "Шууд дүрсийг зөвхөн админ үзнэ: энэ камерт эрхтэй хэрэглэгчдийн хэн нь ч шууд үзэх боломжгүй (auditor шууд дүрс хэзээ ч үзэхгүй). Жагсаалт, төлөв, бичлэгийг зөвхөн «Эрх» хуудсанд буй хэрэглэгчид болон админууд харна.",
+    mn: "Шууд дүрсийг зөвхөн админ үзнэ: энэ камерт эрхтэй хэрэглэгчдийн хэн нь ч шууд үзэх боломжгүй (аудитор шууд дүрс хэзээ ч үзэхгүй). Жагсаалт, төлөв, бичлэгийг зөвхөн «Эрх» хуудсанд буй хэрэглэгчид болон админууд харна.",
     en: "Only admins can watch live: none of the users listed for this camera can (auditors never get live video). Lists, health and playback are restricted to the listed users and admins. Manage access on the permissions page.",
     kr: "실시간 영상은 관리자만 볼 수 있습니다. 이 카메라에 등록된 사용자 중 실시간으로 볼 수 있는 사람이 없습니다(감사자는 실시간 영상을 볼 수 없음). 목록·상태·재생은 등록된 사용자와 관리자만 볼 수 있습니다. 권한 페이지에서 관리하세요.",
   },
@@ -2250,7 +2248,7 @@ export const T = {
     kr: "목록·카메라 상태·재생: 여기에 행이 없으면 모든 운영자가 이 카메라를 봅니다. 첫 행이 추가되면 목록의 사용자(와 관리자)만 볼 수 있습니다.",
   },
   perm_levels_live: {
-    mn: "Шууд дүрс: админ үргэлж үзнэ; бусад нь зөвхөн энд мөртэй бол. Мөр байхгүй бол шууд дүрсийг зөвхөн админ үзнэ. Камер идэвхтэй байх ёстой; auditor шууд дүрс хэзээ ч үзэхгүй.",
+    mn: "Шууд дүрс: админ үргэлж үзнэ; бусад нь зөвхөн энд мөртэй бол. Мөр байхгүй бол шууд дүрсийг зөвхөн админ үзнэ. Камер идэвхтэй байх ёстой; аудитор шууд дүрс хэзээ ч үзэхгүй.",
     en: "Live video: admins always; everyone else only with a row here — no rows means live video is admin-only. The camera must also be enabled, and auditors never get live video.",
     kr: "실시간 영상: 관리자는 항상, 그 외 사용자는 여기에 행이 있을 때만 볼 수 있습니다 — 행이 없으면 실시간 영상은 관리자 전용입니다. 카메라가 활성화되어 있어야 하며, 감사자는 실시간 영상을 볼 수 없습니다.",
   },
@@ -2651,14 +2649,6 @@ export const T = {
   // /live — the third capture mode.
   live_mode_cctv: { mn: "IP камер", en: "IP CCTV", kr: "IP 카메라" },
 
-  // /cameras/[id]/schedule — weekday bitmask field.
-  schedule_weekdays_placeholder: { mn: "гарагийн битмаск", en: "weekday bitmask", kr: "요일 비트마스크" },
-  schedule_weekdays_title: {
-    mn: "1=Ня, 2=Да, …, 64=Бя. Нийлбэрээр бичнэ (127 = өдөр бүр, 62 = Да–Ба).",
-    en: "1=Sun, 2=Mon, …, 64=Sat. Enter the sum (127 = every day, 62 = Mon–Fri).",
-    kr: "1=일, 2=월, …, 64=토. 합계로 입력합니다(127 = 매일, 62 = 월–금).",
-  },
-
   // /docs — section headings. The reference rows themselves stay in English.
   docs_title: { mn: "Баримт бичиг", en: "Documentation", kr: "문서" },
   docs_subtitle: {
@@ -2904,7 +2894,7 @@ export const T = {
   pb_privacy_spans_desc: {
     mn: "Эдгээр хэсэгт нүүр танигдаагүй бөгөөд reveal хийх боломжгүй (маск хэвээр үлдэнэ).",
     en: "Faces in these parts were not identified and cannot be revealed (they stay masked).",
-    kr: "이 구간의 얼굴은 식별되지 않았으며 reveal할 수 없습니다(마스킹 유지).",
+    kr: "이 구간의 얼굴은 식별되지 않았으며 공개할 수 없습니다(마스킹 유지).",
   },
   pb_privacy_until_end: { mn: "төгсгөл хүртэл", en: "until the end", kr: "끝까지" },
   pb_privacy_fail_closed: {
@@ -2914,20 +2904,20 @@ export const T = {
   },
   privacy_mode_badge: { mn: "Нууцлалын горим", en: "Privacy mode", kr: "프라이버시 모드" },
   privacy_mode_badge_title: {
-    mn: "Хуваарийн дагуу нууцлалын горимд: нүүр таних, сэрэмжлүүлэг унтарсан, энэ үеийн бичлэгийг reveal хийхгүй. Маск идэвхтэй.",
+    mn: "Хуваарийн дагуу нууцлалын горимд: нүүр таних, сэрэмжлүүлэг унтарсан, энэ үеийн бичлэгийг ил болгохгүй. Маск идэвхтэй.",
     en: "Private by schedule: no face recognition or alerts, and footage captured now cannot be revealed. Masking stays on.",
-    kr: "일정에 따라 프라이버시 모드: 얼굴 인식과 알림이 꺼지고 지금 촬영되는 영상은 reveal할 수 없습니다. 마스킹은 유지됩니다.",
+    kr: "일정에 따라 프라이버시 모드: 얼굴 인식과 알림이 꺼지고 지금 촬영되는 영상은 공개할 수 없습니다. 마스킹은 유지됩니다.",
   },
   privacy_mode_badge_fail_closed: { mn: "Таних түр зогссон", en: "Recognition paused", kr: "인식 일시 중지" },
   privacy_mode_badge_fail_closed_title: {
-    mn: "ML үйлчилгээ энэ камерын нууцлалын хуваарийг уншиж чадахгүй байгаа тул хаалттай горимд орсон: нүүр таних, сэрэмжлүүлэг унтарсан, энэ үеийн бичлэг хамгаалагдсан (хэзээ ч reveal хийгдэхгүй). Энэ нь хуваарийн цонх биш, тасалдал юм. Маск идэвхтэй.",
+    mn: "ML үйлчилгээ энэ камерын нууцлалын хуваарийг уншиж чадахгүй байгаа тул хаалттай горимд орсон: нүүр таних, сэрэмжлүүлэг унтарсан, энэ үеийн бичлэг хамгаалагдсан (хэзээ ч ил болгохгүй). Энэ нь хуваарийн цонх биш, тасалдал юм. Маск идэвхтэй.",
     en: "The ML service cannot read this camera's privacy schedule, so it fails closed: no face recognition or alerts, and footage captured now is recorded as protected (never revealable). This is an outage, not a schedule window. Masking stays on.",
-    kr: "ML 서비스가 이 카메라의 프라이버시 일정을 읽을 수 없어 안전 모드로 전환했습니다: 얼굴 인식과 알림이 꺼지고 지금 촬영되는 영상은 보호 대상으로 기록됩니다(절대 reveal 불가). 일정의 시간대가 아니라 장애입니다. 마스킹은 유지됩니다.",
+    kr: "ML 서비스가 이 카메라의 프라이버시 일정을 읽을 수 없어 안전 모드로 전환했습니다: 얼굴 인식과 알림이 꺼지고 지금 촬영되는 영상은 보호 대상으로 기록됩니다(절대 공개 불가). 일정의 시간대가 아니라 장애입니다. 마스킹은 유지됩니다.",
   },
   privacy_mode_legend: {
-    mn: "Нууцлалын горим: нүүр таних, нүүр хадгалах, сэрэмжлүүлэг байхгүй, тэр үед бичигдсэн бичлэгийг хэзээ ч reveal хийхгүй. Нүүр аль ч горимд маскласан.",
+    mn: "Нууцлалын горим: нүүр таних, нүүр хадгалах, сэрэмжлүүлэг байхгүй, тэр үед бичигдсэн бичлэгийг хэзээ ч ил болгохгүй. Нүүр аль ч горимд маскласан.",
     en: "Privacy mode: no face recognition, stored faces or alerts, and footage captured then can never be revealed. Faces stay masked in every mode.",
-    kr: "프라이버시 모드: 얼굴 인식·얼굴 저장·알림이 없으며 그때 촬영된 영상은 절대 reveal할 수 없습니다. 얼굴은 모든 모드에서 마스킹됩니다.",
+    kr: "프라이버시 모드: 얼굴 인식·얼굴 저장·알림이 없으며 그때 촬영된 영상은 절대 공개할 수 없습니다. 얼굴은 모든 모드에서 마스킹됩니다.",
   },
   privacy_mode_legend_fail_closed: {
     mn: "«Таних түр зогссон» нь хуваарь уншигдаагүй (тасалдал) гэсэн үг, цонх биш.",
@@ -2962,17 +2952,17 @@ export const T = {
   pb_privacy_schedule_desc: {
     mn: "Камерын нууцлалын хуваарь эдгээр хэсгийг (цонх бүрийн эргэн тойронд 60 секундын зайтай) хамардаг тул reveal тэдгээрийг маскласан хэвээр үлдээнэ — стандарт горимд бичигдсэн бичлэгийг ч. Цонх байгаа л бол ийм байна: сулруулбал (TOTP) дахин reveal хийх боломжтой болно.",
     en: "The camera's privacy schedule covers these stretches (including a 60-second margin around each window), so a reveal keeps them masked — even footage captured in standard mode. This lasts while the window exists: loosening it (TOTP step-up) releases them.",
-    kr: "카메라의 프라이버시 일정이 이 구간(각 시간대 앞뒤 60초 여유 포함)을 포함하므로 reveal 시 마스킹된 상태로 남습니다 — 표준 모드로 촬영된 영상도 마찬가지입니다. 시간대가 존재하는 동안 유지되며, 완화하면(TOTP 재인증) 다시 reveal할 수 있습니다.",
+    kr: "카메라의 프라이버시 일정이 이 구간(각 시간대 앞뒤 60초 여유 포함)을 포함하므로 공개 시 마스킹된 상태로 남습니다 — 표준 모드로 촬영된 영상도 마찬가지입니다. 시간대가 존재하는 동안 유지되며, 완화하면(TOTP 재인증) 다시 공개할 수 있습니다.",
   },
   pb_reveal_privacy_blocked_spans: {
     mn: "Сонгосон хугацаа бүхэлдээ нууцлалын горимд бичигдсэн — хэзээ ч reveal хийгдэхгүй. Зөвшөөрөл авсны дараа ч татгалзах тул хүсэлт илгээгдэхгүй.",
     en: "The whole selected range was captured in privacy mode — it can never be revealed. The job would refuse it after approval, so the request is not sent.",
-    kr: "선택한 구간 전체가 프라이버시 모드로 촬영되어 절대 reveal할 수 없습니다. 승인 후에도 거부되므로 요청을 보내지 않습니다.",
+    kr: "선택한 구간 전체가 프라이버시 모드로 촬영되어 절대 공개할 수 없습니다. 승인 후에도 거부되므로 요청을 보내지 않습니다.",
   },
   pb_reveal_privacy_blocked_schedule: {
     mn: "Камерын одоогийн нууцлалын хуваарь сонгосон хугацааг бүхэлд нь хамардаг тул reveal ажил зөвшөөрлийн дараа татгалзана. Өөр хугацаа сонгох эсвэл эхлээд хуваарийг сулруулна уу (TOTP).",
     en: "The camera's current privacy schedule covers the whole selected range, so the reveal job would refuse it after approval. Pick another range, or loosen the schedule first (TOTP step-up).",
-    kr: "카메라의 현재 프라이버시 일정이 선택한 구간 전체를 포함하므로 reveal 작업이 승인 후 거부합니다. 다른 구간을 선택하거나 먼저 일정을 완화하세요(TOTP 재인증).",
+    kr: "카메라의 현재 프라이버시 일정이 선택한 구간 전체를 포함하므로 승인 후 공개 작업이 거부됩니다. 다른 구간을 선택하거나 먼저 일정을 완화하세요(TOTP 재인증).",
   },
   pb_reveal_privacy_partial: {
     mn: "Сонгосон хугацааны зарим хэсэг нууцлалын горимд бичигдсэн эсвэл камерын хуваарьт хамрагдсан — гаралтад маскласан хэвээр үлдэнэ.",
@@ -2980,35 +2970,148 @@ export const T = {
     kr: "선택한 구간의 일부가 프라이버시 모드로 촬영되었거나 카메라 일정에 포함되어 결과물에서 마스킹된 상태로 남습니다.",
   },
   reveal_err_privacy_unavailable: {
-    mn: "Нууцлалын хуваарь уншигдаагүй тул reveal зогссон (юу ч тайлагдаагүй). Өгөгдлийн сангийн холболт сэргэсний дараа дахин оролдоно уу.",
+    mn: "Нууцлалын хуваарь уншигдаагүй тул нүүр тайлах ажил зогссон (юу ч тайлагдаагүй). Өгөгдлийн сангийн холболт сэргэсний дараа дахин оролдоно уу.",
     en: "The privacy schedule could not be read, so the reveal was stopped (nothing was decrypted). Retry once the database connection is back.",
-    kr: "프라이버시 일정을 읽지 못해 reveal이 중지되었습니다(아무것도 복호화되지 않음). 데이터베이스 연결이 복구되면 다시 시도하세요.",
+    kr: "프라이버시 일정을 읽지 못해 공개가 중지되었습니다(아무것도 복호화되지 않음). 데이터베이스 연결이 복구되면 다시 시도하세요.",
   },
   reveal_err_privacy_rules_unavailable: {
-    mn: "Нууцлалын бүс уншигдаагүй тул reveal зогссон. Өгөгдлийн сангийн холболт сэргэсний дараа дахин оролдоно уу.",
+    mn: "Нууцлалын бүс уншигдаагүй тул нүүр тайлах ажил зогссон. Өгөгдлийн сангийн холболт сэргэсний дараа дахин оролдоно уу.",
     en: "Privacy zones could not be read, so the reveal was stopped. Retry once the database connection is back.",
-    kr: "프라이버시 구역을 읽지 못해 reveal이 중지되었습니다. 데이터베이스 연결이 복구되면 다시 시도하세요.",
+    kr: "프라이버시 구역을 읽지 못해 공개가 중지되었습니다. 데이터베이스 연결이 복구되면 다시 시도하세요.",
   },
   reveal_err_privacy_whole_recording: {
-    mn: "Бичлэг бүхэлдээ нууцлалын горимд бичигдсэн — хэзээ ч reveal хийгдэхгүй.",
+    mn: "Бичлэг бүхэлдээ нууцлалын горимд бичигдсэн — нүүрийг хэзээ ч тайлахгүй.",
     en: "The whole recording was captured in privacy mode — it can never be revealed.",
-    kr: "녹화 전체가 프라이버시 모드로 촬영되어 절대 reveal할 수 없습니다.",
+    kr: "녹화 전체가 프라이버시 모드로 촬영되어 절대 공개할 수 없습니다.",
   },
   reveal_err_privacy_whole_range: {
-    mn: "Сонгосон хугацаа бүхэлдээ нууцлалын горимд бичигдсэн — хэзээ ч reveal хийгдэхгүй.",
+    mn: "Сонгосон хугацаа бүхэлдээ нууцлалын горимд бичигдсэн — нүүрийг хэзээ ч тайлахгүй.",
     en: "The selected time range was captured entirely in privacy mode — it can never be revealed.",
-    kr: "선택한 시간 구간 전체가 프라이버시 모드로 촬영되어 절대 reveal할 수 없습니다.",
+    kr: "선택한 시간 구간 전체가 프라이버시 모드로 촬영되어 절대 공개할 수 없습니다.",
   },
   reveal_err_privacy_schedule_whole_recording: {
-    mn: "Камерын одоогийн нууцлалын хуваарь бичлэгийг бүхэлд нь хамардаг тул reveal хийгдээгүй. Тэр цонхыг сулруулбал (TOTP) л дахин reveal хийх боломжтой болно.",
+    mn: "Камерын одоогийн нууцлалын хуваарь бичлэгийг бүхэлд нь хамардаг тул нүүр тайлагдаагүй. Тэр цонхыг сулруулбал (TOTP) л дахин тайлах боломжтой болно.",
     en: "The camera's current privacy schedule covers the whole recording, so it was not revealed. It becomes revealable again only if that window is loosened (TOTP step-up).",
-    kr: "카메라의 현재 프라이버시 일정이 녹화 전체를 포함하므로 reveal되지 않았습니다. 해당 시간대를 완화해야만(TOTP 재인증) 다시 reveal할 수 있습니다.",
+    kr: "카메라의 현재 프라이버시 일정이 녹화 전체를 포함하므로 공개되지 않았습니다. 해당 시간대를 완화해야만(TOTP 재인증) 다시 공개할 수 있습니다.",
   },
   reveal_err_privacy_schedule_whole_range: {
-    mn: "Камерын одоогийн нууцлалын хуваарь сонгосон хугацааг бүхэлд нь хамардаг тул reveal хийгдээгүй. Тэр цонхыг сулруулбал (TOTP) л дахин reveal хийх боломжтой болно.",
+    mn: "Камерын одоогийн нууцлалын хуваарь сонгосон хугацааг бүхэлд нь хамардаг тул нүүр тайлагдаагүй. Тэр цонхыг сулруулбал (TOTP) л дахин тайлах боломжтой болно.",
     en: "The camera's current privacy schedule covers the whole selected range, so it was not revealed. It becomes revealable again only if that window is loosened (TOTP step-up).",
-    kr: "카메라의 현재 프라이버시 일정이 선택한 구간 전체를 포함하므로 reveal되지 않았습니다. 해당 시간대를 완화해야만(TOTP 재인증) 다시 reveal할 수 있습니다.",
+    kr: "카메라의 현재 프라이버시 일정이 선택한 구간 전체를 포함하므로 공개되지 않았습니다. 해당 시간대를 완화해야만(TOTP 재인증) 다시 공개할 수 있습니다.",
   },
+  // visual-qa A
+  schedule_stepup_reason: {
+    mn: "Энэ өөрчлөлт энэ камерт нүүр танихыг дахин асааж болзошгүй — нэг удаагийн TOTP кодоо оруулна уу.",
+    en: "This change can switch face recognition back on for this camera — enter your one-time TOTP code.",
+    kr: "이 변경으로 이 카메라의 얼굴 인식이 다시 켜질 수 있습니다 — 일회용 TOTP 코드를 입력하세요.",
+  },
+  schedule_state_not_enforced: {
+    mn: "Хадгалсан хуваарь — ажиллаж буй ML үйлчилгээ үүнийг мөрдөж байгааг баталгаажуулаагүй.",
+    en: "Saved schedule — the running ML service has not confirmed that it enforces it.",
+    kr: "저장된 일정 — 실행 중인 ML 서비스가 이 일정을 적용하는지 확인되지 않았습니다.",
+  },
+  schedule_err_weekdays: {
+    mn: "Дор хаяж нэг гараг сонгоно уу.",
+    en: "Pick at least one day.",
+    kr: "요일을 하나 이상 선택하세요.",
+  },
+  // visual-qa B
+  rec_original_kept_withheld: {
+    mn: "Хадгалагдсан · reveal хийх боломжгүй (нууцлалын горим)",
+    en: "Kept · reveal withheld (privacy mode)",
+    kr: "보존됨 · 공개 불가 (프라이버시 모드)",
+  },
+  rec_original_kept_admin_only: {
+    mn: "Хадгалагдсан · reveal-ийг зөвхөн админ хийнэ",
+    en: "Kept · reveal is admin-only",
+    kr: "보존됨 · 공개는 관리자만 가능",
+  },
+  pb_reveal_withheld_hint: {
+    mn: "Энэ бичлэг бүхэлдээ нууцлалаар хамгаалагдсан тул reveal хүсэлт илгээх боломжгүй.",
+    en: "This whole recording is protected by privacy mode, so reveal requests for it cannot be sent.",
+    kr: "이 녹화 전체가 프라이버시 모드로 보호되어 공개 요청을 보낼 수 없습니다.",
+  },
+  pb_reveal_privacy_hint: {
+    mn: "Энэ бичлэгийн зарим хэсэг reveal хийсэн ч маскласан хэвээр үлдэнэ.",
+    en: "Parts of this recording stay masked in any reveal.",
+    kr: "이 녹화의 일부 구간은 공개하더라도 마스킹된 상태로 남습니다.",
+  },
+  pb_privacy_see_details: { mn: "Дэлгэрэнгүй", en: "Details", kr: "자세히" },
+  pb_reveal_privacy_blocked_spans_recording: {
+    mn: "Бичлэг бүхэлдээ нууцлалын горимд бичигдсэн — хэзээ ч reveal хийгдэхгүй. Зөвшөөрөл авсны дараа ч татгалзах тул хүсэлт илгээгдэхгүй.",
+    en: "The whole recording was captured in privacy mode — it can never be revealed. The job would refuse it after approval, so the request is not sent.",
+    kr: "녹화 전체가 프라이버시 모드로 촬영되어 절대 공개할 수 없습니다. 승인 후에도 거부되므로 요청을 보내지 않습니다.",
+  },
+  pb_reveal_privacy_blocked_schedule_recording: {
+    mn: "Камерын одоогийн нууцлалын хуваарь бичлэгийг бүхэлд нь хамардаг тул reveal ажил зөвшөөрлийн дараа татгалзана. Эхлээд хуваарийг сулруулна уу (TOTP).",
+    en: "The camera's current privacy schedule covers the whole recording, so the reveal job would refuse it after approval. Loosen the schedule first (TOTP step-up).",
+    kr: "카메라의 현재 프라이버시 일정이 녹화 전체를 포함하므로 승인 후 공개 작업이 거부됩니다. 먼저 일정을 완화하세요(TOTP 재인증).",
+  },
+  pb_reveal_privacy_partial_recording: {
+    mn: "Энэ бичлэгийн зарим хэсэг нууцлалын горимд бичигдсэн эсвэл камерын хуваарьт хамрагдсан — гаралтад маскласан хэвээр үлдэнэ.",
+    en: "Parts of this recording were captured in privacy mode or are covered by the camera's schedule — they stay masked in the output.",
+    kr: "이 녹화의 일부가 프라이버시 모드로 촬영되었거나 카메라 일정에 포함되어 결과물에서 마스킹된 상태로 남습니다.",
+  },
+  pb_authority_director: { mn: "Захирал", en: "Director", kr: "디렉터" },
+  reveal_withheld_privacy: { mn: "Хамгаалагдсан (нууцлал)", en: "Withheld (privacy)", kr: "보류됨 (프라이버시)" },
+  // visual-qa C
+  wall_auto_refresh: {
+    mn: "10 сек тутам шинэчлэгдэнэ",
+    en: "auto-refresh 10s",
+    kr: "10초마다 자동 새로고침",
+  },
+  wall_mode: { mn: "Харах горим", en: "View mode", kr: "보기 모드" },
+  live_cctv_press_watch: {
+    mn: 'Ажиллаж буй камерыг сонгоод "Үзэх" дар',
+    en: 'Select a running camera and press "Watch"',
+    kr: '실행 중인 카메라를 선택하고 "보기"를 누르세요',
+  },
+  health_privacy_not_enforced_short: {
+    mn: "Нууцлалын хуваарь мөрдөгдөхгүй байна — доорх картыг үзнэ үү",
+    en: "Privacy schedules are not enforced — see the card below",
+    kr: "프라이버시 일정이 적용되지 않습니다 — 아래 카드를 확인하세요",
+  },
+
+  // visual-qa D
+  // /cameras/<id>/permissions — one row per person, revoke removes all of them.
+  perm_auditor_no_live: {
+    mn: "Шууд дүрсгүй — аудитор шууд дүрс үзэхгүй",
+    en: "No live video — auditors never get live video",
+    kr: "실시간 영상 없음 — 감사자는 실시간 영상을 볼 수 없음",
+  },
+  perm_auditor_no_live_tip: {
+    mn: "Энэ мөр шууд дүрс олгохгүй: аудитор шууд дүрсний урсгалд хэзээ ч хүрэхгүй. Энэ нь зөвхөн камерыг жагсаалтад буй хэрэглэгчдээр хязгаарлаж байна.",
+    en: "This row grants no live video: auditors never reach the stream. It only keeps this camera restricted to the listed users.",
+    kr: "이 행은 실시간 영상을 부여하지 않습니다. 감사자는 실시간 영상에 접근할 수 없으며, 이 행은 카메라를 목록의 사용자로 제한할 뿐입니다.",
+  },
+  perm_revoke_user: { mn: "Энэ хэрэглэгчийн эрхийг цуцлах", en: "Revoke this user's access", kr: "이 사용자의 권한 취소" },
+  perm_revoke_confirm: {
+    mn: "Энэ хэрэглэгчийн энэ камерт олгосон бүх эрхийг цуцлах уу?",
+    en: "Revoke all of this user's access to this camera?",
+    kr: "이 카메라에 대한 이 사용자의 모든 권한을 취소하시겠습니까?",
+  },
+  perm_revoke_last_confirm: {
+    mn: "Энэ бол камерын сүүлийн эрх: цуцалсны дараа бүх оператор энэ камерыг жагсаалт, төлөв, бичлэгт дахин харна (шууд дүрсийг зөвхөн админ үзнэ).",
+    en: "This is the camera's last grant: once it is gone, every operator sees this camera in lists, health and playback again (live video stays admin-only).",
+    kr: "이 카메라의 마지막 권한입니다. 취소하면 모든 운영자가 목록·상태·재생에서 이 카메라를 다시 보게 됩니다(실시간 영상은 관리자 전용으로 유지).",
+  },
+  perm_revoked: { mn: "Эрх цуцлагдлаа", en: "Access revoked", kr: "권한이 취소되었습니다" },
+  perm_err_grant: { mn: "Эрх олгож чадсангүй", en: "Could not grant access", kr: "권한을 부여하지 못했습니다" },
+  perm_err_revoke: { mn: "Эрхийг цуцалж чадсангүй", en: "Could not revoke access", kr: "권한을 취소하지 못했습니다" },
+  // /cameras live-access badge on a disabled camera: the gateway refuses everyone.
+  cam_live_disabled: { mn: "Шууд: камер идэвхгүй", en: "Live: camera disabled", kr: "실시간: 카메라 비활성화" },
+  cam_live_disabled_tip: {
+    mn: "Камер идэвхгүй тул шууд дүрсийг хэн ч үзэхгүй, админ ч мөн адил. Тэжээлийн товчоор идэвхжүүлнэ.",
+    en: "The camera is disabled, so nobody can watch it live — admins included. Enable it with the power button.",
+    kr: "카메라가 비활성화되어 관리자를 포함해 아무도 실시간으로 볼 수 없습니다. 전원 버튼으로 활성화하세요.",
+  },
+  // /settings passkey card
+  set_pk_title: { mn: "Passkey", en: "Passkeys", kr: "패스키" },
+  set_pk_tr_internal: { mn: "Төхөөрөмжийн дотоод", en: "Built into the device", kr: "기기 내장" },
+  set_pk_tr_hybrid: { mn: "Утас (QR код)", en: "Phone (QR code)", kr: "휴대폰(QR 코드)" },
+  set_pk_tr_usb: { mn: "USB түлхүүр", en: "USB key", kr: "USB 키" },
+  set_pk_tr_nfc: { mn: "NFC", en: "NFC", kr: "NFC" },
+  set_pk_tr_ble: { mn: "Bluetooth", en: "Bluetooth", kr: "블루투스" },
 } as const;
 
 export type TranslationKey = keyof typeof T;

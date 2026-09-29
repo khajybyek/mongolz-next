@@ -20,8 +20,9 @@ const state = {
   role: "admin" as "admin" | "viewer",
   reauthCookie: undefined as string | undefined,
   pushRows: [] as Array<{ id: string; user_id: string; endpoint: string }>,
+  permRows: [] as Array<{ id: string; camera_id: string; user_id: string; permission: string }>,
 };
-type Op = { table: string; op: string; values?: unknown };
+type Op = { table: string; op: string; values?: unknown; filters?: Record<string, unknown> };
 const ops: Op[] = [];
 const events: Array<{ action: string; detail?: string | null }> = [];
 
@@ -54,8 +55,9 @@ jest.mock("@/lib/supabase/auth", () => ({
 }));
 
 function query(table: string, op: string, values?: unknown) {
-  ops.push({ table, op, values });
+  // `filters` is filled in by .eq() / .neq() after the push; "!col" = neq.
   const filters: Record<string, unknown> = {};
+  ops.push({ table, op, values, filters });
   const result = () => {
     if (table === "push_subscriptions" && op === "select") {
       const hit = state.pushRows.find((r) => r.endpoint === filters.endpoint);
@@ -64,8 +66,20 @@ function query(table: string, op: string, values?: unknown) {
     if (table === "push_subscriptions" && op === "upsert") {
       return { data: { id: "sub-1", endpoint: (values as { endpoint: string }).endpoint, enabled: true, created_at: "now" }, error: null };
     }
+    if (table === "camera_permissions" && op === "upsert") {
+      const v = values as { camera_id: string; user_id: string; permission: string };
+      const dup = state.permRows.some(
+        (r) => r.camera_id === v.camera_id && r.user_id === v.user_id && r.permission === v.permission,
+      );
+      if (!dup) state.permRows.push({ id: `row-${state.permRows.length + 1}`, ...v });
+      return { data: null, error: null };
+    }
     if (table === "camera_permissions" && op === "delete") {
-      return { data: [{ camera_id: CAMERA, user_id: OTHER, permission: "view" }], error: null };
+      const match = (r: Record<string, string>) =>
+        Object.entries(filters).every(([k, v]) => (k.startsWith("!") ? r[k.slice(1)] !== v : r[k] === v));
+      const removed = state.permRows.filter(match);
+      state.permRows = state.permRows.filter((r) => !match(r));
+      return { data: removed, error: null };
     }
     return { data: null, error: null };
   };
@@ -73,6 +87,10 @@ function query(table: string, op: string, values?: unknown) {
   for (const m of ["select", "order", "limit", "in", "lt", "range"]) q[m] = () => q;
   q.eq = (col: string, v: unknown) => {
     filters[col] = v;
+    return q;
+  };
+  q.neq = (col: string, v: unknown) => {
+    filters[`!${col}`] = v;
     return q;
   };
   q.single = async () => result();
@@ -130,6 +148,7 @@ beforeEach(() => {
   state.role = "admin";
   state.reauthCookie = undefined;
   state.pushRows = [];
+  state.permRows = [{ id: PERM_ROW, camera_id: CAMERA, user_id: OTHER, permission: "view" }];
 });
 
 describe("step-up cookie is bound to the factor that minted it", () => {
@@ -192,12 +211,64 @@ describe("camera permissions", () => {
   });
 
   it("the revoke ledger row names the camera and the user that lost access", async () => {
-    await revokeCameraPermissionAction(fd({ id: PERM_ROW, camera_id: CAMERA }));
+    expect(await revokeCameraPermissionAction(CAMERA, OTHER)).toEqual({ ok: true });
     const [row] = audits("CAM_PERM_REVOKE");
     const detail = String((row!.values as { detail: string }).detail);
     expect(detail).toContain(`camera=${CAMERA}`);
     expect(detail).toContain(`user=${OTHER}`);
     expect(detail).toContain("perm=view");
+    expect(detail).toContain(PERM_ROW);
+    expect(events.map((e) => e.action)).toEqual(["CAM_PERM_REVOKE"]);
+  });
+
+  it("a grant replaces the user's other kind instead of adding a second row (one row per person)", async () => {
+    state.reauthCookie = buildReauthCookieValue(ADMIN, soon(), "totp");
+    state.permRows = [
+      { id: "op-row", camera_id: CAMERA, user_id: OTHER, permission: "operate" },
+      { id: "keep", camera_id: CAMERA, user_id: ADMIN, permission: "operate" },
+    ];
+    expect(await grantCameraPermissionAction(fd({ camera_id: CAMERA, user_id: OTHER, permission: "view" }))).toEqual({
+      ok: true,
+    });
+    const mine = state.permRows.filter((r) => r.user_id === OTHER && r.camera_id === CAMERA);
+    expect(mine.map((r) => r.permission)).toEqual(["view"]);
+    // Nobody else's rows are touched.
+    expect(state.permRows.find((r) => r.id === "keep")).toBeDefined();
+    // The new row is written BEFORE the old one goes, so access never lapses.
+    const permOps = ops.filter((o) => o.table === "camera_permissions").map((o) => o.op);
+    expect(permOps).toEqual(["upsert", "delete"]);
+    const [row] = audits("CAM_PERM_GRANT");
+    expect(String((row!.values as { detail: string }).detail)).toContain("perm=view (replaced operate)");
+  });
+
+  it("re-granting the same kind is idempotent and says nothing was replaced", async () => {
+    state.reauthCookie = buildReauthCookieValue(ADMIN, soon(), "totp");
+    expect(await grantCameraPermissionAction(fd({ camera_id: CAMERA, user_id: OTHER, permission: "view" }))).toEqual({
+      ok: true,
+    });
+    expect(state.permRows).toEqual([{ id: PERM_ROW, camera_id: CAMERA, user_id: OTHER, permission: "view" }]);
+    const [row] = audits("CAM_PERM_GRANT");
+    expect(String((row!.values as { detail: string }).detail)).not.toContain("replaced");
+  });
+
+  it("revoke removes EVERY row the user holds on the camera — a leftover row would keep live access", async () => {
+    state.permRows = [
+      { id: "a", camera_id: CAMERA, user_id: OTHER, permission: "view" },
+      { id: "b", camera_id: CAMERA, user_id: OTHER, permission: "operate" },
+      { id: "other-cam", camera_id: "c0000000-0000-4000-8000-000000000002", user_id: OTHER, permission: "view" },
+    ];
+    expect(await revokeCameraPermissionAction(CAMERA, OTHER)).toEqual({ ok: true });
+    expect(state.permRows.map((r) => r.id)).toEqual(["other-cam"]);
+    const del = ops.find((o) => o.table === "camera_permissions" && o.op === "delete");
+    expect(del?.filters).toEqual({ camera_id: CAMERA, user_id: OTHER });
+    const [row] = audits("CAM_PERM_REVOKE");
+    expect(String((row!.values as { detail: string }).detail)).toContain("perm=view,operate");
+  });
+
+  it("revoke refuses malformed ids without touching any row", async () => {
+    const res = await revokeCameraPermissionAction("not-a-uuid", OTHER);
+    expect(res).toHaveProperty("error");
+    expect(ops.filter((o) => o.table === "camera_permissions")).toEqual([]);
   });
 });
 

@@ -5,29 +5,12 @@ import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Alert } from "@/components/ui/alert";
 import { getT } from "@/lib/i18n/server";
-import type { TranslationKey } from "@/lib/i18n/translations";
 import { sanitizeNextPath } from "@/lib/auth/safe-next";
 import { signInAction, verifyTotpAction, cancelTotpAction } from "./actions";
 import { PasskeyLoginButton } from "./passkey-login-button";
 import { LoginSubmitButton, PasswordInput } from "./login-controls";
 import { loginCopy } from "./login-copy";
-
-/** Only known error codes are rendered. Never echo untrusted query text. */
-const ERROR_KEYS: Record<string, TranslationKey> = {
-  invalid_credentials: "login_error",
-  too_many_attempts: "login_err_too_many",
-  code_format: "login_err_code_format",
-  code_invalid: "login_err_code_invalid",
-  code_used: "login_err_code_used",
-  code_expired: "login_err_code_expired",
-  signin_failed: "login_err_signin_failed",
-  no_profile: "login_err_no_profile",
-  session_pin: "login_err_session_pin",
-  session_rebind: "login_err_session_rebind",
-  totp_enrolled: "login_err_totp_enrolled",
-  callback_failed: "login_err_callback",
-  server_config: "login_err_server_config",
-};
+import { loginErrorKey, loginNoticeVariant } from "./login-errors";
 
 const featureIcons = [Camera, Layers3, ShieldCheck];
 
@@ -41,7 +24,10 @@ export default async function LoginPage({
   const copy = loginCopy[lang];
   const isTotpStep = step === "totp";
   const next = sanitizeNextPath(rawNext);
-  const errorText = error ? t(ERROR_KEYS[error] ?? "login_err_generic") : null;
+  // Only known codes are rendered (never untrusted query text); routine
+  // re-login notices are info, not a red error (login-errors.ts).
+  const errorText = error ? t(loginErrorKey(error)) : null;
+  const errorVariant = loginNoticeVariant(error);
 
   return (
     <div className="relative flex min-h-svh flex-col bg-bg">
@@ -124,7 +110,7 @@ export default async function LoginPage({
                       />
                     </div>
                     <input type="hidden" name="next" value={next} />
-                    {errorText && <Alert variant="danger">{errorText}</Alert>}
+                    {errorText && <Alert variant={errorVariant}>{errorText}</Alert>}
                     <LoginSubmitButton label={copy.verify} pendingLabel={copy.verifying} />
                   </form>
                   <form action={cancelTotpAction} className="mt-2">
@@ -156,7 +142,7 @@ export default async function LoginPage({
                     <PasswordInput showLabel={copy.showPassword} hideLabel={copy.hidePassword} />
                   </div>
                   <input type="hidden" name="next" value={next} />
-                  {errorText && <Alert variant="danger">{errorText}</Alert>}
+                  {errorText && <Alert variant={errorVariant}>{errorText}</Alert>}
                   <LoginSubmitButton label={t("login_btn")} pendingLabel={copy.signingIn} />
                   <PasskeyLoginButton
                     next={next}

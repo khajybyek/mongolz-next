@@ -7,6 +7,7 @@ import { requireAdmin } from "@/lib/supabase/auth";
 import { createServiceClient } from "@/lib/supabase/server";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
 import { scheduleSecurityEvent } from "@/lib/notify";
+import { getT } from "@/lib/i18n/server";
 
 type ActionResult = { error: string } | { ok: true };
 
@@ -35,12 +36,20 @@ async function audit(action: string, detail: string, userId: string, userEmail: 
  * well as the detector finds faces, so granting one is still a disclosure
  * decision: it needs
  * the second factor, not just a (possibly stolen) session. Revoking only ever
- * narrows access and stays one click, so a defender is never slowed down.
+ * narrows live access and needs no step-up, so a defender is never slowed
+ * down by a second factor (the page asks one plain confirmation).
+ *
+ * One person holds at most one row per camera. Both kinds grant the same
+ * access today, so a second row only made the list show the user twice and
+ * let a revoke of one row leave the other one granting live video. A grant
+ * therefore REPLACES whatever kind the user held: the new row is written
+ * first (access is never interrupted) and the user's other rows go after.
  */
 export async function grantCameraPermissionAction(formData: FormData): Promise<ActionResult> {
   const ctx = await requireAdmin();
   const reauth = await ensureFreshReauth(ctx.user.id);
   if (reauth) return reauth;
+  const { t } = await getT();
   const parsed = addSchema.safeParse({
     camera_id: formData.get("camera_id"),
     user_id: formData.get("user_id"),
@@ -55,38 +64,62 @@ export async function grantCameraPermissionAction(formData: FormData): Promise<A
       { ...parsed.data, created_by: ctx.user.id },
       { onConflict: "camera_id,user_id,permission" },
     );
-  if (error) return { error: "grant failed" };
+  if (error) return { error: t("perm_err_grant") };
 
-  const detail = `camera=${parsed.data.camera_id} user=${parsed.data.user_id} perm=${parsed.data.permission}`;
+  // Replace, don't add: drop the user's rows of the other kind. A failure
+  // here leaves a duplicate that grants nothing extra (both kinds are the
+  // same access), so the grant itself still stands.
+  const { data: replaced } = await svc
+    .from("camera_permissions")
+    .delete()
+    .eq("camera_id", parsed.data.camera_id)
+    .eq("user_id", parsed.data.user_id)
+    .neq("permission", parsed.data.permission)
+    .select("permission");
+  const replacedKinds = [...new Set((replaced ?? []).map((r) => r.permission))];
+
+  const detail =
+    `camera=${parsed.data.camera_id} user=${parsed.data.user_id} perm=${parsed.data.permission}` +
+    (replacedKinds.length ? ` (replaced ${replacedKinds.join(",")})` : "");
   await audit("CAM_PERM_GRANT", detail, ctx.user.id, ctx.user.email);
   scheduleSecurityEvent({ action: "CAM_PERM_GRANT", actorId: ctx.user.id, actorEmail: ctx.user.email, detail });
   revalidatePath(`/cameras/${parsed.data.camera_id}/permissions`);
   return { ok: true };
 }
 
-export async function revokeCameraPermissionAction(formData: FormData): Promise<void> {
+/**
+ * Removes EVERY row the user holds for the camera — the page lists people,
+ * not rows, and a leftover row of the other kind would keep live access.
+ * The page binds the camera: `revokeCameraPermissionAction.bind(null, id)`.
+ */
+export async function revokeCameraPermissionAction(cameraId: string, userId: string): Promise<ActionResult> {
   const ctx = await requireAdmin();
-  const id = z.string().uuid().safeParse(formData.get("id"));
-  const cameraId = z.string().uuid().safeParse(formData.get("camera_id"));
-  if (!id.success || !cameraId.success) throw new Error("Invalid id");
+  const { t } = await getT();
+  const camera = z.string().uuid().safeParse(cameraId);
+  const user = z.string().uuid().safeParse(userId);
+  if (!camera.success || !user.success) return { error: t("perm_err_revoke") };
 
   const svc = createServiceClient();
-  // Delete and read back in one statement: once the row is gone nothing else
-  // can say WHO lost access to WHICH camera, and the ledger has to.
+  // Delete and read back in one statement: once the rows are gone nothing
+  // else can say WHO lost access to WHICH camera, and the ledger has to.
   const { data: removed, error } = await svc
     .from("camera_permissions")
     .delete()
-    .eq("id", id.data)
-    .select("camera_id, user_id, permission");
-  if (error) throw new Error(error.message);
+    .eq("camera_id", camera.data)
+    .eq("user_id", user.data)
+    .select("id, camera_id, user_id, permission");
+  if (error) return { error: t("perm_err_revoke") };
 
-  const row = removed?.[0];
-  const detail = row
-    ? `camera=${row.camera_id} user=${row.user_id} perm=${row.permission} (row ${id.data})`
-    : `perm row ${id.data} (already gone)`;
+  const rows = removed ?? [];
+  const kinds = [...new Set(rows.map((r) => r.permission))].join(",");
+  const detail = rows.length
+    ? `camera=${camera.data} user=${user.data} perm=${kinds} (rows ${rows.map((r) => r.id).join(",")})`
+    : `camera=${camera.data} user=${user.data} (already gone)`;
   await audit("CAM_PERM_REVOKE", detail, ctx.user.id, ctx.user.email);
-  if (row) {
+  if (rows.length) {
     scheduleSecurityEvent({ action: "CAM_PERM_REVOKE", actorId: ctx.user.id, actorEmail: ctx.user.email, detail });
   }
-  revalidatePath(`/cameras/${cameraId.data}/permissions`);
+  revalidatePath(`/cameras/${camera.data}/permissions`);
+  revalidatePath("/cameras");
+  return { ok: true };
 }

@@ -19,7 +19,8 @@ import { HlsPlayer } from "@/components/hls-player";
 import { PrivacyModeBadge, PrivacyModeLegend } from "@/components/privacy-mode-badge";
 import { useT } from "@/lib/i18n/client";
 import type { LiveLock, StreamDenyCode } from "@/lib/live-access";
-import { LiveLockOverlay } from "@/components/live-lock-overlay";
+import { LiveLockOverlay, useTileSize } from "@/components/live-lock-overlay";
+import { compactTileBadges } from "@/lib/grid-tiles";
 import { cn, formatDate } from "@/lib/utils";
 import {
   getStreamTicketAction,
@@ -280,19 +281,20 @@ export function WallView({
   return (
     <div ref={rootRef} className="min-h-screen bg-bg flex flex-col">
       <header className="flex items-center justify-between gap-3 px-4 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] pb-2 border-b border-border bg-surface/40 backdrop-blur">
-        <div className="flex items-center gap-3 min-w-0">
+        {/* Title block shrinks and truncates; the controls never wrap. */}
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <Cctv className="w-5 h-5 text-accent shrink-0" />
           <div className="min-w-0">
-            <div className="text-sm font-bold tracking-tight">{t("wall_title")}</div>
+            <div className="text-sm font-bold tracking-tight truncate">{t("wall_title")}</div>
             <div className="text-[10px] text-text-muted truncate">
-              {n} {t("wall_cameras")} · {liveCount} {t("grid_streaming")} · auto-refresh 10s
+              {n} {t("wall_cameras")} · {liveCount} {t("grid_streaming")} · {t("wall_auto_refresh")}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-xs shrink-0">
           <div
             role="group"
-            aria-label={t("wall_mode_live")}
+            aria-label={t("wall_mode")}
             className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated/60 p-0.5"
           >
             {(["status", "live"] as Mode[]).map((m) => (
@@ -302,7 +304,7 @@ export function WallView({
                 onClick={() => chooseMode(m)}
                 aria-pressed={mode === m}
                 className={cn(
-                  "h-8 px-2.5 rounded-md font-medium transition",
+                  "h-8 px-2.5 rounded-md font-medium whitespace-nowrap transition",
                   mode === m ? "bg-accent/15 text-accent" : "text-text-soft hover:bg-text-muted/[0.06] hover:text-text",
                 )}
               >
@@ -313,10 +315,12 @@ export function WallView({
           <a href="/dashboard" className="btn-ghost btn-sm hidden sm:inline-flex">
             ← {t("wall_back")}
           </a>
+          {/* Hidden on phones: no room in the header, and phone browsers
+              rarely allow element fullscreen anyway. */}
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="btn-icon"
+            className="btn-icon hidden sm:inline-flex"
             aria-label={isFull ? t("wall_exit_fs") : t("wall_enter_fs")}
             title={isFull ? t("wall_exit_fs") : t("wall_enter_fs")}
           >
@@ -416,6 +420,8 @@ function CameraTile({
   onRetry: () => void;
 }) {
   const { t } = useT();
+  const tileRef = useRef<HTMLDivElement>(null);
+  const tile = useTileSize(tileRef);
   const statusColor =
     cam.status === "healthy"
       ? "bg-success animate-pulse"
@@ -424,20 +430,23 @@ function CameraTile({
         : cam.status === "offline"
           ? "bg-danger"
           : "bg-text-muted";
+  // The chip sits on the always-black tile: fixed light tones (the dark
+  // theme's), never the light theme's dark status tokens.
   const statusTone =
     cam.status === "healthy"
-      ? "text-success"
+      ? "text-emerald-300"
       : cam.status === "stale"
-        ? "text-warning"
+        ? "text-amber-300"
         : cam.status === "offline"
-          ? "text-danger"
-          : "text-text-muted";
+          ? "text-red-300"
+          : "text-white/70";
 
   const liveLock = mode === "live" ? lock : null;
   const showVideo = mode === "live" && Boolean(streamUrl) && !lock;
 
   return (
     <div
+      ref={tileRef}
       className={cn(
         "relative bg-black rounded overflow-hidden group border transition",
         showVideo ? "border-danger/40" : "border-border hover:border-accent/40",
@@ -483,31 +492,39 @@ function CameraTile({
         aria-label={cam.name}
       />
 
-      {/* Top-left: camera name + status dot */}
-      <div className="absolute top-2 left-2 z-[2] flex items-center gap-2 bg-bg/70 backdrop-blur rounded px-2 py-1 text-xs pointer-events-none">
-        <span className={"w-2 h-2 rounded-full " + statusColor} />
-        <span className="font-semibold truncate max-w-[200px]">{cam.name}</span>
-      </div>
-
-      {/* Top-right: privacy mode + LIVE badge or status text */}
-      <div className="absolute top-2 right-2 z-[2] flex items-center gap-1.5 pointer-events-none">
-        {privateMode && isActive && <PrivacyModeBadge className="bg-bg/80 backdrop-blur" failClosed={failClosed} />}
-        {showVideo ? (
-          <span className="inline-flex items-center gap-1.5 rounded bg-danger text-white text-[10px] font-bold tracking-wider px-2 py-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" aria-hidden />
-            {t("grid_live")}
-          </span>
-        ) : (
-          <span
-            className="bg-bg/70 backdrop-blur rounded px-2 py-1 text-[10px] uppercase tracking-wider"
-            // The status now means liveness (frames arriving), while the strip
-            // below reports detections — two different facts that both used to
-            // read "Unknown".
-            title={`${t("cam_health_liveness")}: ${t(STATUS_LABEL[cam.status])}`}
-          >
-            <span className={statusTone}>{t(STATUS_LABEL[cam.status])}</span>
-          </span>
-        )}
+      {/* Top row: camera name + status dot (left), privacy mode + LIVE badge
+          or status text (right). One flex row, so on a narrow tile the name
+          truncates instead of disappearing under the badges. */}
+      <div className="absolute top-2 inset-x-2 z-[2] flex items-center justify-between gap-1.5 pointer-events-none">
+        <div className="min-w-0 flex items-center gap-2 bg-bg/70 backdrop-blur rounded px-2 py-1 text-xs">
+          <span className={"w-2 h-2 rounded-full shrink-0 " + statusColor} />
+          <span className="font-semibold truncate max-w-[200px]">{cam.name}</span>
+        </div>
+        <div className="shrink-0 flex items-center gap-1.5">
+          {privateMode && isActive && (
+            <PrivacyModeBadge
+              className="bg-bg/80 backdrop-blur"
+              failClosed={failClosed}
+              compact={compactTileBadges(tile, focused)}
+            />
+          )}
+          {showVideo ? (
+            <span className="inline-flex items-center gap-1.5 rounded bg-danger text-white text-[10px] font-bold tracking-wider px-2 py-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" aria-hidden />
+              {t("grid_live")}
+            </span>
+          ) : (
+            <span
+              className="bg-black/60 backdrop-blur rounded px-2 py-1 text-[10px] uppercase tracking-wider whitespace-nowrap"
+              // The status now means liveness (frames arriving), while the strip
+              // below reports detections — two different facts that both used to
+              // read "Unknown".
+              title={`${t("cam_health_liveness")}: ${t(STATUS_LABEL[cam.status])}`}
+            >
+              <span className={statusTone}>{t(STATUS_LABEL[cam.status])}</span>
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Bottom strip: last seen + face counts for every operator; start /
@@ -520,24 +537,26 @@ function CameraTile({
           <span className="font-mono pointer-events-none">
             {cam.faces_1h} / 1h · {cam.faces_24h} / 24h
           </span>
+          {/* A locked tile offers no Play: the start could only end in the
+              same refusal (and the button would cover the centred lock). */}
           {mode === "live" && canControl && (
             isActive || streamUrl ? (
               <button
                 type="button"
                 onClick={onStop}
                 disabled={busy}
-                className="btn-icon w-7 h-7 min-w-0 bg-bg/70 text-danger hover:bg-danger/20"
+                className="btn-icon w-7 h-7 min-w-0 bg-bg/70 text-danger enabled:hover:bg-danger/20"
                 aria-label={`${t("grid_stop")}: ${cam.name}`}
                 title={t("grid_stop")}
               >
                 {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
               </button>
-            ) : (
+            ) : liveLock ? null : (
               <button
                 type="button"
                 onClick={onStart}
                 disabled={busy}
-                className="btn-icon w-7 h-7 min-w-0 bg-bg/70 text-accent hover:bg-accent/20"
+                className="btn-icon w-7 h-7 min-w-0 bg-bg/70 text-accent enabled:hover:bg-accent/20"
                 aria-label={`${t("grid_play")}: ${cam.name}`}
                 title={t("grid_play")}
               >

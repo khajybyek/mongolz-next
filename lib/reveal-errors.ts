@@ -20,6 +20,19 @@ const KEYS: Record<string, TranslationKey> = {
   privacy_schedule_whole_range: "reveal_err_privacy_schedule_whole_range",
 };
 
+/**
+ * Refusals by privacy POLICY (ADR 0012): the footage is protected, so the
+ * same request can never succeed — a final answer, not a failure to retry.
+ * `privacy_unavailable` / `privacy_rules_unavailable` are left out on
+ * purpose: a read failed, and a retry may well succeed.
+ */
+const POLICY_CODES: ReadonlySet<string> = new Set([
+  "privacy_whole_recording",
+  "privacy_whole_range",
+  "privacy_schedule_whole_recording",
+  "privacy_schedule_whole_range",
+]);
+
 /** The bracketed code at the start of an ML error message, if any. */
 export function revealErrorCode(message: string | null | undefined): string | null {
   if (typeof message !== "string") return null;
@@ -37,4 +50,14 @@ export function revealErrorText(
   if (typeof message !== "string" || !message) return null;
   const key = KEYS[revealErrorCode(message) ?? ""];
   return key ? t(key) : message;
+}
+
+/**
+ * True when a reveal job's `error_message` is a privacy-policy refusal —
+ * the UI shows it as "withheld", not as a failure that invites a retry.
+ * Presentation only: the job has already refused, whatever this returns.
+ */
+export function revealWithheldByPrivacy(message: string | null | undefined): boolean {
+  const code = revealErrorCode(message);
+  return code !== null && POLICY_CODES.has(code);
 }

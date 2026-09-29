@@ -437,6 +437,7 @@ describe("liveAccessSummary", () => {
       label: "Live: admins only",
       title: translate("cam_live_admins_only_tip", "en"),
       adminsOnly: true,
+      state: "admins_only",
     });
     expect(s.title).toContain("stay visible to every operator");
   });
@@ -459,14 +460,33 @@ describe("liveAccessSummary", () => {
     expect(s.label).toBe("Live: 3 user(s)");
     expect(s.title).toContain("3 user(s)");
     expect(s.adminsOnly).toBe(false);
+    expect(s.state).toBe("users");
     expect(liveAccessSummary(1, true, (k) => translate(k, "mn")).label).toBe("Шууд: 1 хэрэглэгч");
   });
 
-  it("never claims admins only when the grants were unreadable", () => {
+  it("never claims admins only when the grants were unreadable — and flags it as its own state", () => {
     expect(liveAccessSummary(null, false, en)).toEqual({
       label: "Live: unknown",
       title: translate("cam_live_unknown_tip", "en"),
       adminsOnly: false,
+      state: "unknown",
     });
+  });
+
+  it("a disabled camera is refused to everyone, admins included — whatever the grants say", () => {
+    for (const count of [null, 0, 4]) {
+      const s = liveAccessSummary(count, true, en, false);
+      expect(s).toEqual({
+        label: "Live: camera disabled",
+        title: translate("cam_live_disabled_tip", "en"),
+        adminsOnly: false,
+        state: "disabled",
+      });
+      expect(s.title).toContain("admins included");
+    }
+    // …and it agrees with the gateway mirror: no role watches a disabled camera.
+    expect(liveAllowedForCamera({ id: CAM_A, enabled: false }, { [CAM_A]: true })).toBe(false);
+    // Enabled is the default, so existing callers keep their labels.
+    expect(liveAccessSummary(0, false, en).state).toBe("admins_only");
   });
 });

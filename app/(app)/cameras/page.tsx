@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Power, Clock, Users, Lock } from "lucide-react";
+import { Power, PowerOff, Clock, Users, Lock, AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +17,20 @@ import {
 import { cn, formatDate } from "@/lib/utils";
 import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { StepUpForm } from "@/components/step-up-form";
-import { liveAccessSummary, restrictedCameraIds, summarizeLiveGrants } from "@/lib/live-access";
+import {
+  liveAccessSummary,
+  restrictedCameraIds,
+  summarizeLiveGrants,
+  type LiveAccessState,
+} from "@/lib/live-access";
+
+/** Live-access badge tone + icon: a read failure or a disabled camera must not look routine. */
+const LIVE_BADGE: Record<LiveAccessState, { variant: "warning" | "muted"; Icon: typeof Users }> = {
+  disabled: { variant: "muted", Icon: PowerOff },
+  unknown: { variant: "warning", Icon: AlertTriangle },
+  admins_only: { variant: "warning", Icon: Lock },
+  users: { variant: "muted", Icon: Users },
+};
 
 function displayCameraUrl(stored: string): string {
   try {
@@ -103,17 +116,24 @@ export default async function CamerasPage() {
   // the page must not surface ML outages, /grid already does).
   const streamingIds = new Set((active ?? []).map((a) => a.camera_id));
 
-  const cameras = (rawCameras ?? []).map((c) => ({
-    ...c,
-    url: displayCameraUrl(c.url),
-    health: healthById.get(c.id) ?? null,
-    streaming: c.enabled && streamingIds.has(c.id),
-    live: liveAccessSummary(
+  const cameras = (rawCameras ?? []).map((c) => {
+    // A disabled camera is refused to every role at the gateway, so it says
+    // "camera disabled" rather than "admins only".
+    const live = liveAccessSummary(
       liveGrants === null ? null : (liveGrants.counts.get(c.id) ?? 0),
       liveGrants?.restricted.has(c.id) ?? false,
       t,
-    ),
-  }));
+      c.enabled,
+    );
+    return {
+      ...c,
+      url: displayCameraUrl(c.url),
+      health: healthById.get(c.id) ?? null,
+      streaming: c.enabled && streamingIds.has(c.id),
+      live,
+      liveBadge: LIVE_BADGE[live.state],
+    };
+  });
 
   const healthSummary = {
     healthy: cameras.filter((c) => c.health?.status === "healthy").length,
@@ -135,7 +155,7 @@ export default async function CamerasPage() {
       ) : (
         <>
           {/* Fleet health summary */}
-          <div className="grid grid-cols-4 gap-2 mb-4 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4 text-xs">
             <HealthPill status="healthy" count={healthSummary.healthy} label={t("cam_status_healthy")} />
             <HealthPill status="stale" count={healthSummary.stale} label={t("cam_status_stale")} />
             <HealthPill status="offline" count={healthSummary.offline} label={t("cam_status_offline")} />
@@ -145,7 +165,10 @@ export default async function CamerasPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {cameras.map((c) => (
             <div key={c.id} className="card">
-              <div className="flex items-start justify-between gap-3">
+              {/* Phones: the five action buttons get their own row above the
+                  content, which then uses the full card width (beside it the
+                  content column shrank to ~105px). Side by side from sm up. */}
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="font-semibold">{c.name}</span>
@@ -211,7 +234,7 @@ export default async function CamerasPage() {
                           : "bg-text-muted/5 text-text-muted"
                       )}
                     >
-                      {c.enabled ? "ON" : "OFF"}
+                      {c.enabled ? t("enabled") : t("disabled")}
                     </span>
                     {c.cam_type === "demo" ? (
                       <Badge variant="muted" title={t("cam_badge_demo_title")}>
@@ -239,8 +262,8 @@ export default async function CamerasPage() {
                       aria-label={`${c.live.label} — ${t("permissions")}`}
                       className="inline-flex hover:opacity-80 transition-opacity"
                     >
-                      <Badge variant={c.live.adminsOnly ? "warning" : "muted"}>
-                        {c.live.adminsOnly ? <Lock className="w-3 h-3" aria-hidden /> : <Users className="w-3 h-3" aria-hidden />}
+                      <Badge variant={c.liveBadge.variant}>
+                        <c.liveBadge.Icon className="w-3 h-3" aria-hidden />
                         {c.live.label}
                       </Badge>
                     </Link>
@@ -267,7 +290,7 @@ export default async function CamerasPage() {
                     </button>
                   </StepUpForm>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
                   <Link
                     href={`/cameras/${c.id}/schedule` as never}
                     className="btn-icon"

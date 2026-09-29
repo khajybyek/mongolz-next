@@ -16,10 +16,23 @@ import { useT } from "@/lib/i18n/client";
  *
  * The explanation is reachable without hover: the badge is focusable (its
  * `title` + `aria-describedby`), it opts back into pointer events inside the
- * `pointer-events-none` tile overlays, and /grid and /wall render
- * `PrivacyModeLegend` under the tiles whenever a badge is shown.
+ * `pointer-events-none` tile overlays, and /grid, /wall and /live render
+ * `PrivacyModeLegend` whenever a badge is shown.
+ *
+ * `compact` (narrow video tiles — the tile measures itself and decides): the
+ * label is visually hidden and only the icon shows, so the tile keeps room
+ * for the camera name. The label stays readable to screen readers, and the
+ * tooltip and legend carry the meaning.
  */
-export function PrivacyModeBadge({ className, failClosed = false }: { className?: string; failClosed?: boolean }) {
+export function PrivacyModeBadge({
+  className,
+  failClosed = false,
+  compact = false,
+}: {
+  className?: string;
+  failClosed?: boolean;
+  compact?: boolean;
+}) {
   const { t } = useT();
   const title = failClosed ? t("privacy_mode_badge_fail_closed_title") : t("privacy_mode_badge_title");
   const Icon = failClosed ? ShieldAlert : Lock;
@@ -27,14 +40,16 @@ export function PrivacyModeBadge({ className, failClosed = false }: { className?
     <span
       tabIndex={0}
       className={cn(
-        "pointer-events-auto inline-flex items-center gap-1 rounded-md text-[10px] font-semibold px-1.5 py-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
+        "pointer-events-auto inline-flex items-center gap-1 whitespace-nowrap rounded-md text-[10px] font-semibold px-1.5 py-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
         failClosed ? "bg-warning/15 text-warning" : "bg-accent/15 text-accent",
         className,
       )}
       title={title}
     >
       <Icon className="w-3 h-3 shrink-0" aria-hidden />
-      {failClosed ? t("privacy_mode_badge_fail_closed") : t("privacy_mode_badge")}
+      <span className={compact ? "sr-only" : undefined}>
+        {failClosed ? t("privacy_mode_badge_fail_closed") : t("privacy_mode_badge")}
+      </span>
       <span className="sr-only">: {title}</span>
     </span>
   );

@@ -75,6 +75,9 @@ export function PushSettings({ canEnrol = true }: { canEnrol?: boolean }) {
 
       const perm = await Notification.requestPermission();
       setPermission(perm);
+      // "denied" gets its own permanent line (and disables this button), so
+      // a second copy of the same sentence as an error would only repeat it.
+      if (perm === "denied") return;
       if (perm !== "granted") throw new Error(t("push_blocked"));
 
       const sub = await reg.pushManager.subscribe({
@@ -182,10 +185,12 @@ export function PushSettings({ canEnrol = true }: { canEnrol?: boolean }) {
       {supported && (
         <>
           <div className="flex flex-wrap gap-2">
+            {/* Blocked in the browser: a click could only fail again; the
+                push_blocked line below says so. */}
             <button
               type="button"
               onClick={enroll}
-              disabled={busy === "enroll" || !canEnrol}
+              disabled={busy === "enroll" || !canEnrol || permission === "denied"}
               className="btn-primary"
             >
               {busy === "enroll" ? <Loader2 className="w-4 h-4 animate-spin" /> : <BellRing className="w-4 h-4" />}
@@ -208,10 +213,11 @@ export function PushSettings({ canEnrol = true }: { canEnrol?: boolean }) {
             </div>
           )}
           {permission === "denied" && (
-            <div className="text-xs text-danger-ring">{t("push_blocked")}</div>
+            <div className="text-xs text-danger flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5 shrink-0" />{t("push_blocked")}</div>
           )}
-          {error && <div className="text-xs text-danger-ring flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" />{error}</div>}
-          {success && <div className="text-xs text-success-ring flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{success}</div>}
+          {/* *-ring tokens are the status colour at 30% alpha — borders only, never text. */}
+          {error && <div className="text-xs text-danger flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5 shrink-0" />{error}</div>}
+          {success && <div className="text-xs text-success flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5 shrink-0" />{success}</div>}
 
           {loading ? (
             <div className="text-xs text-text-muted">{t("loading_dots")}</div>
@@ -221,7 +227,7 @@ export function PushSettings({ canEnrol = true }: { canEnrol?: boolean }) {
             <ul className="divide-y divide-border border border-border rounded">
               {subs.map((s) => (
                 <li key={s.id} className="flex items-center gap-2 px-2 py-1.5 text-xs">
-                  <span className={s.enabled ? "text-success-ring" : "text-text-faint"}>
+                  <span className={s.enabled ? "text-success" : "text-text-faint"}>
                     {s.enabled ? "●" : "○"}
                   </span>
                   <span className="truncate flex-1" title={s.ua ?? ""}>

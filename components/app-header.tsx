@@ -24,6 +24,7 @@ import { Dropdown, DropdownItem, DropdownLabel, DropdownSeparator } from "./ui/d
 import { useTheme } from "@/lib/theme/client";
 import { cn } from "@/lib/utils";
 import { findNavItem, type Role } from "@/lib/nav";
+import { buildCrumbs } from "@/lib/breadcrumbs";
 import { LANGUAGES, t, type Lang } from "@/lib/i18n/translations";
 
 interface Props {
@@ -31,47 +32,6 @@ interface Props {
   role: Role;
   email: string;
   isSuperAdmin?: boolean;
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function shortSegment(seg: string): string {
-  let s = seg;
-  try {
-    s = decodeURIComponent(seg);
-  } catch {
-    /* keep raw */
-  }
-  if (UUID_RE.test(s)) return s.slice(0, 8) + "…";
-  return s.length > 22 ? s.slice(0, 20) + "…" : s;
-}
-
-interface Crumb {
-  label: string;
-  href?: string;
-}
-
-function buildCrumbs(pathname: string, lang: Lang): Crumb[] {
-  const hit = findNavItem(pathname);
-  if (!hit) {
-    const segments = pathname.split("/").filter(Boolean);
-    return segments.map((seg, i) => ({
-      label: shortSegment(seg),
-      href: "/" + segments.slice(0, i + 1).join("/"),
-    }));
-  }
-  const crumbs: Crumb[] = [
-    { label: t(hit.group.labelKey, lang) },
-    { label: t(hit.item.labelKey, lang), href: hit.item.href },
-  ];
-  const rest = pathname.slice(hit.item.href.length).split("/").filter(Boolean);
-  rest.forEach((seg, i) => {
-    crumbs.push({
-      label: shortSegment(seg),
-      href: hit.item.href + "/" + rest.slice(0, i + 1).join("/"),
-    });
-  });
-  return crumbs;
 }
 
 type Uptime = {

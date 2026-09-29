@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Eye, MousePointerClick, ListChecks, X } from "lucide-react";
+import { Eye, MousePointerClick, ListChecks, Lock, X } from "lucide-react";
 import { VideoWithFaceOverlay, type FaceBox } from "./video-with-face-overlay";
 import { FaceTimeline } from "./face-timeline";
 import { RevealModal } from "./reveal-modal";
@@ -45,6 +45,8 @@ export function PlaybackPlayer({
   durationSec,
   initialFaceId,
   revealPrivacy,
+  revealWithheld = false,
+  privacyNoticeId = null,
 }: {
   recordingId: string;
   videoUrl: string;
@@ -60,6 +62,12 @@ export function PlaybackPlayer({
    *  the camera's current schedule, as video offsets; `durationSec` is the
    *  recording row's length the job judges by. */
   revealPrivacy?: { spans: OffsetRange[]; schedule: OffsetRange[]; durationSec: number | null };
+  /** The whole recording is protected, so the job refuses every reveal — the
+   *  modal already refuses to send one; the CTA only says so up front. */
+  revealWithheld?: boolean;
+  /** id of the page's first privacy card — the CTA links to it (on a phone
+   *  the cards render well below the player). null = no privacy stretches. */
+  privacyNoticeId?: string | null;
 }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
@@ -196,6 +204,7 @@ export function PlaybackPlayer({
           currentTime={currentTime}
           faces={detectedFaces}
           onSeek={seekTo}
+          revealBlockedHint={revealWithheld ? t("pb_reveal_withheld_hint") : undefined}
           onRevealFace={(f) => {
             // Тухайн нүүрний хугацаа руу seek хийгээд reveal modal-ыг pre-selected face_id-тай нээнэ
             if (f.time_in_video_sec !== null) seekTo(f.time_in_video_sec);
@@ -218,7 +227,11 @@ export function PlaybackPlayer({
           {/* Action bar */}
           <div data-playback-actions className="card mt-3 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
             <div className="flex min-w-0 items-start gap-3 sm:flex-1 sm:items-center">
-              <MousePointerClick className="mt-0.5 h-5 w-5 shrink-0 text-accent sm:mt-0" />
+              {revealWithheld && !selectMode ? (
+                <Lock className="mt-0.5 h-5 w-5 shrink-0 text-accent sm:mt-0" aria-hidden />
+              ) : (
+                <MousePointerClick className="mt-0.5 h-5 w-5 shrink-0 text-accent sm:mt-0" aria-hidden />
+              )}
               <div className="min-w-0 flex-1 text-xs leading-relaxed text-text-soft">
                 {selectMode ? (
                   <>
@@ -227,8 +240,26 @@ export function PlaybackPlayer({
                     <span className="text-accent font-bold">{selectedIds.size}</span>{" "}
                     {t("pb_people")}
                   </>
+                ) : revealWithheld ? (
+                  <span className="text-accent">{t("pb_reveal_withheld_hint")}</span>
                 ) : (
                   <>{t("pb_idle_hint")}</>
+                )}
+                {privacyNoticeId && (
+                  revealWithheld && !selectMode ? (
+                    <>
+                      {" "}
+                      <a href={`#${privacyNoticeId}`} className="link underline">{t("pb_privacy_see_details")}</a>
+                    </>
+                  ) : (
+                    <p className="mt-1 flex items-start gap-1.5 text-accent">
+                      <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                      <span>
+                        {revealWithheld ? t("pb_reveal_withheld_hint") : t("pb_reveal_privacy_hint")}{" "}
+                        <a href={`#${privacyNoticeId}`} className="link underline">{t("pb_privacy_see_details")}</a>
+                      </span>
+                    </p>
+                  )
                 )}
               </div>
             </div>
@@ -245,7 +276,11 @@ export function PlaybackPlayer({
                   <ListChecks className="w-3.5 h-3.5" />
                   {t("pb_select_mode_btn")}
                 </button>
-                <button onClick={openManual} className="btn-primary btn-sm min-w-0 justify-center sm:shrink-0">
+                <button
+                  onClick={openManual}
+                  className="btn-primary btn-sm min-w-0 justify-center sm:shrink-0"
+                  title={revealWithheld ? t("pb_reveal_withheld_hint") : undefined}
+                >
                   <Eye className="w-3.5 h-3.5" />
                   {t("pb_reveal_btn")}
                 </button>
@@ -263,6 +298,7 @@ export function PlaybackPlayer({
                   onClick={openSelected}
                   disabled={selectedIds.size === 0}
                   className="btn-primary btn-sm min-w-0 justify-center sm:shrink-0"
+                  title={revealWithheld ? t("pb_reveal_withheld_hint") : undefined}
                 >
                   <Eye className="w-3.5 h-3.5" />
                   {t("pb_reveal_btn")} {selectedIds.size > 0 ? `(${selectedIds.size})` : ""}

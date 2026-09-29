@@ -9,13 +9,19 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  /**
+   * Why this action needs the second factor, in the caller's words. Falls
+   * back to the generic `totp_prompt_desc`, which names no particular action.
+   */
+  description?: string;
 }
 
 /**
- * TOTP step-up prompt. Shown when a user-CRUD action returns
- * `REAUTH_REQUIRED`. On success, the parent retries the original action.
+ * TOTP step-up prompt. Shown when a sensitive action (user management,
+ * camera and schedule changes, retention, webhooks, passkeys and so on)
+ * answers `REAUTH_REQUIRED`. On success, the parent retries the action.
  */
-export function TotpPrompt({ open, onClose, onSuccess }: Props) {
+export function TotpPrompt({ open, onClose, onSuccess, description }: Props) {
   const { t } = useT();
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +95,7 @@ export function TotpPrompt({ open, onClose, onSuccess }: Props) {
           {t("totp_prompt_title")}
         </span>
       }
-      description={t("totp_prompt_desc")}
+      description={description ?? t("totp_prompt_desc")}
       size="sm"
       footer={null}
     >

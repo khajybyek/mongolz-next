@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { RefreshCw, CheckCircle, XCircle, Loader2, AlertTriangle } from "lucide-react";
 import { useT } from "@/lib/i18n/client";
 import type { TranslationKey } from "@/lib/i18n/translations";
+import type { PrivacyEnforcement } from "@/lib/health-probes";
+import { healthLevel } from "@/lib/health-summary";
 
 /** Probe targets. Names are translated at render, never inside the fetch loop. */
 const CHECKS: { nameKey: TranslationKey; url: string }[] = [
@@ -27,7 +29,13 @@ interface ServiceStatus {
   detailKey: TranslationKey;
 }
 
-export function HealthDashboard() {
+/**
+ * `privacy` is the server's privacy-enforcement probe (ADR 0012). It counts
+ * toward the headline: schedules that are not enforced are an error, an
+ * unreadable state is degraded — the card that explains it sits below the
+ * fold on a phone, so the headline must not say "all OK" over it.
+ */
+export function HealthDashboard({ privacy }: { privacy?: PrivacyEnforcement }) {
   const { t } = useT();
   const [services, setServices] = useState<ServiceStatus[]>([]);
   const [checking, setChecking] = useState(false);
@@ -75,17 +83,28 @@ export function HealthDashboard() {
 
   useEffect(() => { check(); }, [check]);
 
-  const allOk = services.length > 0 && services.every((s) => s.status === "ok");
-  const anyError = services.some((s) => s.status === "error");
+  const level = healthLevel(
+    services.map((s) => s.status),
+    privacy,
+  );
+  const dot =
+    level === "ok" ? "bg-success" : level === "checking" ? "bg-text-muted" : level === "error" ? "bg-danger" : "bg-warning";
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <div className={`w-3 h-3 rounded-full ${allOk ? "bg-success" : services.length === 0 ? "bg-text-muted" : anyError ? "bg-danger" : "bg-warning"} animate-pulse`} />
-        <span className="text-sm font-semibold">
-          {allOk ? t("health_all_ok") : services.length === 0 ? t("health_checking") : t("health_issues")}
-        </span>
-        <button onClick={check} disabled={checking} className="btn-ghost btn-sm ml-auto">
+        <div className={`w-3 h-3 rounded-full shrink-0 ${dot} animate-pulse`} />
+        <div className="min-w-0">
+          <div className="text-sm font-semibold">
+            {level === "ok" ? t("health_all_ok") : level === "checking" ? t("health_checking") : t("health_issues")}
+          </div>
+          {/* Name the compliance problem in the headline itself — its card
+              may be below the fold. */}
+          {privacy === "not_enforced" && (
+            <div className="text-xs text-danger">{t("health_privacy_not_enforced_short")}</div>
+          )}
+        </div>
+        <button onClick={check} disabled={checking} className="btn-ghost btn-sm ml-auto shrink-0">
           {checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
           {t("health_refresh")}
         </button>

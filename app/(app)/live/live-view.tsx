@@ -31,10 +31,16 @@ import {
 } from "@/lib/recording-upload";
 import { UploadJobPanel } from "@/components/upload-job-panel";
 import { CameraReconnectLine, CameraRestartBadge } from "@/components/camera-restart-status";
-import { PrivacyModeBadge } from "@/components/privacy-mode-badge";
+import { PrivacyModeBadge, PrivacyModeLegend } from "@/components/privacy-mode-badge";
 import type { CameraRestartInfo } from "@/lib/camera-restarts";
 import { workflowCopy } from "@/lib/workflow-copy";
-import { isRetryableDenial, lacksAnyLiveAccess, streamDenyMessageKey, type StreamDenyCode } from "@/lib/live-access";
+import {
+  isRetryableDenial,
+  lacksAnyLiveAccess,
+  liveLockShortKey,
+  streamDenyMessageKey,
+  type StreamDenyCode,
+} from "@/lib/live-access";
 
 interface Camera {
   id: string;
@@ -745,6 +751,9 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
   // Gateway refusals that no retry can fix (grant revoked, camera disabled)
   // seen while the page is open: the row locks until the page is reloaded.
   const [refused, setRefused] = useState<Map<string, StreamDenyCode>>(new Map());
+  // The latest refusal is said inside the player, where the video stopped —
+  // on a phone the side card sits below the player, half under the tab bar.
+  const [refusal, setRefusal] = useState<StreamDenyCode | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -775,6 +784,7 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
   async function watch(c: Camera) {
     if (!c.liveAllowed || refused.has(c.id)) return; // locked — no ticket, no request
     setError(null);
+    setRefusal(null);
     setBusy(true);
     try {
       const ticketStr = await getStreamTicketAction(c.id);
@@ -799,6 +809,7 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
 
   async function start(c: Camera) {
     setError(null);
+    setRefusal(null);
     if (!c.enabled) {
       setError(t("live_camera_disabled"));
       return;
@@ -834,7 +845,7 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
   function onStreamError(cameraId: string, code?: StreamDenyCode | null) {
     if (!code) return;
     setActive((cur) => (cur === cameraId ? null : cur));
-    setError(t(streamDenyMessageKey(code)));
+    setRefusal(code);
     if (!isRetryableDenial(code)) setRefused((prev) => new Map(prev).set(cameraId, code));
   }
 
@@ -857,6 +868,13 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
             renewTicket={() => getStreamTicketAction(activeCam.id)}
             onError={(_status, code) => onStreamError(activeCam.id, code)}
           />
+        ) : refusal ? (
+          // The gateway refused the stream while it played: say why where the
+          // video stopped (fixed light colours on the always-black player).
+          <div role="alert" className="flex flex-col items-center gap-2 text-white/80 text-sm text-center px-4">
+            <Lock className="w-6 h-6 text-white/60" aria-hidden />
+            {t(streamDenyMessageKey(refusal))}
+          </div>
         ) : noLiveAccess ? (
           // The player area is always black: fixed light colours, not theme
           // tokens (dark slate on black in the light theme).
@@ -865,10 +883,16 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
             {t("live_no_access_any")}
           </div>
         ) : (
-          <div className="text-text-muted text-sm text-center px-4">
-            {t("live_cctv_press_start")}
-            <br />
-            <span className="text-2xs text-text-faint">{t("live_cctv_hint")}</span>
+          // Viewers cannot start a capture: they watch a running camera, and
+          // the RTSP / ML-service hint is an admin concern.
+          <div className="text-white/70 text-sm text-center px-4">
+            {canControl ? t("live_cctv_press_start") : t("live_cctv_press_watch")}
+            {canControl && (
+              <>
+                <br />
+                <span className="text-2xs text-white/50">{t("live_cctv_hint")}</span>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -876,19 +900,26 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
       <div className="card space-y-2">
         <h3 className="section-title mb-2 flex items-center justify-between">
           {t("live_registered_cctv")}
-          <a href="/cameras" className="link text-2xs normal-case">
-            {t("manage_btn")}
-          </a>
+          {/* /cameras is admin-only — a viewer would only be bounced. */}
+          {canControl && (
+            <a href="/cameras" className="link text-2xs normal-case">
+              {t("manage_btn")}
+            </a>
+          )}
         </h3>
 
         {cameras.length === 0 && (
           <p className="text-xs text-text-muted py-4 text-center">
             {t("live_no_cameras_msg")}
-            <br />
-            <a href="/cameras" className="text-accent hover:underline">
-              {t("live_manage_cameras_link")}
-            </a>{" "}
-            {t("live_add_from_page")}
+            {canControl && (
+              <>
+                <br />
+                <a href="/cameras" className="text-accent hover:underline">
+                  {t("live_manage_cameras_link")}
+                </a>{" "}
+                {t("live_add_from_page")}
+              </>
+            )}
           </p>
         )}
 
@@ -917,7 +948,9 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
                 title={t(refused.has(c.id) ? streamDenyMessageKey(refused.get(c.id)!) : "live_no_access")}
               >
                 <Lock className="w-3 h-3" aria-hidden />
-                {t("live_no_access_short")}
+                {/* The short label names the actual cause (a disabled camera is
+                    not a missing grant) — the same keys /grid and /wall use. */}
+                {t(refused.has(c.id) ? liveLockShortKey(refused.get(c.id)!) : "live_no_access_short")}
               </span>
             ) : !canControl && c.enabled ? (
               active === c.id ? (
@@ -992,7 +1025,19 @@ function CctvView({ cameras, canControl }: { cameras: Camera[]; canControl: bool
           </div>
         ))}
 
-        {!canControl && cameras.length > 0 && (
+        {/* The privacy badge's meaning, visible without hover (touch screens) —
+            the same predicate as the badges in the list above. */}
+        {cameras.some((c) => c.enabled && privateIds.has(c.id)) && (
+          <PrivacyModeLegend
+            className="pt-1"
+            failClosed={cameras.some((c) => c.enabled && privateIds.has(c.id) && failClosedIds.has(c.id))}
+          />
+        )}
+
+        {/* Not for a viewer without any live grant: the player already says
+            they cannot watch, and "you can watch running cameras" would
+            contradict it. */}
+        {!canControl && cameras.length > 0 && !noLiveAccess && (
           <p className="text-2xs text-text-muted leading-relaxed pt-1">
             {t("live_viewer_not_running")}{" "}
             <Link href="/grid" className="link">

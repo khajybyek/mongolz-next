@@ -358,9 +358,9 @@ describe("schedule page wiring", () => {
   const src = readFileSync(join(__dirname, "..", "app", "(app)", "cameras", "[id]", "schedule", "page.tsx"), "utf8");
 
   it("routes every form that can loosen through StepUpForm (TOTP prompt + resubmit)", () => {
-    expect(src).toContain("<StepUpForm action={addScheduleAction}");
-    expect(src).toContain("<StepUpForm action={deleteScheduleAction}");
-    expect(src).toContain("<StepUpForm action={setPrivacyDefaultAction}");
+    expect(src).toMatch(/<StepUpForm\s+action=\{addScheduleAction\}/);
+    expect(src).toMatch(/<StepUpForm\s+action=\{deleteScheduleAction\}/);
+    expect(src).toMatch(/<StepUpForm\s+action=\{setPrivacyDefaultAction\}/);
     expect(src).not.toMatch(/<form action=/);
   });
 

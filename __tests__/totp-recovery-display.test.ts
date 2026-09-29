@@ -43,7 +43,8 @@ describe("TotpSettings wiring", () => {
   });
 
   it("has the login message for a completed enrolment in every language", () => {
-    const login = readFileSync(join(__dirname, "..", "app", "login", "page.tsx"), "utf8");
+    // The ?error= code → copy map moved out of page.tsx into login-errors.ts.
+    const login = readFileSync(join(__dirname, "..", "app", "login", "login-errors.ts"), "utf8");
     expect(login).toMatch(/totp_enrolled:\s*"login_err_totp_enrolled"/);
     for (const lang of ["mn", "en", "kr"] as const) {
       expect(T.login_err_totp_enrolled[lang].length).toBeGreaterThan(0);

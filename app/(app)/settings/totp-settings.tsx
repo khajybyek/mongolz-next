@@ -393,7 +393,7 @@ export function TotpSettings({ email, enabled: initialEnabled, role }: Props) {
       )}
 
       <p className="text-[10px] text-text-muted leading-relaxed border-t border-text-muted/5 pt-3">
-        {t("menu_account")}: <b>{email}</b> · {t("users_role")}: <b>{role}</b>
+        {t("menu_account")}: <b>{email}</b> · {t("users_role")}: <b>{t(`role_${role}`)}</b>
       </p>
     </div>
   );

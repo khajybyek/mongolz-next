@@ -34,7 +34,8 @@ export default async function HealthPage() {
     <>
       <PageHeader title={t("nav_health")} subtitle={t("health_subtitle")} />
       <div className="space-y-4">
-        <HealthDashboard />
+        {/* The headline counts privacy enforcement too (not enforced = error). */}
+        <HealthDashboard privacy={privacyEnforcement} />
 
         <PrivacyEnforcementNotice state={privacyEnforcement} t={t} showWhenEnforced />
 
