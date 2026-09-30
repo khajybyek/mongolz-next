@@ -13,6 +13,7 @@ import { isActiveUpload } from "@/lib/recording-upload";
 import { RevealOutcome, UploadJobDetails } from "./job-outcome";
 import { revealErrorText, revealWithheldByPrivacy } from "@/lib/reveal-errors";
 import { Lock } from "lucide-react";
+import { isSelfApprovedReveal } from "@/lib/reveal-self-approval";
 
 export const dynamic = "force-dynamic";
 const REVEAL_ACTIVE = ["pending_approval", "queued", "processing"] as const;
@@ -32,7 +33,7 @@ export default async function JobsPage({ searchParams }: { searchParams?: Promis
   const client = await createClient();
   const showReveal = admin && kind !== "upload";
   const showUpload = kind !== "reveal";
-  let rq = client.from("reveal_jobs").select("id, status, progress, method, recording_id, requested_email, error_message, rejected_reason, created_at, completed_at", { count: "exact" }).order("created_at", { ascending: false }).order("id", { ascending: false });
+  let rq = client.from("reveal_jobs").select("id, status, progress, method, recording_id, requested_email, approval_required, error_message, rejected_reason, created_at, completed_at", { count: "exact" }).order("created_at", { ascending: false }).order("id", { ascending: false });
   if (state !== "all") rq = rq.in("status", state === "active" ? [...REVEAL_ACTIVE] : [...REVEAL_FINISHED]);
   let uq = client.from("upload_jobs").select("id, camera_name, recording_id, status, progress, attempts, error_message, created_at, updated_at, completed_at", { count: "exact" }).order("created_at", { ascending: false }).order("id", { ascending: false });
   if (state !== "all") uq = uq.in("status", state === "active" ? ["queued", "processing", "delivering"] : ["ready", "failed", "cancelled"]);
@@ -67,6 +68,8 @@ export default async function JobsPage({ searchParams }: { searchParams?: Promis
           return <article key={job.id} className="card space-y-3">
           <div className="flex flex-wrap justify-between gap-2"><span className="text-xs font-mono text-text-soft">{job.id.slice(0, 8)} · {job.method}</span>{withheld ? <span className="badge bg-accent/15 text-accent"><Lock className="h-3 w-3" aria-hidden />{t("reveal_withheld_privacy")}</span> : <JobStatus status={job.status} label={workflowStatus(job.status, lang)} />}</div>
           <p className="text-xs text-text-muted">{job.requested_email ?? "—"} · {formatDate(job.created_at)}{job.completed_at ? ` → ${formatDate(job.completed_at)}` : ""}</p>
+          {/* The super admin's own reveal ran without a second admin (ADR 0003 amendment). */}
+          {isSelfApprovedReveal(job) && <p data-self-approved className="text-xs text-warning" title={t("reveal_self_approved_hint")}>{t("reveal_self_approved_label")}</p>}
           {(job.status === "queued" || job.status === "processing") && <Progress value={job.progress ?? 0} />}
           {withheld ? <p className="text-xs text-text-soft break-words">{revealErrorText(job.error_message, t)}</p> : (job.error_message || job.rejected_reason) && <p role="alert" className="text-xs text-danger break-words">{revealErrorText(job.error_message, t) || job.rejected_reason}</p>}
           <div className="flex flex-wrap gap-2"><a className="btn-secondary btn-sm" href={`/playback/${job.recording_id}`}>{c.recording}</a>{job.status === "pending_approval" && <a className="btn-primary btn-sm" href="/reveal-approvals">{c.approval}</a>}</div>

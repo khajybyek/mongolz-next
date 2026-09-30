@@ -31,6 +31,7 @@ export const T = {
   dash_reveal_requested: { mn: "Нүүр ил болгох хүсэлт", en: "Reveal requested", kr: "공개 요청됨" },
   dash_reveal_approved: { mn: "Нүүр ил болгохыг зөвшөөрсөн", en: "Reveal approved", kr: "공개 승인됨" },
   dash_reveal_rejected: { mn: "Нүүр ил болгохоос татгалзсан", en: "Reveal rejected", kr: "공개 거부됨" },
+  dash_reveal_self_approved: { mn: "Супер админ зөвшөөрөлгүйгээр ил болгосон", en: "Reveal self-approved (super admin)", kr: "공개 자체 승인 (최고 관리자)" },
   dash_reveal_completed: { mn: "Нүүр ил болгож дууссан", en: "Reveal completed", kr: "공개 완료됨" },
   home_preview_label: { mn: "Интерфэйсийн жишээ", en: "Product preview", kr: "제품 미리보기" },
   home_preview_note: { mn: "Жишээ өгөгдөл · Бодит хяналтын мэдээлэл нэвтэрсний дараа харагдана", en: "Illustrative data · Sign in to view your workspace", kr: "예시 데이터 · 로그인하여 실제 현황을 확인하세요" },
@@ -196,9 +197,9 @@ export const T = {
   // ── Reveal approvals ──
   reveal_approvals_title: { mn: "Reveal зөвшөөрөл", en: "Reveal approvals", kr: "공개 승인" },
   reveal_approvals_subtitle: {
-    mn: "4-eyes principle — Reveal job-ыг зөвхөн өөр admin зөвшөөрсний дараа гүйцэтгэнэ",
-    en: "4-eyes principle — a reveal job runs only after a second admin approves",
-    kr: "4-eyes 원칙 — 다른 관리자의 승인 후에만 공개 작업이 실행됩니다",
+    mn: "4-eyes зарчим — Reveal job-ыг зөвхөн өөр admin зөвшөөрсний дараа гүйцэтгэнэ. Супер админы өөрийн хүсэлт зөвшөөрөлгүйгээр шууд ажиллаж, доор «өөрөө баталсан» гэж харагдана.",
+    en: "4-eyes principle — a reveal job runs only after a second admin approves. The super admin's own requests run immediately and appear below as self-approved.",
+    kr: "4-eyes 원칙 — 공개 작업은 다른 관리자의 승인 후에만 실행됩니다. 슈퍼 관리자의 요청은 승인 없이 즉시 실행되며 아래에 자체 승인으로 표시됩니다.",
   },
   pending_label: { mn: "Хүлээгдэж буй", en: "Pending", kr: "대기 중" },
   recent_decisions: { mn: "Сүүлийн шийдвэрүүд", en: "Recent decisions", kr: "최근 결정" },
@@ -345,9 +346,9 @@ export const T = {
   schedule_mode_private: { mn: "Нууцлал", en: "Private", kr: "프라이버시" },
   schedule_explain_title: { mn: "Горимууд юу хийдэг вэ", en: "What the modes do", kr: "모드별 동작" },
   schedule_explain_masking: {
-    mn: "Нүүрний маск үргэлж идэвхтэй — шууд дамжуулалт болон бичлэг тоглуулах аль ч горимд маскласан хэвээр. Хуваарь хэзээ ч видеог илрүүлэхгүй; нүүрийг зөвхөн хоёр дахь админы зөвшөөрлөөр ил болгоно.",
-    en: "Face masking is always on — live view and playback stay masked in both modes. A schedule never un-masks video; un-masking is only ever the 4-eyes reveal.",
-    kr: "얼굴 마스킹은 항상 켜져 있습니다 — 두 모드 모두 실시간 화면과 재생은 마스킹된 상태입니다. 일정은 영상의 마스킹을 절대 해제하지 않으며, 해제는 오직 다른 관리자의 승인을 거친 공개로만 가능합니다.",
+    mn: "Нүүрний маск үргэлж идэвхтэй — шууд дамжуулалт болон бичлэг тоглуулах аль ч горимд маскласан хэвээр. Хуваарь хэзээ ч видеог илрүүлэхгүй; нүүрийг зөвхөн аудитлагдсан нүүр тайлах ажлаар ил болгоно (хоёр дахь админ батална; супер админы өөрийн хүсэлтэд шаардлагагүй).",
+    en: "Face masking is always on — live view and playback stay masked in both modes. A schedule never un-masks video; un-masking is only ever the audited reveal job (a second admin approves it, except for the super admin's own reveals).",
+    kr: "얼굴 마스킹은 항상 켜져 있습니다 — 두 모드 모두 실시간 화면과 재생은 마스킹된 상태입니다. 일정은 영상의 마스킹을 절대 해제하지 않으며, 해제는 오직 감사 기록이 남는 공개 작업으로만 가능합니다(슈퍼 관리자 본인의 공개를 제외하면 다른 관리자가 승인).",
   },
   schedule_explain_private: {
     mn: "«Нууцлал» горимд нүүр таних, нүүрний бичлэг/зураг хадгалах, сэжигтэн тулгах, сэрэмжлүүлэг, захын төхөөрөмж дээрх боловсруулалт бүгд унтарна. Тэр үед бичигдсэн хэсгийн нүүрийг ил болгох боломжгүй.",
@@ -1152,9 +1153,9 @@ export const T = {
     kr: "MONGOLZ Security",
   },
   demo_problem_tile_b_body: {
-    mn: "Бичлэг хийгдмэгц нүүр бүр Cubist Mosaic-аар автоматаар нуугдаж, эх хувь нь AES-256-GCM-ээр шифрлэгдэн архивлагдана. 4-eyes approval-той reveal flow л буцаах боломжтой.",
-    en: "Every face is masked with Cubist Mosaic on capture; the original is encrypted with AES-256-GCM. Only the 4-eyes approval reveal flow can unwrap it.",
-    kr: "캡처 시 모든 얼굴이 Cubist Mosaic으로 마스킹되며, 원본은 AES-256-GCM으로 암호화됩니다. 4-eyes 승인 reveal 흐름만 원본을 복원할 수 있습니다.",
+    mn: "Бичлэг хийгдмэгц нүүр бүр Cubist Mosaic-аар автоматаар нуугдаж, эх хувь нь AES-256-GCM-ээр шифрлэгдэн архивлагдана. Зөвхөн зөвшөөрөгдсөн, аудитлагдсан reveal flow (4-eyes; супер админ өөрийнхөө хүсэлтийг өөрөө батална) л буцаах боломжтой.",
+    en: "Every face is masked with Cubist Mosaic on capture; the original is encrypted with AES-256-GCM. Only the approved, audited reveal flow (4-eyes; the super admin approves their own) can unwrap it.",
+    kr: "캡처 시 모든 얼굴이 Cubist Mosaic으로 마스킹되며, 원본은 AES-256-GCM으로 암호화됩니다. 승인되고 감사 기록이 남는 reveal 흐름(4-eyes, 슈퍼 관리자는 본인 요청을 직접 승인)만 원본을 복원할 수 있습니다.",
   },
   demo_arch_title: {
     mn: "4 давхаргат архитектур",
@@ -1234,9 +1235,9 @@ export const T = {
     kr: "해시 체인 감사 로그",
   },
   demo_sec_4eyes: {
-    mn: "4-eyes approval reveal-д",
-    en: "4-eyes approval on reveal",
-    kr: "reveal 시 4-eyes 승인",
+    mn: "Reveal-д 4-eyes зөвшөөрөл (супер админаас бусад)",
+    en: "4-eyes approval on reveal (super-admin exception)",
+    kr: "reveal 시 4-eyes 승인(슈퍼 관리자 예외)",
   },
   demo_sec_roles: {
     mn: "Admin / Auditor / Viewer эрх",
@@ -3248,6 +3249,48 @@ export const T = {
     mn: "Үргэлжлүүлэхийн тулд хэнийг ил гаргахаа сонгоно уу: зураг оруулах, сэжигтэн эсвэл илрүүлсэн нүүр.",
     en: "To continue, choose who to reveal: upload a photo, pick a suspect or select a detected face.",
     kr: "계속하려면 공개할 사람을 선택하세요: 사진 업로드, 용의자 또는 검출된 얼굴.",
+  },
+  // Super admin's reveal without a second admin (owner decision 2026-09-30,
+  // ADR 0003 amendment). The server decides; these only say what it decided.
+  pb_reveal_self_notice: {
+    mn: "Та супер админ тул энэ хүсэлт өөр админы зөвшөөрөлгүйгээр шууд ажиллана. Бусад админд даруй мэдэгдэл очиж, аудитын бүртгэлд үлдэнэ.",
+    en: "You are the super admin, so this request runs immediately, without a second admin's approval. The other admins are notified right away, and it is recorded in the audit log.",
+    kr: "슈퍼 관리자이므로 이 요청은 다른 관리자의 승인 없이 즉시 실행됩니다. 다른 관리자에게 바로 알림이 가며 감사 로그에 기록됩니다.",
+  },
+  pb_reauth_note_totp_self: {
+    mn: "Өөр админ батлахгүй тул та өөрөө батлагч болно: баталгаажуулах аппын 6 оронтой кодоо оруулна уу (нууц үг хүрэлцэхгүй). Дараагийн 15 минутад дахин асуухгүй.",
+    en: "No second admin approves this reveal, so you approve it yourself: enter the 6-digit code from your authenticator app (a password is not enough). You won't be asked again for 15 minutes.",
+    kr: "다른 관리자가 승인하지 않으므로 본인이 직접 승인합니다: 인증 앱의 6자리 코드를 입력하세요(비밀번호로는 부족합니다). 15분 동안 다시 묻지 않습니다.",
+  },
+  pb_reauth_note_fresh_self: {
+    mn: "Сүүлийн 15 минутад баталгаажуулах кодоо оруулсан тул дахин асуухгүй. Баталгаажуулбал энэ нүүр тайлах ажил шууд эхэлнэ — өөр админы зөвшөөрөл шаардлагагүй.",
+    en: "You entered your authenticator code within the last 15 minutes, so it is not needed again. Confirm to start this reveal now — no second admin's approval is needed.",
+    kr: "최근 15분 이내에 인증 앱 코드를 입력했으므로 다시 묻지 않습니다. 확인하면 이 공개가 바로 시작됩니다 — 다른 관리자의 승인은 필요하지 않습니다.",
+  },
+  pb_reveal_err_reauth_totp: {
+    mn: "Өөр админы зөвшөөрөлгүй нүүр тайлахад баталгаажуулах аппын код шаардлагатай — кодоо оруулна уу",
+    en: "A reveal without second-admin approval needs your authenticator code — enter it to continue",
+    kr: "다른 관리자 승인 없는 공개에는 인증 앱 코드가 필요합니다 — 코드를 입력하세요",
+  },
+  pb_reveal_self_running: {
+    mn: "Та өөрөө баталсан (супер админ) — бусад админд мэдэгдсэн.",
+    en: "Approved by you (super admin) — the other admins have been notified.",
+    kr: "본인 승인(슈퍼 관리자) — 다른 관리자에게 알림이 전송되었습니다.",
+  },
+  reveal_self_approved_label: {
+    mn: "Супер админ өөрөө баталсан",
+    en: "Self-approved (super admin)",
+    kr: "슈퍼 관리자 자체 승인",
+  },
+  pb_reveal_err_unconfirmed: {
+    mn: "Нүүр тайлах ажил үүссэн эсэхийг баталгаажуулж чадсангүй — ажиллаж магадгүй. Дахин илгээхээсээ өмнө ажлын дарааллыг шалгана уу. Бусад админд мэдэгдсэн.",
+    en: "Could not confirm whether the reveal job was created — it may still run. Check the jobs list before submitting again. The other admins have been notified.",
+    kr: "공개 작업이 생성되었는지 확인할 수 없습니다 — 실행될 수도 있습니다. 다시 제출하기 전에 작업 큐를 확인하세요. 다른 관리자에게 알림이 전송되었습니다.",
+  },
+  reveal_self_approved_hint: {
+    mn: "Өөр админы зөвшөөрөлгүйгээр ажилласан — эзэмшигчийн шийдвэр (ADR 0003-ын нэмэлт).",
+    en: "Ran without a second admin's approval — owner decision (ADR 0003 amendment).",
+    kr: "다른 관리자의 승인 없이 실행됨 — 소유자 결정(ADR 0003 개정).",
   },
 } as const;
 

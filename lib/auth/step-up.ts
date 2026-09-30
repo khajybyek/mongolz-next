@@ -25,7 +25,9 @@ export type ReauthOptions = {
   /**
    * Accept a password-minted step-up as well. Only the reveal request flow
    * opts in (it still needs a second admin, who must present TOTP). Every
-   * other gate requires the second factor itself.
+   * other gate requires the second factor itself — including the super
+   * admin's self-approved reveal (ADR 0003 amendment), where the requester is
+   * also the approver: /api/reveal/start re-checks without this option.
    */
   allowPassword?: boolean;
 };

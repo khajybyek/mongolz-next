@@ -5,10 +5,20 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdminApi, isAuthErr } from "@/lib/supabase/auth";
 import { hasFreshReauth } from "@/lib/auth/step-up";
-import { mlEmbed, MLError } from "@/lib/ml-client";
+import { mlEmbed, mlTriggerReveal, MLError } from "@/lib/ml-client";
 import { checkRateLimit, REVEAL_LIMIT } from "@/lib/rate-limit";
-import { notifyRevealRequested } from "@/lib/notify";
+import { notifyRevealRequested, scheduleSecurityEvent } from "@/lib/notify";
+import {
+  isDatabaseVerdict,
+  readSuperAdminSelfReveal,
+  REVEAL_START_UNCONFIRMED_CODE,
+  REVEAL_TOTP_REQUIRED_CODE,
+  SELF_APPROVAL_ABORTED_AUDIT_ACTION,
+  SELF_APPROVED_AUDIT_ACTION,
+  selfApprovalAuditDetail,
+} from "@/lib/reveal-self-approval";
 import type { RevealMethod } from "@/lib/database.types";
+import type { TablesInsert } from "@/lib/database.generated";
 import { readRevealAuthority } from "@/lib/reveal-authority";
 import { isFaceEncryptedRecording, recordingRevealable } from "@/lib/recording-mode";
 
@@ -23,6 +33,26 @@ export async function POST(request: NextRequest) {
   if (!(await hasFreshReauth(ctx.user.id, { allowPassword: true }))) {
     return NextResponse.json(
       { error: "REAUTH_REQUIRED", code: "REAUTH_REQUIRED", message: "Нууц үгээ дахин оруулна уу" },
+      { status: 401 }
+    );
+  }
+
+  // Owner decision 2026-09-30 (ADR 0003 amendment): the super admin's reveal
+  // runs without a second admin. The database decides — the is_super_admin
+  // flag plus the super_admin_self_reveal kill switch — and its guard trigger
+  // and claim_reveal_job() apply the same verdict. Read it BEFORE the insert:
+  // with the switch off the super admin simply takes the 4-eyes path below.
+  const svc = createServiceClient();
+  const selfApprove = await readSuperAdminSelfReveal(svc, ctx.user.id, ctx.profile.is_super_admin);
+  // The super admin is then also the approver, and approving demands the TOTP
+  // factor (approveRevealAction), so a password step-up is not enough here.
+  if (selfApprove && !(await hasFreshReauth(ctx.user.id))) {
+    return NextResponse.json(
+      {
+        error: "REAUTH_REQUIRED",
+        code: REVEAL_TOTP_REQUIRED_CODE,
+        message: "A reveal without second-admin approval needs your authenticator code",
+      },
       { status: 401 }
     );
   }
@@ -141,8 +171,6 @@ export async function POST(request: NextRequest) {
   let face_ids_multi: string[] | null = null;
   let detail = `recording=${rec.filename}`;
 
-  const svc = createServiceClient();
-
   if (method === "upload") {
     const photo = fd.get("photo");
     if (!(photo instanceof File) || photo.size === 0) {
@@ -227,60 +255,97 @@ export async function POST(request: NextRequest) {
     detail += ` · faces=${rows.length} (${rows.map((r) => r.filename).join(", ").slice(0, 120)})`;
   }
 
-  // 1. reveal_jobs row үүсгэх — 4-eyes: ALWAYS pending_approval.
-  // The job does NOT run until a SECOND admin approves it via
-  // /reveal-approvals (approveRevealAction sets queued + triggers ML). The ML
-  // side (reveal_job.run) also refuses any status outside queued/approved/
-  // processing, so this gate is enforced at three layers.
+  // 1. reveal_jobs row үүсгэх. 4-eyes (ADR 0003): pending_approval — the job
+  // does NOT run until a SECOND admin approves it via /reveal-approvals
+  // (approveRevealAction sets queued + triggers ML). The ML side
+  // (reveal_job.run) also refuses any status outside queued/approved/
+  // processing, and claim_reveal_job() refuses an unapproved row, so this
+  // gate is enforced at three layers.
+  // Super admin (selfApprove): startSelfApproved() below writes the ledger,
+  // then creates the row queued and approved by the requester
+  // (approval_required = false). The guard trigger refuses such a row for
+  // anyone else, or with the kill switch off, and the claim re-checks both —
+  // and the ledger row — when the worker picks the job up.
+  const baseRow = {
+    id: newJobId,
+    reason,
+    reference_sealed,
+    request_scope: {
+      version: 1, recording: { id: rec.id, filename: rec.filename, duration_sec: rec.duration_sec },
+      method, targets, threshold, start_sec: target_start_sec, end_sec: target_end_sec,
+      ...(reference_sha256 ? { reference_sha256 } : {}),
+    },
+    recording_id,
+    method,
+    suspect_id,
+    face_id: face_id_single,
+    face_ids: face_ids_multi,
+    query_embedding: queryEmbeddingSingle as never,
+    query_embeddings: queryEmbeddingsMulti as never,
+    threshold,
+    target_start_sec,
+    target_end_sec,
+    requested_by: ctx.user.id,
+    requested_email: ctx.user.email,
+    reauth_at: new Date().toISOString(),
+    reveal_level: authority.level,
+  };
+  const actor: Actor = { id: ctx.user.id, email: ctx.user.email };
+
+  // True when the database refused the self-approved row and the request is
+  // filed for 4-eyes approval instead: its REVEAL_REQUEST row already exists.
+  let selfRefused = false;
+  if (selfApprove) {
+    const outcome = await startSelfApproved({
+      svc,
+      actor,
+      jobId: newJobId,
+      row: {
+        ...baseRow,
+        status: "queued",
+        approval_required: false,
+        approved_by: ctx.user.id,
+        approved_email: ctx.user.email,
+        approved_at: new Date().toISOString(),
+      },
+      requestDetail: `${detail} · super admin — runs without second-admin approval`,
+      ledgerDetail: selfApprovalAuditDetail({ jobId: newJobId, recordingId: recording_id, method, reasonLength: reason.length }),
+    });
+    if (outcome !== "refused") return outcome;
+    selfRefused = true;
+  }
+
   const { data: job, error: jobErr } = await svc
     .from("reveal_jobs")
-    .insert({
-      id: newJobId,
-      reason,
-      reference_sealed,
-      request_scope: {
-        version: 1, recording: { id: rec.id, filename: rec.filename, duration_sec: rec.duration_sec },
-        method, targets, threshold, start_sec: target_start_sec, end_sec: target_end_sec,
-        ...(reference_sha256 ? { reference_sha256 } : {}),
-      },
-      recording_id,
-      method,
-      suspect_id,
-      face_id: face_id_single,
-      face_ids: face_ids_multi,
-      query_embedding: queryEmbeddingSingle as never,
-      query_embeddings: queryEmbeddingsMulti as never,
-      threshold,
-      target_start_sec,
-      target_end_sec,
-      requested_by: ctx.user.id,
-      requested_email: ctx.user.email,
-      reauth_at: new Date().toISOString(),
-      reveal_level: authority.level,
-      status: "pending_approval",
-    })
+    .insert({ ...baseRow, status: "pending_approval" })
     .select("id")
     .single();
+
+  if (selfRefused) {
+    // Correct the ledger: the REVEAL_REQUEST row written above announced a
+    // reveal without second-admin approval. One request, one REVEAL_REQUEST.
+    await writeAudit(svc, auditRow(actor, SELF_APPROVAL_ABORTED_AUDIT_ACTION, job && !jobErr
+      ? `job ${newJobId} · refused by the database (kill switch off, or not the super admin) · filed for 4-eyes approval instead`
+      : `job ${newJobId} · refused by the database; the 4-eyes request could not be created either`));
+  }
 
   if (jobErr || !job) {
     console.error("[reveal/start] job insert:", jobErr?.message);
     return NextResponse.json({ error: "could not create reveal job", code: "START_FAILED" }, { status: 500 });
   }
+  const jobId = job.id;
 
   // 2. Audit — request logged now; the actual decrypt is gated on approval.
-  await svc.from("audit_log").insert({
-    action: "REVEAL_REQUEST",
-    detail: `${detail} · awaiting 4-eyes approval`,
-    user_id: ctx.user.id,
-    user_email: ctx.user.email,
-  });
+  if (!selfRefused) {
+    await svc.from("audit_log").insert(auditRow(actor, "REVEAL_REQUEST", `${detail} · awaiting 4-eyes approval`));
+  }
 
   // 3. Tell the other admins a request is waiting — after the response is
   // sent, so a slow webhook/Telegram round-trip never delays the requester.
   // notifyRevealRequested is best-effort and never throws.
   after(() =>
     notifyRevealRequested({
-      jobId: job.id,
+      jobId,
       recordingId: recording_id,
       requesterId: ctx.user.id,
       requesterEmail: ctx.user.email,
@@ -290,5 +355,173 @@ export async function POST(request: NextRequest) {
   );
 
   // NOTE: ML is intentionally NOT triggered here — see approveRevealAction.
-  return NextResponse.json({ job_id: job.id, status: "pending_approval" });
+  return NextResponse.json({ job_id: jobId, status: "pending_approval" });
+}
+
+type ServiceClient = ReturnType<typeof createServiceClient>;
+type Actor = { id: string; email: string | null | undefined };
+
+function auditRow(actor: Actor, action: string, detail: string): TablesInsert<"audit_log"> {
+  return { action, detail, user_id: actor.id, user_email: actor.email };
+}
+
+/** A ledger row whose failure must not change the answer; logged, never thrown. */
+async function writeAudit(svc: ServiceClient, row: TablesInsert<"audit_log">): Promise<void> {
+  try {
+    const { error } = await svc.from("audit_log").insert(row);
+    if (error) console.error(`[reveal/start] audit insert ${row.action}:`, error.message);
+  } catch (e) {
+    console.error(`[reveal/start] audit insert ${row.action}:`, e instanceof Error ? e.message : e);
+  }
+}
+
+type SelfApprovedStart = {
+  svc: ServiceClient;
+  actor: Actor;
+  jobId: string;
+  /** The job row: queued, approval_required = false, approved by the requester. */
+  row: TablesInsert<"reveal_jobs">;
+  /** Detail of the REVEAL_REQUEST ledger row. */
+  requestDetail: string;
+  /** Detail of the REVEAL_SUPER_ADMIN_SELF_APPROVED row (selfApprovalAuditDetail). */
+  ledgerDetail: string;
+};
+
+/**
+ * The super admin's reveal without a second admin (owner decision
+ * 2026-09-30, ADR 0003 amendment). Returns the response, or "refused" when
+ * the database refused the self-approved row — the kill switch was turned
+ * off, or the flag moved, after the verdict was read — so the caller files
+ * the request for 4-eyes approval instead.
+ *
+ * The ledger comes FIRST. Both audit rows name the pre-generated job id and
+ * are committed before the job row exists, and claim_reveal_job() refuses a
+ * self-approved job whose REVEAL_SUPER_ADMIN_SELF_APPROVED row is missing.
+ * The durable ML worker claims any queued row within seconds, without waiting
+ * for this route, so a job inserted before its ledger rows could decrypt
+ * unrecorded; in this order an audit outage leaves nothing it could run. The
+ * other admins are told as soon as a self-approved row exists, or may exist.
+ */
+async function startSelfApproved(s: SelfApprovedStart): Promise<NextResponse | "refused"> {
+  // 2. Ledger: the request row (same action, so the REVEAL_LIMIT quota and
+  // /audit filters count it) plus the distinct self-approval row, in ONE
+  // insert statement (both or neither). The reason text stays in
+  // reveal_jobs; the ledger carries only its length.
+  const { error: auditErr } = await s.svc.from("audit_log").insert([
+    auditRow(s.actor, "REVEAL_REQUEST", s.requestDetail),
+    auditRow(s.actor, SELF_APPROVED_AUDIT_ACTION, s.ledgerDetail),
+  ]);
+  if (auditErr) {
+    console.error("[reveal/start] self-approval audit insert:", auditErr.message);
+    // No job row exists: nothing was created that could run.
+    return NextResponse.json(
+      { error: "audit log unavailable — the reveal was not started", code: "AUDIT_UNAVAILABLE" },
+      { status: 503 },
+    );
+  }
+
+  // 3. The job, queued and approved by the requester.
+  const { data: job, error: jobErr } = await s.svc.from("reveal_jobs").insert(s.row).select("id").single();
+  if (jobErr?.code === "42501") {
+    // The guard trigger refused the row; the statement rolled back.
+    console.warn("[reveal/start] self-approval refused by the database; filing for approval");
+    return "refused";
+  }
+  if (jobErr || !job) return abandonSelfApprovedJob(s, jobErr);
+
+  // 4. A self-approved job exists: a single-person reveal is never silent.
+  // Every OTHER admin gets a web push and the ops Telegram chat a message,
+  // after the response is sent. Scheduled before anything else can fail.
+  announceSelfApproved(s);
+
+  // 5. Kick off the ML decrypt now, exactly like approveRevealAction does
+  // after a second admin's approval. A failed trigger leaves the row queued:
+  // the durable worker discovers it; the error never undoes the approval.
+  try {
+    await mlTriggerReveal(job.id);
+  } catch (e) {
+    const msg = e instanceof MLError ? e.message : "ML service unreachable";
+    await s.svc
+      .from("reveal_jobs")
+      .update({ error_message: `Awaiting worker: ${msg}` })
+      .eq("id", job.id)
+      .eq("status", "queued");
+    await s.svc.from("audit_log").insert(
+      auditRow(s.actor, "REVEAL_APPROVE_DEFERRED", `job ${job.id} self-approved (super admin) but ML trigger failed: ${msg}`),
+    );
+  }
+
+  return NextResponse.json({ job_id: job.id, status: "queued", self_approved: true });
+}
+
+function announceSelfApproved(s: SelfApprovedStart, note = ""): void {
+  scheduleSecurityEvent({
+    action: SELF_APPROVED_AUDIT_ACTION,
+    actorId: s.actor.id,
+    actorEmail: s.actor.email,
+    detail: `${s.ledgerDetail}${note}`,
+  });
+}
+
+/**
+ * The self-approved insert failed after its ledger rows were written.
+ *
+ * A Postgres SQLSTATE means the statement rolled back: no row, nothing to
+ * stop. Without one (network failure, lost response) the row may have been
+ * committed — and with its ledger rows in place it could run. It is cancelled
+ * while still queued: the claim moves a job out of queued atomically, so a
+ * cancelled queued row never decrypted anything. When that cannot be proven —
+ * the cancel failed, or no queued row was left (never created, or already
+ * claimed) — the other admins are notified and the requester is told the
+ * outcome is unconfirmed, never that the reveal did not run.
+ */
+async function abandonSelfApprovedJob(
+  s: SelfApprovedStart,
+  jobErr: { code?: string | null; message?: string } | null,
+): Promise<NextResponse> {
+  console.error("[reveal/start] self-approved job insert:", jobErr?.code || "no code", jobErr?.message ?? "no row returned");
+  const failed = () =>
+    NextResponse.json({ error: "could not create reveal job", code: "START_FAILED" }, { status: 500 });
+
+  if (isDatabaseVerdict(jobErr)) {
+    await writeAudit(s.svc, auditRow(s.actor, SELF_APPROVAL_ABORTED_AUDIT_ACTION,
+      `job ${s.jobId} · not created (${jobErr?.code}) · nothing ran`));
+    return failed();
+  }
+
+  let cancelled = false;
+  let cancelNote = "no queued row to cancel";
+  try {
+    const { data, error } = await s.svc
+      .from("reveal_jobs")
+      .update({
+        status: "failed",
+        completed_at: new Date().toISOString(),
+        error_message: "Creation could not be confirmed — cancelled before it ran; submit the reveal again",
+      })
+      .eq("id", s.jobId)
+      .eq("status", "queued")
+      .select("id");
+    if (error) cancelNote = `the cancel failed (${error.code || error.message})`;
+    else cancelled = (data?.length ?? 0) > 0;
+  } catch (e) {
+    cancelNote = `the cancel failed (${e instanceof Error ? e.message : "unknown"})`;
+  }
+
+  if (cancelled) {
+    await writeAudit(s.svc, auditRow(s.actor, SELF_APPROVAL_ABORTED_AUDIT_ACTION,
+      `job ${s.jobId} · creation unconfirmed · cancelled while still queued · nothing ran`));
+    return failed();
+  }
+
+  announceSelfApproved(s, " · creation unconfirmed — it may run; check /jobs");
+  await writeAudit(s.svc, auditRow(s.actor, SELF_APPROVAL_ABORTED_AUDIT_ACTION,
+    `job ${s.jobId} · creation unconfirmed · ${cancelNote} · it may run; the other admins were notified`));
+  return NextResponse.json(
+    {
+      error: "the reveal job could not be confirmed — check /jobs before submitting again",
+      code: REVEAL_START_UNCONFIRMED_CODE,
+    },
+    { status: 500 },
+  );
 }

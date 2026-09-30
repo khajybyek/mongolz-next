@@ -49,6 +49,7 @@ export function PlaybackPlayer({
   privacyNoticeId = null,
   faceEncrypted = false,
   totpEnabled = false,
+  selfReveal = false,
 }: {
   recordingId: string;
   videoUrl: string;
@@ -76,6 +77,9 @@ export function PlaybackPlayer({
   /** The signed-in admin has TOTP enrolled — the reveal modal's step 2 then
    *  defaults to the authenticator code instead of the account password. */
   totpEnabled?: boolean;
+  /** Server-decided: this admin is the super admin and the kill switch is on,
+   *  so a reveal runs without a second admin (ADR 0003 amendment). */
+  selfReveal?: boolean;
 }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
@@ -410,6 +414,7 @@ export function PlaybackPlayer({
           privacy={revealPrivacy}
           faceEncrypted={faceEncrypted}
           totpEnabled={totpEnabled}
+          selfReveal={selfReveal}
           onClose={close}
         />
       )}

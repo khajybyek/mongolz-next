@@ -8,6 +8,7 @@ import { getT } from "@/lib/i18n/server";
 import { formatDate } from "@/lib/utils";
 import { AuditFilters } from "./audit-filters";
 import { READ_ACTIONS } from "@/lib/audit";
+import { SELF_APPROVAL_ABORTED_AUDIT_ACTION, SELF_APPROVED_AUDIT_ACTION } from "@/lib/reveal-self-approval";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,10 @@ const ACTION_COLORS: Record<string, string> = {
   REAUTH_OK: "bg-success/15 text-success",
   REAUTH_FAILED: "bg-danger/15 text-danger",
   REVEAL_REQUEST: "bg-warning/15 text-warning",
+  // The super admin's reveal without a second admin (ADR 0003 amendment).
+  [SELF_APPROVED_AUDIT_ACTION]: "bg-danger/15 text-danger",
+  // …and its ledger correction when that job was not created as such.
+  [SELF_APPROVAL_ABORTED_AUDIT_ACTION]: "bg-warning/15 text-warning",
   // Read events (2026-09-08 audit): who *looked* at personal data. Tinted
   // apart from the mutations so an operator can scan a page for them; the
   // action dropdown itself is fed by the audit_actions view, so these appear

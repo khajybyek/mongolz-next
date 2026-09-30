@@ -2184,6 +2184,10 @@ export type Database = {
           tp_count: number
         }[]
       }
+      super_admin_self_reveal_allowed: {
+        Args: { p_user_id: string }
+        Returns: boolean
+      }
       sweep_retention: { Args: never; Returns: Json }
       top_slow_queries: {
         Args: { p_limit?: number }

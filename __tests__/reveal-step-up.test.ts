@@ -290,7 +290,8 @@ describe("wiring", () => {
   const modal = readFileSync(join(dir, "reveal-modal.tsx"), "utf8");
 
   it("the modal defaults the factor from the server-known TOTP flag", () => {
-    expect(modal).toContain("useState<RevealStepUpFactor>(() => defaultRevealStepUpFactor(totpEnabled))");
+    // The second argument is the server-decided super-admin flag (TOTP only).
+    expect(modal).toContain("useState<RevealStepUpFactor>(() => defaultRevealStepUpFactor(totpEnabled, selfReveal))");
     expect(modal).toContain("totpEnabled = false,");
     expect(modal).toContain("<RevealStepUpFields");
   });
@@ -393,7 +394,7 @@ describe("modal wiring of the fresh step-up and the refusals", () => {
 
   it("Continue checks the step-up, then always goes to step 2 — it never starts the job", () => {
     const body = fn("continueToReauth", "function chooseFactor");
-    const check = body.indexOf("await revealStepUpIsFresh(precheck.signal)");
+    const check = body.indexOf("await revealStepUpIsFresh(precheck.signal, { totpOnly: selfReveal })");
     const aborted = body.indexOf("if (precheck.signal.aborted) return;");
     const fresh = body.indexOf("setStepUpFresh(fresh)");
     const step2 = body.indexOf('setStep("reauth")');

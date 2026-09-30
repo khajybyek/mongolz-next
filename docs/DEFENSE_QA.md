@@ -73,7 +73,7 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 ### Q8. "Insider threat? What if an admin abuses their access?"
 
 > "Three layers of defense in depth — and one honest boundary:
-> 1. **4-eyes principle on reveal** — opening a recording's encrypted original requires a 2nd admin to approve. Single admin cannot unilaterally unmask.
+> 1. **4-eyes principle on reveal** — opening a recording's encrypted original requires a 2nd admin to approve. The one exception, by owner decision (2026-09-30, ADR 0003 amendment), is the super admin's own reveal: it runs at once, but needs a TOTP step-up, is audited (`REVEAL_SUPER_ADMIN_SELF_APPROVED`), notifies the other admins in real time and has a no-deploy kill switch. Any other admin cannot unilaterally unmask.
 > 2. **Hash-chained audit log** — `verify_audit_chain()` RPC catches row deletion or modification. Even service-role tampering would break the chain.
 > 3. **TOTP step-up on every destructive op** — adding/deleting suspects, users, rules, webhooks, plus backup download. Compromised session cannot exfiltrate without TOTP.
 >
@@ -115,7 +115,7 @@ Pre-written answers to questions the capstone panel is most likely to ask. Pract
 
 > "Same `docs/COMPLIANCE.md` maps to PIPA Articles 15 / 17 / 23 / 28-2 / 28-8 / 29 / 35 / 36 / 39. Three Korean talking points:
 > - 저장된 원본은 암호화되어 있고, 재생 화면은 열람 시점에 비식별화됩니다 (stored original encrypted, playback view anonymised at request time — ADR 0010; since 2026-09-20 live frames pass through the same detection-based masker).
-> - 원본은 AES-256-GCM 으로 암호화되며, 4-eyes 승인 후에만 복원됩니다 (originals encrypted, 4-eyes reveal).
+> - 원본은 AES-256-GCM 으로 암호화되며, 다른 관리자의 승인 후에만 복원됩니다 — 슈퍼 관리자 본인의 요청은 예외 (originals encrypted, 4-eyes reveal; super-admin exception, ADR 0003 amendment).
 > - 권한 변경과 개인정보 열람 경로(복호화·재생·검색·내보내기)는 해시 체인 감사 로그에 기록됩니다 (privileged changes **and the personal-data read paths** in the hash-chained audit log — not page views, not direct PostgREST reads).
 >
 > One thing I volunteer rather than wait to be asked: 국외 이전 (Art. 28-8). Storage and the ML service that decrypts and embeds faces are both in Singapore (Railway `asia-southeast1` since 2026-09-20; it ran in `us-west2`, United States, before). For a Korean subject that is still a transfer abroad; it is recorded in COMPLIANCE.md §2/§4 and DPIA §D.5."

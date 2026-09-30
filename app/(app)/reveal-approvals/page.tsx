@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/utils";
 import { getT } from "@/lib/i18n/server";
 import { DecisionForms } from "./decision-forms";
+import { isSelfApprovedReveal } from "@/lib/reveal-self-approval";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ interface RevealRow {
   created_at: string;
   approved_email: string | null;
   approved_at: string | null;
+  approval_required: boolean | null;
   rejected_email: string | null;
   rejected_reason: string | null;
   rejected_at: string | null;
@@ -52,15 +54,18 @@ export default async function RevealApprovalsPage() {
   const { data: pending, error: pendingError } = await svc
     .from("reveal_jobs")
     .select(
-      "id, status, reason, request_scope, requested_by, requested_email, recording_id, threshold, target_start_sec, target_end_sec, created_at, approved_email, approved_at, rejected_email, rejected_reason, rejected_at",
+      "id, status, reason, request_scope, requested_by, requested_email, recording_id, threshold, target_start_sec, target_end_sec, created_at, approved_email, approved_at, approval_required, rejected_email, rejected_reason, rejected_at",
     )
     .eq("status", "pending_approval")
     .order("created_at", { ascending: false });
 
+  // approval_required = false marks the super admin's own reveal, which ran
+  // without a second admin (ADR 0003 amendment) — labelled as such below so it
+  // never reads like a 4-eyes approval.
   const { data: recent, error: recentError } = await svc
     .from("reveal_jobs")
     .select(
-      "id, status, reason, request_scope, requested_by, requested_email, recording_id, threshold, target_start_sec, target_end_sec, created_at, approved_email, approved_at, rejected_email, rejected_reason, rejected_at",
+      "id, status, reason, request_scope, requested_by, requested_email, recording_id, threshold, target_start_sec, target_end_sec, created_at, approved_email, approved_at, approval_required, rejected_email, rejected_reason, rejected_at",
     )
     .in("status", ["queued", "processing", "completed", "rejected", "failed"])
     .order("created_at", { ascending: false })
@@ -187,7 +192,12 @@ export default async function RevealApprovalsPage() {
                   </td>
                   <td className="text-xs">{j.requested_email ?? "—"}</td>
                   <td className="text-xs">
-                    {j.approved_email ? (
+                    {isSelfApprovedReveal(j) ? (
+                      <span data-self-approved className="text-warning" title={t("reveal_self_approved_hint")}>
+                        ✓ {t("reveal_self_approved_label")}
+                        {j.approved_email ? <span className="text-text-muted"> · {j.approved_email}</span> : null}
+                      </span>
+                    ) : j.approved_email ? (
                       <span className="text-success">✓ {j.approved_email}</span>
                     ) : j.rejected_email ? (
                       <span className="text-danger" title={j.rejected_reason ?? ""}>

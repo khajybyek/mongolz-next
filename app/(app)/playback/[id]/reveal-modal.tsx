@@ -67,6 +67,7 @@ export function RevealModal({
   privacy,
   faceEncrypted = false,
   totpEnabled = false,
+  selfReveal = false,
   onClose,
 }: {
   recordingId: string;
@@ -95,6 +96,12 @@ export function RevealModal({
    *  Step 2 then offers the authenticator code first; without it only the
    *  password is offered. Presentation only — the routes verify the factor. */
   totpEnabled?: boolean;
+  /** The server page decided (public.super_admin_self_reveal_allowed: the
+   *  super admin, kill switch on) that this operator's reveal runs without a
+   *  second admin (ADR 0003 amendment). Presentation only: step 1 says so,
+   *  step 2 offers the authenticator code only (the route demands it), and the
+   *  route's answer — queued or pending_approval — decides what step 3 shows. */
+  selfReveal?: boolean;
   onClose: () => void;
 }) {
   const { t, lang } = useT();
@@ -135,7 +142,7 @@ export function RevealModal({
   const [password, setPassword] = useState("");
   // Step 2 factor. A passkey-only operator may not remember the password, so
   // an enrolled authenticator is the default.
-  const [factor, setFactor] = useState<RevealStepUpFactor>(() => defaultRevealStepUpFactor(totpEnabled));
+  const [factor, setFactor] = useState<RevealStepUpFactor>(() => defaultRevealStepUpFactor(totpEnabled, selfReveal));
   const [code, setCode] = useState("");
   // A step-up from the last 15 minutes was still live when step 1 continued:
   // step 2 then only confirms (lib/step-up-client.ts revealStep2Mode).
@@ -148,6 +155,8 @@ export function RevealModal({
     progress: number;
     signed_url?: string | null;
     error_message?: string | null;
+    /** The route ran it as the super admin's self-approved reveal. */
+    self_approved?: boolean;
   } | null>(null);
   const step2Mode = revealStep2Mode(stepUpFresh, job !== null);
 
@@ -240,7 +249,8 @@ export function RevealModal({
     setBusy(true);
     const precheck = new AbortController();
     precheckRef.current = precheck;
-    const fresh = await revealStepUpIsFresh(precheck.signal);
+    // The self-approved path takes only a TOTP step-up (the route demands it).
+    const fresh = await revealStepUpIsFresh(precheck.signal, { totpOnly: selfReveal });
     if (precheck.signal.aborted) return; // the modal closed meanwhile
     precheckRef.current = null;
     setBusy(false);
@@ -323,16 +333,28 @@ export function RevealModal({
       const refusal = revealStartRefusal(code);
       setError(t(refusal.errorKey));
       if (refusal.step === "reauth") setStepUpFresh(false);
+      // The self-approved path refused a password step-up: offer the code.
+      if (code === "REAUTH_TOTP_REQUIRED") setFactor("totp");
       setStep(refusal.step);
     };
     try {
       const res = await fetch("/api/reveal/start", { method: "POST", body: fd });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string; job_id?: string; status?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string; code?: string; job_id?: string; status?: string; self_approved?: boolean;
+      };
       if (!res.ok || !data.job_id) {
         refuse(res.ok ? undefined : data.code);
         return;
       }
-      setJob({ id: data.job_id, status: data.status ?? "pending_approval", progress: 0 });
+      // The route's answer decides step 3: queued (the super admin's reveal,
+      // already running) shows progress; pending_approval waits for a second
+      // admin — also for the super admin while the kill switch is off.
+      setJob({
+        id: data.job_id,
+        status: data.status ?? "pending_approval",
+        progress: 0,
+        self_approved: data.self_approved === true,
+      });
     } catch {
       refuse(undefined); // network failure
     } finally {
@@ -428,6 +450,15 @@ export function RevealModal({
               {/* A refused request is said FIRST — before the operator picks a
                   method or uploads a photo that can never be sent. */}
               {privacyBlocked && privacyNotice}
+              {selfReveal && (
+                <p
+                  data-self-reveal-notice
+                  className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs leading-relaxed text-text-soft"
+                >
+                  <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
+                  <span>{t("pb_reveal_self_notice")}</span>
+                </p>
+              )}
               {faceEncrypted && (
                 <p
                   data-face-encrypted-notice
@@ -732,6 +763,7 @@ export function RevealModal({
 
               <RevealStepUpFields
                 confirmOnly={step2Mode === "confirm"}
+                totpOnly={selfReveal}
                 totpEnabled={totpEnabled}
                 factor={factor}
                 onFactorChange={chooseFactor}
@@ -810,6 +842,11 @@ export function RevealModal({
                 <div className="text-xs text-text-muted mt-1">
                   {t("pb_processing_hint")}
                 </div>
+                {job?.self_approved && (
+                  <div data-self-approved-running className="text-xs text-warning mt-2">
+                    {t("pb_reveal_self_running")}
+                  </div>
+                )}
               </div>
               {job && (
                 <div className="max-w-md mx-auto">

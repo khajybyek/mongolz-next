@@ -10,7 +10,9 @@
 Saved recordings store ONE encrypted MP4 of the original footage; every viewer
 sees a derived, on-demand blurred render. Per-face crops are sealed with a
 hash-chain key (ADR 0009) so a "Level N" operator can unblur faces ≥ N but
-not below. Reveals require 4-eyes approval. No plaintext face crop is uploaded
+not below. Reveals require 4-eyes approval — except the super admin's own
+reveals, which run without a second admin (owner decision 2026-09-30, ADR 0003
+amendment). No plaintext face crop is uploaded
 to Storage for any new detection — only the AES-256-GCM blob.
 
 **What "encrypted" does and does not mean here.** Blobs are encrypted at rest
@@ -31,7 +33,7 @@ and best-effort: a face the detector misses is visible. If the masker throws,
 the capture loop stops (the supervisor restarts it) rather than writing an
 unmasked frame. Raw pixels exist only in the encrypted original (on a
 face-encrypted camera, only in the sealed per-face envelope — ADR 0013),
-reachable through the 4-eyes reveal, whose output is a restored MP4 in the
+reachable through the approved reveal (4-eyes, or the super admin's own), whose output is a restored MP4 in the
 private `revealed` bucket until retention removes it. The `/live` device and phone tabs are
 local browser previews that never pass through the ML service and are **not**
 masked. The
@@ -95,12 +97,21 @@ outside the EU, so the Art. 44 basis for EU subjects is unchanged.
   chain (`chain_index is null`, unsealable) and 1 is sealed — the encrypt-only
   pipeline is live but most stored faces are historical
 
-### 4-eyes reveal (Tier 1, enforced)
+### 4-eyes reveal (Tier 1, enforced — super-admin exception since 2026-09-30)
 - `/reveal/start` inserts `status='pending_approval'`; ML does NOT trigger
 - Second admin approves at `/reveal-approvals` (approver ≠ requester)
 - `reveal_job.run()` refuses any status outside {queued, approved, processing}
 - Every reveal logs requester + approver + scope (time window + face ids) to
   the audit hash-chain
+- **Exception (owner decision, [ADR 0003 amendment](docs/adr/0003-four-eyes-reveal-approval.md#amendment--2026-09-30-the-super-admin-reveals-without-a-second-admin)):**
+  the super admin's own reveal is inserted `queued`, `approval_required = false`,
+  approved by the requester, and starts at once. It needs a TOTP step-up (not a
+  password), writes `REVEAL_REQUEST` + `REVEAL_SUPER_ADMIN_SELF_APPROVED`
+  before the job row exists, and pushes a real-time notice to the other admins.
+  The database enforces who may do this (trigger `guard_reveal_self_approval`;
+  `claim_reveal_job()` re-checks at run time and refuses a self-approved job
+  without its audit row); kill switch without a deploy:
+  `update private.security_settings set super_admin_self_reveal = false;`
 
 ### Encrypt-only face crops (Tier 2, T2.4)
 - `recording_pipeline.py` no longer writes plaintext crops — every new face
@@ -142,7 +153,7 @@ outside the EU, so the Art. 44 basis for EU subjects is unchanged.
   (no ArcFace embedding), skips the suspect-tier lookup and gives every face the
   strongest (VIP) mask; it never falls back to the full pass (ADR 0012)
 - No setting un-masks video. The old `revealed` option was removed; un-masking
-  is still only the 4-eyes reveal
+  is still only the audited reveal job
 - Example: 09:00–18:00 `private` (staff and customers not put through recognition), after
   hours `standard` (recognition + alerts for intruders). This is GDPR
   Art. 5(1)(b)(c) and Art. 25 minimisation by time
@@ -175,7 +186,7 @@ outside the EU, so the Art. 44 basis for EU subjects is unchanged.
   every face region of every frame is sealed separately in a per-segment face
   envelope (`recordings.face_envelope_path`): JPEG crop, AES-256-GCM under the
   face track's hash-chain key `K_i`, bound to recording + track + frame
-- **Restoration per person:** an approved 4-eyes reveal compares its target
+- **Restoration per person:** an approved reveal compares its target
   with the identity samples (capture-time ArcFace embeddings, sealed per track)
   of the tracks within `reveal_level`, unseals only the frames of the matching
   tracks that those samples confirm, and pastes them onto the masked video;
@@ -249,7 +260,7 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 | 4. RLS | on all 23 `public` tables; 61 policies across 22 of them (45 permissive + 16 restrictive: the second-factor gates of row 16 plus the reveal-authority fence), `retention_deletion_queue` deliberately policy-less (service-role only); super-admin row protected by a BEFORE trigger. Counted live 2026-09-08 |
 | 5. Step-up reauth | TOTP step-up, 15-min cookie TTL; a password step-up is accepted only to *request* a reveal (never replaces a live TOTP step-up) — `lib/auth/step-up.ts` |
 | 6. Session pinning | UA fingerprint (network dropped 2026-09-23 — /16 changes forced daily re-logins), HMAC-signed cookie, 7-day TTL; replay signs out every device, expiry only this one |
-| 7. 4-eyes reveal | approver ≠ requester, defended at 3 layers |
+| 7. 4-eyes reveal | approver ≠ requester, defended at 3 layers (web, CHECK, claim RPC); the one exception is the super admin's own reveal (ADR 0003 amendment) — DB trigger + claim-time re-check, TOTP step-up, audit row, real-time notice, kill switch |
 | 8. Reveal authority | hash-chain `K_index` forward-only (ADR 0009) — settable from `/users`; an admin cannot change their own level nor grant a level below their own (closed in `f341c2f`). Every profile is still level 0 (checked 2026-09-23) |
 | 9. Crops encrypt-only | new faces never upload a plaintext crop to Storage (Tier 2) |
 | 10. Audit hash-chain | tamper-evident; `verify_audit_chain()` SQL helper. Covers every privileged mutation, every auth/step-up event, and the personal-data read paths (sealed-crop decrypt, playback view, live-stream playlist, 1:N search, re-id trail, alert CSV export, reveal-output download — `lib/audit.ts`), collapsed to one row per user per object per 5 min. Does **not** cover page views, dashboard aggregates, HLS segments, the audit-log CSV export, or direct PostgREST reads — those reads are now gated by the data-tier second factor (row 16), but they are still not recorded |
@@ -415,7 +426,7 @@ Full start-to-finish audit (DB → auth → API → UI → ML). Highlights:
 - HMAC cookies are purpose-bound (`:v2`), session pinning is enforced for
   TOTP-enabled users, passkeys require user verification, recovery codes work
   at the TOTP login step, and redirect targets are sanitised centrally.
-- 4-eyes reveal approvals use compare-and-swap + step-up auth; backups use
+- 4-eyes reveal approvals use compare-and-swap + step-up auth (the super admin's own reveals skip the second admin — ADR 0003 amendment); backups use
   per-table column allow-lists; CSV exports neutralise spreadsheet formulas;
   the retention sweep deletes storage objects and honours the audit-log hold.
 - ML: one `FaceMasker` (Haar + periodic InsightFace) serves the recording

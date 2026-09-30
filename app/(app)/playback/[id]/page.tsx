@@ -13,7 +13,7 @@ import {
   Hourglass,
   KeyRound,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
 import { formatDate } from "@/lib/utils";
 import { getT } from "@/lib/i18n/server";
@@ -36,6 +36,7 @@ import {
 } from "@/lib/privacy-schedule";
 import { revealWithheldByPrivacy } from "@/lib/reveal-errors";
 import { isFaceEncryptedRecording, recordingRevealable } from "@/lib/recording-mode";
+import { isSelfApprovedReveal, readSuperAdminSelfReveal } from "@/lib/reveal-self-approval";
 import type { FaceInRecording } from "@/lib/database.types";
 
 // Cache хийхгүй — faces background processing-аар нэмэгддэг тул хэзээ нээгдсэн
@@ -214,6 +215,7 @@ export default async function PlaybackDetailPage({
     target_end_sec: number | null;
     requested_email: string | null;
     approved_email: string | null;
+    approval_required: boolean | null;
     rejected_email: string | null;
     error_message: string | null;
     created_at: string;
@@ -223,13 +225,18 @@ export default async function PlaybackDetailPage({
     ? await supabase
         .from("reveal_jobs")
         .select(
-          "id, status, method, threshold, target_start_sec, target_end_sec, requested_email, approved_email, rejected_email, error_message, created_at, completed_at",
+          "id, status, method, threshold, target_start_sec, target_end_sec, requested_email, approved_email, approval_required, rejected_email, error_message, created_at, completed_at",
         )
         .eq("recording_id", id)
         .order("created_at", { ascending: false })
         .limit(15)
     : { data: null };
   const revealHistory: RevealHistoryRow[] = (revealHistoryRaw ?? []) as RevealHistoryRow[];
+
+  // The super admin's reveal runs without a second admin (ADR 0003
+  // amendment). The database decides — flag + kill switch — so the modal's
+  // notice matches what /api/reveal/start will do; any failure reads false.
+  const selfReveal = isAdmin && (await readSuperAdminSelfReveal(createServiceClient(), user.id, profile.is_super_admin));
 
   return (
     <>
@@ -258,6 +265,7 @@ export default async function PlaybackDetailPage({
               privacyNoticeId={privacyNoticeId}
               faceEncrypted={faceEncrypted}
               totpEnabled={profile.totp_enabled === true}
+              selfReveal={selfReveal}
             />
           ) : (
             <div className="card aspect-video bg-black flex items-center justify-center text-text-muted text-sm">
@@ -469,7 +477,9 @@ export default async function PlaybackDetailPage({
                     </div>
                     <div className="text-text-muted">
                       {h.requested_email}
-                      {h.approved_email && h.approved_email !== h.requested_email && (
+                      {isSelfApprovedReveal(h) ? (
+                        <span className="text-warning" title={t("reveal_self_approved_hint")}> · {t("reveal_self_approved_label")}</span>
+                      ) : h.approved_email && h.approved_email !== h.requested_email && (
                         <span className="text-success"> · {t("pb_approved_by")} {h.approved_email}</span>
                       )}
                       {h.rejected_email && (

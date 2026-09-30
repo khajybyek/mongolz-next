@@ -3,7 +3,10 @@
  * client through lib/webhooks and lib/push).
  *
  * A reveal request sits in `pending_approval` until a SECOND admin decides
- * (4-eyes, ADR 0009). Nobody used to be told a request was waiting, so jobs
+ * (4-eyes, ADR 0003) — except the super admin's own reveal, which runs at
+ * once and is announced to the other admins as a security event
+ * (REVEAL_SUPER_ADMIN_SELF_APPROVED, scheduleSecurityEvent below; ADR 0003
+ * amendment). Nobody used to be told a request was waiting, so jobs
  * stalled until someone happened to open /reveal-approvals. These helpers fan
  * one event out to every channel the project already has:
  *

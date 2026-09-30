@@ -7,15 +7,15 @@
 
 ## 30-second elevator pitch (MN)
 
-> "MONGOLZ Security нь олон эрхтэй mask + reveal боломжтой ухаалаг сүлжээний камер ба нэгдсэн удирдлагын сервер. Бичлэг нь зөвхөн AES-256-GCM-ээр шифрлэгдсэн эх хувиараа хадгалагдаж, **үзэх мөчид** Cubist Voronoi mosaic-аар маскалсан хувилбар нь шууд render хийгддэг (plaintext хувилбар хадгалагддаггүй). Маскийг буцаах нь зөвхөн **4-eyes approval**-той reveal flow. **VIP / standard / relaxed** privacy tier-ээр маскийн хүч автомат тохируулагдана. (2026-09-20-оос хойш live HLS урсгал ч мөн адил маскаар дамждаг — detection-д суурилсан тул алдагдсан нүүр харагдаж болно, Q16-г үзнэ үү.)"
+> "MONGOLZ Security нь олон эрхтэй mask + reveal боломжтой ухаалаг сүлжээний камер ба нэгдсэн удирдлагын сервер. Бичлэг нь зөвхөн AES-256-GCM-ээр шифрлэгдсэн эх хувиараа хадгалагдаж, **үзэх мөчид** Cubist Voronoi mosaic-аар маскалсан хувилбар нь шууд render хийгддэг (plaintext хувилбар хадгалагддаггүй). Маскийг буцаах нь зөвхөн зөвшөөрөгдсөн, аудитлагдсан reveal flow (**4-eyes approval**; супер админы өөрийн хүсэлт л хоёр дахь админгүй шууд ажиллана — эзэмшигчийн шийдвэр, ADR 0003-ын нэмэлт). **VIP / standard / relaxed** privacy tier-ээр маскийн хүч автомат тохируулагдана. (2026-09-20-оос хойш live HLS урсгал ч мөн адил маскаар дамждаг — detection-д суурилсан тул алдагдсан нүүр харагдаж болно, Q16-г үзнэ үү.)"
 
 ## 30-second pitch (EN)
 
-> "MONGOLZ Security is a multi-authority masking + reveal control server for intelligent network cameras. A recording is stored only as one AES-256-GCM encrypted original; the masked view is rendered on demand at playback with a Voronoi-tessellation mosaic, so no plaintext view or face crop is persisted. Only a 4-eyes approval workflow can recover the original. Per-suspect privacy tiers (VIP / standard / relaxed) automatically adjust mask strength. Since 2026-09-20 the live HLS feed passes through the same detection-based masker, so a face the detector misses is the residual exposure — see Q16."
+> "MONGOLZ Security is a multi-authority masking + reveal control server for intelligent network cameras. A recording is stored only as one AES-256-GCM encrypted original; the masked view is rendered on demand at playback with a Voronoi-tessellation mosaic, so no plaintext view or face crop is persisted. Only the approved, audited reveal workflow can recover the original — 4-eyes for every admin except the super admin, whose own reveals run without a second admin (owner decision, ADR 0003 amendment). Per-suspect privacy tiers (VIP / standard / relaxed) automatically adjust mask strength. Since 2026-09-20 the live HLS feed passes through the same detection-based masker, so a face the detector misses is the residual exposure — see Q16."
 
 ## 30-second pitch (KR)
 
-> "MONGOLZ Security는 다중 권한 마스킹 및 복원이 가능한 지능형 네트워크 카메라 통합관제 서버입니다. 원본은 AES-256-GCM으로 암호화 저장되고, 재생 시점에 모든 얼굴이 Voronoi 모자이크로 마스킹되어 렌더링됩니다(평문 프레임이나 얼굴 조각은 저장되지 않습니다). 4-eyes 승인 흐름만 원본을 복원할 수 있고, 각 대상의 프라이버시 등급(VIP/standard/relaxed)에 따라 마스크 강도가 자동 조정됩니다. 2026-09-20부터 실시간(HLS) 화면도 같은 검출 기반 마스커를 거치며, 검출기가 놓친 얼굴만 노출될 수 있습니다 — Q16 참조."
+> "MONGOLZ Security는 다중 권한 마스킹 및 복원이 가능한 지능형 네트워크 카메라 통합관제 서버입니다. 원본은 AES-256-GCM으로 암호화 저장되고, 재생 시점에 모든 얼굴이 Voronoi 모자이크로 마스킹되어 렌더링됩니다(평문 프레임이나 얼굴 조각은 저장되지 않습니다). 승인되고 감사 기록이 남는 공개 흐름만 원본을 복원할 수 있고(4-eyes — 슈퍼 관리자 본인의 요청만 다른 관리자 승인 없이 실행, ADR 0003 개정), 각 대상의 프라이버시 등급(VIP/standard/relaxed)에 따라 마스크 강도가 자동 조정됩니다. 2026-09-20부터 실시간(HLS) 화면도 같은 검출 기반 마스커를 거치며, 검출기가 놓친 얼굴만 노출될 수 있습니다 — Q16 참조."
 
 ---
 
@@ -32,7 +32,7 @@ verified 2026-09-23). Until 2026-09-20 it ran in `us-west2` (United States);
 that SG → US hop is closed and recorded in COMPLIANCE.md §2/§4 and DPIA §D.5.
 Singapore is still outside the EU (SCCs for EU subjects).
 
-**5 layers of security**: (1) PostgreSQL RLS · (2) TOTP 2FA + replay tracking · (3) AES-256-GCM per-recording HKDF keys · (4) Hash-chained audit · (5) 4-eyes approval
+**5 layers of security**: (1) PostgreSQL RLS · (2) TOTP 2FA + replay tracking · (3) AES-256-GCM per-recording HKDF keys · (4) Hash-chained audit · (5) 4-eyes approval (super-admin exception, ADR 0003 amendment)
 
 ---
 
@@ -56,7 +56,7 @@ Singapore is still outside the EU (SCCs for EU subjects).
 
 ### 5. "Reveal flow яаж аюулгүй вэ?" / "How is reveal kept safe?"
 
-> Five guards: (a) admin-only access via `requireAdmin()` + step-up TOTP. (b) 4-eyes approval — another admin must approve in `/reveal-approvals` before ML kicks off. (c) Optional **time-bounded window** — reveal limited to e.g. [0:15 → 0:45], rest of recording stays masked ("principle of least privilege"). (d) Selective face-level — only the chosen face_ids are unmasked, others stay masked. (e) Watermark on output (revealer email + timestamp). Request, approval/rejection and the download of the output all go to the hash-chained audit log.
+> Five guards: (a) admin-only access via `requireAdmin()` + step-up TOTP. (b) 4-eyes approval — another admin must approve in `/reveal-approvals` before ML kicks off; the one exception is the super admin's own reveal (owner decision 2026-09-30, ADR 0003 amendment), which runs at once but needs a TOTP step-up, writes `REVEAL_SUPER_ADMIN_SELF_APPROVED`, notifies the other admins in real time and can be switched off without a deploy. (c) Optional **time-bounded window** — reveal limited to e.g. [0:15 → 0:45], rest of recording stays masked ("principle of least privilege"). (d) Selective face-level — only the chosen face_ids are unmasked, others stay masked. (e) Watermark on output (revealer email + timestamp). Request, approval/rejection and the download of the output all go to the hash-chained audit log.
 
 ### 6. "Test coverage хэрхэн?" / "What's the test coverage?"
 

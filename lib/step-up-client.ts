@@ -111,13 +111,18 @@ export type RevealStepUpFactor = "totp" | "password";
  * may not remember the account password, so an enrolled authenticator comes
  * first; the password stays available because the reveal request still takes
  * it (a second admin must approve with TOTP before anything is decrypted).
+ *
+ * `totpOnly`: the super admin's reveal runs without a second admin (ADR 0003
+ * amendment), so the super admin is also the approver and /api/reveal/start
+ * demands the TOTP factor for it — the password is not offered.
  */
-export function revealStepUpFactors(totpEnabled: boolean): RevealStepUpFactor[] {
+export function revealStepUpFactors(totpEnabled: boolean, totpOnly = false): RevealStepUpFactor[] {
+  if (totpOnly) return ["totp"];
   return totpEnabled ? ["totp", "password"] : ["password"];
 }
 
-export function defaultRevealStepUpFactor(totpEnabled: boolean): RevealStepUpFactor {
-  return revealStepUpFactors(totpEnabled)[0]!;
+export function defaultRevealStepUpFactor(totpEnabled: boolean, totpOnly = false): RevealStepUpFactor {
+  return revealStepUpFactors(totpEnabled, totpOnly)[0]!;
 }
 
 /** Step 2 of the reveal modal: verify with the chosen factor. */
@@ -149,15 +154,20 @@ export function revealStep2Mode(stepUpFresh: boolean, hasJob: boolean): RevealSt
 
 /**
  * Does a step-up from the last 15 minutes still open a reveal request? Both
- * factors do. Any failure — an abort included — answers false; the modal then
- * simply asks.
+ * factors do — except for the super admin's self-approved reveal
+ * (`totpOnly`), which only the TOTP factor opens. Any failure — an abort
+ * included — answers false; the modal then simply asks.
  */
-export async function revealStepUpIsFresh(signal?: AbortSignal): Promise<boolean> {
+export async function revealStepUpIsFresh(
+  signal?: AbortSignal,
+  opts: { totpOnly?: boolean } = {},
+): Promise<boolean> {
   try {
     const res = await fetch("/api/auth/reauth", { cache: "no-store", signal });
     if (!res.ok) return false;
     const data = (await res.json().catch(() => null)) as { valid?: boolean; factor?: string | null } | null;
-    return data?.valid === true && (data.factor === "totp" || data.factor === "password");
+    if (data?.valid !== true) return false;
+    return data.factor === "totp" || (data.factor === "password" && opts.totpOnly !== true);
   } catch {
     return false;
   }

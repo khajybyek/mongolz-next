@@ -90,6 +90,10 @@ export const REVEAL_START_ERROR_KEYS: Readonly<Record<string, TranslationKey>> =
   ML_UNAVAILABLE: "pb_reveal_err_ml",
   REFERENCE_SEAL_FAILED: "pb_reveal_start_failed",
   START_FAILED: "pb_reveal_start_failed",
+  AUDIT_UNAVAILABLE: "pb_reveal_start_failed",
+  // The super admin's self-approved job may exist and run although the start
+  // request failed (ADR 0003 amendment): say so, never "could not start".
+  START_UNCONFIRMED: "pb_reveal_err_unconfirmed",
 };
 
 export type RevealStartRefusal = {
@@ -108,6 +112,10 @@ export type RevealStartRefusal = {
  */
 export function revealStartRefusal(code: string | null | undefined): RevealStartRefusal {
   if (code === "REAUTH_REQUIRED") return { step: "reauth", errorKey: "pb_reveal_err_reauth" };
+  // The super admin's self-approved reveal (ADR 0003 amendment) needs the
+  // authenticator code: a password step-up only files a request for a second
+  // admin. Step 2 then offers the code.
+  if (code === "REAUTH_TOTP_REQUIRED") return { step: "reauth", errorKey: "pb_reveal_err_reauth_totp" };
   // Own keys only: a code such as "constructor" must not reach Object.prototype.
   const key = typeof code === "string" && Object.prototype.hasOwnProperty.call(REVEAL_START_ERROR_KEYS, code)
     ? REVEAL_START_ERROR_KEYS[code]

@@ -120,9 +120,22 @@ Per-incident playbooks:
 
 #### c. Camera operator reports unauthorized reveal
 
-1. `SELECT * FROM reveal_jobs ORDER BY created_at DESC LIMIT 20` — verify request had 4-eyes approval.
+1. `SELECT * FROM reveal_jobs ORDER BY created_at DESC LIMIT 20` — verify request had 4-eyes approval
+   (`approved_by <> requested_by`). A row with `approval_required = false` is the super admin's own
+   reveal, which by owner decision needs no second admin (ADR 0003 amendment): check that
+   `requested_by` is the super admin and that a `REVEAL_SUPER_ADMIN_SELF_APPROVED` audit row names the job
+   (the web writes it before the job row, and `claim_reveal_job()` refuses a self-approved job without it —
+   a queued `approval_required = false` row with no such audit row was not created by the web: fail it by id
+   and treat it as §b). A self-approval audit row followed by `REVEAL_SELF_APPROVAL_ABORTED` for the same job
+   is a request that did not run as self-approved (refused and filed for 4-eyes, or never created); one whose
+   abort row says "creation unconfirmed … it may run" needs a look at the job's status.
 2. `SELECT * FROM audit_log WHERE action LIKE 'REVEAL_%' AND created_at >= now() - interval '24 hours'`.
 3. If approval missing → revoke the requesting admin's role pending investigation.
+4. If the super admin account itself is suspected compromised: arm the kill switch first
+   (`update private.security_settings set super_admin_self_reveal = false, updated_at = now(), updated_by = '<who> — <incident>';`),
+   which sends that account back through 4-eyes and stops self-approved jobs that are still queued
+   (the claim refuses them; cancel them with the statement in the header of
+   `supabase/migrations/20260930120000_super_admin_reveal_without_approval.sql`), then follow §a.
 
 #### d. Audit chain broken
 
@@ -827,7 +840,8 @@ the bundled sample faces, which `railway up` ships from the working tree):
    segment past the switch.
 2. Open the finished recording on `/playback/<id>`: faces are cipher cells.
 3. Request a reveal of one detected face; a second admin approves on
-   `/reveal-approvals`.
+   `/reveal-approvals` (a request by the super admin runs at once without a
+   second admin — ADR 0003 amendment).
 4. Open the output: that person's face is restored (soft — a JPEG with the
    face kept at about 120 px) and every other face is still cipher. The ML log
    line for the job says how many tracks matched and how many blobs it
@@ -946,6 +960,7 @@ never blocks the request that triggered it). Source: `lib/notify.ts`.
 |---|---|---|
 | Suspect alert | `alerts` INSERT trigger (`notify_telegram_on_alert`, pg_net) | Telegram · webhooks (`alert_created`) · web push (`/api/push/dispatch`) |
 | Reveal request (4-eyes) | `POST /api/reveal/start` → job `pending_approval` | Telegram · webhooks (`reveal_requested`) · web push to every admin **except the requester** → `/reveal-approvals` |
+| Super admin's own reveal (no second admin, ADR 0003 amendment) | `POST /api/reveal/start` → job `queued`, `approval_required = false` (also when the job's creation could not be confirmed and it may run) | Telegram (`security_event`, action `REVEAL_SUPER_ADMIN_SELF_APPROVED`) · web push to every admin **except the super admin** → `/audit` |
 | Reveal decision | `approveRevealAction` / `rejectRevealAction` | Telegram · webhooks (`reveal_completed`, status `approved` / `rejected`) · web push to the requester → `/jobs` |
 | Web app / database / ML down or recovered | in-DB uptime monitor (below) | Telegram (🔴 `web_down` · `db_down` · `ml_down` / 🟢 `web_recovered` · `db_recovered` · `ml_recovered`) |
 

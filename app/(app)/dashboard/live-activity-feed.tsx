@@ -87,11 +87,22 @@ function auditToItem(r: AuditRow): ActivityItem | null {
       return { id, kind: "login_failed", label: r.action === "LOGIN_BLOCKED" ? "Login blocked" : "Login failed", actor: r.user_email, detail: stripHostFromDetail(r.detail), ts: r.created_at };
     case "LOGOUT":
       return { id, kind: "logout", label: "Logout", actor: r.user_email, ts: r.created_at };
+    // The reveal flow writes REVEAL_REQUEST / REVEAL_APPROVE / REVEAL_REJECT
+    // (and REVEAL_SUPER_ADMIN_SELF_APPROVED); the *_ED names are kept for any
+    // older rows.
+    case "REVEAL_REQUEST":
     case "REVEAL_REQUESTED":
+      return { id, kind: "reveal", label: "reveal requested", actor: r.user_email, detail: r.detail, ts: r.created_at };
+    case "REVEAL_APPROVE":
     case "REVEAL_APPROVED":
+      return { id, kind: "reveal", label: "reveal approved", actor: r.user_email, detail: r.detail, ts: r.created_at };
+    case "REVEAL_SUPER_ADMIN_SELF_APPROVED":
+      return { id, kind: "reveal", label: "reveal self-approved", actor: r.user_email, detail: r.detail, ts: r.created_at };
+    case "REVEAL_REJECT":
     case "REVEAL_REJECTED":
+      return { id, kind: "reveal", label: "reveal rejected", actor: r.user_email, detail: r.detail, ts: r.created_at };
     case "REVEAL_COMPLETED":
-      return { id, kind: "reveal", label: r.action.replace("_", " ").toLowerCase(), actor: r.user_email, detail: r.detail, ts: r.created_at };
+      return { id, kind: "reveal", label: "reveal completed", actor: r.user_email, detail: r.detail, ts: r.created_at };
     default:
       return null;
   }
@@ -230,6 +241,7 @@ const LABEL_KEYS: Record<string, TranslationKey> = {
   "reveal requested": "dash_reveal_requested",
   "reveal approved": "dash_reveal_approved",
   "reveal rejected": "dash_reveal_rejected",
+  "reveal self-approved": "dash_reveal_self_approved",
   "reveal completed": "dash_reveal_completed",
 };
 

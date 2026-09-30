@@ -18,9 +18,14 @@ import {
  *
  * `confirmOnly`: a step-up from the last 15 minutes is still live, so nothing
  * is typed — step 2 says so and the modal's Confirm sends the request.
+ *
+ * `totpOnly`: the super admin's reveal runs without a second admin (ADR 0003
+ * amendment, decided by the server page), so only the authenticator code is
+ * offered and the notes say the job starts right away.
  */
 export function RevealStepUpFields({
   confirmOnly = false,
+  totpOnly = false,
   totpEnabled,
   factor,
   onFactorChange,
@@ -31,6 +36,7 @@ export function RevealStepUpFields({
   busy,
 }: {
   confirmOnly?: boolean;
+  totpOnly?: boolean;
   totpEnabled: boolean;
   factor: RevealStepUpFactor;
   onFactorChange: (factor: RevealStepUpFactor) => void;
@@ -41,13 +47,13 @@ export function RevealStepUpFields({
   busy: boolean;
 }) {
   const { t } = useT();
-  const factors = revealStepUpFactors(totpEnabled);
+  const factors = revealStepUpFactors(totpEnabled, totpOnly);
 
   if (confirmOnly) {
     return (
       <div data-reauth-note="fresh" className="bg-success/5 border border-success/30 rounded-lg p-3 text-xs flex gap-2">
         <ShieldCheck className="w-4 h-4 text-success shrink-0 mt-0.5" aria-hidden />
-        <div className="leading-relaxed">{t("pb_reauth_note_fresh")}</div>
+        <div className="leading-relaxed">{t(totpOnly ? "pb_reauth_note_fresh_self" : "pb_reauth_note_fresh")}</div>
       </div>
     );
   }
@@ -88,7 +94,7 @@ export function RevealStepUpFields({
       <div data-reauth-note={factor} className="bg-warning/5 border border-warning/30 rounded-lg p-3 text-xs flex gap-2">
         <Lock className="w-4 h-4 text-warning shrink-0 mt-0.5" aria-hidden />
         <div className="leading-relaxed">
-          {t(factor === "totp" ? "pb_reauth_note_totp" : "pb_reauth_note")}
+          {t(factor === "totp" ? (totpOnly ? "pb_reauth_note_totp_self" : "pb_reauth_note_totp") : "pb_reauth_note")}
         </div>
       </div>
 

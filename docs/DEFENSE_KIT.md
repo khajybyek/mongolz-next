@@ -42,11 +42,11 @@ The panel cares about these artifacts. Have each one accessible in one click:
 
 ## 3. The "elevator pitch" (15 seconds)
 
-> "MONGOLZ Security нь хувийн нууцыг хадгалсан CCTV систем. Бичлэг хийгдмэгц нүүр бүр Cubist Mosaic-аар нуугдаж, эх хувь нь AES-256-аар шифрлэгдэн архивлагдана. Зөвхөн 4-eyes approval-той reveal flow л буцаах эрхтэй. 14 хүснэгт + 24 RLS policy + TOTP 2FA + hash-chained audit log + GDPR/PIPA compliance + continuous SAST/DAST in CI."
+> "MONGOLZ Security нь хувийн нууцыг хадгалсан CCTV систем. Бичлэг хийгдмэгц нүүр бүр Cubist Mosaic-аар нуугдаж, эх хувь нь AES-256-аар шифрлэгдэн архивлагдана. Зөвхөн 4-eyes approval-той reveal flow л буцаах эрхтэй (супер админы өөрийн хүсэлтээс бусад — ADR 0003-ын нэмэлт). 14 хүснэгт + 24 RLS policy + TOTP 2FA + hash-chained audit log + GDPR/PIPA compliance + continuous SAST/DAST in CI."
 
 Repeat in English if asked:
 
-> "MONGOLZ Security is a privacy-preserving CCTV system. The moment a frame is captured, every face is masked with a Cubist Mosaic and the original is encrypted with AES-256. Only a 4-eyes approval reveal flow can restore the original. 14 tables, 24 RLS policies, TOTP 2FA, hash-chained audit log, GDPR + Korean PIPA compliance mapping, and continuous SAST/DAST in CI."
+> "MONGOLZ Security is a privacy-preserving CCTV system. The moment a frame is captured, every face is masked with a Cubist Mosaic and the original is encrypted with AES-256. Only the approved reveal flow can restore the original — 4-eyes, except the super admin's own reveals (ADR 0003 amendment). 14 tables, 24 RLS policies, TOTP 2FA, hash-chained audit log, GDPR + Korean PIPA compliance mapping, and continuous SAST/DAST in CI."
 
 ---
 
@@ -60,7 +60,7 @@ Lead with these if the panel gives you a wide-open question:
 
 ### Pillar 2 — Defense in depth
 
-"Five independent security layers: RLS policies, TOTP step-up, AES-256 encryption, 4-eyes reveal approval, and hash-chained audit. A single layer breach is contained — the others still hold."
+"Five independent security layers: RLS policies, TOTP step-up, AES-256 encryption, 4-eyes reveal approval (super-admin exception, ADR 0003 amendment), and hash-chained audit. A single layer breach is contained — the others still hold."
 
 ### Pillar 3 — Continuous security testing
 

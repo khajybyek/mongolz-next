@@ -21,7 +21,7 @@ constraints that shaped each choice.
 |---|-------|--------|
 | [0001](0001-cubist-voronoi-mask.md) | Cubist Voronoi mosaic as the primary face-mask algorithm | Accepted |
 | [0002](0002-per-recording-hkdf-aes-gcm.md) | Per-recording HKDF-derived AES-256-GCM encryption | Accepted |
-| [0003](0003-four-eyes-reveal-approval.md) | Four-eyes principle for face reveal | Accepted |
+| [0003](0003-four-eyes-reveal-approval.md) | Four-eyes principle for face reveal (super-admin exception since 2026-09-30) | Accepted, amended |
 | [0004](0004-hash-chained-audit-log.md) | Hash-chained immutable audit log | Accepted |
 | [0005](0005-supabase-rls-as-authorization.md) | Supabase RLS as primary authorization boundary | Accepted |
 | [0006](0006-step-up-totp-reauth.md) | Step-up TOTP re-authentication for sensitive views | Accepted |
