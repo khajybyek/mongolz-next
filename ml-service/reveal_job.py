@@ -26,6 +26,33 @@ for the capture period — and refuses outright when they cover the whole
 recording (or the whole requested time range). While rendering, a protected
 frame is never matched (no embedding) and every face on it stays masked.
 Either read failing fails the job closed.
+
+Face-encrypted recordings (ADR 0013, ``blur_strategy='face_encrypted'``)
+have NO raw original. The stored video is the masked video (every face box
+painted with the keyed cipher pattern) and each face box of each frame is
+sealed separately in the face envelope under its track's hash-chain key
+K_chain_index (ADR 0009). Such a job keeps every guard above (4-eyes, lease,
+status, privacy zones, protected timeline) and then:
+
+  1. collects the target embeddings (uploaded photo / suspect / detected
+     faces — the same embedding and ``reveal_level`` rules) — no detector and
+     no embedding runs on the video;
+  2. opens the envelope's sealed index and unseals the identity samples (the
+     capture-time ArcFace embeddings) of every track the requester's level
+     reaches — embeddings, never face pixels — and selects the tracks with a
+     sample that matches a target at the job threshold, the same decision the
+     standard path makes per frame. A track's blobs are restored only where
+     the samples nearest before and after them (by frame) both match, so a
+     track that sampled two people is restored only between samples of the
+     target; before its first / after its last sample only inside that
+     sample's detection run (never across a missed detection, where the
+     geometric tracker can hand the track to someone else);
+  3. decrypts ONLY those blobs — never a blob of any other track, nor one
+     inside a ``never_reveal`` zone, a protected (private) stretch or outside
+     the requested window — and composites them (feathered edge) onto the
+     decrypted masked video. Everyone else stays the cipher pattern because
+     the stored video never contained their faces;
+  4. fails with ``[face_envelope_empty]`` when no blob is left to unseal.
 """
 
 from __future__ import annotations
@@ -38,13 +65,24 @@ import subprocess
 import tempfile
 import threading
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Iterator
 
 import cv2
 import numpy as np
 
+from cryptography.exceptions import InvalidTag
+
 from crypto_utils import decrypt_bytes, master_key_candidates
+from face_envelope import (
+    BlobHeader,
+    EnvelopeError,
+    EnvelopeIntegrityError,
+    EnvelopeReader,
+    FaceBlob,
+    composite,
+)
 from face_masker import FaceMasker
 from hierarchical_keys import unseal_at_index
 from privacy_protection import (
@@ -145,6 +183,112 @@ PRIVACY_SCHEDULE_WHOLE_RANGE_MSG = (
     "by the camera's current privacy schedule"
 )
 
+# ── Face-encrypted recordings (ADR 0013) ──────────────────────
+FACE_ENCRYPTED = "face_encrypted"
+# No blob is left to unseal: no track's identity sample matched the target,
+# the matching tracks lie below the requester's reveal_level, or every
+# confirmed blob lies in a never_reveal zone / a protected (private) stretch /
+# outside the window. Final for that target and range (a lower reveal_level
+# may succeed).
+FACE_ENVELOPE_EMPTY_MSG = (
+    "[face_envelope_empty] Сонгосон хүний сэргээж болох битүүмжилсэн нүүр алга — reveal "
+    "хийх боломжгүй / no sealed face of the selected person can be restored"
+)
+# The envelope or the masked video could not be downloaded (row not
+# delivered, storage outage): a retry may succeed.
+FACE_ENVELOPE_UNAVAILABLE_MSG = (
+    "[face_envelope_unavailable] Нүүрний битүүмжилсэн багц эсвэл масктай бичлэгийг татаж, "
+    "тайлж чадсангүй — дахин оролдоно уу / the face envelope or the masked video could not "
+    "be read; retry"
+)
+# The envelope (or the masked video) is damaged or tampered with: the stored
+# object fails its at-rest authentication (ANY changed or missing byte — the
+# whole object is one AES-GCM ciphertext, or the master key that sealed it is
+# no longer configured), wrong format or recording, a header that disagrees
+# with the sealed index, missing / unauthentic index, a requested blob or
+# identity sample that fails authentication, geometry that does not fit the
+# masked video.
+FACE_ENVELOPE_INVALID_MSG = (
+    "[face_envelope_invalid] Нүүрний битүүмжилсэн багц гэмтсэн эсвэл өөрчлөгдсөн — сэргээх "
+    "боломжгүй / the face envelope is damaged or was tampered with"
+)
+
+
+def _cosine(a: np.ndarray, b: np.ndarray) -> float:
+    if a.shape != b.shape:
+        return 0.0
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
+
+
+@dataclass(frozen=True)
+class TrackConfirmation:
+    """A selected track's identity samples in frame order, each marked
+    whether it matched a target, and the track's detection runs. A blob at
+    frame ``f`` is confirmed when the samples nearest before and after ``f``
+    both matched. Before the first or after the last sample only the one
+    sample on its side can vouch for ``f``, and only when ``f`` lies in that
+    sample's detection run: the tracker is geometric, so across a missed
+    detection the track may already be someone else (a person leaves and
+    another steps into the same place), and nothing on that side of the gap
+    was ever compared with the target."""
+
+    samples: tuple[tuple[int, bool], ...]   # (frame_index, matched), sorted
+    # Detection runs ((start, end), …) from the sealed index; None = not
+    # recorded → a one-sided sample confirms only its own frame.
+    runs: tuple[tuple[int, int], ...] | None = None
+
+    def confirms(self, frame_index: int) -> bool:
+        before = [(f, m) for f, m in self.samples if f <= frame_index]
+        after = [(f, m) for f, m in self.samples if f >= frame_index]
+        if before and after:
+            return before[-1][1] and after[0][1]
+        nearest = before[-1:] or after[:1]
+        if not nearest:
+            return False
+        sample_frame, matched = nearest[0]
+        return matched and self._same_run(sample_frame, frame_index)
+
+    def _same_run(self, a: int, b: int) -> bool:
+        lo, hi = (a, b) if a <= b else (b, a)
+        return lo == hi or any(start <= lo and hi <= end for start, end in self.runs or ())
+
+
+@dataclass(frozen=True)
+class FaceRestorePlan:
+    """What a face_encrypted reveal will unseal — decided from plaintext
+    blob headers, the sealed index and the identity samples alone (no face
+    blob opened yet)."""
+
+    selection: dict[int, TrackConfirmation]  # tracks with a matching sample
+    tracks: frozenset[int]             # … whose chain_index >= reveal_level
+    headers: tuple[BlobHeader, ...]    # the blobs to unseal, in file order
+    level: int
+    frame_w: int
+    frame_h: int
+    accept: Callable[[BlobHeader], bool]
+    skipped: dict[str, int] = field(default_factory=dict)  # identity|window|protected|zone|level
+    beyond_level: int = 0              # tracks with samples the level cannot open
+
+
+class RecordingObjectUnavailable(RuntimeError):
+    """A ``recordings`` object could not be downloaded (retry may succeed)."""
+
+
+class RecordingObjectDamaged(RuntimeError):
+    """A downloaded ``recordings`` object failed its at-rest decryption."""
+
+
+@dataclass(frozen=True)
+class FaceRestoreStats:
+    frames: int
+    duration: int
+    tracks_unsealed: int
+    blobs_unsealed: int                # decrypted
+    blobs_restored: int                # composited onto a frame
+    frames_restored: int
+    blobs_unplaced: int                # planned, but no such frame in the video
+
+
 # Shared with the on-demand view / evidence renderers (privacy_protection).
 # The underscore names are kept for callers and tests that import them here.
 _parse_timestamp = parse_timestamp
@@ -214,7 +358,8 @@ class RevealProcessor:
                 self.storage.client.table("reveal_jobs")
                 # started_at = capture time of the stored video's offset 0 and
                 # duration_sec = its length (ADR 0012 schedule → offsets).
-                .select("*, recordings(filename, storage_path, camera_id, started_at, duration_sec)")
+                # blur_strategy picks the face_encrypted path (ADR 0013).
+                .select("*, recordings(filename, storage_path, camera_id, started_at, duration_sec, blur_strategy)")
                 .eq("id", job_id)
                 .maybe_single()
                 .execute()
@@ -313,6 +458,18 @@ class RevealProcessor:
             await self._fail(job_id, refusal)
             return
 
+        if recording.get("blur_strategy") == FACE_ENCRYPTED:
+            # ADR 0013: no original exists — restore the selected person's
+            # sealed faces onto the masked video. Every guard above applied.
+            await self._run_face_encrypted(
+                job_id, job, rec_uuid,
+                privacy_zones=privacy_zones,
+                protection=protection,
+                target_start_sec=target_start_sec,
+                target_end_sec=target_end_sec,
+            )
+            return
+
         # Original (un-blurred) бичлэг шаардана. Lookup алдаа ≠ "бичлэг алга":
         # DB outage-ыг "original байхгүй" гэж мэдэгдэх нь буруу оношилгоо.
         try:
@@ -389,16 +546,7 @@ class RevealProcessor:
                 return
 
             # 3. Frame бүрийг боловсруулах (+ watermark)
-            requester_email = job.get("requested_email") or "unknown"
-            try:
-                requested_at_iso = job.get("reauth_at") or job.get("created_at")
-                watermark_at = (
-                    datetime.fromisoformat(requested_at_iso.replace("Z", "+00:00"))
-                    .strftime("%Y-%m-%d %H:%M UTC")
-                    if requested_at_iso else None
-                )
-            except Exception:
-                watermark_at = None
+            requester_email, watermark_at = self._watermark_fields(job)
 
             try:
                 duration = await asyncio.to_thread(
@@ -428,56 +576,585 @@ class RevealProcessor:
                 await self._fail(job_id, f"Боловсруулах алдаа: {type(e).__name__}")
                 return
 
-            # 4. Result-г Storage-руу upload. `_process_video` аль хэдийн
-            # файлыг нээж, frame тоог шалгасан — өөрөөр хэлбэл энд зөвхөн
-            # бүрэн бүтэн artifact ирнэ.
-            lease = _LEASE.get()
-            if not lease or lease[1].is_set() or not await self._update(job_id):
-                raise RevealLeaseLost("Ownership expired before upload")
-            output_path = f"{job_id}/{lease[0]}.mp4"
-            try:
-                def _upload() -> None:
-                    with open(output_mp4, "rb") as f:
-                        payload = f.read()
-                    if not payload:
-                        raise RuntimeError("rendered output is empty")
-                    stored = self.storage.upload_bytes(
-                        "revealed", output_path, payload, "video/mp4"
-                    )
-                    # upload_bytes returns "" when there is no storage client:
-                    # a silent no-op must not read as a successful upload.
-                    if not stored:
-                        raise RuntimeError("storage rejected the reveal artifact")
+            # 4–5. Upload + complete (shared with the face_encrypted path).
+            await self._publish(job_id, output_mp4, duration)
 
-                await asyncio.to_thread(_upload)
-            except Exception as e:
-                log.warning("Reveal %s: upload failed: %s", job_id, e)
-                await self._fail(job_id, "Upload алдаа")
-                return
-
-            # 5. Done
-            completed = await self._update(
-                job_id,
-                status="completed",
-                progress=100,
-                output_path=output_path,
-                output_duration_sec=duration,
-                completed_at=self._now(),
+    @staticmethod
+    def _watermark_fields(job: dict) -> tuple[str, str | None]:
+        """(requester e-mail, request time) burned into every reveal output."""
+        requester_email = job.get("requested_email") or "unknown"
+        try:
+            requested_at_iso = job.get("reauth_at") or job.get("created_at")
+            watermark_at = (
+                datetime.fromisoformat(requested_at_iso.replace("Z", "+00:00"))
+                .strftime("%Y-%m-%d %H:%M UTC")
+                if requested_at_iso else None
             )
-            if not completed:
-                # Remove only this attempt's unreferenced artifact. On an
-                # ambiguous DB/network error retain it: the commit might have
-                # succeeded, and deleting then would break an authorized URL.
-                try:
-                    current = await asyncio.to_thread(lambda: self.storage.client.table("reveal_jobs")
-                        .select("status,output_path").eq("id", job_id).maybe_single().execute())
-                    row = current.data if current else None
-                    if row and row.get("output_path") != output_path:
-                        await asyncio.to_thread(lambda: self.storage.client.storage.from_("revealed").remove([output_path]))
-                except Exception:
-                    log.warning("Reveal %s attempt cleanup deferred", job_id)
+        except Exception:
+            watermark_at = None
+        return requester_email, watermark_at
+
+    async def _publish(self, job_id: str, output_mp4: str, duration: int) -> bool:
+        """Upload a verified render to ``revealed/<job>/<lease>.mp4`` and
+        complete the job — only while this attempt still owns the lease.
+        Returns True when the job was completed."""
+        # 4. Result-г Storage-руу upload. `_process_video` аль хэдийн
+        # файлыг нээж, frame тоог шалгасан — өөрөөр хэлбэл энд зөвхөн
+        # бүрэн бүтэн artifact ирнэ.
+        lease = _LEASE.get()
+        if not lease or lease[1].is_set() or not await self._update(job_id):
+            raise RevealLeaseLost("Ownership expired before upload")
+        output_path = f"{job_id}/{lease[0]}.mp4"
+        try:
+            def _upload() -> None:
+                with open(output_mp4, "rb") as f:
+                    payload = f.read()
+                if not payload:
+                    raise RuntimeError("rendered output is empty")
+                stored = self.storage.upload_bytes(
+                    "revealed", output_path, payload, "video/mp4"
+                )
+                # upload_bytes returns "" when there is no storage client:
+                # a silent no-op must not read as a successful upload.
+                if not stored:
+                    raise RuntimeError("storage rejected the reveal artifact")
+
+            await asyncio.to_thread(_upload)
+        except Exception as e:
+            log.warning("Reveal %s: upload failed: %s", job_id, e)
+            await self._fail(job_id, "Upload алдаа")
+            return False
+
+        # 5. Done
+        completed = await self._update(
+            job_id,
+            status="completed",
+            progress=100,
+            output_path=output_path,
+            output_duration_sec=duration,
+            completed_at=self._now(),
+        )
+        if not completed:
+            # Remove only this attempt's unreferenced artifact. On an
+            # ambiguous DB/network error retain it: the commit might have
+            # succeeded, and deleting then would break an authorized URL.
+            try:
+                current = await asyncio.to_thread(lambda: self.storage.client.table("reveal_jobs")
+                    .select("status,output_path").eq("id", job_id).maybe_single().execute())
+                row = current.data if current else None
+                if row and row.get("output_path") != output_path:
+                    await asyncio.to_thread(lambda: self.storage.client.storage.from_("revealed").remove([output_path]))
+            except Exception:
+                log.warning("Reveal %s attempt cleanup deferred", job_id)
+            return False
+        log.info("✓ Reveal job %s completed → revealed/%s (%ds)", job_id, output_path, duration)
+        return True
+
+    # ─────────────────────────────────────────────
+    # Face-encrypted recordings (ADR 0013)
+    # ─────────────────────────────────────────────
+    async def _run_face_encrypted(
+        self,
+        job_id: str,
+        job: dict,
+        rec_uuid: str,
+        *,
+        privacy_zones: list[dict],
+        protection: ProtectedTimeline,
+        target_start_sec: float | None,
+        target_end_sec: float | None,
+    ) -> None:
+        """Restore the selected person(s) of a face_encrypted recording.
+
+        Order of reads, cheapest refusal first: the recording row → the
+        target embeddings (existing level rules) → the envelope (at-rest
+        layer + sealed index; no face blob) → the identity samples within the
+        requester's level (embeddings only) → the plan → the masked video →
+        the render, which decrypts ONLY the planned blobs."""
+        try:
+            source = await self._lookup_face_encrypted_source(rec_uuid)
+        except RevealDataError:
+            await self._fail(job_id, "Recording мэдээллийг уншиж чадсангүй — дахин оролдоно уу")
+            return
+        if source is None:
+            await self._fail(job_id, FACE_ENVELOPE_UNAVAILABLE_MSG)
+            return
+        masked_path, envelope_path = source
+
+        # Same authority + target rules as the standard path (ADR 0009).
+        reveal_level = _parse_reveal_level(job.get("reveal_level"))
+        if reveal_level is None:
+            await self._fail(job_id, "Reveal authority буруу эсвэл дутуу байна")
+            return
+        try:
+            if reveal_level > 0:
+                target_embeddings = await asyncio.to_thread(
+                    self._collect_targets_sealed, job, rec_uuid, reveal_level
+                )
+                if not target_embeddings:
+                    await self._fail(
+                        job_id,
+                        f"Reveal level {reveal_level}: эрхийн хүрээнд target нүүр алга "
+                        f"(сонгосон нүүрс таны түвшнээс дээгүүр эсвэл sealed биш)",
+                    )
+                    return
+            else:
+                target_embeddings = await asyncio.to_thread(self._collect_targets, job)
+        except RevealDataError:
+            await self._fail(
+                job_id, "Target embedding-ийг уншиж чадсангүй — дахин оролдоно уу"
+            )
+            return
+        if not target_embeddings:
+            await self._fail(job_id, "Target embedding байхгүй")
+            return
+        threshold = float(job.get("threshold", 0.45))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            envelope_file = os.path.join(tmp, "faces.mfe")
+            input_mp4 = os.path.join(tmp, "masked.mp4")
+            output_mp4 = os.path.join(tmp, "output.mp4")
+
+            # The envelope: only its at-rest layer is removed here. The face
+            # blobs stay sealed under their hash-chain keys.
+            if not await self._fetch_face_encrypted_object(job_id, envelope_path, rec_uuid, envelope_file, "envelope"):
                 return
-            log.info("✓ Reveal job %s completed → revealed/%s (%ds)", job_id, output_path, duration)
+            try:
+                reader = EnvelopeReader(envelope_file, rec_uuid)
+            except EnvelopeError as e:
+                log.warning("Reveal %s: face envelope unusable: %s", job_id, e)
+                await self._fail(job_id, FACE_ENVELOPE_INVALID_MSG)
+                return
+
+            with reader:
+                if not reader.complete:
+                    # Without the sealed index the identity samples are gone:
+                    # nothing is restorable by identity (a delivered segment is
+                    # always finalised — this is damage).
+                    log.warning(
+                        "Reveal %s: face envelope index %s — identity samples unavailable",
+                        job_id, reader.index_error,
+                    )
+                    await self._fail(job_id, FACE_ENVELOPE_INVALID_MSG)
+                    return
+                # Target → tracks of THIS envelope, by the tracks' own sealed
+                # identity samples (no faces row, no detector, no frame embedded).
+                try:
+                    samples = reader.open_samples(level=reveal_level, masters=master_key_candidates())
+                except EnvelopeIntegrityError as e:
+                    log.warning("Reveal %s: identity sample failed authentication: %s", job_id, e)
+                    await self._fail(job_id, FACE_ENVELOPE_INVALID_MSG)
+                    return
+                selection = self._select_tracks(
+                    samples, target_embeddings, threshold,
+                    runs={tid: info.runs for tid, info in reader.tracks.items()},
+                )
+                try:
+                    plan = self._plan_face_restore(
+                        reader, selection, reveal_level,
+                        privacy_zones=privacy_zones, protection=protection,
+                        target_start_sec=target_start_sec, target_end_sec=target_end_sec,
+                    )
+                except EnvelopeError as e:
+                    log.warning("Reveal %s: face envelope geometry unusable: %s", job_id, e)
+                    await self._fail(job_id, FACE_ENVELOPE_INVALID_MSG)
+                    return
+                log.info(
+                    "Reveal job %s (face_encrypted) — %d track(s) with samples within level %d, "
+                    "%d match the target, %d beyond level; %d blob(s) to unseal; withheld: "
+                    "unconfirmed %d, window %d, privacy mode %d, zone %d",
+                    job_id, len(samples), reveal_level, len(plan.selection), plan.beyond_level,
+                    len(plan.headers), plan.skipped.get("identity", 0), plan.skipped.get("window", 0),
+                    plan.skipped.get("protected", 0), plan.skipped.get("zone", 0),
+                )
+                if not plan.headers:
+                    await self._fail(job_id, FACE_ENVELOPE_EMPTY_MSG)
+                    return
+
+                if not await self._fetch_face_encrypted_object(job_id, masked_path, rec_uuid, input_mp4, "masked video"):
+                    return
+
+                requester_email, watermark_at = self._watermark_fields(job)
+                try:
+                    stats = await asyncio.to_thread(
+                        self._process_face_encrypted,
+                        input_mp4=input_mp4,
+                        output_mp4=output_mp4,
+                        reader=reader,
+                        plan=plan,
+                        job_id=job_id,
+                        watermark_email=requester_email,
+                        watermark_at=watermark_at,
+                    )
+                except RevealLeaseLost:
+                    raise
+                except RevealRenderError as e:
+                    log.warning("Reveal %s: face_encrypted render failed: %s", job_id, e)
+                    await self._fail(job_id, str(e))
+                    return
+                except Exception as e:
+                    log.exception("Reveal %s: unexpected face_encrypted processing error", job_id)
+                    await self._fail(job_id, f"Боловсруулах алдаа: {type(e).__name__}")
+                    return
+
+            log.info(
+                "Reveal job %s (face_encrypted) — unsealed %d track(s), %d blob(s); restored %d "
+                "blob(s) on %d/%d frame(s); %d unplaced",
+                job_id, stats.tracks_unsealed, stats.blobs_unsealed, stats.blobs_restored,
+                stats.frames_restored, stats.frames, stats.blobs_unplaced,
+            )
+            await self._publish(job_id, output_mp4, stats.duration)
+
+    async def _lookup_face_encrypted_source(self, recording_id: str) -> tuple[str, str] | None:
+        """``(storage_path, face_envelope_path)`` of a delivered
+        face_encrypted recording; None when the row is not one (or not
+        delivered yet). A failed read raises ``RevealDataError``."""
+        try:
+            res = await asyncio.to_thread(
+                lambda: self.storage.client.table("recordings")
+                .select("blur_strategy, has_original, storage_path, face_envelope_path")
+                .eq("id", recording_id)
+                .maybe_single()
+                .execute()
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("recording lookup failed for %s: %s", recording_id[:8], e)
+            raise RevealDataError("recording lookup failed") from e
+        data = res.data if res else None
+        if not data or data.get("blur_strategy") != FACE_ENCRYPTED:
+            return None
+        masked = data.get("storage_path")
+        envelope = data.get("face_envelope_path")
+        # has_original = "a restorable encrypted source exists" (the ready
+        # row); the envelope path is only set by that row as well.
+        if not data.get("has_original") or not masked or not envelope or masked == envelope:
+            return None
+        return str(masked), str(envelope)
+
+    def _fetch_recording_object(self, path: str, recording_id: str, dest: str) -> None:
+        """Download a ``recordings`` object to ``dest``, removing the at-rest
+        layer of ``*.enc`` objects (the per-recording key). A download failure
+        raises ``RecordingObjectUnavailable``; an object that fails its at-rest
+        authentication (the whole object is ONE AES-GCM ciphertext: any changed
+        or missing byte, or a master key no longer configured) raises
+        ``RecordingObjectDamaged``."""
+        try:
+            blob = self.storage.client.storage.from_("recordings").download(path)
+        except Exception as exc:  # noqa: BLE001 — storage / network
+            raise RecordingObjectUnavailable(type(exc).__name__) from exc
+        if not blob:
+            raise RecordingObjectUnavailable("empty object")
+        if str(path).endswith(".enc"):
+            try:
+                blob = decrypt_bytes(blob, recording_id=recording_id)
+            except (InvalidTag, ValueError) as exc:
+                raise RecordingObjectDamaged(type(exc).__name__) from exc
+        with open(dest, "wb") as f:
+            f.write(blob)
+
+    async def _fetch_face_encrypted_object(
+        self, job_id: str, path: str, recording_id: str, dest: str, what: str,
+    ) -> bool:
+        """Fetch one artifact of a face_encrypted recording; on failure fail
+        the job with the matching stable code and return False."""
+        try:
+            await asyncio.to_thread(self._fetch_recording_object, path, recording_id, dest)
+        except RecordingObjectDamaged as e:
+            log.warning("Reveal %s: %s failed its at-rest authentication (%s)", job_id, what, e)
+            await self._fail(job_id, FACE_ENVELOPE_INVALID_MSG)
+            return False
+        except Exception as e:  # noqa: BLE001 — RecordingObjectUnavailable, disk
+            log.warning("Reveal %s: %s fetch failed: %s", job_id, what, type(e).__name__)
+            await self._fail(job_id, FACE_ENVELOPE_UNAVAILABLE_MSG)
+            return False
+        return True
+
+    @staticmethod
+    def _select_tracks(
+        samples: dict[int, list[tuple[int, np.ndarray]]],
+        targets: list[np.ndarray],
+        threshold: float,
+        runs: dict[int, tuple[tuple[int, int], ...] | None] | None = None,
+    ) -> dict[int, TrackConfirmation]:
+        """Tracks with at least one identity sample that matches a target at
+        ``threshold`` (the standard path's per-frame decision), with every
+        sample marked and the track's detection runs (``runs``, from the
+        sealed index) for ``TrackConfirmation.confirms``."""
+        runs = runs or {}
+        selection: dict[int, TrackConfirmation] = {}
+        for track_id, opened in samples.items():
+            marks = tuple(sorted(
+                (int(frame), any(_cosine(emb, t) >= threshold for t in targets))
+                for frame, emb in opened
+            ))
+            if any(m for _f, m in marks):
+                selection[int(track_id)] = TrackConfirmation(marks, runs.get(int(track_id)))
+        return selection
+
+    def _plan_face_restore(
+        self,
+        reader: EnvelopeReader,
+        selection: dict[int, TrackConfirmation],
+        reveal_level: int,
+        *,
+        privacy_zones: list[dict] | None,
+        protection: ProtectedTimeline | None,
+        target_start_sec: float | None,
+        target_end_sec: float | None,
+    ) -> FaceRestorePlan:
+        """Decide from plaintext headers, the sealed index and the identity
+        samples which blobs a reveal may unseal.
+
+        A blob is unsealed only when its track was selected by its own
+        samples and its frame is confirmed by them (``TrackConfirmation``),
+        its chain_index >= reveal_level (ADR 0009), its time lies inside the
+        requested window and outside every protected stretch (ADR 0012), and
+        the centre of its painted box lies outside every never_reveal zone.
+        Frame size and fps come from the sealed index (the reader refuses a
+        plaintext header that disagrees with it).
+        """
+        frame_w, frame_h, fps = reader.frame_width, reader.frame_height, reader.fps
+        if frame_w <= 0 or frame_h <= 0:
+            raise EnvelopeError("envelope frame size missing")
+        zones = list(privacy_zones or [])
+        time_bounded = target_start_sec is not None and target_end_sec is not None
+
+        def blob_time(header: BlobHeader) -> float:
+            # t_offset = frame_index / fps (the pipeline's offset, on the
+            # timeline of the privacy spans). Recomputed in float64 from the
+            # authenticated fps so a boundary frame is not misjudged by the
+            # f32 rounding of the stored value.
+            if fps > 0 and np.isfinite(fps):
+                return header.frame_index / fps
+            return float(header.t_offset)
+
+        def skip_reason(header: BlobHeader) -> str | None:
+            t = blob_time(header)
+            if time_bounded and not (target_start_sec <= t <= target_end_sec):
+                return "window"
+            if protection is not None and protection.covers(t):
+                return "protected"
+            if zones and any(
+                self._box_center_in_zone(header.inner_rect, frame_w, frame_h, z) for z in zones
+            ):
+                return "zone"
+            return None
+
+        allowed = frozenset(
+            t for t in selection
+            if t in reader.tracks and reader.tracks[t].chain_index >= reveal_level
+        )
+        beyond = sum(1 for info in reader.tracks.values() if info.samples and info.chain_index < reveal_level)
+        skipped = {"level": 0, "identity": 0, "window": 0, "protected": 0, "zone": 0}
+        planned: list[BlobHeader] = []
+
+        def decide(header: BlobHeader) -> str | None:
+            if header.track_id not in allowed or header.chain_index < reveal_level:
+                return "level"
+            if not selection[header.track_id].confirms(header.frame_index):
+                return "identity"
+            return skip_reason(header)
+
+        for header in reader.headers(allowed):
+            reason = decide(header)
+            if reason is not None:
+                skipped[reason] += 1
+                continue
+            planned.append(header)
+        return FaceRestorePlan(
+            selection=dict(selection),
+            tracks=allowed,
+            headers=tuple(planned),
+            level=reveal_level,
+            frame_w=frame_w,
+            frame_h=frame_h,
+            accept=lambda header: decide(header) is None,
+            skipped=skipped,
+            beyond_level=beyond,
+        )
+
+    def _process_face_encrypted(
+        self,
+        input_mp4: str,
+        output_mp4: str,
+        reader: EnvelopeReader,
+        plan: FaceRestorePlan,
+        job_id: str,
+        watermark_email: str | None = None,
+        watermark_at: str | None = None,
+    ) -> FaceRestoreStats:
+        """Composite the planned blobs onto the decrypted masked video.
+        Same failure contract as ``_process_video`` (audit 4.6): every path
+        that loses frames raises ``RevealRenderError`` and deletes the
+        partial file."""
+        try:
+            return self._render_face_encrypted(
+                input_mp4=input_mp4,
+                output_mp4=output_mp4,
+                reader=reader,
+                plan=plan,
+                job_id=job_id,
+                watermark_email=watermark_email,
+                watermark_at=watermark_at,
+            )
+        except BaseException:
+            self._discard_partial(output_mp4)
+            raise
+
+    @staticmethod
+    def _next_blob(blobs: Iterator[FaceBlob]) -> FaceBlob | None:
+        try:
+            return next(blobs, None)
+        except EnvelopeIntegrityError as exc:
+            # A requested blob failed authentication (tampered, swapped or a
+            # wrong key): never silently skipped.
+            raise RevealRenderError(FACE_ENVELOPE_INVALID_MSG) from exc
+
+    def _render_face_encrypted(
+        self,
+        input_mp4: str,
+        output_mp4: str,
+        reader: EnvelopeReader,
+        plan: FaceRestorePlan,
+        job_id: str,
+        watermark_email: str | None = None,
+        watermark_at: str | None = None,
+    ) -> FaceRestoreStats:
+        cap = cv2.VideoCapture(input_mp4)
+        if not cap.isOpened():
+            raise RevealRenderError("Масктай бичлэг нээгдсэнгүй (MP4 гэмтсэн байж болзошгүй)")
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 15
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        if w <= 0 or h <= 0:
+            cap.release()
+            raise RevealRenderError(f"Масктай бичлэгийн хэмжээ буруу ({w}x{h})")
+        if (w, h) != (plan.frame_w, plan.frame_h):
+            # The envelope was not captured from this video: its boxes would
+            # land on the wrong pixels.
+            cap.release()
+            log.warning(
+                "Reveal %s: envelope %dx%d does not match the masked video %dx%d",
+                job_id, plan.frame_w, plan.frame_h, w, h,
+            )
+            raise RevealRenderError(FACE_ENVELOPE_INVALID_MSG)
+
+        encoder = subprocess.Popen(
+            [
+                "ffmpeg", "-y",
+                "-f", "rawvideo", "-vcodec", "rawvideo",
+                "-pix_fmt", "bgr24",
+                "-s", f"{w}x{h}",
+                "-r", f"{fps:.2f}",
+                "-i", "-",
+                "-c:v", "libx264", "-preset", "veryfast",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "frag_keyframe+empty_moov",
+                output_mp4,
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        # Painted rectangles of every track per frame (plaintext headers):
+        # a restored crop never overwrites another track's cipher pattern.
+        rects = reader.rects_by_frame()
+        blobs = reader.iter_blobs(
+            plan.tracks, level=plan.level, masters=master_key_candidates(), accept=plan.accept,
+        )
+        frame_idx = 0
+        progress_step = max(1, total_frames // 20)
+        last_progress_update = 0
+        unsealed = restored = frames_restored = 0
+        unsealed_tracks: set[int] = set()
+        try:
+            pending = self._next_blob(blobs)
+            if pending is not None:
+                unsealed += 1
+            while True:
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    break
+                touched = False
+                while pending is not None and pending.frame_index <= frame_idx:
+                    if pending.frame_index == frame_idx:
+                        exclude = [r for tid, r in rects.get(frame_idx, ()) if tid != pending.track_id]
+                        try:
+                            composite(frame, pending, exclude=exclude)
+                        except EnvelopeError as exc:
+                            raise RevealRenderError(FACE_ENVELOPE_INVALID_MSG) from exc
+                        restored += 1
+                        touched = True
+                        unsealed_tracks.add(pending.track_id)
+                    pending = self._next_blob(blobs)
+                    if pending is not None:
+                        unsealed += 1
+                if touched:
+                    frames_restored += 1
+
+                output = self._draw_watermark(frame, watermark_email, watermark_at) if watermark_email else frame
+                try:
+                    if encoder.stdin is None:
+                        raise RevealRenderError("Encoder pipe нээгдсэнгүй")
+                    encoder.stdin.write(output.tobytes())
+                except (BrokenPipeError, OSError) as exc:
+                    raise RevealRenderError(
+                        f"Encoder {frame_idx}-р frame дээр тасарсан — "
+                        f"reveal дутуу тул хадгалаагүй"
+                    ) from exc
+
+                frame_idx += 1
+                lease = _LEASE.get()
+                if lease and lease[1].is_set():
+                    raise RevealLeaseLost("Worker lease expired")
+                if total_frames and frame_idx - last_progress_update >= progress_step:
+                    pct = min(95, int(5 + 90 * frame_idx / total_frames))
+                    try:
+                        if lease and not self._update_owned(job_id, {"progress": pct}):
+                            lease[1].set()
+                            raise RevealLeaseLost("Worker lease expired")
+                    except RevealLeaseLost:
+                        raise
+                    except Exception as e:  # noqa: BLE001
+                        log.debug("Reveal %s: progress update skipped: %s", job_id, e)
+                    last_progress_update = frame_idx
+
+            if frame_idx == 0:
+                raise RevealRenderError("Масктай бичлэгээс нэг ч frame уншигдсангүй")
+            if restored == 0:
+                # Every planned blob points past the end of the video: the
+                # envelope and the masked video do not belong together.
+                raise RevealRenderError(FACE_ENVELOPE_INVALID_MSG)
+        except BaseException:
+            abort_encoder(encoder)
+            raise
+        finally:
+            cap.release()
+            blobs.close()
+
+        try:
+            finish_encoder(encoder, label="reveal", wait_timeout=30.0)
+            verify_rendered_video(output_mp4, frame_idx, label="reveal")
+        except RuntimeError as exc:
+            raise RevealRenderError(f"Reveal бичлэг бүрэн үүсээгүй: {exc}") from exc
+
+        unplaced = len(plan.headers) - restored
+        if unplaced:
+            log.warning(
+                "Reveal job %s — %d planned blob(s) had no frame in the masked video (%d frames)",
+                job_id, unplaced, frame_idx,
+            )
+        return FaceRestoreStats(
+            frames=frame_idx,
+            duration=int(frame_idx / fps) if fps else 0,
+            tracks_unsealed=len(unsealed_tracks),
+            blobs_unsealed=unsealed,
+            blobs_restored=restored,
+            frames_restored=frames_restored,
+            blobs_unplaced=max(0, unplaced),
+        )
 
     # ─────────────────────────────────────────────
     # Target embedding-уудыг цуглуулах

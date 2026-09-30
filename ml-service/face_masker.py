@@ -26,6 +26,11 @@ Algorithm (per frame):
      privacy tier.
   4. Padding + cubist polygon mosaic (``_cubist_anonymize``) on every cached
      box, except boxes overlapping ``keep_boxes`` (reveal targets).
+
+``mask()`` = ``step()`` (1–3) + ``paint()`` (4). A ``face_encrypted``
+recording (ADR 0013) calls them separately: the same ``step()`` boxes (and
+the same ``padded_box`` rectangles) get the cubist mask on the live stream
+and the keyed cipher visual (``cipher_mask``) in the stored masked video.
 """
 
 from __future__ import annotations
@@ -126,6 +131,10 @@ class FaceMasker:
             log.warning("Haar cascade failed to load (%s)", _HAAR_PATH)
         self.cache: list[CachedBox] = []
         self.frame_idx = 0
+        # One-shot request for an InsightFace pass on the next step (a
+        # face_encrypted recognition tick samples the tracks with a FRESH box
+        # on its frame, so profile faces need RetinaFace there).
+        self.insight_due = False
 
     # ── detection ──────────────────────────────────────────────
     def _detect_haar(self, frame: np.ndarray) -> list[tuple[Box, str]]:
@@ -202,13 +211,18 @@ class FaceMasker:
 
     # ── public API ─────────────────────────────────────────────
     def step(self, frame: np.ndarray) -> list[CachedBox]:
-        """Advance one frame: detect, refresh the persistence cache, return it."""
+        """Advance one frame: detect, refresh the persistence cache, return it.
+        An entry whose ttl equals ``persist_frames`` was detected on THIS
+        frame (fresh); a lower ttl is an earlier detection kept alive (stale)
+        — its geometry is exactly that earlier detection's."""
         self.frame_idx += 1
         new: list[tuple[Box, str]] = self._detect_haar(frame)
         # Frame 1 too: a masker often renders a single frame (evidence
         # stills) or starts a clip / stream / seek, and its first frames must
         # not be Haar-only — profile and tilted faces are what Haar misses.
-        if self.frame_idx == 1 or self.frame_idx % self.insight_every_n == 0:
+        insight = self.frame_idx == 1 or self.frame_idx % self.insight_every_n == 0 or self.insight_due
+        self.insight_due = False
+        if insight:
             new.extend(self._detect_insight(frame))
         self.cache = [(b, ttl - 1, tier) for (b, ttl, tier) in self.cache if ttl > 1]
         for box, tier in new:
@@ -216,13 +230,32 @@ class FaceMasker:
         self.cache = merge_overlapping(self.cache)
         return self.cache
 
-    def mask(self, frame: np.ndarray, keep_boxes: Iterable[Box] = (), keep_iou: float = 0.3) -> np.ndarray:
-        """Return a copy of ``frame`` with every cached face masked, except
-        faces overlapping a ``keep_boxes`` entry (reveal targets)."""
+    def padded_box(self, box: Box, width: int, height: int) -> Box | None:
+        """The padded, frame-clipped rectangle that masking paints for a
+        detection box, or None when it is too small to paint (< 8 px)."""
+        x1, y1, x2, y2 = box
+        bw, bh = x2 - x1, y2 - y1
+        pad_x = int(bw * self.pad_ratio)
+        pad_y = int(bh * self.pad_ratio)
+        x1p, y1p = max(0, x1 - pad_x), max(0, y1 - pad_y)
+        x2p, y2p = min(width, x2 + pad_x), min(height, y2 + pad_y)
+        if x2p - x1p < 8 or y2p - y1p < 8:
+            return None
+        return (x1p, y1p, x2p, y2p)
+
+    def paint(
+        self,
+        frame: np.ndarray,
+        boxes: Iterable[CachedBox],
+        keep_boxes: Iterable[Box] = (),
+        keep_iou: float = 0.3,
+    ) -> np.ndarray:
+        """Cubist-mask ``boxes`` (the persistence cache ``step`` returned) on
+        a copy of ``frame``, except faces overlapping a ``keep_boxes`` entry."""
         # Local import: recording_pipeline imports this module too.
         from recording_pipeline import _cubist_anonymize
 
-        boxes = self.step(frame)
+        boxes = list(boxes)
         if not boxes:
             return frame
         keep = list(keep_boxes)
@@ -231,13 +264,10 @@ class FaceMasker:
         for (x1, y1, x2, y2), _ttl, tier in boxes:
             if keep and any(iou((x1, y1, x2, y2), kb) > keep_iou for kb in keep):
                 continue
-            bw, bh = x2 - x1, y2 - y1
-            pad_x = int(bw * self.pad_ratio)
-            pad_y = int(bh * self.pad_ratio)
-            x1p, y1p = max(0, x1 - pad_x), max(0, y1 - pad_y)
-            x2p, y2p = min(w, x2 + pad_x), min(h, y2 + pad_y)
-            if x2p - x1p < 8 or y2p - y1p < 8:
+            padded = self.padded_box((x1, y1, x2, y2), w, h)
+            if padded is None:
                 continue
+            x1p, y1p, x2p, y2p = padded
             roi = out[y1p:y2p, x1p:x2p]
             if roi.size == 0:
                 continue
@@ -245,3 +275,8 @@ class FaceMasker:
             seed = (cx >> 5) * 7919 + (cy >> 5) * 31
             out[y1p:y2p, x1p:x2p] = _cubist_anonymize(roi, seed=seed, privacy_tier=tier)
         return out
+
+    def mask(self, frame: np.ndarray, keep_boxes: Iterable[Box] = (), keep_iou: float = 0.3) -> np.ndarray:
+        """Return a copy of ``frame`` with every cached face masked, except
+        faces overlapping a ``keep_boxes`` entry (reveal targets)."""
+        return self.paint(frame, self.step(frame), keep_boxes, keep_iou)

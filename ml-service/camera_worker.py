@@ -154,6 +154,15 @@ class CameraManager:
                     # "none" | "fail_closed" (schedule unreadable → private).
                     "privacy_mode": getattr(s, "privacy_mode", None),
                     "privacy_source": getattr(s, "privacy_source", None),
+                    # ADR 0013: "standard" | "face_encrypted" — the mode of
+                    # the segment being recorded now.
+                    "recording_mode": getattr(s, "recording_mode", None),
+                    # How far the capture loop is behind real time, and how
+                    # many masked frames it repeated to catch up (the live
+                    # stream in standard mode; the stored video too in
+                    # face_encrypted mode — ADR 0013, Costs).
+                    "live_lag_sec": round(float(getattr(s, "live_lag_sec", 0.0) or 0.0), 2),
+                    "held_frames": int(getattr(s, "held_frames", 0) or 0),
                 }
             )
         return out
@@ -217,6 +226,7 @@ class CameraManager:
                     "next_retry_at": retry_at,
                     "privacy_mode": None,  # not capturing → unknown
                     "privacy_source": None,
+                    "recording_mode": None,
                 }
             )
         return out

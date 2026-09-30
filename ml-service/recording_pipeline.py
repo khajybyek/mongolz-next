@@ -12,6 +12,21 @@ RTSP/Webcam frame
    1. Бүх ffmpeg pipe-уудыг close хийж дуусгана
    2. Blurred + Original MP4-уудыг Supabase Storage-руу upload
    3. recordings table-руу row insert (has_original=true)
+
+Recording mode ``face_encrypted`` (``cameras.recording_mode``, ADR 0013)
+------------------------------------------------------------------------
+RTSP/Webcam frame
+   ├─→ HLS (cubist-masked, exactly as in standard mode)
+   ├─→ Masked MP4 (every face box painted with the keyed cipher visual;
+   │   encrypted at rest with the per-recording key → ``*_masked.mp4.enc``)
+   └─→ Face envelope (every face box of every frame captured in
+       ``standard`` privacy mode, sealed with its track's hash-chain key
+       K_chain_index → ``*_faces.mfe.enc``)
+NO raw original exists. The row: ``blur_strategy='face_encrypted'``,
+``storage_path`` = the masked video, ``face_envelope_path`` = the envelope,
+``original_path`` NULL, ``has_original`` true once delivered (= "a
+restorable encrypted source exists"). The mode is read per segment through
+``recording_mode.RecordingModeCache``; a change rotates the segment.
 """
 
 from __future__ import annotations
@@ -44,11 +59,24 @@ from crypto_utils import master_key
 from recording_spool import get_recording_spool
 from capture_integrity import close_encoder, validate_capture, SourceSampler
 from capture_journal import write_journal, check_capture_capacity
+from cipher_mask import CipherPalette, paint_cipher, visual_key
 from demo_source import is_demo_url, resolve_demo_source
+from face_envelope import (
+    DEFAULT_MAX_ENVELOPE_BYTES,
+    BlobMaterial,
+    EnvelopeWriter,
+    PaintedRect,
+    SealedBlob,
+    blank_foreign_regions,
+    crop_rect,
+    encode_crop,
+)
 from face_masker import FaceMasker
+from face_tracker import IoUTracker, Placement, link_tracks, match_detections
 from hierarchical_keys import key_at_index, encrypt_face as _seal_embedding
 from privacy_protection import PRIVACY_SCHEDULE_PAD_SEC
 from privacy_schedule import PrivacyScheduleCache, PrivacySpanNotFound, get_privacy_schedule_cache
+from recording_mode import FACE_ENCRYPTED, RECORDING_MODES, STANDARD, RecordingModeCache, get_recording_mode_cache
 
 
 def redact_url(url: str | int) -> str:
@@ -307,6 +335,11 @@ class SessionFaceMemory:
             if sim > best_sim:
                 best, best_sim = entry, sim
         return best
+
+    def similarity(self, embedding: np.ndarray, entry: SeenFace) -> float:
+        """Cosine similarity of ``embedding`` with ``entry`` (the measure
+        ``lookup`` uses)."""
+        return self._cosine(embedding, entry.embedding)
 
     def remember(
         self,
@@ -729,6 +762,7 @@ class RecordingSession:
         recording_id: str | None = None,
         finalize_on_stop: bool = True,
         privacy_cache: PrivacyScheduleCache | None = None,
+        recording_mode_cache: RecordingModeCache | None = None,
     ):
         self.camera_id = camera_id
         self.camera_name = camera_name
@@ -764,6 +798,15 @@ class RecordingSession:
         # original) as an emergency rollback without a code deploy.
         _bs = os.getenv("BLUR_STRATEGY", "on_demand").strip().lower()
         self.blur_strategy: str = _bs if _bs in ("baked", "on_demand") else "on_demand"
+        # Recording mode (ADR 0013): 'standard' records with blur_strategy
+        # above; 'face_encrypted' switches the segment to the masked video +
+        # face envelope (blur_strategy 'face_encrypted'). Resolved per
+        # segment from cameras.recording_mode (see _refresh_recording_mode);
+        # None = the process-wide cache.
+        self._standard_blur_strategy = self.blur_strategy
+        self.recording_mode: str = STANDARD
+        self.recording_mode_cache = recording_mode_cache
+        self._mode_rotation_due = False
 
         # Different sessions can start within one second. Stable UUID paths
         # prevent a replayed delivery from overwriting a newer recording.
@@ -773,6 +816,8 @@ class RecordingSession:
         # `.enc` extension — Storage дээр encrypted blob гэдгийг тэмдэглэх
         self.filename_blurred = f"{camera_id}/{artifact_stem}_blurred.mp4"
         self.filename_original = f"{camera_id}/{artifact_stem}_original.mp4.enc"
+        self._segment_ts = ts
+        self._assign_face_encrypted_paths(artifact_stem)
         # Display filename in DB row — neutral for on_demand (no _blurred / _original
         # suffix since neither separate plaintext exists from the viewer's perspective).
         self.display_filename = (
@@ -844,6 +889,24 @@ class RecordingSession:
         self.hls: subprocess.Popen | None = None
         self.blurred_writer: subprocess.Popen | None = None
         self.original_writer: subprocess.Popen | None = None
+        # face_encrypted segments (ADR 0013): the masked-video encoder, the
+        # face envelope, the IoU tracker and the cipher palette.
+        self.masked_writer: subprocess.Popen | None = None
+        self._envelope: EnvelopeWriter | None = None
+        self._tracker: IoUTracker | None = None
+        self._cipher: CipherPalette | None = None
+        # Sealed blobs since the last privacy tick — committed when the next
+        # tick is standard, dropped when it is private (see _envelope_tick).
+        self._envelope_pending: list[SealedBlob | PaintedRect] = []
+        self._envelope_pending_bytes = 0
+        self._envelope_withheld = 0
+        # The previous face_encrypted frame (stored + HLS pixels and what its
+        # blobs sealed): repeated when the loop is behind real time.
+        self._fe_last: tuple | None = None
+        # Lower capture bound of the last privacy tick (the tail check at the
+        # end of a face_encrypted segment starts there).
+        self._last_tick_lower: datetime | None = None
+        self._tail_checked: str | None = None
 
         # Async control
         self.stop_flag = asyncio.Event()
@@ -1279,6 +1342,358 @@ class RecordingSession:
             )
 
     # ────────────────────────────────────────────
+    # Recording mode (ADR 0013)
+    # ────────────────────────────────────────────
+    def _assign_face_encrypted_paths(self, stem: str) -> None:
+        """Local + remote names of a face_encrypted segment's two artifacts
+        (assigned for every segment; only used in face_encrypted mode)."""
+        self.masked_path = os.path.join(self.rec_dir, f"{stem}_masked.mp4")
+        self.envelope_path = os.path.join(self.rec_dir, f"{stem}_faces.mfe")
+        self.filename_masked = f"{self.camera_id}/{stem}_masked.mp4.enc"
+        self.filename_envelope = f"{self.camera_id}/{stem}_faces.mfe.enc"
+
+    @property
+    def face_encrypted(self) -> bool:
+        return getattr(self, "blur_strategy", None) == FACE_ENCRYPTED
+
+    def _recording_mode_source(self) -> RecordingModeCache:
+        return getattr(self, "recording_mode_cache", None) or get_recording_mode_cache()
+
+    async def _refresh_recording_mode(self) -> str:
+        """Decide the recording mode of the segment about to start.
+
+        DB cameras only: browser uploads (``db_camera_id=None``, no cameras
+        row) always record in standard mode. Never raises — an unreadable mode
+        is the last known one (the cache's rule), and a mode never read is
+        face_encrypted (fail closed: a raw original is never stored only
+        because the setting was unreadable), never an aborted capture."""
+        mode = STANDARD
+        if getattr(self, "db_camera_id", None):
+            try:
+                mode = await self._recording_mode_source().mode_for(self.db_camera_id)
+            except Exception as exc:  # noqa: BLE001
+                known = getattr(self, "_recording_mode_known", False)
+                fallback = (getattr(self, "recording_mode", None) if known else None) or FACE_ENCRYPTED
+                log.warning("camera %s: recording mode unavailable (%s) — %s",
+                            self.camera_id, type(exc).__name__, fallback)
+                mode = fallback
+            else:
+                self._recording_mode_known = True
+        if mode not in RECORDING_MODES:
+            mode = STANDARD
+        previous = getattr(self, "recording_mode", STANDARD)
+        self.recording_mode = mode
+        # The standard-mode strategy (BLUR_STRATEGY: on_demand | baked) is
+        # whatever the session used last outside face_encrypted mode.
+        current = getattr(self, "blur_strategy", None)
+        if current in ("baked", "on_demand"):
+            self._standard_blur_strategy = current
+        standard = getattr(self, "_standard_blur_strategy", None) or "on_demand"
+        self.blur_strategy = FACE_ENCRYPTED if mode == FACE_ENCRYPTED else standard
+        self._mode_rotation_due = False
+        if mode != previous:
+            log.info("camera %s: recording mode %s → %s (segment %s)",
+                     self.camera_id, previous, mode, self.recording_id)
+        return mode
+
+    def _poll_recording_mode(self) -> None:
+        """Once per tick on a live DB camera: notice a changed recording mode
+        without waiting (the cache refreshes in the background). A change
+        rotates the segment at the next frame — the mode applies to new
+        segments, so this is how an edit reaches a running camera within
+        ~30 s instead of at the next scheduled rotation."""
+        if getattr(self, "_is_file_mode", False) or not getattr(self, "db_camera_id", None):
+            return
+        try:
+            wanted = self._recording_mode_source().peek(self.db_camera_id)
+        except Exception:  # noqa: BLE001
+            return
+        if wanted in RECORDING_MODES and wanted != getattr(self, "recording_mode", STANDARD):
+            self._mode_rotation_due = True
+
+    def _next_chain_index(self) -> int:
+        """Consume one hash-chain position (ADR 0009). Shared by faces rows
+        (_persist_face) and envelope tracks; both run on the event loop."""
+        index = self._face_chain_index
+        self._face_chain_index += 1
+        return index
+
+    def _open_segment_writers(self, width: int, height: int) -> None:
+        """The segment's encoders (the HLS writer outlives segments)."""
+        if self.face_encrypted:
+            self.masked_writer = _ffmpeg_mp4_writer(self.masked_path, width, height, self.fps)
+            self._open_face_envelope(width, height)
+            return
+        if self.blur_strategy == "baked":
+            self.blurred_writer = _ffmpeg_mp4_writer(self.blurred_path, width, height, self.fps)
+        self.original_writer = _ffmpeg_mp4_writer(self.original_path, width, height, self.fps)
+
+    def _open_face_envelope(self, width: int, height: int) -> None:
+        master = master_key()
+        self._envelope = EnvelopeWriter(
+            self.envelope_path, self.recording_id, width=width, height=height, fps=self.fps, master=master,
+        )
+        self._cipher = CipherPalette(visual_key(self.recording_id, master))
+        self._tracker = IoUTracker(self._next_chain_index)
+        self._envelope_pending = []
+        self._envelope_pending_bytes = 0
+        self._envelope_withheld = 0
+        self._fe_last = None
+        # The standard live-lag guard repeats _last_masked; this segment
+        # never updates it, so after a switch back to standard it would
+        # repeat a frame from before this segment (stale scene and time).
+        self._last_masked = None
+        self._tail_checked = None
+
+    def _segment_sources(self) -> tuple[str, ...]:
+        """Every local artifact path of the current segment (plaintext until
+        the spool seals it)."""
+        names = ("original_path", "blurred_path", "masked_path", "envelope_path")
+        return tuple(p for p in (getattr(self, n, None) for n in names) if p)
+
+    def _abort_envelope(self) -> None:
+        envelope = getattr(self, "_envelope", None)
+        if envelope is not None and not envelope.finalized:
+            envelope.abort()
+        self._envelope_pending = []
+        self._envelope_pending_bytes = 0
+
+    async def _envelope_tick(self, mode: str) -> None:
+        """A privacy tick decided ``mode`` for the frames since the previous
+        tick (the span ledger opens a private span at the PREVIOUS tick's
+        offset, ADR 0012): standard → write their sealed blobs; private →
+        drop them — no envelope blob is ever written for footage that may
+        have been captured in private time."""
+        pending, self._envelope_pending = self._envelope_pending, []
+        self._envelope_pending_bytes = 0
+        if not pending:
+            return
+        if mode != "standard":
+            self._envelope_withheld += sum(1 for b in pending if isinstance(b, SealedBlob))
+            return
+        envelope = self._envelope
+        if envelope is not None and not envelope.closed:
+            await asyncio.to_thread(envelope.append, pending)
+
+    def _envelope_rotation_due(self) -> bool:
+        """The face envelope reached FACE_ENVELOPE_MAX_BYTES: start a new
+        segment, so no envelope ever exceeds what one Storage upload
+        accepts."""
+        envelope = getattr(self, "_envelope", None)
+        if envelope is None or envelope.closed or not self.face_encrypted:
+            return False
+        size = envelope.bytes_written + getattr(self, "_envelope_pending_bytes", 0)
+        return size >= getattr(self, "envelope_max_bytes", DEFAULT_MAX_ENVELOPE_BYTES)
+
+    async def _close_envelope_tail(self) -> None:
+        """End of a face_encrypted segment (rotation or stop): the blobs of
+        the frames after the last privacy tick have no confirming tick yet.
+        One closing check decides them, over every instant those frames can
+        have been captured at ([the last tick's lower bound, now]): standard
+        → written; private → dropped, and a span covers the segment's tail
+        (the ledger opens it at the last tick, the segment close ends it).
+        Idempotent per segment; never raises."""
+        if not self.face_encrypted or getattr(self, "_tail_checked", None) == self.recording_id:
+            return
+        envelope = getattr(self, "_envelope", None)
+        if envelope is None or envelope.finalized or not getattr(self, "_envelope_pending", None):
+            return
+        self._tail_checked = self.recording_id
+        try:
+            _estimate, lower, upper = self._capture_bounds(self.capture_time_sec)
+            last_tick = getattr(self, "_last_tick_lower", None)
+            if last_tick is not None:
+                lower = min(lower, last_tick)
+            mode, source = await self._privacy_mode_between(lower, upper)
+        except Exception as exc:  # noqa: BLE001 — unknown ⇒ private
+            log.warning("camera %s: closing privacy check failed (%s) — failing closed",
+                        self.camera_id, type(exc).__name__)
+            mode, source = "private", "fail_closed"
+        if mode != "standard":
+            fps = getattr(self, "fps", 0) or 0
+            final = self.recorded_frames / fps if fps else 0.0
+            self.privacy_spans.tick(self.recording_id, final, mode, source)
+            self._schedule_privacy_flush()
+            log.info("camera %s: segment tail after the last tick captured in %s mode — "
+                     "its face blobs are dropped", self.camera_id, mode)
+        await self._envelope_tick(mode)
+
+    async def _finalize_envelope(self) -> None:
+        """Decide the pending blobs (the frames after the last tick) with the
+        closing privacy check, then write the sealed index. Idempotent (a
+        retried finalize skips it). _finalize and _rotate_segment run the
+        closing check earlier, before the segment's span closes; here it is a
+        no-op then."""
+        envelope = getattr(self, "_envelope", None)
+        if envelope is None or envelope.finalized:
+            return
+        await self._close_envelope_tail()
+        pending, self._envelope_pending = list(getattr(self, "_envelope_pending", [])), []
+        self._envelope_pending_bytes = 0
+        withheld = getattr(self, "_envelope_withheld", 0)
+        frames = self.recorded_frames
+
+        def write() -> dict:
+            if pending:
+                envelope.append(pending)
+            return envelope.finalize(frames=frames, withheld_blobs=withheld)
+
+        index = await asyncio.to_thread(write)
+        log.info(
+            "camera %s: face envelope of %s sealed — %d blob(s), %d track(s), %d with identity samples, "
+            "%d linked, %d withheld (privacy mode)",
+            self.camera_id, self.recording_id, index["blob_count"], len(index["tracks"]),
+            sum(1 for t in index["tracks"] if t["samples"]),
+            sum(1 for t in index["tracks"] if t["face_id"]), withheld,
+        )
+
+    def _render_face_encrypted(
+        self,
+        frame: np.ndarray,
+        cached: list,
+        placements: list[Placement],
+        frame_index: int,
+        t_offset: float,
+        capture: bool,
+        envelope: EnvelopeWriter | None,
+        palette: CipherPalette,
+        with_hls: bool,
+    ) -> tuple[np.ndarray | None, np.ndarray, list[SealedBlob | PaintedRect], int, list[BlobMaterial],
+               list[tuple[int, tuple[int, int, int, int]]]]:
+        """Worker-thread half of a face_encrypted frame (pure CPU; touches
+        no event-loop state): the cubist HLS frame, the cipher-painted stored
+        frame and — when ``capture`` — one sealed crop per sealed placement
+        (at most one per track), with every OTHER track's painted box zeroed
+        (the same track's old positions are that person's own trail and stay),
+        plus a pixel-free record for every box painted without a blob."""
+        h, w = frame.shape[:2]
+        hls_frame = self.masker.paint(frame, cached) if with_hls else None
+        stored = frame.copy()
+        regions = [(p, self.masker.padded_box(p.box, w, h)) for p in placements]
+        regions = [(p, r) for p, r in regions if r is not None]
+        records: list[SealedBlob | PaintedRect] = []
+        material: list[BlobMaterial] = []
+        painted: list[tuple[int, tuple[int, int, int, int]]] = []
+        withheld = 0
+        for i, (p, inner) in enumerate(regions):
+            if not p.seal or p.track is None:
+                painted.append((p.track_id, inner))
+                if capture and envelope is not None:
+                    records.append(envelope.painted(frame_index=frame_index, track_id=p.track_id, rect=inner))
+                continue
+            if not capture:
+                withheld += 1
+                continue
+            if envelope is None:
+                continue
+            rect, margins = crop_rect(inner, w, h, envelope.margin)
+            others = [r for j, (q, r) in enumerate(regions) if j != i and q.track_id != p.track_id]
+            crop = blank_foreign_regions(frame[rect[1]:rect[3], rect[0]:rect[2]], rect, others)
+            jpeg = encode_crop(crop, quality=envelope.jpeg_quality, max_side=envelope.max_side)
+            records.append(envelope.seal_jpeg(
+                frame_index=frame_index, t_offset=t_offset, track_id=p.track.track_id,
+                chain_index=p.track.chain_index, rect=rect, margins=margins, jpeg=jpeg,
+            ))
+            material.append(BlobMaterial(p.track.track_id, p.track.chain_index, rect, margins, jpeg))
+        for p, inner in regions:
+            paint_cipher(stored, inner, palette, p.track_id)
+        return hls_frame, stored, records, withheld, material, painted
+
+    @staticmethod
+    def _reseal_held(
+        envelope: EnvelopeWriter, material: list[BlobMaterial], painted: list[tuple[int, tuple]],
+        frame_index: int, t_offset: float,
+    ) -> list[SealedBlob | PaintedRect]:
+        """The previous frame's crops, sealed again for a held (repeated)
+        frame: new nonce, AAD bound to the held frame's index."""
+        out: list[SealedBlob | PaintedRect] = [
+            envelope.seal_jpeg(frame_index=frame_index, t_offset=t_offset, track_id=m.track_id,
+                               chain_index=m.chain_index, rect=m.rect, margins=m.margins, jpeg=m.jpeg)
+            for m in material
+        ]
+        out.extend(envelope.painted(frame_index=frame_index, track_id=tid, rect=rect) for tid, rect in painted)
+        return out
+
+    async def _emit_face_encrypted(self, source_sec: float, source_frame, tick: bool, mode: str | None,
+                                   offset: float, captured_at: datetime | None) -> None:
+        """One frame of a face_encrypted segment (see _emit_frame)."""
+        frame_index = self.recorded_frames
+        original = source_frame.copy()
+        if tick:
+            await self._envelope_tick(mode or "private")
+        capture = getattr(self, "privacy_mode", None) == "standard"
+        last = getattr(self, "_fe_last", None)
+        snapshot = None
+        if self._should_hold(source_sec, original.shape, previous=last[0] if last else None):
+            # Behind real time (live network source): the stored video and
+            # the live stream repeat the previous MASKED frame for this slot
+            # instead of detecting on a new one — never an unmasked pixel, and
+            # the loop catches up. The previous frame's crops are sealed again
+            # under this frame's index so a restoration does not flicker.
+            stored, hls_frame, material, painted = last
+            stored, hls_frame = stored.copy(), (hls_frame.copy() if hls_frame is not None else None)
+            records: list = []
+            if capture and self._envelope is not None:
+                records = self._reseal_held(self._envelope, material, painted, frame_index, offset)
+            elif not capture:
+                self._envelope_withheld += len(material)
+        else:
+            if tick:
+                # The recognition tick samples tracks with a FRESH box on this
+                # frame: make sure RetinaFace runs on it (profile faces).
+                self.masker.insight_due = True
+            cached = await asyncio.to_thread(self.masker.step, original)
+            persist = getattr(self.masker, "persist_frames", BLUR_PERSIST_FRAMES)
+            # Tracks (and their chain indices) are assigned on the event loop —
+            # the thread that also allocates chain indices for faces rows.
+            placements = self._tracker.update(
+                frame_index, [box for box, _ttl, _tier in cached], [ttl >= persist for _box, ttl, _tier in cached],
+            )
+            if self._envelope is not None:
+                # Detection runs, in every privacy mode: a reveal confirms a
+                # blob before a track's first / after its last identity sample
+                # only while the track was detected on every frame in between
+                # (a miss is where the geometric tracker can hand the track
+                # from one person to another).
+                self._envelope.note_detections(
+                    frame_index, [p.track.track_id for p in placements if p.fresh and p.track is not None],
+                )
+            hls_frame, stored, records, withheld, material, painted = await asyncio.to_thread(
+                self._render_face_encrypted, original, cached, placements, frame_index, offset,
+                capture, self._envelope, self._cipher, self.hls is not None,
+            )
+            self._envelope_withheld += withheld
+            if hls_frame is not None and hls_frame is original:
+                hls_frame = original.copy()
+            if hls_frame is not None:
+                self._draw_kst_timestamp(hls_frame, frame_index)
+            self._draw_kst_timestamp(stored, frame_index)
+            if getattr(self, "_lag_guard", False):
+                self._fe_last = (stored, hls_frame, material, painted)
+            snapshot = [(p.track.track_id, p.track.chain_index, p.box) for p in placements
+                        if p.fresh and p.track is not None]
+        self._envelope_pending.extend(records)
+        self._envelope_pending_bytes += sum(len(r.record) for r in records)
+        if hls_frame is not None:
+            self._write_safe(self.hls, hls_frame)
+        self._write_safe(self.masked_writer, stored)
+        if tick:
+            self.arcface_tasks = [t for t in self.arcface_tasks if not t.done()]
+            if mode == "standard":
+                # A held frame's boxes belong to the previous frame: its tick
+                # still feeds recognition, but no track is sampled or linked.
+                self.arcface_tasks.append(asyncio.create_task(self._process_arcface(
+                    original, source_offset_sec=offset, captured_at=captured_at,
+                    track_snapshot=snapshot, envelope=self._envelope if snapshot else None,
+                    frame_index=frame_index,
+                )))
+        self.recorded_frames += 1
+        self.total_frames += 1
+        self.capture_time_sec = source_sec
+        self.beat_if_due()
+        await asyncio.sleep(0)
+
+    # ────────────────────────────────────────────
     # Lifecycle
     # ────────────────────────────────────────────
     async def start(self):
@@ -1286,7 +1701,7 @@ class RecordingSession:
 
     async def _close_writers(self, *, include_hls=True):
         failure = None
-        names = ["blurred_writer", "original_writer"] + (["hls"] if include_hls else [])
+        names = ["blurred_writer", "original_writer", "masked_writer"] + (["hls"] if include_hls else [])
         for name in names:
             proc = getattr(self, name, None)
             try:
@@ -1305,17 +1720,24 @@ class RecordingSession:
 
     def _journal_active(self):
         if not self._is_file_mode:
+            sources = (
+                [self.masked_path, self.envelope_path] if self.face_encrypted
+                else [self.original_path, self.blurred_path]
+            )
             write_journal(self.journal_path, {
                 "state": "active", "recording_id": self.recording_id,
-                "sources": [self.original_path, self.blurred_path],
+                "sources": sources,
                 # Recovery can describe an interrupted segment even when its
                 # initial DB insert failed during an outage.
                 "row": self._capture_row(),
             })
 
     def _capture_row(self):
+        # face_encrypted: storage_path names the (future) encrypted masked
+        # video; face_envelope_path is set only by the ready row.
+        storage_path = self.filename_masked if self.face_encrypted else self.filename_original
         return {
-            "filename": self.display_filename, "storage_path": self.filename_original,
+            "filename": self.display_filename, "storage_path": storage_path,
             "duration_sec": None, "size_bytes": None, "encrypted": True,
             "has_original": False, "camera_id": self.db_camera_id,
             "camera_name": self.camera_name, "started_at": self.started_at.isoformat(),
@@ -1359,8 +1781,7 @@ class RecordingSession:
                 # recorded, journaled or inserted. Treating this as a finalize
                 # failure made /camera/stop answer 500 forever and left the
                 # dead session registered, so a later Start was a no-op.
-                for path in (self.original_path, self.blurred_path):
-                    Path(path).unlink(missing_ok=True)
+                self._discard_segment_sources()
                 self.journal_path.unlink(missing_ok=True)
                 return
             if not should_finalize:
@@ -1370,8 +1791,7 @@ class RecordingSession:
                 if self._delivery_enqueued or get_recording_spool().has_pending(self.recording_id):
                     return
                 await self._mark_failed("capture interrupted before completion", partial=True)
-                for path in (self.original_path, self.blurred_path):
-                    Path(path).unlink(missing_ok=True)
+                self._discard_segment_sources()
                 self.journal_path.unlink(missing_ok=True)
                 return
             if self._encoder_error:
@@ -1385,8 +1805,7 @@ class RecordingSession:
             # failure. It can still be committed by recovery. Invalid media
             # has no replay value and must not retain plaintext indefinitely.
             if not self._validated and not get_recording_spool().has_pending(self.recording_id):
-                for path in (self.original_path, self.blurred_path):
-                    Path(path).unlink(missing_ok=True)
+                self._discard_segment_sources()
             try:
                 await self._mark_failed(f"capture finalization failed: {type(exc).__name__}")
                 if not self._validated:
@@ -1398,6 +1817,13 @@ class RecordingSession:
             shutil.rmtree(self.hls_dir, ignore_errors=True)
             await self._settle_privacy_spans()
 
+    def _discard_segment_sources(self) -> None:
+        """Remove the current segment's local artifacts (closing an unsealed
+        face envelope first)."""
+        self._abort_envelope()
+        for path in self._segment_sources():
+            Path(path).unlink(missing_ok=True)
+
     def _never_opened(self) -> bool:
         return (
             not getattr(self, "_source_opened", True)
@@ -1407,7 +1833,65 @@ class RecordingSession:
             and not get_recording_spool().has_pending(self.recording_id)
         )
 
+    def _standard_delivery(self, duration, ended_at, baked, blurred_size, original_size) -> tuple[dict, list[dict]]:
+        fields = {
+            "capture_status": "ready",
+            "capture_error": None,
+            "filename": os.path.basename(self.blurred_path) if baked else self.display_filename,
+            "storage_path": self.filename_blurred if baked else self.filename_original,
+            "duration_sec": duration,
+            "size_bytes": blurred_size if baked else original_size,
+            "encrypted": True,
+            "has_original": original_size is not None,
+            "original_path": self.filename_original if original_size is not None else None,
+            "ended_at": ended_at.isoformat(),
+            "blur_strategy": self.blur_strategy,
+            "camera_id": self.db_camera_id,
+            "camera_name": self.camera_name,
+            "started_at": self.started_at.isoformat(),
+        }
+        artifacts = []
+        if original_size is not None:
+            artifacts.append({"source": self.original_path, "path": self.filename_original, "original": True})
+        if baked and blurred_size is not None:
+            artifacts.append({"source": self.blurred_path, "path": self.filename_blurred, "original": False})
+        return fields, artifacts
+
+    def _face_encrypted_delivery(self, duration, ended_at, masked_size) -> tuple[dict, list[dict]]:
+        """Row + artifacts of a face_encrypted segment (ADR 0013).
+
+        Both artifacts are sealed at rest with the per-recording key — the
+        spool's ``original: True`` path (key context = recording id, remote
+        object = ciphertext). ``has_original`` means "a restorable encrypted
+        source exists" (the masked video + the face envelope); there is NO raw
+        original, so ``original_path`` stays NULL."""
+        fields = {
+            "capture_status": "ready",
+            "capture_error": None,
+            "filename": self.display_filename,
+            "storage_path": self.filename_masked,
+            "duration_sec": duration,
+            "size_bytes": masked_size,
+            "encrypted": True,
+            "has_original": True,
+            "original_path": None,
+            "face_envelope_path": self.filename_envelope,
+            "ended_at": ended_at.isoformat(),
+            "blur_strategy": FACE_ENCRYPTED,
+            "camera_id": self.db_camera_id,
+            "camera_name": self.camera_name,
+            "started_at": self.started_at.isoformat(),
+        }
+        artifacts = [
+            {"source": self.masked_path, "path": self.filename_masked, "original": True, "kind": "masked_video"},
+            {"source": self.envelope_path, "path": self.filename_envelope, "original": True, "kind": "face_envelope"},
+        ]
+        return fields, artifacts
+
     async def _finalize(self, *, deliver=True):
+        # face_encrypted: the frames after the last privacy tick get their
+        # closing check first (no-op when rotation already ran it).
+        await self._close_envelope_tail()
         # The segment ends here: close its privacy span at the final offset
         # (idempotent; spans are persisted by the flush, not by delivery).
         self._privacy_close_segment()
@@ -1441,11 +1925,19 @@ class RecordingSession:
             except FileNotFoundError:
                 return None
 
+        face_encrypted = self.face_encrypted
+        if face_encrypted:
+            # After the ArcFace drain above: its identity links belong in the
+            # sealed index written here.
+            await self._finalize_envelope()
         blurred_size = artifact_size(self.blurred_path)
         original_size = artifact_size(self.original_path)
+        masked_size = artifact_size(self.masked_path) if face_encrypted else None
+        envelope_size = artifact_size(self.envelope_path) if face_encrypted else None
         have_artifact = (
             (self.blur_strategy == "baked" and blurred_size is not None)
             or (self.blur_strategy == "on_demand" and original_size is not None)
+            or (face_encrypted and masked_size is not None and envelope_size is not None)
         )
         spool = get_recording_spool()
         if not have_artifact:
@@ -1462,32 +1954,20 @@ class RecordingSession:
 
         if getattr(self, "_encoder_error", None):
             raise RuntimeError(self._encoder_error)
-        for artifact in ([self.original_path] + ([self.blurred_path] if self.blur_strategy == "baked" else [])):
+        if face_encrypted:
+            # The masked video is the only video of the segment.
+            videos = [self.masked_path]
+        else:
+            videos = [self.original_path] + ([self.blurred_path] if self.blur_strategy == "baked" else [])
+        for artifact in videos:
             await asyncio.to_thread(validate_capture, artifact, self.recorded_frames, self.fps)
         self._validated = True
         ended_at = self.started_at + timedelta(seconds=duration)
         baked = self.blur_strategy == "baked"
-        fields = {
-            "capture_status": "ready",
-            "capture_error": None,
-            "filename": os.path.basename(self.blurred_path) if baked else self.display_filename,
-            "storage_path": self.filename_blurred if baked else self.filename_original,
-            "duration_sec": duration,
-            "size_bytes": blurred_size if baked else original_size,
-            "encrypted": True,
-            "has_original": original_size is not None,
-            "original_path": self.filename_original if original_size is not None else None,
-            "ended_at": ended_at.isoformat(),
-            "blur_strategy": self.blur_strategy,
-            "camera_id": self.db_camera_id,
-            "camera_name": self.camera_name,
-            "started_at": self.started_at.isoformat(),
-        }
-        artifacts = []
-        if original_size is not None:
-            artifacts.append({"source": self.original_path, "path": self.filename_original, "original": True})
-        if baked and blurred_size is not None:
-            artifacts.append({"source": self.blurred_path, "path": self.filename_blurred, "original": False})
+        if face_encrypted:
+            fields, artifacts = self._face_encrypted_delivery(duration, ended_at, masked_size)
+        else:
+            fields, artifacts = self._standard_delivery(duration, ended_at, baked, blurred_size, original_size)
 
         # No network call precedes the encrypted, fsynced delivery manifest.
         # Disk/encryption failures propagate; already-sealed artifacts and
@@ -1519,7 +1999,7 @@ class RecordingSession:
         if hasattr(self, "rec_dir"):
             self.journal_path.unlink(missing_ok=True)
         self._delivery_enqueued = True
-        for path in (self.blurred_path, self.original_path):
+        for path in self._segment_sources():
             if artifact_size(path) is None:
                 Path(path).unlink(missing_ok=True)
         delivered = await asyncio.to_thread(spool.deliver, self.storage, self.recording_id) if deliver else False
@@ -1542,6 +2022,9 @@ class RecordingSession:
         # the tick bound past the real capture instants; ADR 0012).
         arrived_at = datetime.now(timezone.utc)
         backlog = self._live_backlog_sec(source_sec)
+        # face_encrypted: decide the blobs after the last tick (and cover a
+        # private tail with a span) before the span closes.
+        await self._close_envelope_tail()
         # Close the privacy span at the old segment's final offset; the new
         # segment's first tick (offset 0) re-opens one if still private.
         self._privacy_close_segment()
@@ -1560,6 +2043,8 @@ class RecordingSession:
         self.filename_original = f"{self.camera_id}/{stem}_original.mp4.enc"
         self.filename_blurred = f"{self.camera_id}/{stem}_blurred.mp4"
         self.display_filename = f"{ts}.mp4"
+        self._segment_ts = ts
+        self._assign_face_encrypted_paths(stem)
         self.recorded_frames = 0
         self._segment_start_sec = source_sec
         self._face_chain_index = 0
@@ -1567,11 +2052,12 @@ class RecordingSession:
         self.arcface_tasks = []
         # Every segment needs its own evidence keys and face rows.
         self.face_memory = SessionFaceMemory(self.engine.cosine)
+        # ADR 0013: the recording mode applies per segment — decided before
+        # the journal and the placeholder row describe this one.
+        await self._refresh_recording_mode()
         self._journal_active()
         await self._open_recording_row()
-        self.original_writer = _ffmpeg_mp4_writer(self.original_path, width, height, self.fps)
-        if self.blur_strategy == "baked":
-            self.blurred_writer = _ffmpeg_mp4_writer(self.blurred_path, width, height, self.fps)
+        self._open_segment_writers(width, height)
 
     async def _emit_frame(self, source_sec: float, source_frame):
         h, w = source_frame.shape[:2]
@@ -1579,10 +2065,17 @@ class RecordingSession:
             spool = get_recording_spool()
             await asyncio.to_thread(check_capture_capacity, str(Path(self.rec_dir).parent), spool.root)
             self._last_capacity_check = time.monotonic()
-        if not self._is_file_mode and self.recorded_frames / self.fps >= self.segment_duration_sec:
+        if not self._is_file_mode and (
+            self.recorded_frames / self.fps >= self.segment_duration_sec
+            # ADR 0013: a changed recording mode starts a new segment, and so
+            # does a face envelope that reached FACE_ENVELOPE_MAX_BYTES.
+            or (getattr(self, "_mode_rotation_due", False) and self.recorded_frames > 0)
+            or (self.recorded_frames > 0 and self._envelope_rotation_due())
+        ):
             await self._rotate_segment(source_sec, w, h)
         offset = self.recorded_frames / self.fps
         tick = self.recorded_frames % max(1, round(self.fps)) == 0
+        mode = captured_at = None
         if tick:
             # ADR 0012: the camera's privacy schedule at CAPTURE time decides
             # whether frames may be used for identification. Evaluated before
@@ -1592,7 +2085,12 @@ class RecordingSession:
             # (PRIVACY_CLOCK_MARGIN_SEC): private if any instant of it is.
             captured_at, lower, upper = self._capture_bounds(source_sec)
             mode, source = await self._privacy_mode_between(lower, upper)
+            self._last_tick_lower = lower
             self._note_privacy_tick(mode, source, offset)
+            self._poll_recording_mode()
+        if self.face_encrypted:
+            await self._emit_face_encrypted(source_sec, source_frame, tick, mode, offset, captured_at)
+            return
         original = source_frame.copy()
         # Every live viewer receives the privacy-filtered frame. The same
         # masking pass feeds the optional legacy baked recording so enabling
@@ -1638,16 +2136,23 @@ class RecordingSession:
             if self.cap is not None:
                 self.cap.release()
 
-    def _should_hold(self, source_sec: float, shape) -> bool:
+    def _should_hold(self, source_sec: float, shape, previous: np.ndarray | None = None) -> bool:
         """True when the live loop lags real time by more than
         LIVE_MASK_LAG_SEC and a previous masked frame of the same size can be
         repeated. Only for live network sources writing the HLS stream in
-        on_demand mode (a baked recording must mask every frame).
+        on_demand mode, or the stored masked video in face_encrypted mode
+        (``previous`` = that mode's previous stored frame); a baked recording
+        must mask every frame.
 
         The backlog itself (baseline + ``live_lag_sec``) is measured for every
         live and demo source, baked mode included, because every segment
         rotation re-anchors the capture clock from it (ADR 0012)."""
+        # Baked recordings store every masked frame; only the backlog is
+        # measured. face_encrypted repeats its previous STORED (masked) frame
+        # instead — the capture loop must not fall behind real time, and a
+        # repeated masked frame never exposes a face (ADR 0013, Costs).
         guard = getattr(self, "_lag_guard", False) and self.blur_strategy != "baked"
+        last = previous if self.blur_strategy == FACE_ENCRYPTED else self._last_masked
         if not (guard or getattr(self, "_lag_measured", False)):
             return False
         behind = time.monotonic() - self._live_origin - source_sec
@@ -1668,8 +2173,8 @@ class RecordingSession:
             return False
         hold = (
             lag > LIVE_MASK_LAG_SEC
-            and self._last_masked is not None
-            and self._last_masked.shape == shape
+            and last is not None
+            and last.shape == shape
         )
         if hold:
             # A genuine backlog drains while frames are held (holding is
@@ -1709,6 +2214,12 @@ class RecordingSession:
             # Warm the privacy schedule while the source opens, so the first
             # tick does not wait for (or fail closed on) the initial read.
             await self._privacy_mode_at(datetime.now(timezone.utc))
+            # Same for the recording mode (ADR 0013): start its first read
+            # now, so the first segment rarely has to decide without it.
+            try:
+                self._recording_mode_source().peek(self.db_camera_id)
+            except Exception:  # noqa: BLE001 — _refresh_recording_mode decides
+                pass
         shutil.rmtree(self.hls_dir, ignore_errors=True)
         os.makedirs(self.hls_dir, exist_ok=True)
         src = int(self.source_url) if isinstance(self.source_url, str) and self.source_url.isdigit() else self.source_url
@@ -1741,6 +2252,9 @@ class RecordingSession:
             # __init__ ran before the suspect load, schedule warm-up and open.
             self._reanchor_capture_clock(0.0)
             self.started_at = self.capture_started_at
+        # ADR 0013: the first segment's recording mode (live DB cameras only).
+        if await self._refresh_recording_mode() == FACE_ENCRYPTED:
+            self.display_filename = f"{self._segment_ts}.mp4"
         self._journal_active()
         await self._open_recording_row()
         self._heartbeat_enabled = not self._is_file_mode and bool(self.db_camera_id)
@@ -1755,9 +2269,7 @@ class RecordingSession:
         try:
             if not self._is_file_mode:
                 self.hls = _ffmpeg_hls_writer(self.hls_dir, w, h, self.fps)
-            if self.blur_strategy == "baked":
-                self.blurred_writer = _ffmpeg_mp4_writer(self.blurred_path, w, h, self.fps)
-            self.original_writer = _ffmpeg_mp4_writer(self.original_path, w, h, self.fps)
+            self._open_segment_writers(w, h)
             while not self.stop_flag.is_set():
                 # A stalling source blocks read() for up to its 5 s timeout;
                 # run it off the loop. release() happens only after this loop
@@ -1819,7 +2331,7 @@ class RecordingSession:
             self._release_cap()
             # stop/rotation performs the checked wait; close here so a crashed
             # loop cannot leave encoders waiting on stdin indefinitely.
-            for proc in (self.hls, self.blurred_writer, self.original_writer):
+            for proc in (self.hls, self.blurred_writer, self.original_writer, getattr(self, "masked_writer", None)):
                 if proc and proc.stdin and not proc.stdin.closed:
                     try:
                         proc.stdin.close()
@@ -1868,7 +2380,17 @@ class RecordingSession:
     # ────────────────────────────────────────────
     # ArcFace processing (periodic — DB-д тэмдэглэх + alert)
     # ────────────────────────────────────────────
-    async def _process_arcface(self, frame: np.ndarray, *, source_offset_sec=None, captured_at=None):
+    async def _process_arcface(
+        self, frame: np.ndarray, *, source_offset_sec=None, captured_at=None,
+        track_snapshot=None, envelope: EnvelopeWriter | None = None, frame_index: int | None = None,
+    ):
+        """``track_snapshot`` / ``envelope`` / ``frame_index``
+        (face_encrypted segments, ADR 0013): the tracks with a FRESH box on
+        this tick frame (``(track_id, chain_index, box)``) and the segment's
+        face envelope. Every such track overlapping a detection gets that
+        detection's embedding as a sealed identity sample — whether or not
+        its faces row could be persisted — and, when recognition persisted it
+        or matched it strongly, its face_id as the link (first link wins)."""
         ok, encoded = cv2.imencode(".jpg", frame)
         if not ok:
             self._note_detect_failure(ValueError("frame JPEG encode амжилтгүй"))
@@ -1890,6 +2412,28 @@ class RecordingSession:
         # overlapping arcface tasks so two of them can't both miss-then-record
         # the same person. Detection (the CPU-heavy to_thread above) already
         # ran outside the lock, so parallelism where it matters is preserved.
+        identified: list[tuple[tuple[int, int, int, int], str | None]] = []
+        try:
+            await self._match_faces(frame, faces, now, source_offset_sec, captured_at, identified)
+        finally:
+            if track_snapshot and envelope is not None:
+                self._link_envelope_tracks(envelope, track_snapshot, faces, identified, frame_index)
+
+    def _link_envelope_tracks(self, envelope: EnvelopeWriter, snapshot, faces, identified,
+                              frame_index: int | None) -> None:
+        try:
+            boxes = {int(tid): (int(ci), tuple(int(v) for v in box)) for tid, ci, box in snapshot}
+            pairs = [(tid, box) for tid, (_ci, box) in boxes.items()]
+            if frame_index is not None:
+                matched = match_detections(pairs, [tuple(int(v) for v in f.bbox) for f in faces])
+                for track_id, j in matched.items():
+                    envelope.add_sample(track_id, boxes[track_id][0], frame_index, faces[j].embedding)
+            for track_id, face_id in link_tracks(pairs, identified).items():
+                envelope.link(track_id, face_id)
+        except Exception as exc:  # noqa: BLE001 — an unsampled track stays sealed, never exposed
+            log.warning("camera %s: envelope identity link failed (%s)", self.camera_id, type(exc).__name__)
+
+    async def _match_faces(self, frame, faces, now, source_offset_sec, captured_at, identified) -> None:
         async with self._arcface_lock:
             for f in faces:
                 entry = self.face_memory.lookup(f.embedding, now)
@@ -1916,12 +2460,23 @@ class RecordingSession:
                         f.embedding, now, face_id, crop_path, ttl_sec=ttl
                     )
                     should_check = True
+                    strong = True  # this detection's own row
                 else:
                     # Цонхны дотор — шинэ мөр бичихгүй. Гэхдээ suspect тааралтыг
                     # тогтмол давтаж alert давхаргад (dedup цонх, burst,
                     # чимээгүй цаг) шийдэх боломж өгнө.
                     should_check = self.face_memory.needs_recheck(entry, now)
+                    # Dedup matches at DEDUP_THRESHOLD (0.35); an envelope link
+                    # needs the reveal default (ALERT_THRESHOLD, 0.45) — a
+                    # bystander 0.35–0.45 like someone seen earlier is not
+                    # recorded under that person's face_id (ADR 0013).
+                    try:
+                        strong = float(self.face_memory.similarity(f.embedding, entry)) >= ALERT_THRESHOLD
+                    except Exception:  # noqa: BLE001
+                        strong = False
 
+                if entry.face_id and strong:
+                    identified.append((tuple(int(v) for v in f.bbox), entry.face_id))
                 if not should_check:
                     continue
                 self.face_memory.mark_checked(entry, now)

@@ -88,6 +88,76 @@ detector-only boxes and the VIP mask; an unreadable timeline masks the whole
 recording that way (the view is still served). `FaceMasker` never computes an
 embedding for a protected frame (no `detect_all` fallback).
 
+### Recording mode `face_encrypted` (ADR 0013)
+
+`cameras.recording_mode` (`standard` default | `face_encrypted`) is read per
+segment through `recording_mode.RecordingModeCache` (a sibling of the privacy
+schedule cache, its own query: 30 s TTL, unreadable → last known, never read →
+face_encrypted (fail closed), missing column → standard); a change rotates the
+running segment, and so does an envelope reaching `FACE_ENVELOPE_MAX_BYTES`
+(40 MiB). In `face_encrypted` mode NO raw original is stored:
+
+* `*_masked.mp4.enc` — the stored video: every face box (the masker's boxes and
+  persistence) painted with the keyed cipher visual (`cipher_mask.py`: flat
+  8–12 px AES-CTR cells per (recording, track) + a 1 px outline), encrypted at
+  rest with the per-recording key. Live HLS keeps the cubist mask.
+* `*_faces.mfe.enc` — the face envelope (`face_envelope.py`, format "MFE1"):
+  every face box of every frame captured in `standard` privacy mode, JPEG
+  q90 ≤ 192 px, sealed with AES-256-GCM under its track's hash-chain key
+  `K_chain_index` (ADR 0009), AAD = recording + frame + track + chain index +
+  geometry; a sealed index (its own key of the per-recording family) holds each
+  track's identity samples (ArcFace embeddings sealed under the track's
+  `K_chain_index`), `face_id` link and detection runs (frames with a fresh
+  detection, noted in every privacy mode), plus fps/size, which the reader checks
+  against the plaintext header. `face_tracker.py` follows FRESH detections
+  (IoU or a velocity prediction, gap ≤ 5 frames); a stale masker box stays with
+  the track that detected it and is sealed only as its last position (≤ 5
+  frames), other stale boxes become pixel-free painted records; one sealed box
+  per track and frame. A track takes its chain index from the counter faces
+  rows use; the ArcFace tick (RetinaFace forced on that frame) samples every
+  track with a fresh box there and links it to a persisted or strongly matched
+  face_id (≥ 0.45). Blobs of the frames before a private tick, of private
+  frames and of a segment tail the closing check judges private are never
+  written. Pixels of other tracks' boxes are zeroed in each blob. Behind real
+  time (live sources) the stored video repeats the last masked frame and the
+  previous crops are re-sealed for it (`GET /camera/active` → `live_lag_sec`,
+  `held_frames`).
+* Row: `blur_strategy='face_encrypted'`, `storage_path` = masked video,
+  `face_envelope_path` = envelope, `original_path` NULL, `has_original` true
+  once delivered (= a restorable encrypted source exists). `/recording/{id}/view`
+  decrypts and serves the masked video (no render). `GET /` reports
+  `face_encrypted: 1`.
+* Reveal (`reveal_job.py`, same 4-eyes / lease / privacy guards): the target
+  embeddings (photo, suspect or detected faces; sealed ones unsealed from
+  `K_level` above level 0) are compared with the identity samples of every
+  track with `chain_index ≥ reveal_level` (`EnvelopeReader.open_samples`) — no
+  detector or embedding runs on the video and no `faces` row is needed. A track
+  with a sample ≥ the job threshold is selected; its blob at frame f is
+  restored only when its samples nearest before and after f both match
+  (before the first / after the last sample: only inside that sample's
+  detection run, the unbroken stretch of fresh detections the envelope's
+  sealed index records per track — a missed detection is where the geometric
+  tracker can switch people). Of
+  those, only the blobs outside `never_reveal` zones, protected (private)
+  stretches and the requested window are unsealed
+  (`EnvelopeReader.iter_blobs(accept=…)` never reads the others); they are
+  composited onto the decrypted masked video, where everyone else stays cipher.
+  Failures: `[face_envelope_empty]` (nothing left to unseal),
+  `[face_envelope_invalid]` (the stored object fails its at-rest layer — any
+  damaged byte — or the header disagrees with the index, a blob/sample fails
+  authentication, or it does not fit the video), `[face_envelope_unavailable]`
+  (row not delivered or a download failed). The output is a plaintext MP4 in
+  the `revealed` bucket, as for standard reveals.
+* Measured envelope size (bundled samples, 15 fps, the padded crop the
+  pipeline seals — about 1.6 × the detector box + 12 px, capped at 192 px):
+  64 px box ≈ 44–91 KiB, 96 px ≈ 72–152 KiB, 128 px ≈ 84–169 KiB, larger ≈
+  90–182 KiB per face-second (flat to busy background; ADR 0013, Costs). A
+  detector box above ~113 px is stored downscaled (the face ≈ 120 px). Plus
+  ≈ 2.7 KiB per sampled track per second (identity samples) and 21 B per
+  painted rectangle. Tunables: `FACE_ENVELOPE_JPEG_QUALITY` (90),
+  `FACE_ENVELOPE_MAX_SIDE` (192), `FACE_ENVELOPE_MARGIN_PX` (6),
+  `FACE_ENVELOPE_MAX_BYTES` (40 MiB).
+
 ### Demo camera sources
 
 `demo://lobby`, `demo://gate`, `demo://parking` (allow-list in `demo_source.py`)
