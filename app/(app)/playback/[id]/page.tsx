@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   XCircle,
   Hourglass,
+  KeyRound,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/supabase/auth";
@@ -34,6 +35,7 @@ import {
   type ScheduleWindowRow,
 } from "@/lib/privacy-schedule";
 import { revealWithheldByPrivacy } from "@/lib/reveal-errors";
+import { isFaceEncryptedRecording, recordingRevealable } from "@/lib/recording-mode";
 import type { FaceInRecording } from "@/lib/database.types";
 
 // Cache хийхгүй — faces background processing-аар нэмэгддэг тул хэзээ нээгдсэн
@@ -60,7 +62,7 @@ export default async function PlaybackDetailPage({
   const { data: rec, error: recError } = await supabase
     .from("recordings")
     .select(
-      "id, filename, storage_path, original_path, duration_sec, size_bytes, encrypted, has_original, blur_strategy, camera_id, camera_name, started_at, ended_at, capture_status, capture_error"
+      "id, filename, storage_path, original_path, face_envelope_path, duration_sec, size_bytes, encrypted, has_original, blur_strategy, camera_id, camera_name, started_at, ended_at, capture_status, capture_error"
     )
     .eq("id", id)
     .maybeSingle();
@@ -79,8 +81,14 @@ export default async function PlaybackDetailPage({
   //                 ML service. The ML side decrypts the encrypted original
   //                 and derives the blurred view at request time (#3: one
   //                 encrypted source of truth — no plaintext blurred MP4 exists).
+  //   • face_encrypted — the same route (ADR 0013): the stored video is
+  //                 already masked and encrypted at rest; the ML side only
+  //                 decrypts and streams it. storage_path is ciphertext, so a
+  //                 signed Storage link would be unplayable (and unaudited).
+  const faceEncrypted = isFaceEncryptedRecording(rec);
+  const revealable = recordingRevealable(rec);
   let blurredUrl: string | null = null;
-  if (rec.blur_strategy === "on_demand") {
+  if (rec.blur_strategy === "on_demand" || faceEncrypted) {
     blurredUrl = `/api/recordings/${rec.id}/view`;
   } else {
     const { data: signed } = await supabase.storage
@@ -248,6 +256,7 @@ export default async function PlaybackDetailPage({
               revealPrivacy={revealPrivacy}
               revealWithheld={revealWithheld}
               privacyNoticeId={privacyNoticeId}
+              faceEncrypted={faceEncrypted}
             />
           ) : (
             <div className="card aspect-video bg-black flex items-center justify-center text-text-muted text-sm">
@@ -270,7 +279,9 @@ export default async function PlaybackDetailPage({
               {rec.encrypted ? t("rec_encrypted_yes") : t("rec_encrypted_no")}
             </Row>
             <Row icon={ShieldCheck} label={t("rec_original")}>
-              {rec.has_original ? (
+              {faceEncrypted ? (
+                <span className="text-text-soft">{t("rec_original_face_encrypted")}</span>
+              ) : rec.has_original ? (
                 !isAdmin ? (
                   <span className="text-text-muted">{t("rec_original_kept_admin_only")}</span>
                 ) : revealWithheld ? (
@@ -283,6 +294,21 @@ export default async function PlaybackDetailPage({
               )}
             </Row>
           </div>
+
+          {faceEncrypted && (
+            <div data-face-encrypted className="card border border-accent/30 bg-accent/5 space-y-2">
+              <div className="flex items-start gap-2.5">
+                <KeyRound className="w-4 h-4 text-accent mt-0.5 shrink-0" aria-hidden />
+                <div className="space-y-1 min-w-0">
+                  <h3 className="section-title text-accent">{t("pb_face_encrypted_title")}</h3>
+                  <p className="text-xs text-text-soft leading-relaxed">{t("pb_face_encrypted_desc")}</p>
+                  <p className="text-[10px] text-text-muted leading-relaxed pt-1 border-t border-text-muted/5 mt-2">
+                    {t("pb_face_encrypted_limits")}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {privacySpans.length > 0 && (
             <div id="privacy-spans" className="card border border-accent/30 bg-accent/5 space-y-2 scroll-mt-24">
@@ -385,9 +411,9 @@ export default async function PlaybackDetailPage({
             </div>
           )}
 
-          {isAdmin && !rec.has_original && (
+          {isAdmin && !revealable && (
             <div className="card text-xs text-text-muted leading-relaxed">
-              {t("reveal_not_possible")}
+              {faceEncrypted ? t("reveal_not_possible_face_envelope") : t("reveal_not_possible")}
             </div>
           )}
 

@@ -8,6 +8,8 @@
  * manifest said `complete: true`.
  */
 
+import { recordingObjectPaths } from "./recording-mode";
+
 export type TableSpec = {
   /** Base allow-list — never contains biometrics or auth material. */
   columns: string;
@@ -38,7 +40,7 @@ export const BACKUP_TABLES: Record<string, TableSpec> = {
   },
   cameras: {
     columns:
-      "id, name, cam_type, url, enabled, consent_required, consent_text, privacy_default, privacy_loosened_at, created_by, created_at",
+      "id, name, cam_type, url, enabled, consent_required, consent_text, privacy_default, privacy_loosened_at, recording_mode, created_by, created_at",
     note:
       "url is an AES-256-GCM ciphertext produced with CAMERA_URL_KEY. It is exported because the column is NOT NULL and cameras are unreachable without it; it stays unreadable unless the restore environment holds that key (or CAMERA_URL_KEY_PREV).",
   },
@@ -163,9 +165,12 @@ export const BACKUP_STORAGE_SOURCES: Record<string, PathSource[]> = {
   recordings: [
     {
       table: "recordings",
-      select: "id, storage_path, original_path",
-      from: "recordings.storage_path + recordings.original_path",
-      paths: (r) => [r.storage_path as string, r.original_path as string | null],
+      select: "id, storage_path, original_path, face_envelope_path",
+      // face_envelope_path: the sealed per-face envelope of a face-encrypted
+      // recording (ADR 0013) — without it no face of that recording can ever
+      // be restored, so it is as essential as the original.
+      from: "recordings.storage_path + recordings.original_path + recordings.face_envelope_path",
+      paths: (r) => recordingObjectPaths(r),
     },
   ],
   faces: [

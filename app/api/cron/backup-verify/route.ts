@@ -54,6 +54,8 @@ export async function GET(req: NextRequest) {
   const results: Result[] = [];
 
   for (const rec of sample) {
+    // face_encrypted rows (ADR 0013) have no original_path; their
+    // storage_path is the masked video under the same per-recording key.
     const path = rec.original_path ?? rec.storage_path;
     if (!path) continue;
     const t0 = Date.now();

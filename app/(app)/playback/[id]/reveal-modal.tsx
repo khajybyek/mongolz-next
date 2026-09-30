@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   Download,
   ShieldCheck,
+  KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FaceThumb } from "@/components/face-thumb";
@@ -58,6 +59,7 @@ const REVEAL_ERROR_KEYS: Record<string, TranslationKey> = {
   RECORDING_NOT_FOUND: "pb_reveal_err_not_found",
   TARGET_NOT_FOUND: "pb_reveal_err_not_found",
   NO_ORIGINAL: "pb_reveal_err_no_original",
+  NO_FACE_ENVELOPE: "pb_reveal_err_no_envelope",
   BAD_PHOTO: "pb_reveal_err_photo",
   ML_UNAVAILABLE: "pb_reveal_err_ml",
   REFERENCE_SEAL_FAILED: "pb_reveal_start_failed",
@@ -74,6 +76,7 @@ export function RevealModal({
   maskedUrl,
   recordingDurationSec,
   privacy,
+  faceEncrypted = false,
   onClose,
 }: {
   recordingId: string;
@@ -95,6 +98,9 @@ export function RevealModal({
   /** Stretches the reveal job keeps masked (ADR 0012) — capture-time spans
    *  and the camera's current schedule — judged against the row's duration. */
   privacy?: { spans: OffsetRange[]; schedule: OffsetRange[]; durationSec: number | null };
+  /** Face-encrypted recording (ADR 0013): the job unseals only the selected
+   *  person's face blobs. Presentation only — the flow is unchanged. */
+  faceEncrypted?: boolean;
   onClose: () => void;
 }) {
   const { t, lang } = useT();
@@ -181,6 +187,17 @@ export function RevealModal({
     suspect: !!suspectId,
     faceCount: faceIds.size,
   });
+  // Say WHY "Continue" is disabled instead of leaving a dimmed button: the
+  // privacy verdict has its own notice; otherwise it is the target or the reason.
+  const reasonLen = reason.trim().length;
+  const reasonShort = reasonLen < REVEAL_REASON_MIN;
+  const continueHint = privacyBlocked
+    ? null
+    : !canContinue
+      ? t("pb_continue_need_target")
+      : reasonShort
+        ? t("pb_continue_need_reason").replace("{min}", String(REVEAL_REASON_MIN)).replace("{n}", String(reasonLen))
+        : null;
 
   // initialFaceIds-аас сонгогдсон preview
   const initialFaces = useMemo(
@@ -370,6 +387,15 @@ export function RevealModal({
               {/* A refused request is said FIRST — before the operator picks a
                   method or uploads a photo that can never be sent. */}
               {privacyBlocked && privacyNotice}
+              {faceEncrypted && (
+                <p
+                  data-face-encrypted-notice
+                  className="flex items-start gap-2 rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-xs leading-relaxed text-text-soft"
+                >
+                  <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" aria-hidden />
+                  <span>{t("pb_reveal_face_encrypted_notice")}</span>
+                </p>
+              )}
               <div className="grid grid-cols-1 min-[480px]:grid-cols-3 gap-2">
                 <MethodCard
                   active={method === "upload"}
@@ -590,19 +616,31 @@ export function RevealModal({
               {!privacyBlocked && privacyNotice}
 
               <div>
-                <label htmlFor="reveal-reason" className="label">{copy.reason}</label>
+                <label htmlFor="reveal-reason" className="label">
+                  {copy.reason} <span aria-hidden="true" className="text-danger">*</span>
+                </label>
                 <textarea id="reveal-reason" required minLength={REVEAL_REASON_MIN} maxLength={REVEAL_REASON_MAX}
+                  aria-describedby="reveal-reason-hint reveal-reason-count"
                   value={reason} onChange={(event) => setReason(event.target.value)} className="input min-h-24" />
-                <p className="helper">{copy.hint}</p>
+                <p id="reveal-reason-hint" className="helper">{copy.hint}</p>
+                <p id="reveal-reason-count" className={`helper tabular-nums ${reasonShort ? "text-warning" : "text-success"}`}>
+                  {t("pb_reason_counter").replace("{n}", String(reasonLen)).replace("{min}", String(REVEAL_REASON_MIN))}
+                </p>
                 <p className="helper">{windowEnabled ? `${fmtSec(windowStart)} → ${fmtSec(windowEnd)}` : copy.whole}</p>
               </div>
+              {continueHint && (
+                <p id="reveal-continue-hint" role="status" className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning">
+                  {continueHint}
+                </p>
+              )}
               <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row">
                 <button onClick={onClose} className="btn-ghost flex-1">
                   {t("pb_cancel_btn")}
                 </button>
                 <button
                   onClick={continueToReauth}
-                  disabled={!canContinue || reason.trim().length < REVEAL_REASON_MIN}
+                  disabled={!canContinue || reasonShort}
+                  aria-describedby={continueHint ? "reveal-continue-hint" : undefined}
                   className="btn-primary flex-1"
                 >
                   {t("pb_continue")}

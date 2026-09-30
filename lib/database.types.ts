@@ -20,6 +20,7 @@ import type {
   TablesInsert,
   TablesUpdate,
 } from "./database.generated";
+import type { RecordingMode } from "./recording-mode";
 
 export type { Database, Enums, Json, Tables, TablesInsert, TablesUpdate };
 
@@ -59,8 +60,16 @@ export type CameraType = "rtsp" | "http" | "usb" | "webcam" | "demo";
  *   • on_demand — no blurred MP4 is persisted; the view is derived from the
  *                 encrypted original at request time by the ML
  *                 `/recording/{id}/view` endpoint (ADR 0010).
+ *   • face_encrypted — captured in the camera's face-encrypted recording mode
+ *                 (ADR 0013): NO raw original (`original_path` is NULL). The
+ *                 stored video at `storage_path` is already masked and
+ *                 encrypted at rest; every face is sealed separately in the
+ *                 envelope at `face_envelope_path` under its per-face key
+ *                 (ADR 0009). The view endpoint only decrypts and streams it.
  */
-export type BlurStrategy = "baked" | "on_demand";
+export type BlurStrategy = "baked" | "on_demand" | "face_encrypted";
+/** cameras.recording_mode — see lib/recording-mode.ts (ADR 0013). */
+export type { RecordingMode };
 /** faces.review_label — verdict recorded on /review. */
 export type ReviewLabel = "confirmed" | "rejected" | "uncertain";
 /** webhooks.kind */
@@ -89,7 +98,10 @@ export type PublicProfile = Omit<Pick<Profile, (typeof PUBLIC_PROFILE_COLUMNS)[n
   role: UserRole;
 };
 
-export type Camera = Omit<Tables<"cameras">, "cam_type"> & { cam_type: CameraType };
+export type Camera = Omit<Tables<"cameras">, "cam_type" | "recording_mode"> & {
+  cam_type: CameraType;
+  recording_mode: RecordingMode;
+};
 export type Suspect = Tables<"suspects">;
 export type Face = Tables<"faces">;
 export type Alert = Tables<"alerts">;

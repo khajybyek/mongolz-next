@@ -328,6 +328,7 @@ export type Database = {
           name: string
           privacy_default: string
           privacy_loosened_at: string | null
+          recording_mode: string
           url: string
         }
         Insert: {
@@ -341,6 +342,7 @@ export type Database = {
           name: string
           privacy_default?: string
           privacy_loosened_at?: string | null
+          recording_mode?: string
           url: string
         }
         Update: {
@@ -354,6 +356,7 @@ export type Database = {
           name?: string
           privacy_default?: string
           privacy_loosened_at?: string | null
+          recording_mode?: string
           url?: string
         }
         Relationships: [
@@ -1232,6 +1235,7 @@ export type Database = {
           duration_sec: number | null
           encrypted: boolean
           ended_at: string | null
+          face_envelope_path: string | null
           filename: string
           has_original: boolean
           id: string
@@ -1252,6 +1256,7 @@ export type Database = {
           duration_sec?: number | null
           encrypted?: boolean
           ended_at?: string | null
+          face_envelope_path?: string | null
           filename: string
           has_original?: boolean
           id?: string
@@ -1272,6 +1277,7 @@ export type Database = {
           duration_sec?: number | null
           encrypted?: boolean
           ended_at?: string | null
+          face_envelope_path?: string | null
           filename?: string
           has_original?: boolean
           id?: string

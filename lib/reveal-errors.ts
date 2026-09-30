@@ -18,6 +18,16 @@ const KEYS: Record<string, TranslationKey> = {
   privacy_whole_range: "reveal_err_privacy_whole_range",
   privacy_schedule_whole_recording: "reveal_err_privacy_schedule_whole_recording",
   privacy_schedule_whole_range: "reveal_err_privacy_schedule_whole_range",
+  // Face-encrypted recordings (ADR 0013): the selected identity has no sealed
+  // face blob the job may open (no linked track, outside the reveal level, or
+  // every blob inside a protected span / never_reveal zone). Nothing was
+  // decrypted. Not a privacy-POLICY refusal: another target may succeed.
+  face_envelope_empty: "reveal_err_face_envelope_empty",
+  // The envelope or the masked video could not be downloaded / decrypted
+  // (a retry may succeed), or the envelope failed authentication / geometry
+  // checks (damaged or tampered — final). Neither is a privacy refusal.
+  face_envelope_unavailable: "reveal_err_face_envelope_unavailable",
+  face_envelope_invalid: "reveal_err_face_envelope_invalid",
 };
 
 /**

@@ -59,7 +59,11 @@ function writeJson(file: string, value: unknown): Buffer {
   return body;
 }
 
-function fixture() {
+/**
+ * `envelope`: add a face-encrypted recording's face envelope (ADR 0013) —
+ * `listed` says whether tables/recordings.json names it in face_envelope_path.
+ */
+function fixture(options: { envelope?: { listed: boolean } } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), "mongolz-recovery-test-"));
   const bundle = path.join(root, "bundle");
   const escrow = path.join(root, "keys.escrow.json");
@@ -78,20 +82,36 @@ function fixture() {
     url: encryptCameraUrl(cameraKey, "demo://recovery"),
   }];
   const cameraFile = Buffer.from(JSON.stringify(cameraRows, null, 2), "utf8");
+  const envelopePath = `${RECORDING_ID}/faces.mfe.enc`;
+  const bucketObjects = [{ path: `${RECORDING_ID}/original.enc`, source: "recordings", row_id: RECORDING_ID }];
+  if (options.envelope) bucketObjects.push({ path: envelopePath, source: "recordings", row_id: RECORDING_ID });
   const bucketBody = Buffer.from(JSON.stringify({
     bucket: "recordings",
-    total_objects: 1,
+    total_objects: bucketObjects.length,
     complete: true,
-    objects: [{ path: `${RECORDING_ID}/original.enc`, source: "recordings", row_id: RECORDING_ID }],
+    objects: bucketObjects,
   }, null, 2), "utf8");
+  const recordingFile = options.envelope
+    ? Buffer.from(JSON.stringify([{
+      id: RECORDING_ID,
+      blur_strategy: "face_encrypted",
+      storage_path: `${RECORDING_ID}/original.enc`,
+      original_path: null,
+      face_envelope_path: options.envelope.listed ? envelopePath : null,
+    }], null, 2), "utf8")
+    : null;
   const databaseManifest = {
     format: "mongolz-backup/3",
     complete: true,
     include_biometrics: true,
-    tables: { cameras: { rows: 1, restorable: true } },
-    buckets: { recordings: { objects: 1 } },
+    tables: {
+      cameras: { rows: 1, restorable: true },
+      ...(recordingFile ? { recordings: { rows: 1, restorable: true } } : {}),
+    },
+    buckets: { recordings: { objects: bucketObjects.length } },
     file_sha256: {
       "tables/cameras.json": sha256(cameraFile),
+      ...(recordingFile ? { "tables/recordings.json": sha256(recordingFile) } : {}),
       "buckets/recordings.manifest.json": sha256(bucketBody),
     },
   };
@@ -99,6 +119,7 @@ function fixture() {
   const databaseSources = [
     { path: "manifest.json", body: databaseManifestBytes },
     { path: "tables/cameras.json", body: cameraFile },
+    ...(recordingFile ? [{ path: "tables/recordings.json", body: recordingFile }] : []),
     { path: "buckets/recordings.manifest.json", body: bucketBody },
   ];
   const databaseFiles: RecoveryDatabaseFile[] = [];
@@ -122,6 +143,35 @@ function fixture() {
   mkdirSync(path.dirname(path.join(bundle, relative)), { recursive: true });
   const sealed = sealRecoveryObject(original, dataKey, "recordings", objectPath);
   writeFileSync(path.join(bundle, relative), sealed);
+  const objects: RecoveryManifest["objects"] = [{
+    bucket: "recordings",
+    object_path: objectPath,
+    row_id: RECORDING_ID,
+    file: relative,
+    source_bytes: original.length,
+    source_sha256: sha256(original),
+    sealed_bytes: sealed.length,
+    sealed_sha256: sha256(sealed),
+  }];
+  if (options.envelope) {
+    // Per-face AEAD records, not a whole-file recording blob: the recording
+    // decrypt would reject it.
+    const envelope = Buffer.concat([Buffer.from("MFE1"), randomBytes(96)]);
+    const envelopeRelative = recoveryObjectRelative("recordings", envelopePath);
+    mkdirSync(path.dirname(path.join(bundle, envelopeRelative)), { recursive: true });
+    const sealedEnvelope = sealRecoveryObject(envelope, dataKey, "recordings", envelopePath);
+    writeFileSync(path.join(bundle, envelopeRelative), sealedEnvelope);
+    objects.push({
+      bucket: "recordings",
+      object_path: envelopePath,
+      row_id: RECORDING_ID,
+      file: envelopeRelative,
+      source_bytes: envelope.length,
+      source_sha256: sha256(envelope),
+      sealed_bytes: sealedEnvelope.length,
+      sealed_sha256: sha256(sealedEnvelope),
+    });
+  }
   const escrowBytes = createKeyEscrow(keys, dataKey, PASSPHRASE);
   writeFileSync(escrow, escrowBytes);
   const unsignedManifest: UnsignedRecoveryManifest = {
@@ -136,19 +186,10 @@ function fixture() {
     database_sealed_bytes: databaseFiles.reduce((sum, item) => sum + item.sealed_bytes, 0),
     database_files: databaseFiles,
     key_escrow_sha256: sha256(escrowBytes),
-    object_count: 1,
-    source_bytes: original.length,
-    sealed_bytes: sealed.length,
-    objects: [{
-      bucket: "recordings",
-      object_path: objectPath,
-      row_id: RECORDING_ID,
-      file: relative,
-      source_bytes: original.length,
-      source_sha256: sha256(original),
-      sealed_bytes: sealed.length,
-      sealed_sha256: sha256(sealed),
-    }],
+    object_count: objects.length,
+    source_bytes: objects.reduce((sum, item) => sum + item.source_bytes, 0),
+    sealed_bytes: objects.reduce((sum, item) => sum + item.sealed_bytes, 0),
+    objects,
   };
   const recoveryManifest: RecoveryManifest = {
     ...unsignedManifest,
@@ -186,6 +227,32 @@ describe("complete recovery bundle", () => {
         path.join(value.bundle, recoveryDatabaseRelative("tables/cameras.json")),
       );
       expect(sealedCamera.toString("utf8")).not.toContain("Recovery camera");
+    } finally {
+      rmSync(value.root, { recursive: true, force: true });
+    }
+  });
+
+  test("a face envelope named by recordings.face_envelope_path is verified by the bundle AEAD, not as a video", () => {
+    const value = fixture({ envelope: { listed: true } });
+    try {
+      const result = validateRecoveryBundle(value.bundle, value.escrow, PASSPHRASE);
+      expect(result).toMatchObject({
+        encrypted_recordings_verified: 1,
+        face_envelopes_verified: 1,
+        database_files_verified: 4,
+      });
+      expect([...result.face_envelope_paths]).toEqual([`${RECORDING_ID}/faces.mfe.enc`]);
+    } finally {
+      rmSync(value.root, { recursive: true, force: true });
+    }
+  });
+
+  test("an .enc object no row names as an envelope is still held to the recording decrypt", () => {
+    const value = fixture({ envelope: { listed: false } });
+    try {
+      expect(() => validateRecoveryBundle(value.bundle, value.escrow, PASSPHRASE)).toThrow(
+        "could not be authenticated",
+      );
     } finally {
       rmSync(value.root, { recursive: true, force: true });
     }

@@ -157,6 +157,8 @@ function verifyRestoredVideos(bundle: string, validation: ReturnType<typeof vali
     let index = 0;
     for (const item of validation.manifest.objects) {
       if (item.bucket !== "recordings" || !item.object_path.endsWith(".enc")) continue;
+      // A face envelope (ADR 0013) is not a video; its bundle AEAD was checked.
+      if (validation.face_envelope_paths.has(item.object_path)) continue;
       const sealed = readFileSync(path.join(bundle, item.file));
       const encrypted = openRecoveryObject(sealed, dataKey, item.bucket, item.object_path);
       const video = decryptRecordingBlob(encrypted, item.row_id, validation.secrets.application_keys);
@@ -203,7 +205,7 @@ async function main() {
   }
   verifyRestoredVideos(bundle, validation);
   console.log(
-    `Preflight passed: ${validation.database_files_verified} DB file(s), ${validation.manifest.object_count} storage object(s), ${validation.camera_urls_verified} camera URL(s), ${validation.encrypted_recordings_verified} encrypted recording(s).`,
+    `Preflight passed: ${validation.database_files_verified} DB file(s), ${validation.manifest.object_count} storage object(s), ${validation.camera_urls_verified} camera URL(s), ${validation.encrypted_recordings_verified} encrypted recording(s), ${validation.face_envelopes_verified} face envelope(s).`,
   );
   if (!apply) {
     console.log("Dry run complete. Re-run with --apply to write to the isolated restore project.");
@@ -330,6 +332,7 @@ async function main() {
     storage_bytes_verified: restoredBytes,
     camera_urls_verified: validation.camera_urls_verified,
     encrypted_recordings_verified: validation.encrypted_recordings_verified,
+    face_envelopes_verified: validation.face_envelopes_verified,
   };
   const defaultReport = path.join(
     path.dirname(bundle),

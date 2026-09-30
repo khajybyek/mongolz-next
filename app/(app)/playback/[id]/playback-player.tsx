@@ -47,6 +47,7 @@ export function PlaybackPlayer({
   revealPrivacy,
   revealWithheld = false,
   privacyNoticeId = null,
+  faceEncrypted = false,
 }: {
   recordingId: string;
   videoUrl: string;
@@ -68,6 +69,9 @@ export function PlaybackPlayer({
   /** id of the page's first privacy card — the CTA links to it (on a phone
    *  the cards render well below the player). null = no privacy stretches. */
   privacyNoticeId?: string | null;
+  /** blur_strategy = face_encrypted (ADR 0013) — the reveal modal says that
+   *  only the selected person's sealed faces are decrypted. */
+  faceEncrypted?: boolean;
 }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
@@ -400,6 +404,7 @@ export function PlaybackPlayer({
           maskedUrl={videoUrl}
           recordingDurationSec={liveDuration ?? durationSec}
           privacy={revealPrivacy}
+          faceEncrypted={faceEncrypted}
           onClose={close}
         />
       )}

@@ -48,6 +48,11 @@ const sections = [
         value:
           "Per-camera windows (Asia/Seoul, /cameras/<id>/schedule) can only make protection stronger (ADR 0012). standard = today's behaviour; private = no ArcFace embeddings, face rows/crops, suspect matching, alerts or edge inference, and the reveal job keeps frames captured then masked. Every masking path (live, on-demand view, evidence exports, reveal) masks private frames with the detector alone and the VIP mask. Evaluated at capture time, once per second of video, over a capture-time bound (camera clock to wall clock): private if any instant is. Spans travel with each segment's delivery; reveal and view renderers add the current schedule with a 60 s margin. The ML service re-reads the schedule every 30 s and fails closed (private, never revealable) after 10 min without a readable schedule; GET / reports privacy_schedules so the web can warn about an older ML build. Loosening needs a TOTP step-up",
       },
+      {
+        label: "Recording mode",
+        value:
+          "Per camera (cameras.recording_mode, set on /cameras, ADR 0013). standard (default) = the encrypted whole original + the masked view rendered on demand. face_encrypted = no raw original: the stored video is masked with a keyed cipher pattern (flat cells + 1 px outline) and encrypted at rest, and every face region of every frame is sealed separately in a per-segment face envelope (recordings.face_envelope_path) under its per-face hash-chain key. A reveal compares its target with each face track's sealed identity samples (the capture-time recognition embeddings) within the reveal level and unseals only the frames of the matching tracks those samples confirm; everyone else's face pixels stay ciphertext even inside the ML service. Limits: a face the detector misses is not encrypted and stays visible, with no original to re-mask later; tracks never sampled by the recognition tick cannot be restored; faces crossing can swap a track; restored faces are lossy JPEG crops (the face kept at about 120 px); the stored video repeats masked frames when the ML service falls behind; frames captured in private mode have no envelope blobs. Switching to face_encrypted is one click; back to standard needs a TOTP step-up and notifies the other admins. Applies to segments that start after the change (the ML service re-reads it every 30 s; while it cannot read it, the camera records face_encrypted)",
+      },
     ],
   },
   {
@@ -71,7 +76,7 @@ const sections = [
         value:
           "HMAC-SHA256 signed tickets (5-min TTL); playlist and every segment require an enabled camera plus admin or an explicit camera_permissions grant, and each view is written to the audit log",
       },
-      { label: "Step-up auth", value: "15-min cookie for reveal, user/role changes, backup download, adding a camera and loosening a privacy schedule" },
+      { label: "Step-up auth", value: "15-min cookie for reveal, user/role changes, backup download, adding a camera, loosening a privacy schedule and switching a camera back to standard recording" },
       { label: "Rate limiting", value: "5 step-up attempts/min, 5 TOTP login failures/15 min, 20 reveals/hour (audit_log based)" },
       { label: "Headers", value: "CSP nonce, HSTS, X-Frame-Options DENY, CORP" },
       { label: "Audit", value: "Hash-chain audit log with verify_audit_chain()" },
@@ -94,7 +99,7 @@ const sections = [
       { label: "GET /camera/active", value: "Running capture sessions (restart count, last error, privacy_mode, privacy_source)" },
       { label: "POST /process-upload", value: "Browser MP4 upload, chunk-assembled (async)" },
       { label: "POST /reveal/run", value: "Selective unblur job (4-eyes approved only)" },
-      { label: "GET /recording/{id}/view", value: "On-demand masked playback render (ADR 0010), disk-cached" },
+      { label: "GET /recording/{id}/view", value: "On-demand masked playback render (ADR 0010), disk-cached; a face_encrypted recording is only decrypted and streamed — no re-render, no detector (ADR 0013)" },
       { label: "GET /face/{id}/secure-crop", value: "Sealed face crop decrypted under the caller's reveal_level (ADR 0009)" },
       { label: "POST /cluster", value: "DBSCAN face clustering" },
       { label: "GET /stream/{id}/index.m3u8", value: "HLS playlist for the face-masked live stream" },
@@ -108,11 +113,11 @@ const sections = [
     items: [
       { label: "Schema", value: "23 tables in public, RLS enabled on every one. Core tables below; the rest cover auth (webauthn_*, totp_used_codes, push_subscriptions), policy (alert_rules, camera_permissions, masking_schedules = privacy schedule windows, recording_privacy_spans = capture-time privacy facts, privacy_zones, retention_*), and ops (camera_sessions, uptime_checks, webhooks, web_vitals)" },
       { label: "profiles", value: "Role (admin/viewer/auditor), TOTP config, is_super_admin, reveal_level" },
-      { label: "cameras", value: "RTSP/HTTP/USB/webcam/demo sources (encrypted URL) + privacy_default (standard | private)" },
+      { label: "cameras", value: "RTSP/HTTP/USB/webcam/demo sources (encrypted URL) + privacy_default (standard | private) + recording_mode (standard | face_encrypted)" },
       { label: "suspects", value: "Name + ArcFace 512-dim embedding + privacy tier" },
       { label: "faces", value: "Detected faces (bbox + embedding + recording + chain_index/crop_sealed)" },
       { label: "alerts", value: "Suspect match events + workflow state (new/acknowledged/closed)" },
-      { label: "recordings", value: "Encrypted MP4 metadata + blur_strategy (baked | on_demand)" },
+      { label: "recordings", value: "Encrypted MP4 metadata + blur_strategy (baked | on_demand | face_encrypted) + face_envelope_path (face_encrypted only; original_path stays NULL)" },
       { label: "reveal_jobs", value: "Selective reveal queue with 4-eyes approval columns" },
       { label: "audit_log", value: "Hash-chain append-only audit trail (UPDATE/DELETE rejected by trigger)" },
       { label: "clusters", value: "Face clustering results" },
@@ -125,6 +130,11 @@ const sections = [
       { label: "Algorithm", value: "AES-256-GCM (AEAD)" },
       { label: "Key derivation", value: "HKDF-SHA256 per recording from master key; per-face keys chain forward with SHA-256 (ADR 0009)" },
       { label: "Dual-key rotation", value: "ML_ENCRYPTION_KEY + ML_ENCRYPTION_KEY_PREV fallback" },
+      {
+        label: "Face envelopes",
+        value:
+          "face_encrypted recordings (ADR 0013): each face crop is its own AES-256-GCM blob under the per-face key K_i of its track (ADR 0009); the AAD binds recording, track and frame so blobs cannot be swapped; each track's identity samples are sealed under the same key, and the index holding them is sealed and checked against the file header. A reveal at reveal_level L opens only tracks with chain_index ≥ L (blobs and samples alike). Still server-side: the ML service holds the master key",
+      },
       {
         label: "Threat model",
         value:
