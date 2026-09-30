@@ -31,3 +31,4 @@ constraints that shaped each choice.
 | 0010 | [On-demand blurred view](0010-on-demand-blurred-view.md) | Accepted |
 | 0011 | [Prove the second factor at the data tier](0011-mfa-at-the-data-tier.md) | Accepted |
 | 0012 | [Privacy schedules can only tighten protection](0012-privacy-schedules-tightening-only.md) | Accepted |
+| 0013 | [Optional face-encrypted recording mode](0013-face-encrypted-recording-mode.md) | Accepted |

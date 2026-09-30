@@ -29,9 +29,12 @@ honest boundary is written out in `docs/adr/0009-*.md` §"Honest threat model".
 and `/wall` show masked faces — admins included. Masking is detection-based
 and best-effort: a face the detector misses is visible. If the masker throws,
 the capture loop stops (the supervisor restarts it) rather than writing an
-unmasked frame. Raw pixels exist only in the encrypted original, reachable
-through the 4-eyes reveal. The `/live` device and phone tabs are local browser
-previews that never pass through the ML service and are **not** masked. The
+unmasked frame. Raw pixels exist only in the encrypted original (on a
+face-encrypted camera, only in the sealed per-face envelope — ADR 0013),
+reachable through the 4-eyes reveal, whose output is a restored MP4 in the
+private `revealed` bucket until retention removes it. The `/live` device and phone tabs are
+local browser previews that never pass through the ML service and are **not**
+masked. The
 per-camera grant and `STREAM_VIEWED` audit rows stay as defence in depth
 against missed detections: an admin passes, any other role needs a
 `camera_permissions` row, and that table is empty in production
@@ -76,7 +79,8 @@ outside the EU, so the Art. 44 basis for EU subjects is unchanged.
 - The blurred playback view is **derived on demand** at `GET /recording/{id}/view`
   — ML decrypts, renders Cubist mosaic over each face, caches on disk
 - Legacy `baked` recordings (stored blurred MP4) continue to play unchanged via a
-  per-recording `blur_strategy ∈ {baked, on_demand}` discriminator
+  per-recording `blur_strategy ∈ {baked, on_demand, face_encrypted}` discriminator
+  (`face_encrypted`: the optional mode below, ADR 0013)
 - Rollback: set Railway `BLUR_STRATEGY=baked` to revert without redeploy
 
 ### Hash-chain reveal authority (ADR 0009)
@@ -162,6 +166,38 @@ outside the EU, so the Art. 44 basis for EU subjects is unchanged.
   schedule the ML service fails closed and treats every camera as `private` —
   footage captured then can never be revealed (ADR 0012, Limits)
 
+### Face-encrypted recording — optional, per camera (ADR 0013)
+- `cameras.recording_mode ∈ {standard, face_encrypted}`; `standard` is the
+  default and is exactly the behaviour above
+- `face_encrypted` stores **no raw original**. The stored video is masked at
+  capture — every detected face replaced by a keyed cipher pattern (flat cells
+  from a keystream, 1 px outline) — and encrypted with the per-recording key;
+  every face region of every frame is sealed separately in a per-segment face
+  envelope (`recordings.face_envelope_path`): JPEG crop, AES-256-GCM under the
+  face track's hash-chain key `K_i`, bound to recording + track + frame
+- **Restoration per person:** an approved 4-eyes reveal compares its target
+  with the identity samples (capture-time ArcFace embeddings, sealed per track)
+  of the tracks within `reveal_level`, unseals only the frames of the matching
+  tracks that those samples confirm, and pastes them onto the masked video;
+  everyone else's face is never decrypted and stays cipher in the output.
+  Playback streams the decrypted masked video (no render)
+- Frames captured in `private` mode (ADR 0012) get no envelope — unrestorable
+  by design. Live HLS, recognition, alerts and audit are unchanged
+- Switching to face-encrypted is one click; switching back to `standard` (raw
+  originals again) needs a TOTP step-up, is audited and notifies the other
+  admins. Applies to new segments. A camera whose mode the ML service could not
+  read yet records face-encrypted (fail closed)
+- Limits: a face the detector misses is **not** encrypted and stays visible in
+  the stored video, with no original to re-render later; tracks never sampled
+  by the recognition tick cannot be restored, and sampled ones only where the
+  samples confirm the target; tracking is geometric (faces crossing can swap a
+  track); restored faces are lossy (JPEG, the face kept at ≈ 120 px, resized to
+  the box); the stored video repeats masked frames when the ML service falls
+  behind; server-side encryption, not end-to-end (the ML service holds the
+  master key); ≈ 44–91 KiB (64 px face) to 90–182 KiB (large faces) per
+  face-second at 15 fps, measured on the bundled samples; an envelope is capped
+  at 40 MiB per segment (ADR 0013, Costs)
+
 ### Live + recording (3 modes)
 - 💻 Device — `getUserMedia` (laptop / external webcam)
 - 📱 Phone — IP Webcam app URL (MJPEG / snapshot)
@@ -224,6 +260,7 @@ to stay within Vercel's 4.5 MB body cap on Hobby.
 | 15. Webhook HMAC | SHA-256 signing for generic destinations |
 | 16. Second factor at the data tier | RLS restrictive policies AND `private.mfa_ok()` on the ten personal-data tables (`faces`, `alerts`, `recordings`, `cameras`, `suspects`, `clusters`, `reveal_jobs`, `audit_log`, `webhooks`, `camera_sessions`), the admin-writable configuration tables (`retention_policies`, `alert_rules`, `privacy_zones`, `masking_schedules`, `camera_permissions`), `storage.objects`, and inside the four SECURITY DEFINER RPCs, which RLS cannot reach. If a profile has TOTP enabled, its token must carry an `amr` method other than `password` — so an admin password plus the public anon key can no longer read or write through PostgREST — and, since 2026-09-28, its `session_id` must be bound in `private.mfa_sessions`, which only the login flows write (service-role `bind_mfa_session`) right after a verified TOTP code, recovery code or passkey — so a magic-link / recovery session from a hijacked admin mailbox reads nothing either; an unbound session is signed out by the web (`/login?error=session_rebind`). Fails open when a claim is unreadable; `profiles` and the auth-flow tables are deliberately not gated; kill switch `update private.security_settings set mfa_required = false` (ADR 0011, `docs/adr/0011-mfa-at-the-data-tier.md`) |
 | 17. Privacy schedules | tightening only (ADR 0012): `private` windows turn off the recognition step at capture (no embeddings, face rows, crops or alerts; every masking path uses the detector alone for those frames) and block reveal of footage captured in them; no setting can un-mask video. Loosening needs a TOTP step-up + admin notification + audit row; `masking_schedules` is service-role-write only; capture-time facts live in `recording_privacy_spans` (not on `recordings`, which `authenticated` cannot UPDATE) and travel with each segment's delivery; the ML side fails closed after 10 min without a readable schedule |
+| 18. Face-encrypted recording (optional) | ADR 0013: per camera, no raw original; each face region of each frame sealed under its track's hash-chain key (AAD = recording + track + frame); a reveal unseals only the frames of tracks whose own sealed identity samples match the target, within `reveal_level`; back to `standard` needs a TOTP step-up; no user token can insert `recordings` rows. A capture-time detector miss stays visible for good; server-side keys |
 
 ---
 
@@ -406,6 +443,11 @@ Full start-to-finish audit (DB → auth → API → UI → ML). Highlights:
   (`docs/adr/0012-privacy-schedules-tightening-only.md`): `standard` / `private`
   modes evaluated at capture time; `private` turns the recognition step off and
   makes that footage unrevealable; loosening needs TOTP step-up.
+- **0013 — Optional face-encrypted recording mode**
+  (`docs/adr/0013-face-encrypted-recording-mode.md`): per camera, no raw
+  original; faces sealed per track at capture and restored one person at a
+  time; missed detections stay visible and unidentified tracks cannot be
+  restored.
 
 ---
 

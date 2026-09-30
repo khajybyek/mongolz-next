@@ -12,7 +12,8 @@ qualified DPO and conduct a full audit.
 
 | Data category | Source | Purpose | Retention |
 |---|---|---|---|
-| Facial images (raw) | Camera capture | Encrypted original for lawful reveal (4-eyes); per-face crop sealed with a hash-chain key | **Encrypted in Storage** (AES-256-GCM; no plaintext frame or crop is uploaded to Supabase Storage since Tier 2). Two derived copies live transiently on the ML container's own disk: the live HLS segments of a camera (`/tmp/mongolz-hls`, a rolling window during a session, deleted when the session stops — **masked** frames since `1ff609b`, 2026-09-20) and the masked playback render cache (`/tmp/mongolz-views`, served only while the recording row still exists). Unmasked pixels exist only inside the encrypted original |
+| Facial images (raw) | Camera capture | Encrypted original for lawful reveal (4-eyes); per-face crop sealed with a hash-chain key | **Encrypted in Storage** (AES-256-GCM; no plaintext frame or crop is uploaded to Supabase Storage since Tier 2). Two derived copies live transiently on the ML container's own disk: the live HLS segments of a camera (`/tmp/mongolz-hls`, a rolling window during a session, deleted when the session stops — **masked** frames since `1ff609b`, 2026-09-20) and the masked playback render cache (`/tmp/mongolz-views`, served only while the recording row still exists). On `standard` cameras unmasked pixels exist only inside the encrypted original. **Cameras in the optional face-encrypted recording mode** ([ADR 0013](adr/0013-face-encrypted-recording-mode.md)) store no raw original at all: the stored video is itself masked (a keyed cipher pattern over every detected face) and encrypted, and unmasked face pixels exist only in the per-face envelope below, in each identified face's sealed crop, and — after an approved reveal — in that reveal's output (a plaintext restored MP4 in the private `revealed` bucket until retention removes it, as for `standard` reveals); apart from any face the detector missed, which stays visible in that stored video |
+| Face envelopes (face-encrypted cameras only) | Camera capture: every detected face region of every frame, JPEG (quality ≈ 90, at most 192 px for the padded crop, so a face is kept at about 120 px at most), plus one ArcFace embedding per face track per recognition tick (the identity sample) | Restoration of one selected person through the 4-eyes reveal | Each blob and each identity sample AES-256-GCM-sealed under its track's hash-chain key (ADR 0009), bound to recording, track and frame; one envelope object per recording segment (`recordings.face_envelope_path`, at most 40 MiB), kept and deleted with its recording. Nothing is written for frames captured in `private` mode (ADR 0012) |
 | Facial embeddings (512-dim ArcFace) | Derived. For frames captured in `private` mode none is computed — not at capture, not by the on-demand playback view, the evidence exports or the reveal job, which all mask such frames with the detector alone — and none is stored or matched. The one exception is a sub-second lag of the capture masker after a boundary (transient, discarded; see "Privacy schedules" in §3) | Suspect matching, dedup | Until subject erasure (GDPR Art. 17) |
 | Encrypted recordings | Camera capture | Evidence trail | Default 30 days, configurable per retention policy |
 | Alerts (suspect match events) | System-generated | Operator review | Default 90 days |
@@ -27,7 +28,7 @@ qualified DPO and conduct a full audit.
 
 | Article | Right / Obligation | Implementation |
 |---|---|---|
-| **Art. 5** Principles | Data minimization, purpose limitation, storage limitation | Unmasked frames are kept only inside the encrypted original; per-camera retention policies; audit-only access. **Per-camera privacy schedules** ([ADR 0012](adr/0012-privacy-schedules-tightening-only.md)) turn the recognition step off for chosen time windows: no stored embeddings, face rows, crops or alerts. This limits purpose and minimises data by time; see "Privacy schedules" in §3 |
+| **Art. 5** Principles | Data minimization, purpose limitation, storage limitation | Unmasked frames are kept only inside the encrypted original (on a face-encrypted camera: only in the sealed per-face envelope); per-camera retention policies; audit-only access. **Per-camera privacy schedules** ([ADR 0012](adr/0012-privacy-schedules-tightening-only.md)) turn the recognition step off for chosen time windows: no stored embeddings, face rows, crops or alerts. This limits purpose and minimises data by time; see "Privacy schedules" in §3. The optional **face-encrypted recording mode** ([ADR 0013](adr/0013-face-encrypted-recording-mode.md)) stores no raw original for the cameras that use it, and a reveal decrypts only the selected person's faces; see "Face-encrypted recording mode" in §3 |
 | **Art. 6** Lawfulness | Public interest / legitimate interest | Operator declares basis when registering camera (UI to be added) |
 | **Art. 13/14** Information | Privacy notice at signup | Provided on the public landing (`/`) — Korean title + tagline. Full notice TBD |
 | **Art. 15** Access | Subject access request | `/api/gdpr/export` endpoint returns all rows tagged with the requester's email |
@@ -35,7 +36,7 @@ qualified DPO and conduct a full audit.
 | **Art. 17** Erasure | "Right to be forgotten" | `/privacy` self-service page + `/api/gdpr/delete` |
 | **Art. 20** Portability | Machine-readable export | `/api/gdpr/export` returns JSON; CSV available via `/api/audit/export` (admin) |
 | **Art. 22** Automated decisions | Human-in-the-loop on alerts | Reveal flow requires 4-eyes approval; no automated enforcement |
-| **Art. 25** Privacy by design | Encrypt-at-rest + mask-at-view pipeline (ADR 0010) | Originals AES-256-GCM encrypted; the blurred view is derived at request time and never persisted in Storage; face crops sealed per face (ADR 0009). Encryption is **server-side**, not end-to-end — the ML service holds the key. Live frames are masked by the same detector-based masker since 2026-09-20 (see §3 caveat). Privacy settings can only tighten: a schedule can turn identification off but can never un-mask video (ADR 0012) |
+| **Art. 25** Privacy by design | Encrypt-at-rest + mask-at-view pipeline (ADR 0010) | Originals AES-256-GCM encrypted; the blurred view is derived at request time and never persisted in Storage; face crops sealed per face (ADR 0009). Encryption is **server-side**, not end-to-end — the ML service holds the key. Live frames are masked by the same detector-based masker since 2026-09-20 (see §3 caveat). Privacy settings can only tighten: a schedule can turn identification off but can never un-mask video (ADR 0012). A camera can opt into face-encrypted recording (ADR 0013): each face is sealed separately at capture and no raw original is kept; switching back to `standard` needs a TOTP step-up. Still server-side encryption — the ML service holds the master key |
 | **Art. 30** Records of processing | This document + `audit_log` | Maintained. `audit_log` covers privileged changes, auth events and the personal-data read paths — **not** page views or direct PostgREST reads; see "Audit-log coverage" in §3 |
 | **Art. 32** Security of processing | RLS, AES-256, TOTP (enforced at the data tier as well as in the app — see "Second factor at the data tier" in §3), audit hash-chain | See [SECURITY.md](../SECURITY.md) + CLAUDE.md `Security Features` |
 | **Art. 33/34** Breach notification | 72-hour rule | Process documented in [docs/BREAK_GLASS.md](BREAK_GLASS.md). 3rd-party SIEM not yet integrated |
@@ -47,6 +48,7 @@ qualified DPO and conduct a full audit.
 1. **Facial recognition is biometric** under GDPR Art. 9 — requires explicit consent or substantial public interest grounds. Operators must declare basis per camera. A privacy schedule (ADR 0012) can limit identification to the hours the declared basis covers. It is a minimisation tool and does not replace the basis.
 2. **Audit log indefinite retention** — necessary for forensic value, but tension with Art. 5(e). Mitigation: aggregate-only after N years (TBD).
 3. **Cross-border data flow, single region.** Storage, app compute and the ML service that handles the *decrypted* biometric payload all sit in Singapore (Railway `asia-southeast1` since 2026-09-20, deployment `d97c4507`, verified 2026-09-23). Singapore is outside the EU, so SCCs are still required for EU subjects. History: until 2026-09-20 the ML service ran in `us-west2` (United States), a second, wider hop for Art. 9 data; that hop no longer exists.
+4. **Face-encrypted mode makes a missed detection permanent.** On a camera in that mode (ADR 0013) a face the capture-time detector misses is stored unmasked in the only video there is, with no original to re-render with a better detector later. In `standard` mode the on-demand view is rendered from the original with the current masker whenever its cache is cold. Choose the mode per camera with that trade-off in mind; the detector's miss rate on real footage has not been measured (§5).
 
 ---
 
@@ -59,7 +61,7 @@ qualified DPO and conduct a full audit.
 | **Art. 23** Sensitive info | Biometric requires separate consent | Operators must declare basis; UI to be added. A per-camera privacy schedule (ADR 0012) switches biometric processing off outside the hours it is justified |
 | **Art. 24-2** Resident registration numbers | Not collected | N/A |
 | **Art. 27** Outsourcing | Supabase + Railway + Vercel are sub-processors | Listed in this document; DPA required pre-production |
-| **Art. 28-2** Pseudonymization | Cubist mosaic + encrypted originals | Implemented for stored/derived playback and, since 2026-09-20, for the ML-captured live HLS feed. Detection-based: a missed face is visible (see the live-stream caveat below) |
+| **Art. 28-2** Pseudonymization | Cubist mosaic + encrypted originals; optional per-face encryption at capture (ADR 0013) | Implemented for stored/derived playback and, since 2026-09-20, for the ML-captured live HLS feed. A face-encrypted camera stores a video pseudonymised at capture (keyed cipher pattern over each face) and keeps each face sealed separately for per-person restoration. Detection-based in every mode: a missed face is visible (see the live-stream caveat below), and on a face-encrypted camera permanently so |
 | **Art. 29** Security measures | Audit log, encryption, TOTP | Implemented |
 | **Art. 35** Right to access | `/api/gdpr/export` covers KR subjects too |  |
 | **Art. 36** Correction / deletion | `/privacy` self-service | Implemented |
@@ -70,6 +72,7 @@ qualified DPO and conduct a full audit.
 - "저장된 원본은 암호화되어 있고, 재생 화면은 열람 시점에 비식별화됩니다" — the stored original is encrypted and the playback view is anonymised at request time (ADR 0010); un-blurring requires 4-eyes approval and is audit-logged. (The ML-captured live feed is masked by the same detector since 2026-09-20; the `/live` device and phone tabs are local previews and are not masked — see the caveat below.)
 - "원본은 AES-256-GCM 으로 암호화되며, 4-eyes 승인 후에만 복원됩니다" — originals are encrypted; only revealed after 4-eyes approval.
 - "영업시간(09:00–18:00)에는 얼굴 인식과 알림이 꺼지며, 그 시간에 촬영된 영상은 4-eyes 승인으로도 복원되지 않습니다" — during the scheduled private hours, face recognition and alerts are off, and footage captured then cannot be revealed even with 4-eyes approval (ADR 0012). The video is still recorded and masked; the masks are placed by the face detector alone, which computes no face embedding. Say that too.
+- "얼굴 암호화 모드에서는 원본 영상을 저장하지 않고, 얼굴 영역마다 별도의 키로 암호화해 둡니다. 복원할 때는 승인된 대상 인물의 얼굴만 복호화되고, 다른 사람의 얼굴은 복호화되지 않습니다" — in the optional face-encrypted mode (ADR 0013) no raw original is stored and each face region is encrypted with its own key; a restoration decrypts only the approved target's face and never anyone else's. Attach the limits in the same breath: "검출기가 놓친 얼굴은 암호화되지 않고 저장 영상에 그대로 남습니다" (a face the detector misses is not encrypted and stays in the stored video), restored faces are lossy JPEG crops (a face kept at about 120 px), a face is restored only where the capture-time recognition samples match the target, and the server holds the master key — "서버 측 암호화이며 종단 간 암호화는 아닙니다" (server-side, not end-to-end).
 - "권한 변경과 개인정보 열람 경로(복호화·재생·검색·내보내기)는 해시 체인 감사 로그에 기록됩니다" — privileged changes **and the application's personal-data read paths** are recorded in the hash-chained audit log. Say it with the boundary attached, below — do not say "everything is logged".
 
 **Audit-log coverage — say this precisely.** `audit_log` records (a) every privileged mutation and configuration change, (b) every authentication and step-up event, and (c) the application read paths that expose personal data. The read actions are `FACE_CROP_VIEWED`, `RECORDING_VIEWED`, `STREAM_VIEWED`, `STREAM_DENIED`, `FACE_SEARCH`, `REID_TRAIL`, `ALERTS_EXPORTED` and `REVEAL_OUTPUT_DOWNLOADED` (`lib/audit.ts` is the single source of truth).
@@ -197,7 +200,100 @@ State the limits with the control:
 - Browser uploads without a camera are always `standard`. The `/live` device and
   phone previews are not affected.
 
-**Live-stream caveat.** Since commit `1ff609b` (deployed 2026-09-20) every ML-captured live frame passes through the same `FaceMasker` as the playback view before it is written to HLS, so `/grid`, `/wall` and the `/live` CCTV tab show masked faces — for admins too. The masker is detection-based and best-effort: a face the detector misses is visible. If masking throws, the capture loop stops and the supervisor restarts it; no unmasked frame is written in its place. The `/live` device and phone tabs are local browser previews that never reach the ML service and are **not** masked. Unmasked pixels exist only in the encrypted original, reachable through the audited 4-eyes reveal. The access controls below stay as defence in depth against missed detections. Access to that feed is authenticated, recorded (`STREAM_VIEWED`, and `STREAM_DENIED` for refusals) and authorised per camera: the camera must be `enabled`, an admin always passes, and every other role needs an explicit `camera_permissions` row for that camera. `private.user_can_see_camera()` remains default-allow and is kept only as defence-in-depth mirroring RLS; the stricter rule is enforced in `app/api/ml/stream/[cameraId]/[segment]/route.ts`. Refusals return 403 with a machine-readable `code` (`camera_disabled`, `camera_not_authorized`, `permission_check_failed`) and are recorded as `STREAM_DENIED`. `camera_permissions` holds no rows in production, so at the time of writing no non-admin account can watch live video at all.
+**Face-encrypted recording mode: restoration per person.** Added 2026-09-30
+([ADR 0013](adr/0013-face-encrypted-recording-mode.md)). Each camera has a
+recording mode. **`standard`** (the default) is everything above: an encrypted
+raw original and a masked view rendered from it on demand. **`face_encrypted`**
+is opt-in:
+
+- **No raw original is stored.** The stored video is masked at capture — every
+  detected face region is replaced by a keyed cipher pattern (flat cells whose
+  colours come from a keystream, not from the face, with a thin outline) — and
+  that video is encrypted at rest with the per-recording key (ADR 0002).
+- **Every face region of every frame is sealed separately** in a per-segment
+  face envelope (`recordings.face_envelope_path`): a JPEG crop (quality ≈ 90,
+  at most 192 px) under AES-256-GCM with the hash-chain key of its face track
+  (ADR 0009), bound to the recording, track and frame so blobs cannot be
+  swapped. The index linking tracks to identified faces is sealed with the
+  per-recording key.
+- **A reveal decrypts only the selected person.** The 4-eyes reveal (ADR 0003)
+  compares its target with the identity samples (capture-time ArcFace
+  embeddings, sealed per track) of the tracks the requester's `reveal_level`
+  reaches, selects the tracks whose samples match at the job threshold, and
+  pastes only their confirmed frames back onto the masked video. Every other
+  face stays cipher in the output because its pixels were never decrypted —
+  not because a second detector pass found it. (The job does decrypt the
+  identity samples — embeddings — of every track within the level to find the
+  target, as the standard path compares every face of a clip.) This is GDPR
+  Art. 25 / PIPA Art. 28-2 data minimisation at the moment of restoration.
+- **Frames captured in `private` mode (ADR 0012) get no envelope**, so those
+  faces can never be restored by anyone — including a segment's last frames,
+  which a closing check drops when their capture time may be private.
+- **Choosing the mode.** `standard` → `face_encrypted` stores less and is one
+  click (audited). `face_encrypted` → `standard` stores raw originals again, so
+  it needs a fresh TOTP step-up, writes an audit row and notifies the other
+  admins. Only the service role writes `cameras`. The mode applies to new
+  segments; existing recordings keep the mode they were captured in. If the
+  ML service cannot read a camera's mode (right after a restart, database
+  slow or down), the camera records face-encrypted segments until it can —
+  the unreadable case stores less, never a raw original.
+- Recognition, alerts, the sealed crop and embedding of each identified face,
+  the live feed (cubist-masked as today), privacy schedules, privacy zones and
+  the audit log are unchanged.
+
+State the limits with the control:
+
+- **A face the detector misses is not encrypted.** It stays visible in the
+  stored masked video, and there is no original to render again with a better
+  detector — `standard` mode keeps that option. See residual risk 4 in §2.
+- **Unidentified tracks cannot be restored.** A face track the once-per-second
+  recognition tick never sampled stays sealed, and none of the reveal methods
+  (photo, suspect, detected face) can select it. A sampled track is restored
+  only where its samples nearest before and after a frame both match the
+  target, so a poor-pose sample leaves up to about two seconds masked; before
+  a track's first or after its last sample, only over the unbroken detection
+  run around that sample (a face the detector loses often loses up to about a
+  second at each end).
+- **Tracking is geometric.** Two faces crossing, or one replacing another at
+  the same spot within a third of a second, can hand a track from one person
+  to the other. A sample never vouches for frames across a missed detection,
+  so a replacement at the same spot is not restored with the other person's
+  samples; a crossing with no missed frame, or a double swap between two
+  samples of the target, can still bring up to about a second of the other
+  person into a restoration, and a swap no tick samples goes unnoticed. `reveal_level` gates
+  tracks, not people: a person's first track is ranked before their `faces`
+  row, so a requester who can open a person's crop may still be refused that
+  person's first track.
+- **Restored faces are lossy**: JPEG crops of the padded box, capped so the
+  face itself is kept at about 120 px, resized to their recorded box and
+  feathered in; a close-up comes back visibly softer than the video.
+- **Footage is dropped under overload**: when the ML service falls behind a
+  live camera, the stored video repeats the last masked frame (no original
+  keeps the missed frames).
+- **Server-side encryption, not end-to-end.** The ML service still holds the
+  master key and can derive every per-face key. What changes is that a
+  restoration decrypts only the selected person's blobs; that is enforced by
+  the trusted ML service, not a cryptographic barrier against it (ADR 0009).
+- **Storage cost** grows with face-seconds: at 15 fps about 44–91 KiB per
+  second for a 64 px face, 84–169 KiB for a 128 px face and 90–182 KiB for a
+  large face (flat to busy background; measured with the envelope writer on
+  the bundled samples, sealing the padded rectangle the pipeline paints; ADR
+  0013, Costs). An envelope is capped at 40 MiB per segment.
+- **An envelope is the only copy of those faces.** If it is lost and no backup
+  holds it, the faces in that recording can never be restored; the masked video
+  still plays (`docs/RUNBOOK.md`). The stored envelope is one AES-GCM
+  ciphertext, so any damage to the object — cut short, one flipped bit —
+  makes every reveal of that recording fail (`[face_envelope_invalid]`), not
+  just the damaged frames. A segment interrupted before it is finalised is
+  dropped as `partial`, masked video and envelope alike, as in `standard`
+  mode.
+- The envelope's record headers (frame, track, box) are authenticated but not
+  encrypted: a holder of the object learns where and when faces appeared — what
+  the outline in the masked view shows anyway — but no pixels and no identity.
+- `reveal_level` was 0 for every profile at the last check (2026-09-23), so the
+  level gate does not yet narrow any reveal in production.
+
+**Live-stream caveat.** Since commit `1ff609b` (deployed 2026-09-20) every ML-captured live frame passes through the same `FaceMasker` as the playback view before it is written to HLS, so `/grid`, `/wall` and the `/live` CCTV tab show masked faces — for admins too. The masker is detection-based and best-effort: a face the detector misses is visible. If masking throws, the capture loop stops and the supervisor restarts it; no unmasked frame is written in its place. The `/live` device and phone tabs are local browser previews that never reach the ML service and are **not** masked. Unmasked pixels exist only in the encrypted original (on a face-encrypted camera: in the sealed per-face envelope, ADR 0013), reachable through the audited 4-eyes reveal. The access controls below stay as defence in depth against missed detections. Access to that feed is authenticated, recorded (`STREAM_VIEWED`, and `STREAM_DENIED` for refusals) and authorised per camera: the camera must be `enabled`, an admin always passes, and every other role needs an explicit `camera_permissions` row for that camera. `private.user_can_see_camera()` remains default-allow and is kept only as defence-in-depth mirroring RLS; the stricter rule is enforced in `app/api/ml/stream/[cameraId]/[segment]/route.ts`. Refusals return 403 with a machine-readable `code` (`camera_disabled`, `camera_not_authorized`, `permission_check_failed`) and are recorded as `STREAM_DENIED`. `camera_permissions` holds no rows in production, so at the time of writing no non-admin account can watch live video at all.
 
 ---
 
@@ -251,6 +347,13 @@ These are knowingly deferred — they would block a real production launch but a
   camera's schedule, 60 s margin) and masks protected frames with the detector
   alone and the VIP mask; an unreadable timeline masks the whole recording that
   way (ADR 0012)
+- [x] **Per-person restoration without a raw original** — optional
+  face-encrypted recording mode per camera (ADR 0013): each face region sealed
+  under its track's hash-chain key, reveal decrypts only the selected person
+- [ ] **Measure the capture detector's miss rate on real footage** before
+  recommending the face-encrypted mode for a camera: in that mode a missed face
+  is stored unmasked in the only video and cannot be masked later (§2 residual
+  risk 4)
 - [ ] **Enforce `cameras.consent_required`** (audit §6.4) — the flag is stored
   and editable on `/cameras` but no processing component reads it yet; the PIPA
   Art. 15 row above documents a basis, not an enforced control
@@ -259,8 +362,11 @@ These are knowingly deferred — they would block a real production launch but a
 
 ## 6. Document control
 
-- **Version:** 1.3
-- **Last reviewed:** 2026-09-28 (privacy schedules enforced, tightening only;
+- **Version:** 1.4
+- **Last reviewed:** 2026-09-30 (optional face-encrypted recording mode —
+  "Face-encrypted recording mode" in §3, §1 data categories, Art. 5 / 25 /
+  PIPA Art. 28-2 rows, residual risk 4, [ADR 0013](adr/0013-face-encrypted-recording-mode.md)).
+  Previously 2026-09-28 (privacy schedules enforced, tightening only;
   same day: capture-time bound instead of a point, spans delivered with the
   footage, embedding-free view / evidence renderers, "exact reveal" wording
   withdrawn —
