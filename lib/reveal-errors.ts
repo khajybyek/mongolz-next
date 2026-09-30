@@ -71,3 +71,46 @@ export function revealWithheldByPrivacy(message: string | null | undefined): boo
   const code = revealErrorCode(message);
   return code !== null && POLICY_CODES.has(code);
 }
+
+// ── POST /api/reveal/start refusals (the reveal modal) ───────────────────
+
+/** Stable refusal codes from POST /api/reveal/start → translation keys. */
+export const REVEAL_START_ERROR_KEYS: Readonly<Record<string, TranslationKey>> = {
+  RATE_LIMITED: "pb_reveal_err_rate",
+  REVEAL_REASON_REQUIRED: "pb_reveal_err_reason",
+  INVALID_PARAMS: "pb_reveal_start_failed",
+  INVALID_WINDOW: "pb_reveal_err_window",
+  WINDOW_EXCEEDS_DURATION: "pb_reveal_err_window",
+  DURATION_UNKNOWN: "pb_reveal_err_duration",
+  RECORDING_NOT_FOUND: "pb_reveal_err_not_found",
+  TARGET_NOT_FOUND: "pb_reveal_err_not_found",
+  NO_ORIGINAL: "pb_reveal_err_no_original",
+  NO_FACE_ENVELOPE: "pb_reveal_err_no_envelope",
+  BAD_PHOTO: "pb_reveal_err_photo",
+  ML_UNAVAILABLE: "pb_reveal_err_ml",
+  REFERENCE_SEAL_FAILED: "pb_reveal_start_failed",
+  START_FAILED: "pb_reveal_start_failed",
+};
+
+export type RevealStartRefusal = {
+  /** "reauth" = step 2 asks for the step-up again; "method" = step 1, where the request can be changed. */
+  step: "reauth" | "method";
+  errorKey: TranslationKey;
+};
+
+/**
+ * Where a refused reveal request leaves the reveal modal, and what it says.
+ * REAUTH_REQUIRED means the step-up lapsed between the check and the request,
+ * so step 2 asks for it again. Every other refusal is about the request itself
+ * (target, window, reason, rate, the recording) and returns to step 1, which
+ * shows the message. No code (network failure, unparseable body) reads as
+ * "could not start" — never the raw server text.
+ */
+export function revealStartRefusal(code: string | null | undefined): RevealStartRefusal {
+  if (code === "REAUTH_REQUIRED") return { step: "reauth", errorKey: "pb_reveal_err_reauth" };
+  // Own keys only: a code such as "constructor" must not reach Object.prototype.
+  const key = typeof code === "string" && Object.prototype.hasOwnProperty.call(REVEAL_START_ERROR_KEYS, code)
+    ? REVEAL_START_ERROR_KEYS[code]
+    : undefined;
+  return { step: "method", errorKey: key ?? "pb_reveal_start_failed" };
+}

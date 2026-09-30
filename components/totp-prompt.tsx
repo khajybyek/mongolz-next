@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ShieldCheck, Loader2, AlertCircle } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { useT } from "@/lib/i18n/client";
+import { normalizeTotpInput, submitTotpStepUp, TOTP_CODE_LENGTH, TOTP_INPUT_MAX_LENGTH } from "@/lib/step-up-client";
 
 interface Props {
   open: boolean;
@@ -40,41 +41,15 @@ export function TotpPrompt({ open, onClose, onSuccess, description }: Props) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (code.length !== 6 || busy) return;
+    if (code.length !== TOTP_CODE_LENGTH || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/reauth/totp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: true; error?: string; code?: string; retry_after_sec?: number }
-        | null;
-      if (!res.ok) {
-        // `totp_required` is what requireAdminApi answers for an admin who
-        // has not enrolled TOTP yet — same meaning, same copy.
-        if (data?.error === "TOTP_NOT_ENABLED" || data?.error === "totp_required") {
-          setError(t("totp_prompt_not_enabled"));
-        } else if (data?.error === "server_config") {
-          setError(t("totp_prompt_server_config"));
-        } else if (res.status === 429) {
-          // Locked out: every further code is refused until the window ends,
-          // so "invalid code" would send the user round in circles.
-          const wait = Number(data?.retry_after_sec);
-          setError(
-            `${t("rl_too_many_attempts")}${Number.isFinite(wait) && wait > 0 ? ` (${Math.ceil(wait)} s)` : ""}`,
-          );
-        } else if (res.status === 401 && data?.code !== "invalid" && data?.code !== "replayed") {
-          // No `code` = the session itself was refused (middleware 401,
-          // session_invalid from a pin mismatch), not the TOTP code.
-          setError(t("totp_prompt_session_expired"));
-        } else {
-          // Never render a raw server code; the remaining refusals (bad
-          // code, replay) all mean "try another code".
-          setError(t("totp_prompt_invalid"));
-        }
+      // Copy for every refusal lives in lib/step-up-client.ts, shared with the
+      // reveal modal's authenticator-code step.
+      const result = await submitTotpStepUp(code, t);
+      if (!result.ok) {
+        setError(result.error);
         return;
       }
       onSuccess();
@@ -109,10 +84,10 @@ export function TotpPrompt({ open, onClose, onSuccess, description }: Props) {
             id="totp_step_up_code"
             inputMode="numeric"
             pattern="[0-9]{6}"
-            maxLength={6}
+            maxLength={TOTP_INPUT_MAX_LENGTH}
             autoComplete="one-time-code"
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(e) => setCode(normalizeTotpInput(e.target.value))}
             placeholder="000000"
             disabled={busy}
             className="input text-center text-2xl tracking-[0.5em] font-mono"
@@ -129,7 +104,7 @@ export function TotpPrompt({ open, onClose, onSuccess, description }: Props) {
         <div className="flex items-center gap-2 pt-1">
           <button
             type="submit"
-            disabled={code.length !== 6 || busy}
+            disabled={code.length !== TOTP_CODE_LENGTH || busy}
             className="btn-primary flex-1"
           >
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}

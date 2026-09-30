@@ -257,6 +257,7 @@ export default async function PlaybackDetailPage({
               revealWithheld={revealWithheld}
               privacyNoticeId={privacyNoticeId}
               faceEncrypted={faceEncrypted}
+              totpEnabled={profile.totp_enabled === true}
             />
           ) : (
             <div className="card aspect-video bg-black flex items-center justify-center text-text-muted text-sm">

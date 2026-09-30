@@ -48,6 +48,7 @@ export function PlaybackPlayer({
   revealWithheld = false,
   privacyNoticeId = null,
   faceEncrypted = false,
+  totpEnabled = false,
 }: {
   recordingId: string;
   videoUrl: string;
@@ -72,6 +73,9 @@ export function PlaybackPlayer({
   /** blur_strategy = face_encrypted (ADR 0013) — the reveal modal says that
    *  only the selected person's sealed faces are decrypted. */
   faceEncrypted?: boolean;
+  /** The signed-in admin has TOTP enrolled — the reveal modal's step 2 then
+   *  defaults to the authenticator code instead of the account password. */
+  totpEnabled?: boolean;
 }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
@@ -405,6 +409,7 @@ export function PlaybackPlayer({
           recordingDurationSec={liveDuration ?? durationSec}
           privacy={revealPrivacy}
           faceEncrypted={faceEncrypted}
+          totpEnabled={totpEnabled}
           onClose={close}
         />
       )}

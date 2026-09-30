@@ -1939,7 +1939,16 @@ export const T = {
   pb_continue: { mn: "Үргэлжлүүлэх", en: "Continue", kr: "계속" },
   pb_selected_from_video: { mn: "Видеоноос сонгосон", en: "Selected from the video:", kr: "영상에서 선택됨:" },
   pb_faces_will_reveal: { mn: "нүүр дээр reveal хийгдэнэ", en: "face(s) will be revealed", kr: "명의 얼굴이 공개됩니다" },
-  pb_reauth_note: { mn: "Reveal хийх нь нууцлалын журамтай үйлдэл. Үргэлжлүүлэхийн тулд нууц үгээ дахин оруулна уу. Дараагийн 15 минутад дахин асуухгүй.", en: "Revealing is a privacy-sensitive action. Re-enter your password to continue. You won't be asked again for 15 minutes.", kr: "공개는 개인정보 보호가 필요한 작업입니다. 계속하려면 비밀번호를 다시 입력하세요. 15분 동안 다시 묻지 않습니다." },
+  // Step 2 of the reveal modal, per factor. A password step-up opens only reveal
+  // requests; an authenticator step-up opens every protected action — so only
+  // the code note may say "you won't be asked again" without qualification.
+  pb_reauth_note: { mn: "Reveal хийх нь нууцлалын журамтай үйлдэл. Үргэлжлүүлэхийн тулд нууц үгээ дахин оруулна уу. Дараагийн 15 минутад reveal хүсэлт дахин асуухгүй.", en: "Revealing is a privacy-sensitive action. Re-enter your password to continue. Reveal requests won't ask again for 15 minutes.", kr: "공개는 개인정보 보호가 필요한 작업입니다. 계속하려면 비밀번호를 다시 입력하세요. 15분 동안 공개 요청 시 다시 묻지 않습니다." },
+  pb_reauth_note_totp: { mn: "Reveal хийх нь нууцлалын журамтай үйлдэл. Үргэлжлүүлэхийн тулд баталгаажуулах аппын 6 оронтой кодоо оруулна уу. Дараагийн 15 минутад дахин асуухгүй.", en: "Revealing is a privacy-sensitive action. Enter the 6-digit code from your authenticator app to continue. You won't be asked again for 15 minutes.", kr: "공개는 개인정보 보호가 필요한 작업입니다. 계속하려면 인증 앱의 6자리 코드를 입력하세요. 15분 동안 다시 묻지 않습니다." },
+  // Step 2 with a step-up from the last 15 minutes still live: nothing to type,
+  // Confirm sends the request (it still waits for a second admin).
+  pb_reauth_note_fresh: { mn: "Сүүлийн 15 минутад баталгаажуулсан тул код, нууц үг дахин асуухгүй. Баталгаажуулбал энэ reveal хүсэлт 2 дахь админд батлуулахаар илгээгдэнэ.", en: "You verified within the last 15 minutes, so no code or password is needed. Confirm to send this reveal request to a second admin for approval.", kr: "최근 15분 이내에 인증했으므로 코드나 비밀번호를 다시 묻지 않습니다. 확인하면 이 공개 요청이 승인을 위해 두 번째 관리자에게 전송됩니다." },
+  pb_reauth_factor_label: { mn: "Баталгаажуулах арга", en: "Verify with", kr: "인증 방법" },
+  pb_reauth_factor_totp: { mn: "Нэг удаагийн код", en: "Authenticator code", kr: "인증 앱 코드" },
   pb_awaiting_approval: { mn: "2 дахь админы баталгаажуулалт хүлээж байна", en: "Awaiting second-admin approval", kr: "두 번째 관리자의 승인 대기 중" },
   pb_four_eyes_note: { mn: "4-eyes зарчим: нүүр илчлэхээс өмнө өөр нэг админ /reveal-approvals хуудаснаас энэ хүсэлтийг батлах ёстой. Батлагдсаны дараа ML автоматаар ажиллана.", en: "4-eyes principle: another admin must approve this request on /reveal-approvals before any face is revealed. ML runs automatically once approved.", kr: "4-eyes 원칙: 얼굴을 공개하기 전에 다른 관리자가 /reveal-approvals 페이지에서 이 요청을 승인해야 합니다. 승인되면 ML이 자동으로 실행됩니다." },
   pb_processing: { mn: "Reveal боловсруулж байна…", en: "Processing reveal…", kr: "공개 처리 중…" },
@@ -1949,7 +1958,7 @@ export const T = {
   pb_reveal_failed: { mn: "Reveal амжилтгүй", en: "Reveal failed", kr: "공개 실패" },
   // Short mn labels: the four pills share one row on a 390 px phone.
   pb_step_pick: { mn: "1. Сонгох", en: "1. Pick person", kr: "1. 대상 선택" },
-  pb_step_auth: { mn: "2. Нууц үг", en: "2. Auth", kr: "2. 인증" },
+  pb_step_auth: { mn: "2. Нэвтрэлт", en: "2. Auth", kr: "2. 인증" },
   pb_step_process: { mn: "3. Явц", en: "3. Process", kr: "3. 처리" },
   pb_step_done: { mn: "4. Дууссан", en: "4. Done", kr: "4. 완료" },
   pb_masked_label: { mn: "Mask хийсэн (эх бичлэг)", en: "Masked (original)", kr: "마스킹됨 (원본)" },

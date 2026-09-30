@@ -16,7 +16,7 @@ import {
   recordingViewable,
   storedRecordingMode,
 } from "@/lib/recording-mode";
-import { revealErrorText, revealWithheldByPrivacy } from "@/lib/reveal-errors";
+import { revealErrorText, revealStartRefusal, revealWithheldByPrivacy } from "@/lib/reveal-errors";
 import { T, type TranslationKey } from "@/lib/i18n/translations";
 
 const RECORDING = "22222222-2222-4333-8444-555555555555";
@@ -141,8 +141,10 @@ describe("POST /api/reveal/start on a face-encrypted recording", () => {
   });
 
   it("the reveal modal translates the new refusal code", () => {
+    // The modal maps refusals through revealStartRefusal (lib/reveal-errors.ts).
+    expect(revealStartRefusal("NO_FACE_ENVELOPE")).toEqual({ step: "method", errorKey: "pb_reveal_err_no_envelope" });
     const src = readFileSync(join(process.cwd(), "app", "(app)", "playback", "[id]", "reveal-modal.tsx"), "utf8");
-    expect(src).toContain('NO_FACE_ENVELOPE: "pb_reveal_err_no_envelope"');
+    expect(src).toContain("revealStartRefusal(code)");
   });
 });
 

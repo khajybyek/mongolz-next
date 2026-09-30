@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils";
 import { FaceThumb } from "@/components/face-thumb";
 import { revealScopeCopy, REVEAL_REASON_MIN, REVEAL_REASON_MAX } from "@/lib/reveal-scope";
 import { useT } from "@/lib/i18n/client";
-import type { TranslationKey } from "@/lib/i18n/translations";
 import { useModalFocus } from "@/lib/use-modal-focus";
 import {
   formatVideoOffset as fmtSec,
@@ -28,8 +27,17 @@ import {
   type OffsetRange,
   type RevealMethod,
 } from "@/lib/privacy-schedule";
-import { revealErrorText, revealWithheldByPrivacy } from "@/lib/reveal-errors";
+import { revealErrorText, revealStartRefusal, revealWithheldByPrivacy } from "@/lib/reveal-errors";
 import { workflowStatus } from "@/lib/workflow-copy";
+import {
+  defaultRevealStepUpFactor,
+  revealStep2Mode,
+  revealStepUpIsFresh,
+  revealStepUpReady,
+  submitRevealStepUp,
+  type RevealStepUpFactor,
+} from "@/lib/step-up-client";
+import { RevealStepUpFields } from "./reveal-step-up-fields";
 
 interface Suspect {
   id: string;
@@ -46,25 +54,6 @@ export interface DetectedFace {
 }
 
 type Step = "method" | "reauth" | "processing" | "done";
-
-/** /api/reveal/start refusal codes → translation keys. */
-const REVEAL_ERROR_KEYS: Record<string, TranslationKey> = {
-  REAUTH_REQUIRED: "pb_reveal_err_reauth",
-  RATE_LIMITED: "pb_reveal_err_rate",
-  REVEAL_REASON_REQUIRED: "pb_reveal_err_reason",
-  INVALID_PARAMS: "pb_reveal_start_failed",
-  INVALID_WINDOW: "pb_reveal_err_window",
-  WINDOW_EXCEEDS_DURATION: "pb_reveal_err_window",
-  DURATION_UNKNOWN: "pb_reveal_err_duration",
-  RECORDING_NOT_FOUND: "pb_reveal_err_not_found",
-  TARGET_NOT_FOUND: "pb_reveal_err_not_found",
-  NO_ORIGINAL: "pb_reveal_err_no_original",
-  NO_FACE_ENVELOPE: "pb_reveal_err_no_envelope",
-  BAD_PHOTO: "pb_reveal_err_photo",
-  ML_UNAVAILABLE: "pb_reveal_err_ml",
-  REFERENCE_SEAL_FAILED: "pb_reveal_start_failed",
-  START_FAILED: "pb_reveal_start_failed",
-};
 type Method = RevealMethod;
 
 export function RevealModal({
@@ -77,6 +66,7 @@ export function RevealModal({
   recordingDurationSec,
   privacy,
   faceEncrypted = false,
+  totpEnabled = false,
   onClose,
 }: {
   recordingId: string;
@@ -101,6 +91,10 @@ export function RevealModal({
   /** Face-encrypted recording (ADR 0013): the job unseals only the selected
    *  person's face blobs. Presentation only — the flow is unchanged. */
   faceEncrypted?: boolean;
+  /** The operator's profile has TOTP enrolled (server-known, from the page).
+   *  Step 2 then offers the authenticator code first; without it only the
+   *  password is offered. Presentation only — the routes verify the factor. */
+  totpEnabled?: boolean;
   onClose: () => void;
 }) {
   const { t, lang } = useT();
@@ -139,6 +133,13 @@ export function RevealModal({
 
   const [reason, setReason] = useState("");
   const [password, setPassword] = useState("");
+  // Step 2 factor. A passkey-only operator may not remember the password, so
+  // an enrolled authenticator is the default.
+  const [factor, setFactor] = useState<RevealStepUpFactor>(() => defaultRevealStepUpFactor(totpEnabled));
+  const [code, setCode] = useState("");
+  // A step-up from the last 15 minutes was still live when step 1 continued:
+  // step 2 then only confirms (lib/step-up-client.ts revealStep2Mode).
+  const [stepUpFresh, setStepUpFresh] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<{
@@ -148,6 +149,20 @@ export function RevealModal({
     signed_url?: string | null;
     error_message?: string | null;
   } | null>(null);
+  const step2Mode = revealStep2Mode(stepUpFresh, job !== null);
+
+  // Closing the modal unmounts it (PlaybackPlayer renders it only while open).
+  // Work still in flight then must not create a reveal request: the pre-check
+  // is aborted and startRevealJob refuses to run once the modal is gone.
+  const aliveRef = useRef(true);
+  const precheckRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      precheckRef.current?.abort();
+    };
+  }, []);
 
   // ADR 0012: what the job will do with this range, judged like the job does
   // before decrypting. A fully protected request is refused by the job only
@@ -214,31 +229,47 @@ export function RevealModal({
     });
   }
 
-  // Step "method" → "reauth"
-  function continueToReauth() {
-    if (privacyBlocked) return; // the job would refuse it after approval
+  // Step "method" → "reauth". A step-up from the last 15 minutes (either
+  // factor) still opens a reveal request, so step 2 does not ask for it again
+  // — the notice promises exactly that — but it still shows, with Confirm
+  // only: "Continue" never sends a request by itself. /api/reveal/start
+  // verifies the cookie itself.
+  async function continueToReauth() {
+    if (privacyBlocked || busy) return; // the job would refuse it after approval
     setError(null);
+    setBusy(true);
+    const precheck = new AbortController();
+    precheckRef.current = precheck;
+    const fresh = await revealStepUpIsFresh(precheck.signal);
+    if (precheck.signal.aborted) return; // the modal closed meanwhile
+    precheckRef.current = null;
+    setBusy(false);
+    setStepUpFresh(fresh);
     setStep("reauth");
   }
 
-  // Step "reauth" — нууц үг submit
+  function chooseFactor(next: RevealStepUpFactor) {
+    setFactor(next);
+    setError(null);
+  }
+
+  // Step "reauth" — confirm (fresh step-up), or authenticator code / password
   async function submitReauth(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
+    if (step2Mode === "confirm") {
+      // The route re-checks the cookie; REAUTH_REQUIRED brings the fields back.
+      await startRevealJob();
+      return;
+    }
+    if (!revealStepUpReady(factor, { code, password })) return;
     setError(null);
     setBusy(true);
     try {
-      const res = await fetch("/api/auth/reauth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(
-          j.error === "server_config" ? t("totp_prompt_server_config") : (j.error ?? t("pb_reauth_failed")),
-        );
-      }
+      const verified = await submitRevealStepUp(factor, { code, password }, t);
+      if (!verified.ok) throw new Error(verified.error);
       setPassword("");
+      setCode("");
       if (job) {
         // Approval may take longer than the 15-minute reauth window. Resume
         // the existing job after verification; never create a duplicate.
@@ -257,8 +288,11 @@ export function RevealModal({
     }
   }
 
-  // Reveal job-ыг үүсгэж poll эхлүүлэх
+  // Reveal job-ыг үүсгэж poll эхлүүлэх. The only place that sends a reveal
+  // request — never once the modal has closed: the request would still reach
+  // the other admins, and the requester cannot withdraw it.
   async function startRevealJob() {
+    if (!aliveRef.current) return;
     setStep("processing");
     setBusy(true);
     setError(null);
@@ -280,20 +314,27 @@ export function RevealModal({
       fd.append("end_sec", String(windowEnd));
     }
 
+    // A refusal lands where the operator can act on it (lib/reveal-errors.ts
+    // revealStartRefusal): REAUTH_REQUIRED → step 2 asks for the step-up
+    // again; anything else → step 1, which shows the message. Stable route
+    // code → the operator's language; never the raw server text (it mixed
+    // Mongolian and English regardless of the UI language).
+    const refuse = (code: string | undefined) => {
+      const refusal = revealStartRefusal(code);
+      setError(t(refusal.errorKey));
+      if (refusal.step === "reauth") setStepUpFresh(false);
+      setStep(refusal.step);
+    };
     try {
       const res = await fetch("/api/reveal/start", { method: "POST", body: fd });
       const data = (await res.json().catch(() => ({}))) as { error?: string; code?: string; job_id?: string; status?: string };
-      if (!res.ok) {
-        // Stable route code → the operator's language; never the raw server
-        // text (it mixed Mongolian and English regardless of the UI language).
-        const key = data.code ? REVEAL_ERROR_KEYS[data.code] : undefined;
-        throw new Error(t(key ?? "pb_reveal_start_failed"));
+      if (!res.ok || !data.job_id) {
+        refuse(res.ok ? undefined : data.code);
+        return;
       }
-      if (!data.job_id) throw new Error(t("pb_reveal_start_failed"));
       setJob({ id: data.job_id, status: data.status ?? "pending_approval", progress: 0 });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("ai_error_generic"));
-      setStep("method");
+    } catch {
+      refuse(undefined); // network failure
     } finally {
       setBusy(false);
     }
@@ -633,16 +674,24 @@ export function RevealModal({
                   {continueHint}
                 </p>
               )}
+              {/* A refused reveal request returns here (rate limit, missing
+                  original, bad window, network) — say why, as step 2 does. */}
+              {error && (
+                <div role="alert" className="text-danger text-xs bg-danger/10 border border-danger/30 rounded-lg p-2.5">
+                  {error}
+                </div>
+              )}
               <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row">
-                <button onClick={onClose} className="btn-ghost flex-1">
+                <button onClick={onClose} className="btn-ghost flex-1" disabled={busy}>
                   {t("pb_cancel_btn")}
                 </button>
                 <button
                   onClick={continueToReauth}
-                  disabled={!canContinue || reasonShort}
+                  disabled={!canContinue || reasonShort || busy}
                   aria-describedby={continueHint ? "reveal-continue-hint" : undefined}
                   className="btn-primary flex-1"
                 >
+                  {busy && <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden />}
                   {t("pb_continue")}
                 </button>
               </div>
@@ -681,30 +730,28 @@ export function RevealModal({
                 </div>
               )}
 
-              <div className="bg-warning/5 border border-warning/30 rounded-lg p-3 text-xs flex gap-2">
-                <Lock className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-                <div className="leading-relaxed">
-                  {t("pb_reauth_note")}
-                </div>
-              </div>
-
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={t("login_pass")}
-                autoFocus
-                className="input"
-                disabled={busy}
+              <RevealStepUpFields
+                confirmOnly={step2Mode === "confirm"}
+                totpEnabled={totpEnabled}
+                factor={factor}
+                onFactorChange={chooseFactor}
+                code={code}
+                onCodeChange={setCode}
+                password={password}
+                onPasswordChange={setPassword}
+                busy={busy}
               />
 
               {error && (
-                <div className="text-danger text-xs bg-danger/10 border border-danger/30 rounded-lg p-2.5">
+                <div role="alert" className="text-danger text-xs bg-danger/10 border border-danger/30 rounded-lg p-2.5">
                   {error}
                 </div>
               )}
 
-              <div className="flex gap-2 pt-2">
+              {/* Stacked on phones like step 1's row: side by side, "Confirm"
+                  (mn "Баталгаажуулах") and up to three buttons did not fit a
+                  390 px row — the lock icon collapsed to a dot. */}
+              <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row">
                 {!job && (
                   <button
                     type="button"
@@ -725,8 +772,12 @@ export function RevealModal({
                     {t("pb_cancel_btn")}
                   </button>
                 )}
-                <button type="submit" disabled={busy || !password} className="btn-primary flex-1">
-                  {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+                <button
+                  type="submit"
+                  disabled={busy || (step2Mode === "verify" && !revealStepUpReady(factor, { code, password }))}
+                  className="btn-primary flex-1"
+                >
+                  {busy ? <Loader2 className="w-4 h-4 shrink-0 animate-spin" /> : <Lock className="w-4 h-4 shrink-0" />}
                   {t("confirm")}
                 </button>
               </div>
