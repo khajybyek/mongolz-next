@@ -2,8 +2,9 @@
 cipher_mask — the "encrypted face" visual of a ``face_encrypted`` recording.
 
 In the stored masked video every face box is filled with coarse keyed
-"cipher noise": flat 8–12 px cells whose colours come from an AES-256-CTR
-keystream keyed per (recording, track). The pixels are a function of the key,
+"cipher noise": flat 8–12 px cells whose colours come from a SHAKE-256
+output keyed per (recording, track) — a keyed PRF, not an encryption mode:
+nothing is encrypted here, the pattern only has to be unpredictable. The pixels are a function of the key,
 the track id and the cell position ONLY — nothing of the face underneath
 enters them — so the pattern leaks nothing about the face (the face itself is
 kept, sealed, in the face envelope — see ``face_envelope``). A thin 1 px
@@ -22,13 +23,13 @@ visible to every viewer, the face keys are not.
 
 from __future__ import annotations
 
+import hashlib
 import struct
 from collections import OrderedDict
 
 import cv2
 import numpy as np
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 Rect = tuple[int, int, int, int]  # (x1, y1, x2, y2), exclusive right/bottom
@@ -72,10 +73,11 @@ class CipherPalette:
         if table is not None:
             self._tables.move_to_end(track_id)
             return table
-        # Counter block: track id in the high 32 bits, block counter below.
-        nonce = struct.pack(">I", track_id & 0xFFFFFFFF) + bytes(12)
-        encryptor = Cipher(algorithms.AES(self._key), modes.CTR(nonce)).encryptor()
-        stream = encryptor.update(bytes(TABLE_CELLS * TABLE_CELLS * 3)) + encryptor.finalize()
+        # Keyed XOF (the secret key is the prefix; SHAKE has no length
+        # extension), domain-separated per track.
+        stream = hashlib.shake_256(
+            self._key + b"mongolz-cipher-table-v1" + struct.pack(">I", track_id & 0xFFFFFFFF)
+        ).digest(TABLE_CELLS * TABLE_CELLS * 3)
         table = np.frombuffer(stream, dtype=np.uint8).reshape(TABLE_CELLS, TABLE_CELLS, 3).copy()
         self._tables[track_id] = table
         if len(self._tables) > _MAX_CACHED_TABLES:

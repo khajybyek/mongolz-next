@@ -99,7 +99,7 @@ running segment, and so does an envelope reaching `FACE_ENVELOPE_MAX_BYTES`
 
 * `*_masked.mp4.enc` — the stored video: every face box (the masker's boxes and
   persistence) painted with the keyed cipher visual (`cipher_mask.py`: flat
-  8–12 px AES-CTR cells per (recording, track) + a 1 px outline), encrypted at
+  8–12 px SHAKE-256 (keyed PRF) cells per (recording, track) + a 1 px outline), encrypted at
   rest with the per-recording key. Live HLS keeps the cubist mask.
 * `*_faces.mfe.enc` — the face envelope (`face_envelope.py`, format "MFE1"):
   every face box of every frame captured in `standard` privacy mode, JPEG

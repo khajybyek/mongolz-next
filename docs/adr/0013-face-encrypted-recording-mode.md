@@ -208,7 +208,7 @@ A pure, unit-tested module with its own binary format:
 ### The cipher pattern in the stored video
 
 Each masked face box is filled with coarse cells of 8–12 px whose colours come
-from a keystream (HMAC / AES-CTR) keyed per recording and track. The colours
+from a SHAKE-256 keyed PRF (not an encryption mode) keyed per recording and track. The colours
 do not depend on the face pixels, so the pattern carries no information about
 the face (a test checks that its correlation with the original crop is about
 zero). Flat cells compress well, unlike per-pixel noise. A 1 px outline shows
