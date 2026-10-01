@@ -676,10 +676,6 @@ class SupabaseStorage:
           * ``"on_demand"`` (#3) — no blurred MP4; playback view is derived
             from the encrypted original at request time via the ML
             ``/recording/{id}/view`` endpoint.
-          * ``"face_encrypted"`` (ADR 0013) — no raw original: ``storage_path``
-            is the masked video encrypted at rest (``*_masked.mp4.enc``) and
-            the ready row also carries ``face_envelope_path`` (set by the
-            delivery, not by this placeholder insert).
         """
         if not self.client:
             return None
@@ -1014,33 +1010,6 @@ class SupabaseStorage:
             rows[0].get("privacy_loosened_at"),
         )
 
-    def load_recording_mode(self, camera_id: str) -> str | None:
-        """``cameras.recording_mode`` (ADR 0013): ``standard`` |
-        ``face_encrypted``, or None when the camera has no ``cameras`` row.
-
-        Deliberately a query of its own, never part of
-        ``load_privacy_schedule``: if the column is missing (ML deployed
-        before migration 20260930100000) only this read fails — the
-        recording-mode cache then keeps the last known mode / standard — and
-        the privacy schedule stays readable. Raises on any failure.
-        """
-        if not self.client:
-            raise RuntimeError("Supabase client is not configured")
-        result = (
-            self.client.table("cameras")
-            .select("id, recording_mode")
-            .eq("id", camera_id)
-            .limit(1)
-            .execute()
-        )
-        rows = self._privacy_rows(result, "cameras")
-        if not rows:
-            return None
-        mode = rows[0].get("recording_mode")
-        if mode not in ("standard", "face_encrypted"):
-            raise ValueError(f"invalid recording_mode {mode!r}")
-        return mode
-
     def open_privacy_span(
         self,
         recording_id: str,
@@ -1121,11 +1090,6 @@ class SupabaseStorage:
             "has_original": False,
             "original_path": None,
         }
-        if "face_envelope_path" in fields:
-            # A face_encrypted placeholder points at no artifact either (the
-            # key is only sent for face_encrypted rows — standard rows stay
-            # valid against a schema without the column).
-            row["face_envelope_path"] = None
         self.client.table("recordings").upsert(
             row, on_conflict="id", ignore_duplicates=True
         ).execute()

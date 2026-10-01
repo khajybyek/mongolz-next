@@ -116,10 +116,7 @@ class RecordingSpool:
     ) -> None:
         """Atomically register delivery, seal artifacts, then remove plaintext.
 
-        artifacts: source, path (remote key), original (remote stays encrypted
-        with the per-recording key — the raw original, and both artifacts of a
-        face_encrypted segment: the masked video and the face envelope, ADR
-        0013), optional kind (informational).
+        artifacts: source, path (remote key), original (remote stays encrypted).
         privacy_spans (ADR 0012): the segment's capture-time privacy spans
         (``client_span_id, start_offset_sec, end_offset_sec, source``); the
         delivery writes them before the row is marked ready.
@@ -151,9 +148,6 @@ class RecordingSpool:
                             "path": a["path"], "original": a["original"],
                             "file": f"{index}.enc",
                             "key_context": recording_id if a["original"] else f"spool:playback:{recording_id}",
-                            # Informational (face_encrypted: masked_video /
-                            # face_envelope); manifests without it deliver alike.
-                            **({"kind": a["kind"]} if a.get("kind") else {}),
                         }
                         for index, a in enumerate(artifacts)
                     ],

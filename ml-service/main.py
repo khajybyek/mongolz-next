@@ -60,7 +60,6 @@ from camera_worker import CameraManager
 from storage import SupabaseStorage
 from recording_spool import get_recording_spool
 from privacy_schedule import get_privacy_schedule_cache, init_privacy_schedule_cache
-from recording_mode import init_recording_mode_cache
 from privacy_protection import (
     ProtectedTimeline,
     fail_closed_timeline,
@@ -78,7 +77,7 @@ from anti_spoof import detect_spoof
 from embedding_fusion import FrameEmbedding, fuse_weighted_mean, fuse_median, cosine_similarity
 from tcp_forward import tunnel_status
 from telemetry import init_telemetry
-from view_renderer import render_blurred_frame, render_blurred_view, sweep_view_cache
+from view_renderer import render_blurred_frame, render_blurred_view
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("mongolz-ml")
@@ -187,9 +186,6 @@ async def lifespan(app: FastAPI):
     # Per-camera privacy schedules (ADR 0012) for the capture pipeline,
     # /edge/detect and the reveal job — before any camera can start.
     init_privacy_schedule_cache(storage)
-    # Per-camera recording mode (ADR 0013: standard | face_encrypted) — a
-    # sibling cache, read once per segment by the capture pipeline.
-    init_recording_mode_cache(storage)
     recording_spool = get_recording_spool()
     recording_spool.start(storage)
     camera_manager = CameraManager(face_engine=face_engine, storage=storage, hls_dir=HLS_DIR)
@@ -282,11 +278,6 @@ async def require_token(authorization: str | None = Header(default=None)):
 #   delivered with each segment), /edge/detect, reveal, on-demand view and
 #   evidence renderers.
 PRIVACY_SCHEDULES_CAPABILITY = 1
-#   face_encrypted 1 = ADR 0013: cameras.recording_mode='face_encrypted' is
-#   honoured (masked video + sealed face envelope, no raw original) and
-#   /recording/{id}/view serves such recordings. An older build ignores the
-#   column and keeps storing raw originals.
-FACE_ENCRYPTED_CAPABILITY = 1
 
 
 @app.get("/")
@@ -307,7 +298,6 @@ def health():
         "tunnel": tunnel_status(),
         "durable_uploads_ready": upload_store is not None,
         "privacy_schedules": PRIVACY_SCHEDULES_CAPABILITY,
-        "face_encrypted": FACE_ENCRYPTED_CAPABILITY,
     }
 
 
@@ -996,9 +986,6 @@ async def render_view_endpoint(recording_id: str):
     Result is cached at `/tmp/mongolz-views/{recording_id}.mp4`. Returns
     `video/mp4`. On cache hit serves immediately; on cache miss generates
     in-process (5–30s for typical clips) under a per-recording lock.
-
-    ``blur_strategy='face_encrypted'`` (ADR 0013): the stored masked video is
-    decrypted and served as is (same cache) — no render, no detector.
     """
     # UUID validation — also blocks `..` / path traversal via the cache key.
     if not _UUID_RE.match(recording_id):
@@ -1062,7 +1049,7 @@ async def _evidence_recording_blob(recording_id: str) -> tuple[bytes, int | None
     try:
         result = await asyncio.to_thread(
             lambda: storage.client.table("recordings")
-            .select("original_path,storage_path,has_original,duration_sec,capture_status,camera_id,started_at,blur_strategy")
+            .select("original_path,storage_path,has_original,duration_sec,capture_status,camera_id,started_at")
             .eq("id", recording_id)
             .maybe_single()
             .execute()
@@ -1075,12 +1062,7 @@ async def _evidence_recording_blob(recording_id: str) -> tuple[bytes, int | None
         raise HTTPException(404, "recording not found")
     if row.get("capture_status") != "ready":
         raise HTTPException(409, "recording is not ready")
-    if row.get("blur_strategy") == "face_encrypted":
-        # ADR 0013: no raw original exists — the source is the masked video
-        # (faces already cipher-painted; the renderer masks on top of it).
-        path = row.get("storage_path")
-    else:
-        path = row.get("original_path") if row.get("has_original") else row.get("storage_path")
+    path = row.get("original_path") if row.get("has_original") else row.get("storage_path")
     if not path:
         raise HTTPException(404, "recording source unavailable")
     try:
@@ -1158,65 +1140,6 @@ async def evidence_frame_endpoint(recording_id: str, at_sec: float):
     return Response(content=jpeg, media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
 
 
-def _readable_video(path: str) -> bool:
-    cap = cv2.VideoCapture(path)
-    try:
-        ok, _frame = cap.read() if cap.isOpened() else (False, None)
-        return bool(ok)
-    finally:
-        cap.release()
-
-
-async def _serve_face_encrypted_view(recording_id: str, row: dict, cache_path: str):
-    """Playback view of a face_encrypted recording (ADR 0013).
-
-    The stored video IS the masked view (every face already painted with the
-    keyed cipher visual at capture), so the view is only decrypted — no
-    re-render, no detector run, no embedding — and cached under the same
-    rules as a derived view. Called with the recording's view lock held."""
-    if not row.get("has_original"):
-        # has_original = the restorable encrypted source has been delivered.
-        raise HTTPException(404, "recording not delivered yet")
-    path = row.get("storage_path")
-    if not path:
-        raise HTTPException(404, "masked video path empty")
-
-    def _fetch() -> bytes:
-        data = storage.client.storage.from_("recordings").download(path)
-        if str(path).endswith(".enc"):
-            data = decrypt_bytes(data, recording_id=recording_id)
-        return data
-
-    try:
-        blob = await asyncio.to_thread(_fetch)
-    except Exception as e:
-        log.warning("view: face_encrypted download/decrypt failed (%s): %s", recording_id[:8], type(e).__name__)
-        raise HTTPException(500, "could not prepare recording")
-    tmp_out = cache_path + ".part"
-    try:
-        def _write() -> None:
-            with open(tmp_out, "wb") as f:
-                f.write(blob)
-            if len(blob) < 1000 or not _readable_video(tmp_out):
-                raise RuntimeError("masked video unreadable")
-            # Bound the cache the moment we add to it (the fresh entry is
-            # still a .part sibling, so the sweep cannot evict it).
-            sweep_view_cache(_VIEW_CACHE_DIR)
-
-        await asyncio.to_thread(_write)
-    except Exception as e:
-        log.warning("view: face_encrypted view unusable (%s): %s", recording_id[:8], type(e).__name__)
-        try:
-            os.unlink(tmp_out)
-        except OSError:
-            pass
-        raise HTTPException(500, "render produced empty output")
-    os.replace(tmp_out, cache_path)
-    log.info("view decrypted (face_encrypted): recording=%s size=%dKB",
-             recording_id[:8], os.path.getsize(cache_path) // 1024)
-    return FileResponse(cache_path, media_type="video/mp4")
-
-
 async def _render_view_cold(recording_id: str, cache_path: str):
     # Cold path — derive under per-recording lock so a thundering herd of
     # concurrent requests only does the work once.
@@ -1231,7 +1154,7 @@ async def _render_view_cold(recording_id: str, cache_path: str):
         try:
             res = await asyncio.to_thread(
                 lambda: storage.client.table("recordings")
-                .select("original_path, has_original, camera_id, started_at, duration_sec, blur_strategy, storage_path")
+                .select("original_path, has_original, camera_id, started_at, duration_sec")
                 .eq("id", recording_id)
                 .maybe_single()
                 .execute()
@@ -1241,8 +1164,6 @@ async def _render_view_cold(recording_id: str, cache_path: str):
             raise HTTPException(500, "recording lookup failed")
         if not res or not res.data:
             raise HTTPException(404, "recording not found")
-        if res.data.get("blur_strategy") == "face_encrypted":
-            return await _serve_face_encrypted_view(recording_id, res.data, cache_path)
         if not res.data.get("has_original"):
             raise HTTPException(404, "no original available — cannot derive view")
         original_path = res.data.get("original_path")
