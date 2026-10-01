@@ -11,7 +11,8 @@ constraints that shaped each choice.
 ## Conventions
 
 - One ADR per file, numbered `NNNN-kebab-title.md`.
-- `Status` is one of: Proposed / Accepted / Deprecated / Superseded.
+- `Status` is one of: Proposed / Accepted / Deprecated / Superseded /
+  Withdrawn (accepted and built, then taken back before any camera used it).
 - Once accepted, an ADR is **immutable**. Replace via a new ADR that
   references the old one with `Supersedes: NNNN`.
 
@@ -31,4 +32,4 @@ constraints that shaped each choice.
 | 0010 | [On-demand blurred view](0010-on-demand-blurred-view.md) | Accepted |
 | 0011 | [Prove the second factor at the data tier](0011-mfa-at-the-data-tier.md) | Accepted |
 | 0012 | [Privacy schedules can only tighten protection](0012-privacy-schedules-tightening-only.md) | Accepted |
-| 0013 | [Optional face-encrypted recording mode](0013-face-encrypted-recording-mode.md) | Accepted |
+| 0013 | [Optional face-encrypted recording mode](0013-face-encrypted-recording-mode.md) | Withdrawn 2026-10-01 (owner decision; never used by a camera) |

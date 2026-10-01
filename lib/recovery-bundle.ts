@@ -101,33 +101,8 @@ export type RecoveryValidation = {
   secrets: RecoverySecrets;
   camera_urls_verified: number;
   encrypted_recordings_verified: number;
-  /**
-   * Face envelopes of face-encrypted recordings (ADR 0013) — objects named by
-   * `recordings.face_envelope_path` in the bundled table dump. They are not
-   * whole-file video blobs (per-face AEAD records under per-face keys), so
-   * they are checked by the bundle's own checksums + AEAD only and are never
-   * handed to the video decrypt / ffprobe preflight.
-   */
-  face_envelopes_verified: number;
-  face_envelope_paths: ReadonlySet<string>;
   database_files_verified: number;
 };
-
-/**
- * `recordings.face_envelope_path` values from the bundled table dump (absent
- * table or column → none: older backups have no face-encrypted recordings).
- */
-export function faceEnvelopePaths(recordingsTable: Buffer | undefined): Set<string> {
-  const out = new Set<string>();
-  if (!recordingsTable) return out;
-  const rows = JSON.parse(recordingsTable.toString("utf8")) as unknown;
-  if (!Array.isArray(rows)) throw new Error("Recording backup table is invalid");
-  for (const row of rows) {
-    const value = row && typeof row === "object" ? (row as { face_envelope_path?: unknown }).face_envelope_path : null;
-    if (typeof value === "string" && value.length > 0) out.add(value);
-  }
-  return out;
-}
 
 export function sha256(body: Buffer | string): string {
   return createHash("sha256").update(body).digest("hex");
@@ -501,8 +476,6 @@ export function validateRecoveryBundle(
   let sourceBytes = 0;
   let sealedBytes = 0;
   let encryptedRecordings = 0;
-  let faceEnvelopes = 0;
-  const envelopePaths = faceEnvelopePaths(databaseFiles.get("tables/recordings.json"));
   const seen = new Set<string>();
   for (const item of manifest.objects) {
     const expectedFile = recoveryObjectRelative(item.bucket, item.object_path);
@@ -521,9 +494,7 @@ export function validateRecoveryBundle(
     if (source.length !== item.source_bytes || sha256(source) !== item.source_sha256) {
       throw new Error("Recovery object source checksum mismatch");
     }
-    if (item.bucket === "recordings" && envelopePaths.has(item.object_path)) {
-      faceEnvelopes++;
-    } else if (item.bucket === "recordings" && item.object_path.endsWith(".enc")) {
+    if (item.bucket === "recordings" && item.object_path.endsWith(".enc")) {
       decryptRecordingBlob(source, item.row_id, secrets.application_keys);
       encryptedRecordings++;
     }
@@ -557,8 +528,6 @@ export function validateRecoveryBundle(
     secrets,
     camera_urls_verified: cameraUrls,
     encrypted_recordings_verified: encryptedRecordings,
-    face_envelopes_verified: faceEnvelopes,
-    face_envelope_paths: envelopePaths,
     database_files_verified: databaseFiles.size,
   };
   } finally {

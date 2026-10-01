@@ -20,7 +20,6 @@ import {
 import type { RevealMethod } from "@/lib/database.types";
 import type { TablesInsert } from "@/lib/database.generated";
 import { readRevealAuthority } from "@/lib/reveal-authority";
-import { isFaceEncryptedRecording, recordingRevealable } from "@/lib/recording-mode";
 
 export async function POST(request: NextRequest) {
   const auth = await requireAdminApi();
@@ -116,26 +115,18 @@ export async function POST(request: NextRequest) {
     target_end_sec = e;
   }
 
-  // Recording байгаа эсэхийг шалгах + has_original. A face-encrypted
-  // recording (ADR 0013) keeps no raw original: the reveal restores the
-  // selected person from the sealed face envelope instead, so it needs that.
+  // Recording байгаа эсэхийг шалгах + has_original
   const supabase = await createClient();
   const { data: rec } = await supabase
     .from("recordings")
-    .select("id, has_original, blur_strategy, face_envelope_path, filename, duration_sec")
+    .select("id, has_original, filename, duration_sec")
     .eq("id", recording_id)
     .single();
 
   if (!rec) {
     return NextResponse.json({ error: "recording not found", code: "RECORDING_NOT_FOUND" }, { status: 404 });
   }
-  if (!recordingRevealable(rec) && isFaceEncryptedRecording(rec)) {
-    return NextResponse.json(
-      { error: "This face-encrypted recording has no sealed face envelope — reveal is not possible", code: "NO_FACE_ENVELOPE" },
-      { status: 422 }
-    );
-  }
-  if (!recordingRevealable(rec)) {
+  if (!rec.has_original) {
     return NextResponse.json(
       { error: "Энэ бичлэгт original үлдээгүй — reveal боломжгүй", code: "NO_ORIGINAL" },
       { status: 422 }

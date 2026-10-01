@@ -8,8 +8,6 @@
  * manifest said `complete: true`.
  */
 
-import { recordingObjectPaths } from "./recording-mode";
-
 export type TableSpec = {
   /** Base allow-list — never contains biometrics or auth material. */
   columns: string;
@@ -40,7 +38,7 @@ export const BACKUP_TABLES: Record<string, TableSpec> = {
   },
   cameras: {
     columns:
-      "id, name, cam_type, url, enabled, consent_required, consent_text, privacy_default, privacy_loosened_at, recording_mode, created_by, created_at",
+      "id, name, cam_type, url, enabled, consent_required, consent_text, privacy_default, privacy_loosened_at, created_by, created_at",
     note:
       "url is an AES-256-GCM ciphertext produced with CAMERA_URL_KEY. It is exported because the column is NOT NULL and cameras are unreachable without it; it stays unreadable unless the restore environment holds that key (or CAMERA_URL_KEY_PREV).",
   },
@@ -165,12 +163,9 @@ export const BACKUP_STORAGE_SOURCES: Record<string, PathSource[]> = {
   recordings: [
     {
       table: "recordings",
-      select: "id, storage_path, original_path, face_envelope_path",
-      // face_envelope_path: the sealed per-face envelope of a face-encrypted
-      // recording (ADR 0013) — without it no face of that recording can ever
-      // be restored, so it is as essential as the original.
-      from: "recordings.storage_path + recordings.original_path + recordings.face_envelope_path",
-      paths: (r) => recordingObjectPaths(r),
+      select: "id, storage_path, original_path",
+      from: "recordings.storage_path + recordings.original_path",
+      paths: (r) => [r.storage_path as string, r.original_path as string | null],
     },
   ],
   faces: [
@@ -208,20 +203,52 @@ export const BACKUP_STORAGE_SOURCES: Record<string, PathSource[]> = {
 };
 
 /**
- * Rows from a backup taken before 20260928100000_privacy_schedules_enforced
- * (ADR 0012) still carry the retired model: `cameras.mask_default` (column
- * dropped) and `masking_schedules.window_mode` 'masked' | 'revealed' (now
- * rejected by the CHECK). Map them exactly as the migration mapped the live
- * rows so an older artifact stays restorable: mask_default is dropped (every
- * camera became privacy_default 'standard', the column default), masked →
- * private, revealed → standard. Current rows pass through unchanged.
+ * Map rows from an older backup onto the current schema, exactly as the
+ * migrations mapped the live rows, so an older artifact stays restorable.
+ * The restore upserts every key of a row as a column, and PostgREST refuses
+ * the whole batch (PGRST204) when one of them no longer exists.
+ *
+ * - Before 20260928100000_privacy_schedules_enforced (ADR 0012):
+ *   `cameras.mask_default` (column dropped) and `masking_schedules.window_mode`
+ *   'masked' | 'revealed' (now rejected by the CHECK). mask_default is dropped
+ *   (every camera became privacy_default 'standard', the column default),
+ *   masked → private, revealed → standard.
+ * - Taken while 20260930100000_face_encrypted_recordings was live and before
+ *   20261001100000_remove_face_encrypted_mode (ADR 0013, withdrawn):
+ *   `cameras.recording_mode` and `recordings.face_envelope_path` (both
+ *   dropped). Both are dropped here, as the migration dropped them. A
+ *   face-encrypted recording cannot be restored at all — the current schema
+ *   has no mode that plays or reveals it, and the migration itself refused to
+ *   run while one existed — so such a row stops the restore with a message
+ *   naming it instead of failing inside a batch on the blur_strategy CHECK.
+ *
+ * Current rows pass through unchanged.
  */
 export function upgradeLegacyBackupRows(
   table: string,
   rows: Record<string, unknown>[],
 ): Record<string, unknown>[] {
   if (table === "cameras") {
-    return rows.map(({ mask_default: _retired, ...row }) => row);
+    return rows.map(({ mask_default: _retired, recording_mode: _withdrawn, ...row }) => row);
+  }
+  if (table === "recordings") {
+    const faceEncrypted = rows.filter(
+      (r) =>
+        r.blur_strategy === "face_encrypted" ||
+        (r.face_envelope_path !== undefined && r.face_envelope_path !== null),
+    );
+    if (faceEncrypted.length > 0) {
+      const ids = faceEncrypted.slice(0, 5).map((r) => String(r.id)).join(", ");
+      const more = faceEncrypted.length > 5 ? ` and ${faceEncrypted.length - 5} more` : "";
+      throw new Error(
+        `Backup contains ${faceEncrypted.length} face-encrypted recording(s) (${ids}${more}). ` +
+          "That recording mode was withdrawn in 20261001100000_remove_face_encrypted_mode (ADR 0013) " +
+          "and the current schema cannot store or reveal them. Remove those rows (and their faces, " +
+          "reveal_jobs and recording_privacy_spans) from the backup, or restore onto a schema before " +
+          "20261001100000. Nothing was changed.",
+      );
+    }
+    return rows.map(({ face_envelope_path: _withdrawn, ...row }) => row);
   }
   if (table === "masking_schedules") {
     const legacy: Record<string, string> = { masked: "private", revealed: "standard" };

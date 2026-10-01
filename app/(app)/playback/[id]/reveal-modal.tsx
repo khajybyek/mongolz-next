@@ -12,7 +12,6 @@ import {
   AlertTriangle,
   Download,
   ShieldCheck,
-  KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FaceThumb } from "@/components/face-thumb";
@@ -65,7 +64,6 @@ export function RevealModal({
   maskedUrl,
   recordingDurationSec,
   privacy,
-  faceEncrypted = false,
   totpEnabled = false,
   selfReveal = false,
   onClose,
@@ -89,9 +87,6 @@ export function RevealModal({
   /** Stretches the reveal job keeps masked (ADR 0012) — capture-time spans
    *  and the camera's current schedule — judged against the row's duration. */
   privacy?: { spans: OffsetRange[]; schedule: OffsetRange[]; durationSec: number | null };
-  /** Face-encrypted recording (ADR 0013): the job unseals only the selected
-   *  person's face blobs. Presentation only — the flow is unchanged. */
-  faceEncrypted?: boolean;
   /** The operator's profile has TOTP enrolled (server-known, from the page).
    *  Step 2 then offers the authenticator code first; without it only the
    *  password is offered. Presentation only — the routes verify the factor. */
@@ -457,15 +452,6 @@ export function RevealModal({
                 >
                   <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden />
                   <span>{t("pb_reveal_self_notice")}</span>
-                </p>
-              )}
-              {faceEncrypted && (
-                <p
-                  data-face-encrypted-notice
-                  className="flex items-start gap-2 rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-xs leading-relaxed text-text-soft"
-                >
-                  <KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" aria-hidden />
-                  <span>{t("pb_reveal_face_encrypted_notice")}</span>
                 </p>
               )}
               <div className="grid grid-cols-1 min-[480px]:grid-cols-3 gap-2">

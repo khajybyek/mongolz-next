@@ -267,27 +267,6 @@ describe("GET /api/admin/backup — storage manifests", () => {
     expect(recordings.derived_from[0]).toContain("recordings.storage_path");
   });
 
-  it("lists a face-encrypted recording's masked video and its face envelope (ADR 0013)", async () => {
-    state.rows.recordings = [
-      ...state.rows.recordings,
-      {
-        id: "r4",
-        blur_strategy: "face_encrypted",
-        storage_path: "cam1/r4_masked.mp4.enc",
-        original_path: null,
-        face_envelope_path: "cam1/r4_faces.mfe",
-      },
-    ];
-    const { json } = await open();
-    const recordings = await json("buckets/recordings.manifest.json");
-    expect(recordings.objects.filter((o: Row) => o.row_id === "r4").map((o: Row) => o.path)).toEqual([
-      "cam1/r4_masked.mp4.enc",
-      "cam1/r4_faces.mfe",
-    ]);
-    expect(recordings.total_objects).toBe(6);
-    expect(recordings.derived_from[0]).toContain("recordings.face_envelope_path");
-  });
-
   it("appends .enc to sealed crops only — the retention trigger's rule", async () => {
     const { json } = await open();
     const faces = await json("buckets/faces.manifest.json");

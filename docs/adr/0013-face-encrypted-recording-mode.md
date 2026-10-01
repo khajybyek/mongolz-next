@@ -1,7 +1,22 @@
 # 0013 — Optional face-encrypted recording mode (per-face encryption at capture)
 
-* **Status:** Accepted. Opt-in per camera; every camera starts, and stays,
-  in `standard` until an admin switches it
+> **Withdrawn — 2026-10-01, owner decision. Never deployed to a camera.**
+> The owner rejected the result: the keyed cipher pattern over faces looked
+> wrong in playback, and the mode depended entirely on the face detector (a
+> missed face stayed visible, with no original to re-mask later). The code was
+> removed (ML, web, docs) and
+> `supabase/migrations/20261001100000_remove_face_encrypted_mode.sql` drops
+> `cameras.recording_mode` and `recordings.face_envelope_path` and restores
+> `recordings.blur_strategy` to `baked | on_demand`. Production held no
+> `face_encrypted` recording and its only camera was `standard`, so nothing
+> stored depended on it. Recording works exactly as ADR 0002 and ADR 0010
+> describe. Kept from this work: no user-token INSERT on `recordings` (the
+> `authenticated` INSERT grant and the unused "recordings: admin insert"
+> policy stay removed). The text below is the original decision, kept as a
+> record; it no longer describes the system.
+
+* **Status:** Withdrawn (2026-10-01, owner decision — never deployed to a
+  camera). Was: Accepted (2026-09-30), opt-in per camera
 * **Date:** 2026-09-30
 * **Relates to:** [0002](0002-per-recording-hkdf-aes-gcm.md) (the per-recording
   key still encrypts the stored video), [0003](0003-four-eyes-reveal-approval.md)

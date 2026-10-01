@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { PlayCircle, FileVideo, Lock, KeyRound } from "lucide-react";
+import { PlayCircle, FileVideo, Lock } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { createClient } from "@/lib/supabase/server";
@@ -10,7 +10,6 @@ import { readMfaOk, readScope, shapeCount, shapeRows, rpcRows, type RpcCapableCl
 import { archiveFilters, ARCHIVE_PAGE_SIZE, type QueryParams } from "@/lib/workflow-query";
 import { workflowCopy, workflowStatus } from "@/lib/workflow-copy";
 import { WorkflowPagination } from "@/components/workflow-pagination";
-import { isFaceEncryptedRecording, recordingRevealable } from "@/lib/recording-mode";
 
 // Шинэ recording, шинэ faces автоматаар харагдах ёстой
 export const dynamic = "force-dynamic";
@@ -26,7 +25,7 @@ export default async function PlaybackPage({ searchParams }: { searchParams?: Pr
   if (!filters) return <><PageHeader title={t("nav_playback")} /><Empty message={c.invalidFilters} action={<Link className="btn-secondary" href="/playback">{c.clear}</Link>} /></>;
 
   let query = supabase.from("recordings")
-    .select("id, filename, duration_sec, size_bytes, encrypted, camera_name, started_at, has_original, blur_strategy, face_envelope_path, capture_status, capture_error", { count: "exact" })
+    .select("id, filename, duration_sec, size_bytes, encrypted, camera_name, started_at, has_original, capture_status, capture_error", { count: "exact" })
     .order("started_at", { ascending: false }).order("id", { ascending: false });
   if (filters.camera) query = query.eq("camera_id", filters.camera);
   if (filters.since) query = query.gte("started_at", filters.since);
@@ -98,12 +97,6 @@ export default async function PlaybackPage({ searchParams }: { searchParams?: Pr
                         <div className="text-sm font-medium truncate flex items-center gap-1.5">
                           {r.filename}
                           {r.encrypted && <Lock className="w-3 h-3 text-warning" />}
-                          {isFaceEncryptedRecording(r) && (
-                            <span className="badge-accent shrink-0" title={t("cam_rec_mode_badge_title")}>
-                              <KeyRound className="w-3 h-3" aria-hidden />
-                              {t("cam_rec_mode_face_encrypted")}
-                            </span>
-                          )}
                         </div>
                         <div className="text-xs text-text-muted flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                           <span>{formatDate(r.started_at)}</span>
@@ -116,7 +109,7 @@ export default async function PlaybackPage({ searchParams }: { searchParams?: Pr
                             {counts.error || fc === undefined ? c.countUnavailable : `${fc} · ${t("faces_label")}`}
                           </span>}
                           {r.capture_status !== "ready" && <span className="text-warning">{workflowStatus(r.capture_status, lang)}</span>}
-                          {!recordingRevealable(r) && (
+                          {!r.has_original && (
                             <>
                               <span>·</span>
                               <span className="text-text-faint">{t("pb_no_reveal")}</span>

@@ -14,12 +14,6 @@
  * able through this route, regardless of `blur_strategy`. The playback page
  * picks the right route based on the column; this is the robustness fallback.
  *
- * `blur_strategy='face_encrypted'` (ADR 0013) has no raw original at all: the
- * stored video is already masked (every face replaced by a keyed cipher
- * pattern) and encrypted at rest, so the ML side only decrypts and streams it
- * — no re-render, no detector, no embeddings. Such a row is served here even
- * when `has_original` is false.
- *
  * Auth: admin + viewer can stream. Auditor is locked to /audit* by both
  * middleware AND this route's explicit role check.
  */
@@ -28,7 +22,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireUserApi, isAuthErr } from "@/lib/supabase/auth";
 import { createClient } from "@/lib/supabase/server";
 import { recordAccess, READ_ACTIONS, ACCESS_THROTTLE_MS } from "@/lib/audit";
-import { isFaceEncryptedRecording, recordingViewable } from "@/lib/recording-mode";
 
 const ML_URL = process.env.NEXT_PUBLIC_ML_SERVICE_URL ?? "";
 const ML_TOKEN = process.env.ML_SERVICE_TOKEN ?? "";
@@ -58,14 +51,14 @@ export async function GET(
   const supabase = await createClient();
   const { data: rec } = await supabase
     .from("recordings")
-    .select("id, has_original, blur_strategy")
+    .select("id, has_original")
     .eq("id", id)
     .maybeSingle();
 
   if (!rec) {
     return NextResponse.json({ error: "recording not found" }, { status: 404 });
   }
-  if (!recordingViewable(rec)) {
+  if (!rec.has_original) {
     return NextResponse.json(
       { error: "no encrypted original — cannot derive view" },
       { status: 404 },
@@ -127,7 +120,7 @@ export async function GET(
   // cache below (inside it a re-watch may never reach this route at all).
   await recordAccess({
     action: READ_ACTIONS.RECORDING_VIEWED,
-    detail: `recording=${id} · ${isFaceEncryptedRecording(rec) ? "face-encrypted masked video" : "on-demand masked view"}`,
+    detail: `recording=${id} · on-demand masked view`,
     userId: auth.user.id,
     userEmail: auth.user.email,
     request,

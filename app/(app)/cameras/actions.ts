@@ -9,13 +9,6 @@ import { ensureFreshReauth } from "@/lib/auth/step-up";
 import { scheduleSecurityEvent } from "@/lib/notify";
 import { mlTestCamera, type CameraTestResult, mlStopCamera } from "@/lib/ml-client";
 import type { CameraType } from "@/lib/database.types";
-import {
-  classifyRecordingModeChange,
-  isRecordingMode,
-  storedRecordingMode,
-  type RecordingMode,
-  type RecordingModeDirection,
-} from "@/lib/recording-mode";
 
 /**
  * Every write to public.cameras goes through the service role, AFTER
@@ -47,53 +40,6 @@ async function disableCameraAutoResume(id: string, message: string): Promise<voi
   } catch {
     // The action still returns the ML error; this best-effort write is only a
     // second line of defence for the next ML-service restart.
-  }
-}
-
-/**
- * The optional `recording_mode` form field: absent / empty → null (leave the
- * column alone), a known mode, or `false` for anything else.
- */
-function recordingModeField(formData: FormData): RecordingMode | null | false {
-  const raw = formData.get("recording_mode");
-  if (raw === null || String(raw).trim() === "") return null;
-  const value = String(raw).trim();
-  return isRecordingMode(value) ? value : false;
-}
-
-async function writeCameraAudit(action: string, detail: string, user: { id: string; email: string }): Promise<void> {
-  try {
-    await createServiceClient().from("audit_log").insert({
-      action,
-      detail,
-      user_id: user.id,
-      user_email: user.email,
-    });
-  } catch {
-    // Best effort, like every camera audit row: the change itself stands.
-  }
-}
-
-/**
- * Audit (+ notify on loosening) a recording-mode change that was written.
- * Loosening (face_encrypted → standard) makes the ML service store raw
- * originals again, so the other admins hear about it in real time — the same
- * treatment as loosening a privacy schedule (ADR 0012).
- */
-async function afterRecordingModeChange(
-  user: { id: string; email: string },
-  detail: string,
-  direction: RecordingModeDirection,
-): Promise<void> {
-  const line = `${detail} [${direction}]`;
-  await writeCameraAudit("CAMERA_RECORDING_MODE_CHANGE", line, user);
-  if (direction === "loosen") {
-    scheduleSecurityEvent({
-      action: "CAMERA_RECORDING_MODE_CHANGE",
-      actorId: user.id,
-      actorEmail: user.email,
-      detail: line,
-    });
   }
 }
 
@@ -150,8 +96,6 @@ export async function addCameraAction(
   if (!name || !url) return { error: t("camd_err_required") };
   if (!isCamType(camType)) return { error: t("camd_err_type") };
   if (!validCameraUrl(url, camType)) return { error: t("camd_err_url") };
-  const recordingMode = recordingModeField(formData);
-  if (recordingMode === false) return { error: t("cam_rec_mode_err_invalid") };
 
   let encryptedUrl: string;
   try {
@@ -160,28 +104,18 @@ export async function addCameraAction(
     return { error: t("cam_err_key_missing") };
   }
 
-  // `standard` is the column default, so it is only written when the operator
-  // chose face-encrypted recording (ADR 0013).
-  const mode: RecordingMode = recordingMode ?? "standard";
   const supabase = cameraWriter();
   const { error } = await supabase
     .from("cameras")
-    .insert({
-      name,
-      url: encryptedUrl,
-      cam_type: camType,
-      created_by: user.id,
-      ...(mode === "face_encrypted" ? { recording_mode: mode } : {}),
-    });
+    .insert({ name, url: encryptedUrl, cam_type: camType, created_by: user.id });
 
   if (error) return { error: error.message };
 
-  const addDetail = `Name: ${name} type: ${camType}${mode === "face_encrypted" ? " recording_mode: face_encrypted" : ""}`;
   try {
     const svc = createServiceClient();
     await svc.from("audit_log").insert({
       action: "CAMERA_ADD",
-      detail: addDetail,
+      detail: `Name: ${name} type: ${camType}`,
       user_id: user.id,
       user_email: user.email,
     });
@@ -190,7 +124,7 @@ export async function addCameraAction(
     action: "CAMERA_ADD",
     actorId: user.id,
     actorEmail: user.email,
-    detail: addDetail,
+    detail: `Name: ${name} type: ${camType}`,
   });
 
   revalidatePath("/cameras");
@@ -298,8 +232,6 @@ export async function updateCameraAction(
   if (!name || !url) return { error: t("camd_err_required") };
   if (!isCamType(camType)) return { error: t("camd_err_type") };
   if (!validCameraUrl(url, camType)) return { error: t("camd_err_url") };
-  const recordingMode = recordingModeField(formData);
-  if (recordingMode === false) return { error: t("cam_rec_mode_err_invalid") };
 
   let encryptedUrl: string;
   try {
@@ -309,38 +241,12 @@ export async function updateCameraAction(
   }
 
   const supabase = cameraWriter();
-  const { data: before } = await supabase
-    .from("cameras")
-    .select("url, cam_type, recording_mode")
-    .eq("id", id)
-    .maybeSingle();
-  // The dialog may carry a recording-mode change with the edit. The TOTP
-  // step-up above already covers loosening, so the mode rides in the same
-  // row write; its direction (from the stored row) only decides the audit
-  // line and whether the other admins are told.
-  let modeChange: { to: RecordingMode; direction: RecordingModeDirection; detail: string } | null = null;
-  if (recordingMode) {
-    const { mode: from, known } = storedRecordingMode(before?.recording_mode, recordingMode);
-    const direction = classifyRecordingModeChange(from, recordingMode);
-    if (direction !== "noop") {
-      modeChange = {
-        to: recordingMode,
-        direction,
-        detail: `camera ${id} recording_mode: ${known ? from : String(before?.recording_mode)} → ${recordingMode}`,
-      };
-    }
-  }
+  const { data: before } = await supabase.from("cameras").select("url, cam_type").eq("id", id).maybeSingle();
   const { error } = await supabase
     .from("cameras")
-    .update({
-      name,
-      url: encryptedUrl,
-      cam_type: camType,
-      ...(modeChange ? { recording_mode: modeChange.to } : {}),
-    })
+    .update({ name, url: encryptedUrl, cam_type: camType })
     .eq("id", id);
   if (error) return { error: error.message };
-  if (modeChange) await afterRecordingModeChange(user, modeChange.detail, modeChange.direction);
   // The ML registry holds the URL captured at start time; a changed source
   // must not be resumed with stale credentials — stop it, the operator
   // restarts from /grid.
@@ -369,60 +275,6 @@ export async function updateCameraAction(
     });
   } catch {}
 
-  revalidatePath("/cameras");
-  return { ok: true };
-}
-
-/**
- * Per-camera recording mode (ADR 0013). standard → face_encrypted stores LESS
- * (no raw original from the next segment on) and is one click;
- * face_encrypted → standard stores raw originals again, so it needs the TOTP
- * step-up, is audited and tells the other admins. The direction is decided
- * from the stored row, never from the form, and the write is a compare-and-set
- * on that value. The ML service picks the mode up for NEW segments within
- * ~30 s; a running segment finishes in its current mode.
- */
-export async function setRecordingModeAction(
-  formData: FormData,
-): Promise<{ error: string } | { ok: true }> {
-  const { user } = await requireAdmin();
-  const { t } = await getT();
-  const id = String(formData.get("id") ?? "").trim();
-  if (!UUID_RE.test(id)) return { error: "missing id" };
-  const to = recordingModeField(formData);
-  if (!to) return { error: t("cam_rec_mode_err_invalid") };
-
-  const svc = cameraWriter();
-  const { data: camera, error: readError } = await svc
-    .from("cameras")
-    .select("id, recording_mode")
-    .eq("id", id)
-    .maybeSingle();
-  if (readError) return { error: t("cam_rec_mode_err_save") };
-  if (!camera) return { error: t("cam_rec_mode_err_not_found") };
-
-  // Unknown stored value → judged as the opposite of the target, so a switch
-  // to standard is still loosening (lib/recording-mode.ts).
-  const { mode: from, known } = storedRecordingMode(camera.recording_mode, to);
-  const direction = classifyRecordingModeChange(from, to);
-  if (direction === "noop") return { ok: true };
-  const detail = `camera ${id} recording_mode: ${known ? from : String(camera.recording_mode)} → ${to}`;
-
-  if (direction === "loosen") {
-    const reauth = await ensureFreshReauth(user.id);
-    if (reauth) {
-      await writeCameraAudit("CAMERA_RECORDING_MODE_STEP_UP_REQUIRED", detail, user);
-      return reauth;
-    }
-  }
-
-  let update = svc.from("cameras").update({ recording_mode: to }).eq("id", id);
-  if (known) update = update.eq("recording_mode", from);
-  const { data: updated, error } = await update.select("id");
-  if (error) return { error: t("cam_rec_mode_err_save") };
-  if (!updated || updated.length === 0) return { error: t("cam_rec_mode_err_conflict") };
-
-  await afterRecordingModeChange(user, detail, direction);
   revalidatePath("/cameras");
   return { ok: true };
 }

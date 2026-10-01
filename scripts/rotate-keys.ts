@@ -547,20 +547,17 @@ const ML_FINALIZE_REFUSAL = `
 
   Dropping ML_ENCRYPTION_KEY_PREV permanently destroys every artifact still
   sealed under it: encrypted recordings (recordings.original_path /
-  storage_path), the per-face envelopes of face-encrypted recordings
-  (recordings.face_envelope_path, ADR 0013) and every sealed face crop and
-  embedding written since Tier 2 — those have no plaintext copy anywhere.
-  There is no way to tell from this script how many of those remain: the
-  per-recording HKDF keys and the per-face hash-chain keys only exist inside
-  the ML container.
+  storage_path) and every sealed face crop and embedding written since Tier 2
+  — those have no plaintext copy anywhere. There is no way to tell from this
+  script how many of those remain: the per-recording HKDF keys and the
+  per-face hash-chain keys only exist inside the ML container.
 
   Before this gate can open, ALL of the following must exist:
     1. An ML maintenance endpoint that re-encrypts under the ACTIVE key —
        for each recording: decrypt with the key candidates, re-encrypt,
        verify the round-trip, replace the object, record progress so an
-       interrupted run resumes; and the same for sealed face crops,
-       embeddings and face-envelope blobs, which must keep their chain
-       position.
+       interrupted run resumes; and the same for sealed face crops and
+       embeddings, which must keep their chain position.
     2. A read-only report from that endpoint saying ZERO artifacts still
        decrypt only under the PREV key.
     3. A verified backup taken AFTER the re-encryption pass

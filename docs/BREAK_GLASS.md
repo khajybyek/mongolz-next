@@ -89,8 +89,7 @@ The script writes an `ML_ENCRYPTION_KEY_ROTATED` audit row, which is what clears
 Earlier versions of this document promised a "maintenance script" that re-encrypts historical recordings. **It does not exist**, and `npm run rotate:keys -- --key=ML_ENCRYPTION_KEY --finalize` now refuses rather than pretending otherwise. Dropping `ML_ENCRYPTION_KEY_PREV` permanently destroys everything still sealed under the retired key:
 
 - encrypted recordings (`recordings.original_path`, `recordings.storage_path`);
-- every sealed face crop and embedding written since Tier 2 — those have **no plaintext copy anywhere**;
-- face-encrypted recordings (ADR 0013): the masked video (`recordings.storage_path`) **and** the face envelope (`recordings.face_envelope_path`), whose per-face blobs are sealed under hash-chain keys derived from the same master key — and those recordings have no raw original to fall back on.
+- every sealed face crop and embedding written since Tier 2 — those have **no plaintext copy anywhere**.
 
 Nothing outside the ML container can even count how many of those remain: the per-recording HKDF keys and the per-face hash-chain keys only exist there. Before the gate can open, all of this has to exist first:
 

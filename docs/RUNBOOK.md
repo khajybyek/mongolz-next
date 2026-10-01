@@ -496,9 +496,7 @@ unaffected by this table. What follows is what a **logged-in browser session**
 
 Encrypted originals (`recordings.original_path`, `<face>.enc`) are not in that
 table on purpose: only the ML service decrypts, so only the ML service reads
-them. The face envelope of a face-encrypted recording
-(`recordings.face_envelope_path`, ADR 0013) is in the same position: the
-`recordings` policy names `storage_path` only.
+them.
 
 **Verify (read-only).** After the migration the table holds seven permissive
 policies — `storage: operator read recordings (permission aware)`,
@@ -752,182 +750,16 @@ agent's clock (NTP) before it sends.
 Deploy order for any change to this feature: migration first, then the ML
 service, then the web app. [ADR 0012](adr/0012-privacy-schedules-tightening-only.md), section Deployment, explains why.
 
-### Face-encrypted recording mode (ADR 0013)
+### Withdrawn: face-encrypted recording mode (2026-10-01)
 
-Since 2026-09-30 each camera has a **recording mode**
-([ADR 0013](adr/0013-face-encrypted-recording-mode.md)).
-
-* **`standard`** (the default) is what the rest of this runbook describes: an
-  encrypted raw original (`original_path`) and a masked view rendered from it
-  on demand.
-* **`face_encrypted`** stores **no raw original**. The segment's two artifacts,
-  both in the `recordings` bucket, are the encrypted **masked** video
-  (`storage_path`; every detected face replaced by a keyed cipher pattern with
-  a thin outline) and the **face envelope** (`face_envelope_path`; every face
-  region of every frame sealed with its track's hash-chain key). The row says
-  `blur_strategy = 'face_encrypted'` and `original_path` is NULL.
-
-Everything else — live HLS (cubist-masked), recognition, alerts, privacy
-schedules and spans, privacy zones, 4-eyes reveal, audit — works as in
-`standard` mode. Frames captured in `private` mode get no envelope blobs.
-
-**Enable.** `/cameras` → edit the camera → **Recording mode** →
-Face-encrypted → save. This stores less, so it is one click (audit action
-`CAMERA_RECORDING_MODE_CHANGE`, detail `… standard → face_encrypted [tighten]`).
-It applies to **new segments**: the ML service picks the mode up within about
-30 s (its own cached camera read, a sibling of the privacy-schedule read), and
-a changed mode rotates the running segment, so the next segment is the first
-face-encrypted one. Recordings captured before the switch are not converted:
-their raw originals stay until retention removes them. Before switching a
-camera, check that the running ML build implements the mode:
-`curl -s https://mongolz-ml-production.up.railway.app/ | jq .face_encrypted`
-must print `1`.
-
-Switching back to **Standard** stores raw originals again: it asks for a fresh
-TOTP step-up (a refusal is logged as `CAMERA_RECORDING_MODE_STEP_UP_REQUIRED`),
-writes `CAMERA_RECORDING_MODE_CHANGE` with `[loosen]` and notifies the other
-admins. Recordings
-captured face-encrypted stay that way; there is no original to bring back.
-
-While the ML service cannot read a camera's mode (right after a restart with
-the database slow or unreachable) it records that camera **face-encrypted**,
-the stricter mode, and rotates to the configured mode about a second after a
-read succeeds; a failed read is retried every 5 s (log lines "recording mode
-not read yet" / "recording mode unreadable"). A
-`standard` camera therefore can show a short face-encrypted segment after an
-ML restart; that segment has no original and is restorable through its
-envelope.
-
-**Verify.**
-
-```sql
--- Mode per camera
-select id, name, recording_mode from public.cameras order by name;
-
--- How the newest segments of a camera were actually stored
-select id, started_at, capture_status, blur_strategy,
-       original_path is null as no_original, face_envelope_path
-  from public.recordings
- where camera_id = '<camera uuid>'
- order by started_at desc
- limit 5;
-
--- Invariant: a ready face-encrypted row names its envelope and has no original
-select id, capture_status, original_path, face_envelope_path
-  from public.recordings
- where blur_strategy = 'face_encrypted'
-   and capture_status = 'ready'
-   and (face_envelope_path is null or original_path is not null);   -- expect 0 rows
-
--- The envelope object exists in Storage
-select name, (metadata->>'size')::bigint as bytes, created_at
-  from storage.objects
- where bucket_id = 'recordings' and name = '<face_envelope_path>';
-```
-
-`blur_strategy` on the row is the record of what the ML service did. If the
-camera says `face_encrypted` but segments that started more than a minute
-after the switch still say `on_demand`, the running ML build does not
-implement the mode (it keeps storing raw originals): redeploy the ML service
-(`cd ml-service && railway up --detach`). `/playback/<id>` shows the
-"Face-encrypted recording" notice, and the player shows coloured cells with an
-outline where faces were.
-
-**End-to-end drill** (about 10 min, on a demo camera — `demo://lobby` streams
-the bundled sample faces, which `railway up` ships from the working tree):
-
-1. Set the demo camera to Face-encrypted, start it, and let it run one full
-   segment past the switch.
-2. Open the finished recording on `/playback/<id>`: faces are cipher cells.
-3. Request a reveal of one detected face; a second admin approves on
-   `/reveal-approvals` (a request by the super admin runs at once without a
-   second admin — ADR 0003 amendment).
-4. Open the output: that person's face is restored (soft — a JPEG with the
-   face kept at about 120 px) and every other face is still cipher. The ML log
-   line for the job says how many tracks matched and how many blobs it
-   unsealed.
-
-**Restoring a person** is the normal reveal: request, second-admin approval,
-download. For a face-encrypted recording the job compares the target with the
-identity samples the recognition tick sealed for each face track (no `faces`
-row is needed), selects the tracks whose samples match at the job threshold
-within the requester's `reveal_level`, unseals only the frames those samples
-confirm, and pastes them onto the masked video. The `[privacy_*]` refusals of
-ADR 0012 apply unchanged.
-
-| Symptom | Meaning | Action |
-|---|---|---|
-| Reveal fails with `[face_envelope_empty]` | No blob was left to unseal: no track's identity sample matched the target at the job threshold, the matching tracks lie below the requester's `reveal_level` (the log counts "beyond level"), or every confirmed blob lies outside the window, in a `never_reveal` zone or in a protected (private) stretch | Final for that target and range. Unsampled tracks cannot be restored by any reveal method (ADR 0013, Limits). A director-level (lower `reveal_level`) admin can request again if the level was the reason |
-| A restored face looks soft or blocky | Restored faces are JPEG crops of the padded box (quality ≈ 90, ≤ 192 px, so the face is kept at about 120 px) resized to their box | Expected (ADR 0013, Limits) |
-| The target's face drops out for a second or two, or part of a clip shows someone else | A sample taken in a poor pose did not match (its neighbouring frames stay masked), or the tracker handed a track from one person to another when faces crossed; up to about a second of the other person can be restored before the target's nearest sample | Expected limit. Record it with the job; do not export that output as identification evidence |
-| Recorded video of a face-encrypted camera repeats frames | The ML service fell behind real time (`GET /camera/active` → `live_lag_sec`, `held_frames`) and repeated the last masked frame instead of processing new ones | Expected under overload (ADR 0013, Costs). Lower the camera's resolution, move it to `standard`, or give the ML service more CPU |
-| A face is visible (not cipher) in a face-encrypted recording | The capture detector missed it. There is no original to re-render | Expected limit (ADR 0013; R10 in THREAT_MODEL). Nothing can mask it after the fact in the stored video. If the exposure matters, remove the recording under your retention procedure, and consider `standard` mode for that camera (its raw original lets the on-demand view mask such a face once the detector finds it) |
-| Reveal fails with `[face_envelope_unavailable]` | The envelope or the masked video could not be downloaded (Storage outage, missing object); nothing was decrypted | Retry. If it repeats, run the Storage query above for both paths and check the ML log for the fetch error; a missing envelope is the "lost or damaged" procedure below |
-| Reveal fails with `[face_envelope_invalid]` | The envelope or the masked video failed its checks: the stored object fails its at-rest decryption (any changed or missing byte — the object is one AES-GCM ciphertext — or the master key that sealed it, e.g. a dropped `ML_ENCRYPTION_KEY_PREV`, is no longer configured), its header disagrees with its sealed index, the index is missing, a selected blob or identity sample failed authentication, it belongs to another recording, or its geometry does not match the video. Nothing was published | First rule out keys: was `ML_ENCRYPTION_KEY` rotated or `_PREV` removed since the recording (BREAK_GLASS §4)? Otherwise treat it as an integrity incident: compare the object's SHA-256 with the newest recovery bundle and restore it (procedure below) |
-| Reveal start answers `NO_FACE_ENVELOPE` | The face-encrypted row names no envelope (not delivered yet, or cleared) | Wait for delivery (`capture_status = 'ready'`); a ready row without an envelope cannot exist (CHECK) |
-| New segments of a face-encrypted camera still say `on_demand` | The ML build does not implement the mode (`GET /` has no `"face_encrypted": 1`), or it has not read the camera yet | Redeploy the ML service; check the ML log for "recording mode" lines |
-
-**Backup and restore.** `face_envelope_path` is a DB-referenced Storage path,
-so the browser backup manifest lists it and the recovery bundle (§3) carries
-the object and checks its SHA-256 on restore. The preflight's GCM + `ffprobe`
-decode scan is for videos: it covers the masked video, not the individual
-blobs in the envelope. Both artifacts are sealed under keys derived from
-`ML_ENCRYPTION_KEY` (the per-recording key and the hash-chain keys), so a
-bundle is useless without the escrowed key — and dropping
-`ML_ENCRYPTION_KEY_PREV` destroys face-encrypted recordings sealed under the
-retired key, envelope and masked video alike (BREAK_GLASS §4).
-
-**If an envelope is lost or damaged.** The masked video still plays; only
-restoration of that recording's faces is affected. The envelope is the only
-copy of those faces — there is no original to rebuild it from.
-
-1. **Confirm.** Run the Storage query above for the row's
-   `face_envelope_path`. A reveal job for that recording fails, and a backup run
-   flags the path `missing: true` in `buckets/recordings.manifest.json` (the
-   recovery bundle lists it under `missing_objects`).
-2. **Find out why before you restore.** Was the row deleted and the object
-   queued for deletion?
-   ```sql
-   select object_path, created_at, attempts, last_error
-     from public.retention_deletion_queue
-    where bucket = 'recordings' and object_path = '<face_envelope_path>';
-   ```
-   A missing object for a row that still exists, with no queue entry, is an
-   integrity incident (§2.3): check the Supabase Storage logs for who deleted
-   it.
-3. **Restore it from the newest recovery bundle that holds it**
-   (`jq '.objects[] | select(.object_path == "<face_envelope_path>")'
-   recovery-bundles/<bundle>/recovery-manifest.json`). There is no
-   single-object restore command: restore the bundle into the restore project
-   (§3.2 steps 3–5), download the object from that project's `recordings`
-   bucket with its service role, compare its SHA-256 with the manifest's
-   `source_sha256`, and upload it to the production `recordings` bucket at the
-   **same path** with the production service role. Keys depend on the
-   recording id, not on the object, so the byte-identical file works again.
-   Then run one reveal on that recording to confirm.
-4. **If no bundle holds it, the faces of that recording are gone for good.**
-   Do not try to regenerate an envelope — it cannot be done. Record the loss:
-   ```sql
-   insert into public.audit_log (action, detail, user_id, user_email)
-   values ('FACE_ENVELOPE_LOST',
-           'recording <recording uuid>: envelope <face_envelope_path> lost, no backup copy; '
-           || 'cause: <queue entry / storage log / unknown>; reason recorded by <admin email>',
-           '<profile id>', '<admin email>');
-   ```
-   Keep or delete the masked recording under its retention policy as usual;
-   leave `face_envelope_path` as it is, so the row keeps saying what it lost.
-5. **A truncated or altered envelope object** (it exists but ends early, or
-   its bytes changed): the stored object is one AES-GCM ciphertext under the
-   per-recording key, so it fails that at-rest layer as a whole and the reveal
-   job refuses **every** reveal of the recording with `[face_envelope_invalid]`
-   — not only the damaged frames. Restore the object as in step 3. (The
-   per-record tolerance of the envelope format applies to the plaintext file
-   on the ML container's disk during capture, not to the delivered object.)
-
-Deploy order for any change to this feature: migration
-(`20260930100000_face_encrypted_recordings.sql`), then the ML service, then the
-web app — keep that order ([ADR 0013](adr/0013-face-encrypted-recording-mode.md),
-section Deployment).
+The optional per-camera face-encrypted mode (ADR 0013, 2026-09-30) was
+withdrawn by the owner before any camera used it; recording is again only the
+encrypted original + on-demand masked view described above. Its schema goes
+with migration `20261001100000`, which keeps the `recordings` INSERT revoke.
+Deploy order: the ML service (`railway up --detach` from `ml-service/`) and the
+web app **first** — both stop reading and writing the removed columns — then
+`npx supabase db push --linked`, then `npm run gen:types`. The migration
+refuses to run while a recording of that mode exists (production had none).
 
 ### ML benchmark (`/eval/bench` → `/benchmarks`)
 

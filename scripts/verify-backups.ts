@@ -62,9 +62,7 @@ async function main() {
           "Content-Type": "application/json",
         },
         // The ciphertext is `original_path`; for legacy (baked) rows storage_path
-        // is the plaintext blurred MP4 and would always fail to decrypt. A
-        // face-encrypted row (ADR 0013) has no original_path: its storage_path
-        // is the masked video encrypted with the same per-recording key.
+        // is the plaintext blurred MP4 and would always fail to decrypt.
         body: JSON.stringify({ recording_id: r.id, storage_path: r.original_path ?? r.storage_path }),
       });
       if (!res.ok) {

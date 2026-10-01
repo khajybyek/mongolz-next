@@ -225,7 +225,9 @@ async function main() {
   const plans: Plan[] = [];
   for (const table of ORDER) {
     const read = readTable(tablesDir, table);
-    // Older artifacts carry the pre-ADR-0012 privacy columns; map them first.
+    // Older artifacts carry retired columns (pre-ADR-0012 privacy model, the
+    // withdrawn ADR 0013 recording mode); map them first. A face-encrypted
+    // recording throws here, before any write.
     const rows = upgradeLegacyBackupRows(table, read.rows);
     plans.push({ table, rows, present: read.present, missing: missingRequired(table, rows) });
   }

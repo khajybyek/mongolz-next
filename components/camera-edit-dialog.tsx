@@ -11,7 +11,6 @@ import {
   Wifi,
   Save,
   X,
-  KeyRound,
 } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { TotpPrompt } from "@/components/totp-prompt";
@@ -21,15 +20,8 @@ import type { TranslationKey } from "@/lib/i18n/translations";
 import type { CameraType } from "@/lib/database.types";
 import { cn } from "@/lib/utils";
 import {
-  RECORDING_MODES,
-  classifyRecordingModeChange,
-  displayRecordingMode,
-  type RecordingMode,
-} from "@/lib/recording-mode";
-import {
   addCameraAction,
   updateCameraAction,
-  setRecordingModeAction,
   testCameraAction,
 } from "@/app/(app)/cameras/actions";
 
@@ -46,8 +38,6 @@ interface EditProps {
     /** plaintext display URL (already unwrapped server-side) */
     url: string;
     cam_type: string;
-    /** cameras.recording_mode (ADR 0013); missing/unknown shows as standard. */
-    recording_mode?: string | null;
   };
 }
 
@@ -74,11 +64,6 @@ const TYPE_LABELS: Record<CamType, TranslationKey> = {
 
 const TYPE_ORDER: CamType[] = ["rtsp", "http", "usb", "webcam", "demo"];
 
-const MODE_COPY: Record<RecordingMode, { label: TranslationKey; desc: TranslationKey }> = {
-  standard: { label: "cam_rec_mode_standard", desc: "cam_rec_mode_standard_desc" },
-  face_encrypted: { label: "cam_rec_mode_face_encrypted", desc: "cam_rec_mode_face_encrypted_desc" },
-};
-
 /** usb / webcam are opened by the browser or the ML host itself — nothing to probe. */
 function localOnly(camType: CamType): boolean {
   return camType === "usb" || camType === "webcam";
@@ -104,8 +89,6 @@ export function CameraDialog(props: Props) {
   const [camType, setCamType] = useState<CamType>(
     (camera?.cam_type as CamType) ?? "rtsp",
   );
-  const initialMode = displayRecordingMode(camera?.recording_mode);
-  const [mode, setMode] = useState<RecordingMode>(initialMode);
   const [test, setTest] = useState<TestState>({ kind: "idle" });
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -114,7 +97,6 @@ export function CameraDialog(props: Props) {
     setName(camera?.name ?? "");
     setUrl(camera?.url ?? "");
     setCamType((camera?.cam_type as CamType) ?? "rtsp");
-    setMode(initialMode);
     setTest({ kind: "idle" });
     setSaveErr(null);
   }
@@ -164,12 +146,7 @@ export function CameraDialog(props: Props) {
 
   function submitEdit(fd: FormData) {
     startTransition(async () => {
-      // A mode-only edit goes through the recording-mode action, so switching
-      // to face-encrypted (tightening) stays one click; every other edit
-      // needs the step-up anyway and carries the mode along.
-      const res = fd.get("op") === "recording_mode"
-        ? await setRecordingModeAction(fd)
-        : fd.has("id") ? await updateCameraAction(fd) : await addCameraAction(fd);
+      const res = fd.has("id") ? await updateCameraAction(fd) : await addCameraAction(fd);
       if ("error" in res) {
         if (res.error === "REAUTH_REQUIRED") {
           pendingEdit.current = fd;
@@ -184,29 +161,12 @@ export function CameraDialog(props: Props) {
     });
   }
 
-  const modeChanged = mode !== initialMode;
-  // Switching back to standard stores raw originals again (ADR 0013).
-  const modeLoosens = isEdit && classifyRecordingModeChange(initialMode, mode) === "loosen";
-
   function save() {
     setSaveErr(null);
     const fd = new FormData();
-    if (
-      isEdit && camera && modeChanged &&
-      name.trim() === camera.name && url.trim() === camera.url && camType === camera.cam_type
-    ) {
-      fd.append("op", "recording_mode");
-      fd.append("id", camera.id);
-      fd.append("recording_mode", mode);
-      submitEdit(fd);
-      return;
-    }
     fd.append("name", name);
     fd.append("url", url);
     fd.append("cam_type", camType);
-    // An edit only sends the mode when it changed, so a stale dialog never
-    // writes back a mode someone else set meanwhile.
-    if (!isEdit || modeChanged) fd.append("recording_mode", mode);
 
     if (isEdit && camera) fd.append("id", camera.id);
     submitEdit(fd);
@@ -328,47 +288,6 @@ export function CameraDialog(props: Props) {
             />
           </div>
 
-          {/* Recording mode (ADR 0013) — what is stored for new segments. */}
-          <fieldset className="space-y-2" disabled={pending}>
-            <legend className="label">{t("cam_rec_mode")}</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {RECORDING_MODES.map((value) => (
-                <label
-                  key={value}
-                  className="flex items-start gap-2.5 rounded-lg border border-border-strong bg-surface-elevated px-3 py-2.5 leading-snug cursor-pointer has-[:checked]:border-accent/50 has-[:checked]:bg-accent/10"
-                >
-                  <input
-                    type="radio"
-                    name={`${fieldId}-recording-mode`}
-                    value={value}
-                    checked={mode === value}
-                    onChange={() => setMode(value)}
-                    className="mt-0.5 shrink-0 accent-accent"
-                  />
-                  <span className="min-w-0 space-y-0.5">
-                    <span className="flex items-center gap-1.5 text-xs font-medium text-text">
-                      {value === "face_encrypted" && <KeyRound className="w-3.5 h-3.5 text-accent shrink-0" aria-hidden />}
-                      {t(MODE_COPY[value].label)}
-                    </span>
-                    <span className="block text-2xs text-text-muted leading-relaxed">
-                      {t(MODE_COPY[value].desc)}
-                    </span>
-                  </span>
-                </label>
-              ))}
-            </div>
-            {mode === "face_encrypted" && (
-              <p className="helper flex items-start gap-1.5 text-warning">
-                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden />
-                <span>{t("cam_rec_mode_tradeoff")}</span>
-              </p>
-            )}
-            <p className="helper">
-              {t("cam_rec_mode_applies_new")}
-              {modeLoosens && <> {t("cam_rec_mode_loosen_note")}</>}
-            </p>
-          </fieldset>
-
           {/* Test connection block */}
           <div className="card-glass p-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
@@ -454,7 +373,6 @@ export function CameraDialog(props: Props) {
 
       <TotpPrompt
         open={needsTotp}
-        description={modeLoosens ? t("cam_rec_mode_stepup_reason") : undefined}
         onClose={() => {
           setNeedsTotp(false);
           pendingEdit.current = null;

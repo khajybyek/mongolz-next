@@ -149,7 +149,61 @@ describe("older backups stay restorable after ADR 0012", () => {
   });
 
   it("leaves unrelated tables untouched", () => {
-    const rows = [{ id: "r1", mask_default: "masked", window_mode: "revealed" }];
-    expect(upgradeLegacyBackupRows("recordings", rows)).toBe(rows);
+    const rows = [{ id: "a1", mask_default: "masked", window_mode: "revealed", recording_mode: "standard" }];
+    expect(upgradeLegacyBackupRows("alerts", rows)).toBe(rows);
+  });
+});
+
+describe("backups taken while the face-encrypted mode existed stay restorable", () => {
+  // 20260930100000 added cameras.recording_mode and recordings.face_envelope_path;
+  // 20261001100000 dropped both. PostgREST rejects a whole upsert batch that
+  // names a column that no longer exists (PGRST204).
+  it("drops cameras.recording_mode together with mask_default", () => {
+    const rows = upgradeLegacyBackupRows("cameras", [
+      { id: "c1", name: "Gate", privacy_default: "standard", recording_mode: "standard" },
+      { id: "c2", name: "Lobby", mask_default: "masked", recording_mode: "face_encrypted" },
+      { id: "c3", name: "Yard", privacy_default: "private" },
+    ]);
+    expect(rows).toEqual([
+      { id: "c1", name: "Gate", privacy_default: "standard" },
+      { id: "c2", name: "Lobby" },
+      { id: "c3", name: "Yard", privacy_default: "private" },
+    ]);
+  });
+
+  it("drops a null recordings.face_envelope_path and keeps every other column", () => {
+    const rows = upgradeLegacyBackupRows("recordings", [
+      { id: "r1", blur_strategy: "on_demand", original_path: "a_original.mp4.enc", face_envelope_path: null },
+      { id: "r2", blur_strategy: "baked", storage_path: "b.mp4" },
+    ]);
+    expect(rows).toEqual([
+      { id: "r1", blur_strategy: "on_demand", original_path: "a_original.mp4.enc" },
+      { id: "r2", blur_strategy: "baked", storage_path: "b.mp4" },
+    ]);
+    for (const r of rows) expect(r).not.toHaveProperty("face_envelope_path");
+  });
+
+  it("refuses a face_encrypted recording with a message that names it", () => {
+    expect(() =>
+      upgradeLegacyBackupRows("recordings", [
+        { id: "r1", blur_strategy: "on_demand", face_envelope_path: null },
+        { id: "r9", blur_strategy: "face_encrypted", face_envelope_path: null },
+      ]),
+    ).toThrow(/1 face-encrypted recording\(s\) \(r9\).*20261001100000.*Nothing was changed/);
+  });
+
+  it("refuses a recording that still names a face envelope", () => {
+    expect(() =>
+      upgradeLegacyBackupRows("recordings", [
+        { id: "r5", blur_strategy: "on_demand", face_envelope_path: "cam/x_faces.env" },
+      ]),
+    ).toThrow(/face-encrypted recording\(s\) \(r5\)/);
+  });
+
+  it("names at most five refused recordings", () => {
+    const rows = Array.from({ length: 7 }, (_, i) => ({ id: `r${i}`, blur_strategy: "face_encrypted" }));
+    expect(() => upgradeLegacyBackupRows("recordings", rows)).toThrow(
+      /7 face-encrypted recording\(s\) \(r0, r1, r2, r3, r4 and 2 more\)/,
+    );
   });
 });

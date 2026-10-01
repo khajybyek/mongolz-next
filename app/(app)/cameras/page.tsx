@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Power, PowerOff, Clock, Users, Lock, AlertTriangle, KeyRound } from "lucide-react";
+import { Power, PowerOff, Clock, Users, Lock, AlertTriangle } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Empty } from "@/components/ui/empty";
 import { Badge } from "@/components/ui/badge";
@@ -11,11 +11,9 @@ import { getT } from "@/lib/i18n/server";
 import { mlActiveCameras } from "@/lib/ml-client";
 import {
   deleteCameraAction,
-  setRecordingModeAction,
   toggleCameraAction,
   toggleConsentAction,
 } from "./actions";
-import { displayRecordingMode } from "@/lib/recording-mode";
 import { cn, formatDate } from "@/lib/utils";
 import { unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { StepUpForm } from "@/components/step-up-form";
@@ -130,7 +128,6 @@ export default async function CamerasPage() {
     return {
       ...c,
       url: displayCameraUrl(c.url),
-      recordingMode: displayRecordingMode(c.recording_mode),
       health: healthById.get(c.id) ?? null,
       streaming: c.enabled && streamingIds.has(c.id),
       live,
@@ -256,15 +253,6 @@ export default async function CamerasPage() {
                         {t("consent_badge")}
                       </span>
                     )}
-                    {/* Face-encrypted recording (ADR 0013): no raw original,
-                        each face sealed under its own key. Standard is the
-                        default and gets no badge. */}
-                    {c.recordingMode === "face_encrypted" && (
-                      <Badge variant="accent" title={t("cam_rec_mode_badge_title")}>
-                        <KeyRound className="w-3 h-3" aria-hidden />
-                        {t("cam_rec_mode_face_encrypted")}
-                      </Badge>
-                    )}
                     {/* Who may watch live: lists / health / playback are
                         default-allow, live video needs a grant — without one
                         it is admin-only, which nobody could tell before. */}
@@ -301,39 +289,6 @@ export default async function CamerasPage() {
                       {c.consent_required ? t("consent_on") : t("consent_off")}
                     </button>
                   </StepUpForm>
-                  {/* Recording mode: to face-encrypted is one click (stores
-                      less); back to standard needs the TOTP step-up. */}
-                  <StepUpForm
-                    action={setRecordingModeAction}
-                    className="mt-1"
-                    stepUpDescription={t("cam_rec_mode_stepup_reason")}
-                  >
-                    <input type="hidden" name="id" value={c.id} />
-                    <input
-                      type="hidden"
-                      name="recording_mode"
-                      value={c.recordingMode === "face_encrypted" ? "standard" : "face_encrypted"}
-                    />
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-text-muted">
-                      <span>
-                        {t("cam_rec_mode")}:{" "}
-                        <span className="text-text-soft font-medium">
-                          {c.recordingMode === "face_encrypted"
-                            ? t("cam_rec_mode_face_encrypted")
-                            : t("cam_rec_mode_standard")}
-                        </span>
-                      </span>
-                      <button
-                        type="submit"
-                        className="btn-ghost btn-sm"
-                        title={c.recordingMode === "face_encrypted" ? t("cam_rec_mode_loosen_note") : t("cam_rec_mode_applies_new")}
-                      >
-                        {c.recordingMode === "face_encrypted"
-                          ? t("cam_rec_mode_switch_to_standard")
-                          : t("cam_rec_mode_switch_to_face_encrypted")}
-                      </button>
-                    </div>
-                  </StepUpForm>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
                   <Link
@@ -352,7 +307,7 @@ export default async function CamerasPage() {
                   </Link>
                   <CameraDialog
                     mode="edit"
-                    camera={{ id: c.id, name: c.name, url: c.url, cam_type: c.cam_type, recording_mode: c.recordingMode }}
+                    camera={{ id: c.id, name: c.name, url: c.url, cam_type: c.cam_type }}
                   />
                   <StepUpForm action={toggleCameraAction}>
                     <input type="hidden" name="id" value={c.id} />

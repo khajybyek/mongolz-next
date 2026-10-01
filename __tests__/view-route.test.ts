@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 const state: {
   auth: "ok" | "unauthorized";
   role: "admin" | "viewer" | "auditor";
-  rec: { id: string; has_original: boolean; blur_strategy?: string } | null;
+  rec: { id: string; has_original: boolean } | null;
 } = { auth: "ok", role: "viewer", rec: null };
 
 jest.mock("@/lib/supabase/auth", () => ({
@@ -81,23 +81,6 @@ describe("GET /api/recordings/[id]/view", () => {
     expect(res.headers.get("content-type")).toBe("video/mp4");
     const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string];
     expect(url).toBe(`https://ml.test/recording/${REC}/view`);
-  });
-
-  it("streams a face-encrypted recording (ADR 0013) although it keeps no raw original", async () => {
-    state.rec = { id: REC, has_original: false, blur_strategy: "face_encrypted" };
-    (global.fetch as jest.Mock).mockResolvedValue(
-      new Response(new Uint8Array([0, 0, 0, 1]), { status: 200, headers: { "content-type": "video/mp4" } }),
-    );
-    const res = await call(REC);
-    expect(res.status).toBe(200);
-    const [url] = (global.fetch as jest.Mock).mock.calls[0] as [string];
-    expect(url).toBe(`https://ml.test/recording/${REC}/view`);
-  });
-
-  it("still 404s an on_demand row without an original", async () => {
-    state.rec = { id: REC, has_original: false, blur_strategy: "on_demand" };
-    expect((await call(REC)).status).toBe(404);
-    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it("maps upstream 404 → 404 and other failures → 502", async () => {
