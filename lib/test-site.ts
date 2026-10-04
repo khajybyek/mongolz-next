@@ -21,7 +21,7 @@
 
 export const TEST_SITE_PREFIX = "/test";
 export const TEST_SITE_INDEX = "/test/index.html";
-export const TEST_SITE_SCRIPT_HASHES = ["sha256-F5AvqM5wIKvbkMX0uD3X2Tj3mWbLAgJrtOjmC8uTUmE="] as const;
+export const TEST_SITE_SCRIPT_HASHES = ["sha256-BSLaTjV0LtHnz8oORUGHHsdyg3EmitQt3bwGvXPaysw="] as const;
 
 export const TEST_SITE_HOSTS: readonly string[] = ["mongolz.dev", "www.mongolz.dev"];
 const DEV_HOSTS: readonly string[] = ["localhost", "127.0.0.1"];
