@@ -3,13 +3,21 @@
  *  - the CSP hash matches the page's executable inline script, so the page
  *    actually runs (and this fails loudly when index.html is replaced);
  *  - the proxy answers /test before any Supabase / login / role work, with
- *    the page's own CSP, and never matches look-alike paths such as /testing.
+ *    the page's own CSP, and never matches look-alike paths such as /testing;
+ *  - only mongolz.dev serves it — aicctv.dev (same deployment) answers 404
+ *    for the page and its images.
  */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NextRequest } from "next/server";
-import { buildTestSiteCsp, isTestSitePath, TEST_SITE_SCRIPT_HASHES, testSiteRewriteTarget } from "@/lib/test-site";
+import {
+  buildTestSiteCsp,
+  isTestSiteHost,
+  isTestSitePath,
+  TEST_SITE_SCRIPT_HASHES,
+  testSiteRewriteTarget,
+} from "@/lib/test-site";
 import { proxy } from "@/proxy";
 
 const getUser = jest.fn(async () => ({ data: { user: null } }));
@@ -69,6 +77,41 @@ describe("test site paths", () => {
     expect(testSiteRewriteTarget("/test")).toBe("/test/index.html");
     expect(testSiteRewriteTarget("/test/")).toBe("/test/index.html");
     expect(testSiteRewriteTarget("/test/index.html")).toBeNull();
+  });
+});
+
+describe("test site hosts", () => {
+  it.each([
+    [["mongolz.dev"], false],
+    [["www.mongolz.dev"], false],
+    [["MONGOLZ.DEV:443"], false],
+    [[null, "mongolz-abc.vercel.app", "mongolz.dev"], false],
+    [["mongolz.dev, proxy.internal"], false],
+    [["localhost:3000"], true],
+  ])("%j is allowed (dev=%s)", (hosts, isDev) => {
+    expect(isTestSiteHost(hosts, isDev)).toBe(true);
+  });
+
+  it.each([
+    [["aicctv.dev"], false],
+    [["www.aicctv.dev"], false],
+    [["mongolz.dev.evil.example"], false],
+    [["evilmongolz.dev"], false],
+    [["mongolz-abc.vercel.app"], false],
+    [["localhost:3000"], false],
+    [[null, undefined, ""], false],
+  ])("%j is refused (dev=%s)", (hosts, isDev) => {
+    expect(isTestSiteHost(hosts, isDev)).toBe(false);
+  });
+});
+
+describe("proxy on aicctv.dev/test", () => {
+  it.each(["/test", "/test/index.html", "/test/img/681.webp"])("%s answers 404 without touching the session", async (p) => {
+    const res = await proxy(new NextRequest(`https://aicctv.dev${p}`));
+    expect(res.status).toBe(404);
+    expect(res.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(res.headers.get("x-middleware-next")).toBeNull();
+    expect(getUser).not.toHaveBeenCalled();
   });
 });
 
