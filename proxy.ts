@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { allowsInsecureMedia, buildCsp } from "@/lib/csp";
+import { buildTestSiteCsp, isTestSitePath, testSiteRewriteTarget } from "@/lib/test-site";
 
 // Next.js 16: "middleware" file-convention deprecated → "proxy" болсон.
 // Зөвхөн нэр өөрчлөгдсөн, ажиллагаа хэвээр (auth session refresh + cookie sync).
@@ -31,9 +32,31 @@ function reportToHeader(origin: string): string {
   });
 }
 
+/**
+ * mongolz.dev/test is a static page in `public/test/` (lib/test-site.ts).
+ * It is answered here before any session work: no Supabase call, no login
+ * redirect, no role redirect — and its own hash-pinned CSP instead of the
+ * console's nonce policy, which a static file cannot carry.
+ */
+function testSiteResponse(request: NextRequest, isDev: boolean): NextResponse {
+  const target = testSiteRewriteTarget(request.nextUrl.pathname);
+  const res = target ? NextResponse.rewrite(new URL(target, request.url)) : NextResponse.next();
+  res.headers.set("Content-Security-Policy", buildTestSiteCsp());
+  res.headers.set("Report-To", reportToHeader(request.nextUrl.origin));
+  res.headers.set("Reporting-Endpoints", REPORTING_ENDPOINTS_HEADER);
+  if (!isDev) {
+    res.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+  }
+  res.headers.set("X-Content-Type-Options", "nosniff");
+  res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  return res;
+}
+
 export async function proxy(request: NextRequest) {
-  const nonce = generateNonce();
   const isDev = process.env.NODE_ENV !== "production";
+  if (isTestSitePath(request.nextUrl.pathname)) return testSiteResponse(request, isDev);
+
+  const nonce = generateNonce();
   // `http:` images/video only where a hand-typed LAN webcam is rendered.
   const csp = buildCsp(nonce, { isDev, insecureMedia: allowsInsecureMedia(request.nextUrl.pathname) });
 
