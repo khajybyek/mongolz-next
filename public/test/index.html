@@ -539,7 +539,7 @@ window.addEventListener('scroll', hideTip, {passive:true});
 window.addEventListener('resize', hideTip);
 
 /* ---- question language: Mongolian translation, Korean original, the official English edition, or Korean with Mongolian under it ---- */
-const LN = {mn:{short:'МН', name:'Монгол'}, ko:{short:'한', name:'한국어'}, en:{short:'EN', name:'English'}, both:{short:'МН+한', name:'Хоёулаа'}};
+const LN = {mn:{short:'МН', name:'Монгол'}, ko:{short:'한', name:'한국어'}, en:{short:'EN', name:'English'}, both:{short:'MN+KR', name:'MN+KR'}};
 function setLn(v){ if(S.ln !== v){ S.ln = v; persist(); } render(); }
 function bi(tag, cls, koParts, mnText, enText){
   if(S.ln === 'en'){   // the English edition has no explanations: those fall back to Mongolian, then Korean
@@ -710,7 +710,7 @@ function openSettings(){
       h('div', {class:'lbl', text:'Асуултын хэл'}),
       h('div', {class:'sz two'}, LN_ORDER.map(k => h('button', {class:'btn', type:'button', 'aria-pressed':String(S.ln === k), text:LN[k].name, onclick:e => { S.ln = k; persist(); render(); e.currentTarget.parentNode.querySelectorAll('button').forEach((b, j) => b.setAttribute('aria-pressed', String(LN_ORDER[j] === k))); }}))),
       h('div', {class:'lbl', text:'Үгийн орчуулга'}),
-      h('p', {class:'note', style:'margin:4px 0 6px', text:'Солонгос эх бичвэрт (한국어 эсвэл Хоёулаа горимд) доогуураа цэгэн зураастай үг дээр дарахад монгол утга нь гарна. Жишиг шалгалтын үеэр харагдахгүй.'}),
+      h('p', {class:'note', style:'margin:4px 0 6px', text:'Солонгос эх бичвэрт (한국어 эсвэл MN+KR горимд) доогуураа цэгэн зураастай үг дээр дарахад монгол утга нь гарна. Жишиг шалгалтын үеэр харагдахгүй.'}),
       h('div', {class:'sz two'}, ['Асаалттай','Унтраалттай'].map((s, i) => h('button', {class:'btn', type:'button', 'aria-pressed':String((S.kw !== 0) === (i === 0)), text:s, onclick:e => { S.kw = i === 0 ? 1 : 0; persist(); e.currentTarget.parentNode.querySelectorAll('button').forEach((b, j) => b.setAttribute('aria-pressed', String(j === i))); }}))),
       h('div', {class:'lbl', text:'Ахиц'}),
       h('p', {class:'note', style:'margin:4px 0 10px', text:cloudState === 'on' ? 'Ахиц таны Claude данс болон энэ төхөөрөмжид хадгалагдаж байна.' : 'Ахиц зөвхөн энэ төхөөрөмжийн хөтчид хадгалагдаж байна.'}),
