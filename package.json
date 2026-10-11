@@ -90,7 +90,7 @@
     "eslint": "^9.39.4",
     "jest": "^30.5.2",
     "postcss": "^8.5.28",
-    "tailwindcss": "^3.4.17",
+    "tailwindcss": "^4.3.3",
     "ts-jest": "^29.4.14",
     "tsx": "^4.23.15",
     "typescript": "^5.7.2",
