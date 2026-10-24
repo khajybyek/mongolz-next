@@ -1,14 +1,15 @@
 /**
  * mongolz.dev/test — a self-contained static study page (the Korean driving
- * theory exam bank with Mongolian glosses) served from `public/test/`.
+ * theory exam bank with KoROAD's official Mongolian and English editions)
+ * served from `public/test/`.
  *
  * It shares the deployment with the console and nothing else: `proxy.ts`
  * answers these paths before any Supabase / session / role logic runs, and
  * the page gets its own Content-Security-Policy. The console's nonce policy
  * cannot apply to a static file, so the page's one executable inline script
  * is pinned by hash instead — no 'unsafe-inline' for scripts. The two
- * `type="application/json"` blocks (question bank, glossary) are data, not
- * script, and are not subject to `script-src`.
+ * `type="application/json"` blocks (question bank, English edition) are data,
+ * not script, and are not subject to `script-src`.
  *
  * Only mongolz.dev serves it. aicctv.dev runs on the same deployment and
  * answers 404 for every /test path, images included (the proxy matcher lists
@@ -21,7 +22,7 @@
 
 export const TEST_SITE_PREFIX = "/test";
 export const TEST_SITE_INDEX = "/test/index.html";
-export const TEST_SITE_SCRIPT_HASHES = ["sha256-lJu1FOVP6masJ8jbk9NDu2kZnDcpMBxrUIxq6xT0ARg="] as const;
+export const TEST_SITE_SCRIPT_HASHES = ["sha256-JQWvF4sphaFwOb6QUV0NAhvZp6f4btFs7vZXkrQkJFE="] as const;
 
 export const TEST_SITE_HOSTS: readonly string[] = ["mongolz.dev", "www.mongolz.dev"];
 const DEV_HOSTS: readonly string[] = ["localhost", "127.0.0.1"];
