@@ -21,7 +21,7 @@
   --green:#00703C; --green-soft:#DFF2E7;
   --red:#C5202B; --red-soft:#FBE4E5;
   --yellow:#FFC61A; --yellow-ink:#3B2F00; --yellow-soft:#FFF4CC;
-  --sign-green:#00703C; --sign-red:#B81D27; --asphalt:#2A2F35;
+  --sign-green:#00703C; --sign-red:#B81D27; --sign-blue:#0B4FA8; --asphalt:#2A2F35;
   --ui:"Golos Text","Apple SD Gothic Neo","Noto Sans KR","Noto Sans CJK KR","Malgun Gothic",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --ko:"Apple SD Gothic Neo","Noto Sans KR","Noto Sans CJK KR","Malgun Gothic",system-ui,-apple-system,sans-serif;
 }
@@ -32,7 +32,7 @@
     --green:#45C48A; --green-soft:#143021;
     --red:#FF7272; --red-soft:#3A1C1F;
     --yellow:#FFC61A; --yellow-ink:#3B2F00; --yellow-soft:#3A3110;
-    --sign-green:#0A6B40; --sign-red:#A41C25; --asphalt:#0C0E10;
+    --sign-green:#0A6B40; --sign-red:#A41C25; --sign-blue:#0B4596; --asphalt:#0C0E10;
   }
 }
 :root[data-theme="dark"]{
@@ -41,7 +41,7 @@
   --green:#45C48A; --green-soft:#143021;
   --red:#FF7272; --red-soft:#3A1C1F;
   --yellow:#FFC61A; --yellow-ink:#3B2F00; --yellow-soft:#3A3110;
-  --sign-green:#0A6B40; --sign-red:#A41C25; --asphalt:#0C0E10;
+  --sign-green:#0A6B40; --sign-red:#A41C25; --sign-blue:#0B4596; --asphalt:#0C0E10;
 }
 *,*::before,*::after{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -77,6 +77,8 @@ h1,h2,h3,p{margin:0}
 /* the hero is an overhead direction sign */
 .sign{display:block;width:100%;border:0;text-align:left;cursor:pointer;background:var(--sign-green);color:#fff;border-radius:16px;padding:5px}
 .sign.red{background:var(--sign-red)}
+.sign.blue{background:var(--sign-blue)}
+.sign + .sign{margin-top:10px}
 .sign-in{border:2.5px solid #fff;border-radius:12px;padding:16px 16px 14px;display:grid;grid-template-columns:52px 1fr;column-gap:14px;align-items:center}
 .sign-arrow{width:52px;height:52px}
 .sign-ko{font-family:var(--ko);font-weight:800;font-size:1.75rem;line-height:1.1;letter-spacing:-.01em}
@@ -180,6 +182,9 @@ div.fig{cursor:default}
 .fb-head{font-weight:800;font-size:1.0625rem;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .fb.ok .fb-head b{color:var(--green)} .fb.bad .fb-head b{color:var(--red)}
 .fb-head span{font-weight:600;font-size:.875rem;color:var(--ink-2)}
+.fb-ans{margin-top:12px;background:var(--green-soft);border-radius:10px;padding:10px 12px;display:grid;gap:6px}
+.fb-ans > b{font-size:.8125rem;font-weight:700;color:var(--green)}
+.fb-ans p{display:grid;grid-template-columns:auto 1fr;column-gap:8px;line-height:1.55}
 .fb h3{font-size:.8125rem;font-weight:700;color:var(--ink-2);margin:12px 0 4px}
 .exp{font-size:.9375rem;line-height:1.7;white-space:pre-line}
 .fb .fig{margin:10px 0 0}
@@ -297,7 +302,8 @@ const IC = {
   chev: svg('<path d="M9 5l7 7-7 7"/>'),
   zoom: svg('<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.2-4.2M11 8.5v5M8.5 11h5"/>'),
   grid: svg('<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>'),
-  up: '<svg viewBox="0 0 52 52" aria-hidden="true" class="sign-arrow"><path d="M26 6 8 26h11v20h14V26h11z" fill="#fff"/></svg>'
+  up: '<svg viewBox="0 0 52 52" aria-hidden="true" class="sign-arrow"><path d="M26 6 8 26h11v20h14V26h11z" fill="#fff"/></svg>',
+  check: '<svg viewBox="0 0 52 52" aria-hidden="true" class="sign-arrow"><path d="M11 27l10 10 20-22" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 };
 // each category wears a road-sign shape
 const GLYPH = {
@@ -569,6 +575,11 @@ function Home(){
 
   root.append(lnSeg());
 
+  const runDone = RUN ? RUN.ids.filter(n => RUN.ans[n]).length : 0, runOpen = !!RUN && (runDone > 0 || RUN.idx > 0);
+  root.append(h('button', {class:'sign blue', type:'button', onclick:() => runOpen ? openRunSheet(runDone) : startRun(true)},
+    h('div', {class:'sign-in'}, h('span', {html:IC.check}), h('div', null, h('div', {class:'sign-ko', text:RUN_SIZE + '문제 연습'}), h('div', {class:'sign-mn', text:RUN_SIZE + ' асуулт, хариу шууд гарна'})),
+      h('div', {class:'sign-meta'}, h('span', {text:'Сонгомогц зөв, буруу нь тайлбартай гарна'}), h('span', {class:'num', text:runOpen ? 'Үргэлжлүүлэх ' + runDone + ' / ' + RUN.ids.length : 'Шууд эхэлнэ'})))));
+
   const meta = h('div', {class:'sign-meta'});
   if(ex) meta.append(h('span', {class:'num', text:'Үлдсэн хугацаа ' + fmtTime((ex.end - Date.now()) / 1000)}), h('span', {text:'Үргэлжлүүлэх'}));
   else meta.append(h('span', {text:EXAM_COUNT + ' асуулт, ' + EXAM_MIN + ' минут'}), h('span', {class:'num', text:last ? 'Сүүлийн оноо ' + last.s : 'Тэнцэх оноо ' + passLine()}));
@@ -663,7 +674,7 @@ function openSettings(){
           h('h3', {text:'Ахицыг арилгах уу?'}),
           h('p', {text:'Хариулсан асуултын тэмдэглэл, одоор тэмдэглэсэн асуулт, шалгалтын түүх бүгд устана.'}),
           h('div', {class:'stack'},
-            h('button', {class:'btn danger block', type:'button', text:'Арилгах', onclick:() => { const keep = {lt:S.lt, fs:S.fs, sy:S.sy, ln:S.ln}; S = fresh(); S.lt = keep.lt; S.fs = keep.fs; S.sy = keep.sy; S.ln = keep.ln; S.r = Date.now(); MN = {}; saveMn(); persist(); c2(); render(); }}),
+            h('button', {class:'btn danger block', type:'button', text:'Арилгах', onclick:() => { const keep = {lt:S.lt, fs:S.fs, sy:S.sy, ln:S.ln}; S = fresh(); S.lt = keep.lt; S.fs = keep.fs; S.sy = keep.sy; S.ln = keep.ln; S.r = Date.now(); MN = {}; saveMn(); RUN = null; saveRun(); persist(); c2(); render(); }}),
             h('button', {class:'btn block', type:'button', text:'Болих', onclick:c2}))))}),
         h('button', {class:'btn block', type:'button', text:'Хаах', onclick:close})));
   });
@@ -675,6 +686,43 @@ function startPractice(ids, title, opt){
   opt = opt || {};
   session = {mode:'practice', ids:ids.slice(), idx:Math.min(opt.start || 0, ids.length - 1), title:title, key:opt.key || null, picks:{}, res:{}};
   go('quiz');
+}
+/* ---- 100-question drill: each answer shows at once; the run survives a reload (this device only) ---- */
+const RUN_SIZE = 100, RUN_KEY = 'kdl:run:v1';
+function loadRun(){
+  try{
+    const r = JSON.parse(localStorage.getItem(RUN_KEY));
+    if(!r || !Array.isArray(r.ids) || !r.ids.length || !r.ids.every(n => Number.isInteger(n) && n >= 1 && n <= N)) return null;
+    const ans = {};
+    if(r.ans && typeof r.ans === 'object') r.ids.forEach(n => { const p = r.ans[n]; if(Array.isArray(p) && p.length && p.every(x => Number.isInteger(x) && x >= 1 && x <= BANK[n - 1].o.length)) ans[n] = p; });
+    return {ids:r.ids, idx:Math.min(Math.max(0, r.idx | 0), r.ids.length - 1), ans:ans};
+  }catch(e){ return null; }
+}
+let RUN = loadRun();
+function saveRun(){ try{ if(RUN) localStorage.setItem(RUN_KEY, JSON.stringify(RUN)); else localStorage.removeItem(RUN_KEY); }catch(e){} }
+function drawRun(){   // same type mix as the exam, scaled to RUN_SIZE; no video questions (no clips here)
+  const pool = TYPE_ORDER.filter(t => TYPES[t].exam), want = {};
+  let left = RUN_SIZE, ids = [];
+  pool.forEach(t => { want[t] = Math.round(TYPES[t].exam / EXAM_COUNT * RUN_SIZE); left -= want[t]; });
+  want[pool[0]] += left;
+  pool.forEach(t => { ids = ids.concat(shuffle(BY_TYPE[t]).slice(0, want[t])); });
+  return shuffle(ids);
+}
+function startRun(anew){
+  if(anew || !RUN) RUN = {ids:drawRun(), idx:0, ans:{}};
+  saveRun();
+  const res = {};
+  Object.keys(RUN.ans).forEach(k => { res[k] = isCorrect(BANK[k - 1], RUN.ans[k]); });
+  session = {mode:'practice', run:true, ids:RUN.ids, idx:RUN.idx, title:RUN_SIZE + ' асуулт', key:null, picks:Object.assign({}, RUN.ans), res:res};
+  go('quiz');
+}
+function openRunSheet(done){
+  openSheet(close => h('div', null,
+    h('h3', {text:RUN_SIZE + ' асуулт'}),
+    h('p', {text:'Өмнөх давтлага дуусаагүй байна.'}),
+    h('div', {class:'stack'},
+      choice('Үргэлжлүүлэх', done + ' / ' + RUN.ids.length + ' хариулсан', () => { close(); startRun(false); }, true),
+      choice('Шинээр эхлэх', 'Шинэ ' + RUN_SIZE + ' асуулт санамсаргүй сонгоно', () => { close(); startRun(true); }))));
 }
 function startExam(){
   let ids = [];
@@ -713,7 +761,11 @@ function curId(){ return curIds()[curIdx()]; }
 function setIdx(i){
   const ids = curIds(); i = Math.max(0, Math.min(ids.length - 1, i));
   if(session.mode === 'exam'){ S.exam.idx = i; saveLocal(); }
-  else { session.idx = i; if(session.key && S.pos[session.key] !== i){ S.pos[session.key] = i; persist(); } }
+  else {
+    session.idx = i;
+    if(session.key && S.pos[session.key] !== i){ S.pos[session.key] = i; persist(); }
+    if(session.run && RUN){ RUN.idx = i; saveRun(); }
+  }
   render();
 }
 function pickOption(i){
@@ -726,7 +778,7 @@ function pickOption(i){
     const p = (session.picks[n] || []).slice(), k = p.indexOf(i);
     if(k >= 0) p.splice(k, 1); else { p.push(i); while(p.length > need) p.shift(); }
     session.picks[n] = p;
-    render();
+    if(p.length === need) checkAnswer(); else render();   // the answer shows as soon as enough options are picked
   }
 }
 function checkAnswer(){
@@ -735,7 +787,17 @@ function checkAnswer(){
   if(session.res[n] !== undefined || p.length !== q.a.length) return;
   const ok = isCorrect(q, p);
   session.res[n] = ok; setStat(n, ok); persist();
+  if(session.run && RUN){ RUN.ans[n] = p.slice(); saveRun(); }
   render();
+  showFeedback();
+}
+function showFeedback(){   // bring the verdict into view when it landed below the fold
+  const fb = document.querySelector('.fb'); if(!fb) return;
+  const dock = document.querySelector('.dock'), bar = document.querySelector('.topbar');
+  const r = fb.getBoundingClientRect(), bottom = window.innerHeight - (dock ? dock.offsetHeight : 0);
+  if(r.top < bottom - 96) return;
+  const smooth = !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  window.scrollTo({top:window.scrollY + r.top - (bar ? bar.offsetHeight : 0) - 8, behavior:smooth ? 'smooth' : 'auto'});
 }
 function leaveQuiz(){
   if(session.mode === 'exam'){
@@ -751,7 +813,8 @@ function leaveQuiz(){
 }
 function finishPractice(){
   const ids = session.ids.filter(n => session.res[n] !== undefined);
-  lastSummary = {title:session.title, total:session.ids.length, done:ids.length, ok:ids.filter(n => session.res[n]).length, wrong:ids.filter(n => !session.res[n])};
+  lastSummary = {title:session.title, total:session.ids.length, done:ids.length, ok:ids.filter(n => session.res[n]).length, wrong:ids.filter(n => !session.res[n]), run:!!session.run};
+  if(session.run){ RUN = null; saveRun(); }
   session = null;
   go('summary');
 }
@@ -857,9 +920,11 @@ function Quiz(){
 
   if(revealed){
     const fb = h('section', {class:'fb ' + (ok ? 'ok' : 'bad'), 'aria-live':'polite'});
-    fb.append(h('div', {class:'fb-head'}, h('b', {text:ok ? 'Зөв' : (picks.length ? 'Буруу' : 'Хариулаагүй')}), h('span', {class:'num', text:'Зөв хариулт ' + q.a.map(a => CIRC[a - 1]).join(', ')})));
+    const mine = picks.slice().sort((a, b) => a - b).map(a => CIRC[a - 1]).join(', ');
+    fb.append(h('div', {class:'fb-head'}, h('b', {text:ok ? 'Зөв' : (picks.length ? 'Буруу' : 'Хариулаагүй')}), h('span', {class:'num', text:picks.length ? 'Таны сонголт ' + mine : 'Зөв хариулт ' + q.a.map(a => CIRC[a - 1]).join(', ')})));
+    if(!ok) fb.append(h('div', {class:'fb-ans'}, h('b', {text:'Зөв хариулт'}), q.a.map(a => h('p', null, h('span', {class:'num', text:CIRC[a - 1]}), bi('span', '', q.o[a - 1], M.o ? M.o[a - 1] : null, E ? E.o[a - 1] : null)))));
     if(q.e || q.ei){
-      fb.append(h('h3', null, h('span', {class:'ko', text:'해설'}), '  Тайлбар' + (S.ln !== 'ko' ? ' (зөвхөн солонгосоор)' : '')));
+      fb.append(h('h3', null, 'Яагаад? ', h('span', {class:'ko', text:'해설'}), S.ln !== 'ko' ? ' · зөвхөн солонгосоор' : ''));
       if(q.e) fb.append(h('p', {class:'exp ko', lang:'ko'}, q.e));   // the Mongolian and English editions have no explanations
       if(q.ei){ const es = eimgSrc(n); fb.append(h('button', {class:'fig', type:'button', 'aria-label':'Тайлбарын зургийг томруулах', onclick:() => openZoom(es, 'Тайлбарын зураг')}, h('img', {src:es, alt:'Тайлбарын зураг'}), h('span', {class:'zm', html:IC.zoom}))); }
     }
@@ -876,7 +941,6 @@ function Quiz(){
   let next;
   if(ex) next = h('button', {class:'btn primary', type:'button', text:last ? 'Дуусгах' : 'Дараах', onclick:() => last ? confirmSubmit() : setIdx(idx + 1)});
   else if(mode === 'review') next = h('button', {class:'btn primary', type:'button', text:last ? 'Хаах' : 'Дараах', onclick:() => last ? leaveQuiz() : setIdx(idx + 1)});
-  else if(!revealed && picks.length === need) next = h('button', {class:'btn primary', type:'button', text:'Шалгах', onclick:checkAnswer});
   else next = h('button', {class:'btn' + (revealed ? ' primary' : ''), type:'button', text:last ? 'Дуусгах' : (revealed ? 'Дараах' : 'Алгасах'), onclick:() => last ? finishPractice() : setIdx(idx + 1)});
   const dockIn = h('div', {class:'dock-in' + (ex ? ' three' : '')}, prev);
   if(ex){
@@ -926,6 +990,7 @@ function Summary(){
       h('div', {class:'sign-meta'}, h('span', {text:M.done ? M.done + ' асуултаас ' + M.ok + '-д зөв хариуллаа' : 'Хариулсан асуулт алга'}), M.done < M.total ? h('span', {text:(M.total - M.done) + ' асуулт алгассан'}) : null))));
   root.append(h('div', {class:'stack', style:'margin-top:16px'},
     M.wrong.length ? h('button', {class:'btn primary block', type:'button', text:'Алдсан ' + M.wrong.length + ' асуултыг дахин хийх', onclick:() => startPractice(M.wrong, 'Алдсанаа давтах')}) : null,
+    M.run ? h('button', {class:'btn block', type:'button', text:'Дахин ' + RUN_SIZE + ' асуулт', onclick:() => startRun(true)}) : null,
     h('button', {class:'btn block' + (M.wrong.length ? '' : ' primary'), type:'button', text:'Нүүр хуудас', onclick:() => go('home')})));
   return root;
 }
