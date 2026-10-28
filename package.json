@@ -59,7 +59,7 @@
     "@vercel/speed-insights": "^2.0.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.4",
     "esbuild": "^0.28.2",
     "hls.js": "^1.7.3",
     "jszip": "^3.10.2",
