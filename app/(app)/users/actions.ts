@@ -184,7 +184,7 @@ export async function createUserAction(formData: FormData): Promise<ActionError 
 }
 
 const roleSchema = z.object({
-  user_id: z.string().uuid(),
+  user_id: z.guid(),
   role: z.enum(["admin", "viewer", "auditor"]),
 });
 
@@ -292,7 +292,7 @@ export async function changeRoleAction(formData: FormData): Promise<ActionError 
 }
 
 const revealLevelSchema = z.object({
-  user_id: z.string().uuid(),
+  user_id: z.guid(),
   // 0 = director (sees/decrypts every face); higher = more restricted —
   // a level-N holder can only reveal/decrypt faces with chain_index >= N
   // (ADR 0009 forward hash chain).
@@ -407,7 +407,7 @@ export async function setRevealLevelAction(
   return { ok: true };
 }
 
-const deleteSchema = z.object({ user_id: z.string().uuid() });
+const deleteSchema = z.object({ user_id: z.guid() });
 
 export async function deleteUserAction(formData: FormData): Promise<ActionError | ActionOk> {
   const ctx = await requireAdmin();
@@ -499,7 +499,7 @@ export async function deleteUserAction(formData: FormData): Promise<ActionError 
 }
 
 const resetSchema = z.object({
-  user_id: z.string().uuid(),
+  user_id: z.guid(),
   password: z.string().min(8).max(128),
 });
 

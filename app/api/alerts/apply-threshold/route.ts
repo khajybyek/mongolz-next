@@ -40,7 +40,7 @@ const ML_DETECTION_GATE = 0.45;
 const RULE_NAME_PREFIX = "auto-tune:";
 
 const schema = z.object({
-  suspect_id: z.string().uuid(),
+  suspect_id: z.guid(),
   threshold: z.number().min(0).max(1),
 });
 

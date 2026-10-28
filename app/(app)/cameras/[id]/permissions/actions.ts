@@ -12,8 +12,8 @@ import { getT } from "@/lib/i18n/server";
 type ActionResult = { error: string } | { ok: true };
 
 const addSchema = z.object({
-  camera_id: z.string().uuid(),
-  user_id: z.string().uuid(),
+  camera_id: z.guid(),
+  user_id: z.guid(),
   permission: z.enum(["view", "operate"]).default("view"),
 });
 
@@ -95,8 +95,8 @@ export async function grantCameraPermissionAction(formData: FormData): Promise<A
 export async function revokeCameraPermissionAction(cameraId: string, userId: string): Promise<ActionResult> {
   const ctx = await requireAdmin();
   const { t } = await getT();
-  const camera = z.string().uuid().safeParse(cameraId);
-  const user = z.string().uuid().safeParse(userId);
+  const camera = z.guid().safeParse(cameraId);
+  const user = z.guid().safeParse(userId);
   if (!camera.success || !user.success) return { error: t("perm_err_revoke") };
 
   const svc = createServiceClient();

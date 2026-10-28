@@ -28,8 +28,8 @@ export const ruleSchema = z
   .object({
     name: z.string().min(1).max(120),
     enabled: z.boolean().optional().default(true),
-    suspect_id: z.string().uuid().optional().nullable(),
-    camera_id: z.string().uuid().optional().nullable(),
+    suspect_id: z.guid().optional().nullable(),
+    camera_id: z.guid().optional().nullable(),
     min_similarity: z.number().min(0).max(1).default(0.45),
     dedup_window_sec: z.number().int().min(0).max(86400).default(300),
     burst_count: z.number().int().min(1).max(100).default(1),

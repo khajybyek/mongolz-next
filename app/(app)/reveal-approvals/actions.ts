@@ -23,7 +23,7 @@ export type DecisionResult =
   | { ok: true }
   | { error: "REAUTH_REQUIRED" | "INVALID" | "NOT_FOUND" | "ALREADY_DECIDED" | "SELF" | "ML_FAILED" | "DB"; detail?: string };
 
-const jobIdSchema = z.string().uuid();
+const jobIdSchema = z.guid();
 const reasonSchema = z.string().trim().min(3).max(500);
 
 async function audit(action: string, detail: string, userId: string, userEmail: string) {

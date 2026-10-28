@@ -56,12 +56,12 @@ type Messages = {
 function scheduleSchema(msg: Messages) {
   return z
     .object({
-      camera_id: z.string().uuid(),
+      camera_id: z.guid(),
       window_mode: modeSchema,
       starts_at: z.string().regex(TIME_RE, msg.timeFormat),
       ends_at: z.string().regex(TIME_RE, msg.timeFormat),
       weekdays: z.coerce
-        .number({ invalid_type_error: msg.weekdays })
+        .number({ error: msg.weekdays })
         .int(msg.weekdays)
         .min(1, msg.weekdays)
         .max(127, msg.weekdays),
@@ -72,7 +72,7 @@ function scheduleSchema(msg: Messages) {
 }
 
 const defaultSchema = z.object({
-  camera_id: z.string().uuid(),
+  camera_id: z.guid(),
   privacy_default: modeSchema,
 });
 
@@ -230,7 +230,7 @@ export async function addScheduleAction(formData: FormData): Promise<ActionResul
 export async function deleteScheduleAction(formData: FormData): Promise<ActionResult> {
   const ctx = await requireAdmin();
   const { t } = await getT();
-  const id = z.string().uuid().safeParse(formData.get("id"));
+  const id = z.guid().safeParse(formData.get("id"));
   if (!id.success) return { error: t("schedule_err_invalid") };
 
   // The window's mode comes from the database, never from the form: a
