@@ -457,3 +457,19 @@ this line: on 2026-09-08 it was **222 Jest** (25 suites, `npx jest`) +
 (6 spec files × 2 browser projects), all green. Note what that number does not
 cover: there is no component test and no server-action test, so the login,
 passkey and recovery-code paths are exercised only end-to-end.
+
+## License
+
+The code in this repository is released under the [MIT License](LICENSE).
+It does not cover material owned by others that the repository contains or
+uses:
+
+- `public/test/` — the driving-theory question bank, its translations and
+  images belong to 한국도로교통공단 (KoROAD).
+- `ml-service/samples/` — AI-generated sample faces used for demo cameras
+  and tests.
+- `public/models/face_detect.onnx` — the browser face detector keeps its
+  upstream license.
+- InsightFace's pretrained models (`buffalo_l`), which the ML service
+  downloads at runtime, are not part of the repository and come with their
+  own non-commercial terms.
