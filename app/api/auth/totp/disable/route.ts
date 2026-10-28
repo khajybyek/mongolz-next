@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { password } = await request.json().catch(() => ({}));
-  if (!password || typeof password !== "string") {
+  if (!password || typeof password !== "string") { // pragma: allowlist secret
     await releaseRateLimit(ctx.user.id, REAUTH_LIMIT);
     return NextResponse.json({ error: "missing password" }, { status: 400 });
   }

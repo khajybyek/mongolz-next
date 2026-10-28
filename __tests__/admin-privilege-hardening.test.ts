@@ -138,7 +138,7 @@ const audits = (action: string) =>
   ops.filter((o) => o.table === "audit_log" && o.op === "insert" && (o.values as { action: string }).action === action);
 
 beforeAll(() => {
-  process.env.REAUTH_COOKIE_SECRET = "admin-privilege-hardening-test-secret";
+  process.env.REAUTH_COOKIE_SECRET = "admin-privilege-hardening-test-secret"; // pragma: allowlist secret
 });
 beforeEach(() => {
   ops.length = 0;

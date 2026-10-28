@@ -9,7 +9,7 @@ import { createHmac } from "node:crypto";
 import { bindSessionPin, checkSessionPin, networkBucket } from "@/lib/auth/session-pin";
 
 const USER = "11111111-2222-4333-8444-555555555555";
-const SECRET = "test-session-pin-secret-0123456789abcdef";
+const SECRET = "test-session-pin-secret-0123456789abcdef"; // pragma: allowlist secret
 const COOKIE = "mongolz-session-pin";
 
 const mockReq = { ip: "203.0.113.7", ua: "Mozilla/5.0 (Macintosh) Chrome/140" };

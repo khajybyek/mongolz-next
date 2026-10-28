@@ -1272,8 +1272,7 @@ function FileUploadView() {
       <div className="text-xs text-text-faint border-t border-border pt-3 mt-2">
         <strong>{t("live_tips_label")}</strong> {t("live_tips_text")}
         <code className="block bg-text-muted/5 rounded px-2 py-1 mt-1 font-mono text-2xs">
-          ffmpeg -rtsp_transport tcp -i rtsp://user:pass@ip/path -t 30 -c:v copy
-          out.mp4
+          {"ffmpeg -rtsp_transport tcp -i rtsp://{user}:{pass}@{ip}/path -t 30 -c:v copy out.mp4"}
         </code>
       </div>
     </div>

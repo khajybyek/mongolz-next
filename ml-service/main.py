@@ -146,7 +146,7 @@ def _init_sentry() -> bool:
 _init_sentry()
 
 ML_TOKEN = os.getenv("ML_SERVICE_TOKEN", "")
-HLS_DIR = os.getenv("HLS_DIR", "/tmp/mongolz-hls")
+HLS_DIR = os.getenv("HLS_DIR", "/tmp/mongolz-hls")  # noqa: S108 — container-private /tmp
 CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
@@ -740,7 +740,7 @@ def _is_loopback_forwarder_url(url: str) -> bool:
     """True if the URL targets the in-container tcp_forward listener.
 
     Local home cameras reach the ML container through Tailscale userspace
-    + tcp_forward, so their URLs look like `rtsp://user:pass@127.0.0.1:5554/…`.
+    + tcp_forward, so their URLs look like `rtsp://{user}:{password}@127.0.0.1:5554/…`.
     A probe failure on these URLs is most often a tailnet/subnet-router
     issue (home laptop offline), not bad credentials — we use this to
     return a clearer hint instead of the generic "check URL".
@@ -796,7 +796,7 @@ def _probe_camera_sync(url: str) -> dict:
     finally:
         try:
             cap.release()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             pass
 
 
@@ -871,7 +871,8 @@ async def stream_playlist(camera_id: str):
     path = _safe_hls_path(camera_id, "index.m3u8")
     if not os.path.exists(path):
         raise HTTPException(404, "stream not active")
-    return FileResponse(path, media_type="application/vnd.apple.mpegurl")
+    # path comes from _safe_hls_path: name allow-list + realpath containment in HLS_DIR
+    return FileResponse(path, media_type="application/vnd.apple.mpegurl")  # nosemgrep: python-tainted-request
 
 
 @app.get("/stream/{camera_id}/{segment}", dependencies=[Depends(require_token)])
@@ -881,7 +882,8 @@ async def stream_segment(camera_id: str, segment: str):
     path = _safe_hls_path(camera_id, segment)
     if not os.path.exists(path):
         raise HTTPException(404, "segment not found")
-    return FileResponse(path, media_type="video/MP2T")
+    # path comes from _safe_hls_path: name allow-list + realpath containment in HLS_DIR
+    return FileResponse(path, media_type="video/MP2T")  # nosemgrep: python-tainted-request
 
 
 # ── Reveal job ──────────────────────────────────────────────────
@@ -935,7 +937,7 @@ async def reveal_run_endpoint(req: RevealRunReq):
 #
 # The encrypted original is the single source of truth — reveal flow stays
 # unchanged (decrypt + selective-unblur via reveal_job.py).
-_VIEW_CACHE_DIR = "/tmp/mongolz-views"
+_VIEW_CACHE_DIR = "/tmp/mongolz-views"  # noqa: S108 — container-private /tmp
 os.makedirs(_VIEW_CACHE_DIR, exist_ok=True)
 _view_locks: dict[str, asyncio.Lock] = {}
 _MAX_VIEW_LOCKS = 512  # bound the dict so a viewer can't grow it without limit
@@ -1013,11 +1015,12 @@ async def render_view_endpoint(recording_id: str):
         if not res or not res.data:
             async with _get_view_lock(recording_id):
                 try:
-                    os.remove(cache_path)
+                    # cache_path is _VIEW_CACHE_DIR/<id>.mp4 with id matched by the anchored _UUID_RE above
+                    os.remove(cache_path)  # nosemgrep: python-tainted-request
                 except FileNotFoundError:
                     pass
             raise HTTPException(404, "recording not found")
-        return FileResponse(cache_path, media_type="video/mp4")
+        return FileResponse(cache_path, media_type="video/mp4")  # nosemgrep: python-tainted-request — UUID-checked id, fixed directory
     return await _render_view_cold(recording_id, cache_path)
 
 
@@ -2040,4 +2043,6 @@ async def anti_spoof_endpoint(file: UploadFile = File(...)):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True)
+    # Local development only: the container starts uvicorn from the Dockerfile
+    # CMD (--host 0.0.0.0). Here it binds to loopback unless HOST says otherwise.
+    uvicorn.run("main:app", host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", 8000)), reload=True)

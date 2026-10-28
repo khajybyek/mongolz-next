@@ -169,7 +169,7 @@ describe("authenticator code path", () => {
 
   it("posts the code to the existing TOTP step-up route and succeeds on 200", async () => {
     fetchMock.mockResolvedValue(json(200, { ok: true, expires_at: "2026-09-30T00:15:00Z" }));
-    const result = await submitRevealStepUp("totp", { code: "123456", password: "ignored" }, en);
+    const result = await submitRevealStepUp("totp", { code: "123456", password: "ignored" }, en); // pragma: allowlist secret
     expect(result).toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0]!;
@@ -213,11 +213,11 @@ describe("authenticator code path", () => {
 describe("password path (unchanged)", () => {
   it("posts the password to /api/auth/reauth and succeeds on 200", async () => {
     fetchMock.mockResolvedValue(json(200, { ok: true }));
-    await expect(submitRevealStepUp("password", { code: "", password: "hunter22" }, en)).resolves.toEqual({ ok: true });
+    await expect(submitRevealStepUp("password", { code: "", password: "hunter22" }, en)).resolves.toEqual({ ok: true }); // pragma: allowlist secret
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe("/api/auth/reauth");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body)).toEqual({ password: "hunter22" });
+    expect(JSON.parse(init.body)).toEqual({ password: "hunter22" }); // pragma: allowlist secret
   });
 
   it("keeps its refusal handling: server text, server_config, generic fallback", async () => {

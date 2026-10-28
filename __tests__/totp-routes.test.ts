@@ -101,7 +101,7 @@ const regenerate = () =>
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 beforeEach(() => {
-  db.profile = { totp_secret: "SECRET", totp_enabled: false, totp_recovery_codes: [] };
+  db.profile = { totp_secret: "SECRET", totp_enabled: false, totp_recovery_codes: [] }; // pragma: allowlist secret
   db.updateResult = { data: [{ id: "u-1" }], error: null };
   db.ops = [];
   db.inserts = [];
@@ -164,7 +164,7 @@ describe("POST /api/auth/totp/verify (enrolment)", () => {
     await verify().POST(post("/api/auth/totp/verify", { code: "123456" }));
     expect(checkTotpCode.mock.calls[0][0]).toMatchObject({ skipReplayCheck: true });
     checkTotpCode.mockClear();
-    db.profile = { totp_secret: "SECRET", totp_enabled: true };
+    db.profile = { totp_secret: "SECRET", totp_enabled: true }; // pragma: allowlist secret
     const res = await verify().POST(post("/api/auth/totp/verify", { code: "123456" }));
     expect(checkTotpCode.mock.calls[0][0]).toMatchObject({ skipReplayCheck: false });
     expect((await res.json()).recovery_codes).toBeNull();
@@ -174,7 +174,7 @@ describe("POST /api/auth/totp/verify (enrolment)", () => {
 
 describe("POST /api/auth/totp/recovery/regenerate", () => {
   beforeEach(() => {
-    db.profile = { totp_secret: "SECRET", totp_enabled: true };
+    db.profile = { totp_secret: "SECRET", totp_enabled: true }; // pragma: allowlist secret
   });
 
   it("re-issues ten codes after a valid TOTP code", async () => {
@@ -195,12 +195,12 @@ describe("POST /api/auth/totp/recovery/regenerate", () => {
 
 describe("POST /api/auth/totp/disable", () => {
   beforeEach(() => {
-    db.profile = { totp_secret: "SECRET", totp_enabled: true };
+    db.profile = { totp_secret: "SECRET", totp_enabled: true }; // pragma: allowlist secret
   });
 
   it("refuses without a TOTP-minted step-up and refunds the throttle unit", async () => {
     freshReauth = false;
-    const res = await disable().POST(post("/api/auth/totp/disable", { password: "pw" }));
+    const res = await disable().POST(post("/api/auth/totp/disable", { password: "pw" })); // pragma: allowlist secret
     expect(res.status).toBe(403);
     expect((await res.json()).error).toBe("REAUTH_REQUIRED");
     expect(releaseRateLimit).toHaveBeenCalledTimes(1);
@@ -209,14 +209,14 @@ describe("POST /api/auth/totp/disable", () => {
 
   it("keeps the throttle unit and audits a wrong password", async () => {
     probeSignIn.mockResolvedValue({ error: { message: "Invalid login credentials" } });
-    const res = await disable().POST(post("/api/auth/totp/disable", { password: "bad" }));
+    const res = await disable().POST(post("/api/auth/totp/disable", { password: "bad" })); // pragma: allowlist secret
     expect(res.status).toBe(401);
     expect(releaseRateLimit).not.toHaveBeenCalled();
     expect(actions()).toEqual(["TOTP_DISABLE_FAILED"]);
   });
 
   it("clears the factor, drops push subscriptions and alerts the other admins", async () => {
-    const res = await disable().POST(post("/api/auth/totp/disable", { password: "pw" }));
+    const res = await disable().POST(post("/api/auth/totp/disable", { password: "pw" })); // pragma: allowlist secret
     expect(res.status).toBe(200);
     expect(actions()).toEqual(["TOTP_DISABLED"]);
     expect(db.ops.some((o) => o.table === "push_subscriptions" && o.ops.includes("delete"))).toBe(true);
@@ -225,7 +225,7 @@ describe("POST /api/auth/totp/disable", () => {
 
   it("answers 500 and changes nothing else when the update fails", async () => {
     db.updateResult = { data: null, error: { message: "db down" } };
-    const res = await disable().POST(post("/api/auth/totp/disable", { password: "pw" }));
+    const res = await disable().POST(post("/api/auth/totp/disable", { password: "pw" })); // pragma: allowlist secret
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "disable_failed" });
     expect(actions()).toEqual([]);

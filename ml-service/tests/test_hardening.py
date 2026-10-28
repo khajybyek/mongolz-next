@@ -30,9 +30,9 @@ def test_opencv_native_diagnostics_are_silent():
 def test_network_capture_uses_ffmpeg_with_bounded_io(monkeypatch):
     calls = []
     monkeypatch.setattr(cv2, "VideoCapture", lambda *args: calls.append(args) or object())
-    open_video_capture("https://user:secret@camera.invalid/mjpeg")
+    open_video_capture("https://user:secret@camera.invalid/mjpeg")  # pragma: allowlist secret
     assert calls == [(
-        "https://user:secret@camera.invalid/mjpeg",
+        "https://user:secret@camera.invalid/mjpeg",  # pragma: allowlist secret
         cv2.CAP_FFMPEG,
         [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000, cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000],
     )]
@@ -76,7 +76,7 @@ def test_reveal_level_parser_accepts_only_persisted_scope(value):
 @pytest.mark.parametrize(
     "url,expected",
     [
-        ("rtsp://admin:s3cret@192.168.0.15:554/h264", "rtsp://***@192.168.0.15:554/h264"),
+        ("rtsp://admin:s3cret@192.168.0.15:554/h264", "rtsp://***@192.168.0.15:554/h264"),  # pragma: allowlist secret
         ("rtsp://192.168.0.15:554/h264", "rtsp://192.168.0.15:554/h264"),
         ("http://user@cam.local/mjpeg", "http://***@cam.local/mjpeg"),
         (0, "0"),
@@ -131,7 +131,7 @@ class _Session:
         self.task = task
         self.camera_name = name
         self.fps = fps
-        self.source_url = "rtsp://admin:secret@10.0.0.5/stream"
+        self.source_url = "rtsp://admin:secret@10.0.0.5/stream"  # pragma: allowlist secret
         from datetime import datetime, timezone
 
         self.started_at = datetime(2026, 9, 7, 1, 2, 3, tzinfo=timezone.utc)

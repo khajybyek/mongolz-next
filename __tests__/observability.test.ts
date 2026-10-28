@@ -117,7 +117,7 @@ describe("event scrubbing", () => {
       user: { ip_address: "203.0.113.7" },
       request: {
         url: "https://aicctv.dev/api/auth/reauth",
-        data: '{"password":"hunter2"}',
+        data: '{"password":"hunter2"}', // pragma: allowlist secret
         headers: {
           "X-Forwarded-For": "203.0.113.7",
           "x-real-ip": "203.0.113.7",

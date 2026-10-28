@@ -42,7 +42,7 @@ describe("GET /api/health/ml tunnel state", () => {
           ok: true,
           service: "mongolz-ml",
           active_cameras: 0,
-          tunnel: { requested: true, state: "degraded", target_ok: false, reason: "socks5 connect failed via rtsp://admin:pw@10.0.0.9" },
+          tunnel: { requested: true, state: "degraded", target_ok: false, reason: "socks5 connect failed via rtsp://admin:pw@10.0.0.9" }, // pragma: allowlist secret
         }),
         { status: 200 },
       ),

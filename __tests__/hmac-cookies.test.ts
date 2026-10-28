@@ -1,5 +1,5 @@
 beforeAll(() => {
-  process.env.REAUTH_COOKIE_SECRET = "reauth-test-secret";
+  process.env.REAUTH_COOKIE_SECRET = "reauth-test-secret"; // pragma: allowlist secret
 });
 
 import { hmacEqual, hmacSign, isExpired } from "@/lib/auth/hmac";

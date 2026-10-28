@@ -79,6 +79,7 @@ import time
 import cv2
 
 from face_masker import FaceMasker
+from ffmpeg_bin import ffmpeg
 
 log = logging.getLogger("mongolz-ml.view")
 
@@ -92,7 +93,7 @@ _PAD_RATIO = 0.35
 # Kept in sync with `main._VIEW_CACHE_DIR`; the sweep only runs when a render
 # lands inside this directory, so a render to a scratch path (tests, future
 # callers) never touches unrelated files.
-VIEW_CACHE_DIR = os.environ.get("VIEW_CACHE_DIR", "/tmp/mongolz-views")
+VIEW_CACHE_DIR = os.environ.get("VIEW_CACHE_DIR", "/tmp/mongolz-views")  # noqa: S108 — container-private /tmp
 VIEW_CACHE_MAX_BYTES = int(os.environ.get("VIEW_CACHE_MAX_BYTES", 1024 * 1024 * 1024))
 VIEW_CACHE_MAX_AGE_SEC = float(os.environ.get("VIEW_CACHE_MAX_AGE_SEC", 24 * 3600))
 
@@ -375,9 +376,9 @@ def _render(
     else:
         max_frames = None
 
-    encoder = subprocess.Popen(
+    encoder = subprocess.Popen(  # noqa: S603 — fixed argv, no shell
         [
-            "ffmpeg", "-y",
+            ffmpeg(), "-y",
             "-f", "rawvideo", "-vcodec", "rawvideo",
             "-pix_fmt", "bgr24",
             "-s", f"{w}x{h}",

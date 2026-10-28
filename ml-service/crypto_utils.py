@@ -131,7 +131,8 @@ def init_master_key() -> None:
 def _master() -> bytes:
     if _MASTER_KEY is None:
         init_master_key()
-    assert _MASTER_KEY is not None
+    if _MASTER_KEY is None:  # init_master_key raises rather than leaving it unset
+        raise RuntimeError("master key not initialised")
     return _MASTER_KEY
 
 
@@ -232,5 +233,6 @@ def self_test() -> None:
     pt = b"mongolz security - encrypted at rest"
     ct = encrypt_bytes(pt, recording_id="test-id")
     pt2 = decrypt_bytes(ct, recording_id="test-id")
-    assert pt2 == pt, "encryption round-trip failed"
+    if pt2 != pt:  # explicit check: `assert` disappears under python -O
+        raise RuntimeError("encryption round-trip failed")
     log.info("Crypto self-test: ok (%d bytes round-trip)", len(pt))

@@ -134,7 +134,7 @@ function reset() {
   state.rpcError = null;
   state.rpcThrows = false;
   state.rpcCalls = [];
-  state.profile = { totp_secret: "SEED", totp_enabled: true, totp_recovery_codes: [] };
+  state.profile = { totp_secret: "SEED", totp_enabled: true, totp_recovery_codes: [] }; // pragma: allowlist secret
   delete process.env.RATE_LIMIT_MODE;
 }
 
@@ -238,7 +238,7 @@ describe("checkTotpCode", () => {
   const base = {
     userId: USER,
     userEmail: "admin@example.test",
-    secret: "SEED",
+    secret: "SEED", // pragma: allowlist secret
     limit: REAUTH_LIMIT,
     failAction: "REAUTH_TOTP_FAILED",
     replayAction: "REAUTH_TOTP_REPLAY_BLOCKED",

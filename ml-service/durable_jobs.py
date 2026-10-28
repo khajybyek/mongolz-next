@@ -258,7 +258,7 @@ class UploadWorker:
                 if session:
                     try:
                         await session.stop(finalize=False)
-                    except Exception:
+                    except Exception:  # noqa: S110 — best-effort stop; the upload failure is logged next
                         pass
                 log.warning("Upload %s failed (%s)", job_id, type(exc).__name__)
                 # Keep encrypted input. A DB outage leaves it discoverable by

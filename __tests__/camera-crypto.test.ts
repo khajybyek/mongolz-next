@@ -15,7 +15,7 @@ import {
 } from "@/lib/camera-crypto";
 
 describe("camera-crypto", () => {
-  const url = "rtsp://admin:pass@192.168.1.100:554/stream1";
+  const url = "rtsp://admin:pass@192.168.1.100:554/stream1"; // pragma: allowlist secret
 
   it("encrypts and decrypts a URL correctly", () => {
     const encrypted = encryptCameraUrl(url);

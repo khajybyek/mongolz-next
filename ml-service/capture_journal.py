@@ -21,7 +21,7 @@ log = logging.getLogger("mongolz-ml.capture-recovery")
 
 def recordings_directory() -> str:
     volume = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
-    root = Path(os.getenv("RECORDINGS_DIR") or str(Path(volume or "/tmp") / "mongolz-recordings")).resolve()
+    root = Path(os.getenv("RECORDINGS_DIR") or str(Path(volume or "/tmp") / "mongolz-recordings")).resolve()  # noqa: S108 — local fallback; production requires the volume
     if os.getenv("RAILWAY_ENVIRONMENT_ID"):
         if not volume or not os.path.ismount(volume) or not root.is_relative_to(Path(volume).resolve()):
             raise RuntimeError("Capture requires RECORDINGS_DIR inside the mounted Railway volume")

@@ -14,8 +14,8 @@ describe("authorizeCron", () => {
   });
 
   it("accepts either configured secret", () => {
-    process.env.CRON_SECRET = "cron-secret";
-    process.env.MONITORING_CRON_SECRET = "monitor-secret";
+    process.env.CRON_SECRET = "cron-secret"; // pragma: allowlist secret
+    process.env.MONITORING_CRON_SECRET = "monitor-secret"; // pragma: allowlist secret
     expect(authorizeCron(req("cron-secret"))).toBe(true);
     expect(authorizeCron(req("monitor-secret"))).toBe(true);
     expect(authorizeCron(req("wrong"))).toBe(false);

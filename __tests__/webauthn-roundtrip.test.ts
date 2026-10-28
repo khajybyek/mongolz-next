@@ -31,16 +31,16 @@ const USER = "11111111-2222-4333-8444-555555555555";
 const FIXTURE_JWK: crypto.JsonWebKey = {
   kty: "EC",
   crv: "P-256",
-  x: "GYDCeVLMFW--64Ku9FfSjCCeKK8fEjNWvlqSZaXWcU4",
-  y: "jhADzDP5KLMraJ3vhUKS9kV8Mh6SQqBp-Z1pzbDNVhU",
-  d: "9OVeANFxwHqjun0VLUXXgNdptHZCcpCfuqW6gNpajEM",
+  x: "GYDCeVLMFW--64Ku9FfSjCCeKK8fEjNWvlqSZaXWcU4", // pragma: allowlist secret
+  y: "jhADzDP5KLMraJ3vhUKS9kV8Mh6SQqBp-Z1pzbDNVhU", // pragma: allowlist secret
+  d: "9OVeANFxwHqjun0VLUXXgNdptHZCcpCfuqW6gNpajEM", // pragma: allowlist secret
 };
 
 /** The `webauthn_credentials` columns v13 wrote for that key. */
 const V13_ROW = {
   credential_id: "Brg10wmeC8rsvBtnwKn9D0BYFlbF1aai9YyVB3JXTPw",
   public_key:
-    "pQECAyYgASFYIBmAwnlSzBVvvuuCrvRX0owgniivHxIzVr5akmWl1nFOIlggjhADzDP5KLMraJ3vhUKS9kV8Mh6SQqBp-Z1pzbDNVhU",
+    "pQECAyYgASFYIBmAwnlSzBVvvuuCrvRX0owgniivHxIzVr5akmWl1nFOIlggjhADzDP5KLMraJ3vhUKS9kV8Mh6SQqBp-Z1pzbDNVhU", // pragma: allowlist secret
   transports: ["internal", "hybrid"],
 };
 

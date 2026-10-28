@@ -107,7 +107,7 @@ def test_zone_lookup_rejects_malformed_response(data):
 @pytest.mark.asyncio
 async def test_zone_outage_fails_job_before_original_or_render():
     processor, zones = _processor_with_zone_query(error=ConnectionError("database down"))
-    lease_token = "lease-token"
+    lease_token = "lease-token"  # noqa: S105 — test fixture
     processor._claim = Mock(return_value=lease_token)
     job_query = Mock()
     job_query.select.return_value = job_query

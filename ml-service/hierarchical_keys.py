@@ -195,14 +195,19 @@ def self_test() -> None:
     # Director (K₀) → бүгдийг reveal
     k0 = key_at_index(rec, 0, master)
     all_revealed = reveal_with_level_key(encrypted, 0, k0)
-    assert len(all_revealed) == 6, "K₀ бүгдийг reveal хийх ёстой"
-    assert all_revealed[0] == crops[0]
+    # explicit checks: `assert` disappears under python -O
+    if len(all_revealed) != 6:
+        raise RuntimeError("K₀ бүгдийг reveal хийх ёстой")
+    if all_revealed[0] != crops[0]:
+        raise RuntimeError("K₀ reveal returned the wrong crop")
 
     # Manager (K₃) → зөвхөн 3,4,5
     k3 = key_at_index(rec, 3, master)
     mgr_revealed = reveal_with_level_key(encrypted, 3, k3)
-    assert set(mgr_revealed.keys()) == {3, 4, 5}, "K₃ → зөвхөн 3,4,5"
-    assert 0 not in mgr_revealed and 2 not in mgr_revealed, "K₃ доош хүрэх ёсгүй"
+    if set(mgr_revealed.keys()) != {3, 4, 5}:
+        raise RuntimeError("K₃ → зөвхөн 3,4,5")
+    if 0 in mgr_revealed or 2 in mgr_revealed:
+        raise RuntimeError("K₃ доош хүрэх ёсгүй")
 
     print("hierarchical_keys self-test: ok (6 faces, chain hierarchy verified)")
 

@@ -18,7 +18,7 @@ const PURPOSES: Record<ReauthFactor, string> = {
   // Unchanged purpose: cookies minted by the TOTP route before this change
   // stay valid for their remaining minutes.
   totp: "mongolz-reauth:v2",
-  password: "mongolz-reauth-password:v1",
+  password: "mongolz-reauth-password:v1", // pragma: allowlist secret
 };
 
 export type ReauthOptions = {

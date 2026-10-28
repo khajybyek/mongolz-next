@@ -10,8 +10,8 @@ import type { TranslationKey } from "@/lib/i18n/translations";
 const ERROR_KEYS: Record<string, TranslationKey> = {
   TOTP_REQUIRED: "set_erase_err_totp",
   TOTP_REPLAYED: "set_erase_err_totp_replayed",
-  PASSWORD_REQUIRED: "set_erase_err_password",
-  PASSWORD_INVALID: "set_erase_err_password",
+  PASSWORD_REQUIRED: "set_erase_err_password", // pragma: allowlist secret
+  PASSWORD_INVALID: "set_erase_err_password", // pragma: allowlist secret
   RATE_LIMITED: "set_erase_err_rate",
   INVALID_BODY: "set_erase_failed",
 };

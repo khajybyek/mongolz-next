@@ -22,9 +22,9 @@ def outbox(tmp_path: Path, max_bytes: int = 1024 * 1024):
 
 def config(tmp_path: Path):
     return agent.Config(
-        rtsp_url="rtsp://operator:secret@10.0.0.2/live?token=hidden",
+        rtsp_url="rtsp://operator:secret@10.0.0.2/live?token=hidden",  # pragma: allowlist secret
         ml_url="https://ml.example",
-        ml_token="token",
+        ml_token="token",  # noqa: S106 — test fixture
         camera_id="00000000-0000-0000-0000-000000000001",
         agent_id="00000000-0000-0000-0000-000000000002",
         sample_interval_sec=1,

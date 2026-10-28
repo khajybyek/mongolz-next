@@ -1,5 +1,5 @@
 beforeAll(() => {
-  process.env.STREAM_TICKET_SECRET = "test-secret-key-for-jest";
+  process.env.STREAM_TICKET_SECRET = "test-secret-key-for-jest"; // pragma: allowlist secret
 });
 
 import { issueStreamTicket, verifyStreamTicket } from "@/lib/stream-ticket";

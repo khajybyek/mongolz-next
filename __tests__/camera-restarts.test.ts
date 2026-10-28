@@ -62,7 +62,7 @@ describe("restartInfoFor", () => {
   it("drops a reason that looks like a URL or credentials, and bad retry times", () => {
     const out = restartInfoFor(
       [
-        { ...base, camera_id: "a", restart_count: 1, last_error: "open rtsp://admin:pw@10.0.0.5/s failed" },
+        { ...base, camera_id: "a", restart_count: 1, last_error: "open rtsp://admin:pw@10.0.0.5/s failed" }, // pragma: allowlist secret
         { ...base, camera_id: "b", restart_count: 1, last_error: "auth admin:pw@cam.local refused" },
         { ...base, camera_id: "c", state: "backoff", last_error: "x".repeat(500), next_retry_at: "soon" },
       ],

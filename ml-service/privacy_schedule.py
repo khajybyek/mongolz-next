@@ -426,7 +426,7 @@ class PrivacyScheduleCache:
                         await asyncio.wait_for(asyncio.shield(task), remaining)
                     except asyncio.TimeoutError:
                         pass
-                    except Exception:  # noqa: BLE001 — _refresh records its own failure
+                    except Exception:  # noqa: BLE001, S110 — _refresh records its own failure
                         pass
             now = self._clock()
         return entry, now

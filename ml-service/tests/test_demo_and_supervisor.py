@@ -228,7 +228,7 @@ def _storage_with_fake_client() -> tuple[SupabaseStorage, _FakeClient]:
 
 def test_seal_round_trip_via_storage_helpers():
     st, fake = _storage_with_fake_client()
-    url = "rtsp://admin:s3cret@192.168.0.15:554/h264"
+    url = "rtsp://admin:s3cret@192.168.0.15:554/h264"  # pragma: allowlist secret
     sealed = seal_camera_url(CAM_UUID, url)
     assert "s3cret" not in sealed and "192.168" not in sealed
     assert st.upsert_camera_session(CAM_UUID, sealed, "Gate A", 12) is True
@@ -287,7 +287,7 @@ class _FakeSession:
         self.task = task
         self.camera_name = name
         self.fps = fps
-        self.source_url = "rtsp://admin:secret@10.0.0.5/stream"
+        self.source_url = "rtsp://admin:secret@10.0.0.5/stream"  # pragma: allowlist secret
         self.started_at = datetime(2026, 9, 7, 1, 2, 3, tzinfo=timezone.utc)
         self.stopped_by_user = False
         self.exit_reason = exit_reason
@@ -307,7 +307,7 @@ def test_camera_active_reports_restart_count_and_last_error(monkeypatch):
             self.sessions = {"cam-live": _FakeSession(_LiveTask()), "cam-done": _FakeSession(_DoneTask())}
             self.supervision = {
                 "cam-live": CameraSupervision(
-                    url="rtsp://admin:secret@10.0.0.5/stream", fps=15, camera_name="Gate A",
+                    url="rtsp://admin:secret@10.0.0.5/stream", fps=15, camera_name="Gate A",  # pragma: allowlist secret
                     restart_count=3, last_error="source dropped (no frames)",
                 )
             }
@@ -343,7 +343,7 @@ def test_camera_active_lists_backoff_cameras_separately(tmp_path, monkeypatch):
     mgr.supervision = {
         live_id: CameraSupervision(url="rtsp://admin:secret@10.0.0.5/stream", restart_count=1),
         down_id: CameraSupervision(
-            url="rtsp://admin:secret@10.0.0.6/stream", fps=10, camera_name="Parking",
+            url="rtsp://admin:secret@10.0.0.6/stream", fps=10, camera_name="Parking",  # pragma: allowlist secret
             restart_count=4, failures=5, last_error="source unreachable at open",
             next_retry_at=time.monotonic() + 120.0,
         ),
@@ -590,7 +590,7 @@ def test_stop_all_keeps_auto_resume_for_next_boot(tmp_path):
 
 
 def test_resume_persisted_unseals_and_starts_each_row(tmp_path):
-    url = "rtsp://admin:s3cret@192.168.0.15:554/h264"
+    url = "rtsp://admin:s3cret@192.168.0.15:554/h264"  # pragma: allowlist secret
     other = "11111111-2222-4333-8444-555555555555"
     rows = [
         {"camera_id": CAM_UUID, "sealed_url": seal_camera_url(CAM_UUID, url), "camera_name": "Gate A", "fps": 12},
@@ -614,7 +614,7 @@ def test_start_persists_sealed_url_only(tmp_path, monkeypatch):
     import recording_pipeline as rp
 
     mgr, st = _manager(tmp_path)
-    url = "rtsp://admin:s3cret@192.168.0.15:554/h264"
+    url = "rtsp://admin:s3cret@192.168.0.15:554/h264"  # pragma: allowlist secret
     created = []
 
     class _Sess(_FakeSession):
@@ -666,7 +666,7 @@ def test_sentry_init_with_dsn_never_logs_it(monkeypatch, caplog):
     assert call["max_request_body_size"] == "never"
     assert call["before_send"] is main._sentry_scrub_event
     scrubbed = main._sentry_scrub_event(
-        {"message": "open rtsp://admin:s3cret@10.0.0.5/live failed", "extra": {"u": ["http://u:p@h/x"]}}, None
+        {"message": "open rtsp://admin:s3cret@10.0.0.5/live failed", "extra": {"u": ["http://u:p@h/x"]}}, None  # pragma: allowlist secret
     )
     assert "s3cret" not in str(scrubbed) and "u:p@" not in str(scrubbed)
     assert scrubbed["message"] == "open rtsp://***@10.0.0.5/live failed"
@@ -705,7 +705,7 @@ class _SessionStorage(_RecordingStorage):
 
 def _short_clip(path: str, seconds: float = 1.0) -> None:
     subprocess.run(
-        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",  # noqa: S607 — test fixture encoder
          "-f", "lavfi", "-i", f"testsrc=size=160x90:rate=15:duration={seconds}",
          "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", path],
         check=True, timeout=60,
@@ -779,7 +779,7 @@ def test_live_source_dropping_frames_ends_capture_with_reason(tmp_path, monkeypa
     monkeypatch.setattr(rp, "LIVE_READ_FAIL_LIMIT", 4)
 
     session = rp.RecordingSession(
-        camera_id="rtsp-cam", camera_name="Gate", source_url="rtsp://user:pw@10.0.0.9/live",
+        camera_id="rtsp-cam", camera_name="Gate", source_url="rtsp://user:pw@10.0.0.9/live",  # pragma: allowlist secret
         engine=_FakeEngine(), storage=_SessionStorage(),
         hls_dir=str(tmp_path / "hls"), recordings_dir=str(tmp_path / "rec"), fps=15,
     )

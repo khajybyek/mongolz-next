@@ -8,7 +8,7 @@
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // omits 0/O, 1/I/L for legibility
+const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // pragma: allowlist secret — not a secret; omits 0/O, 1/I/L for legibility
 const CODE_LENGTH = 10;
 const CODE_COUNT = 10;
 const GROUP = 5; // formatted as XXXXX-XXXXX

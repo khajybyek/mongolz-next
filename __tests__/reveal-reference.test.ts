@@ -23,7 +23,7 @@ it("reads with the previous rotation key without plaintext fallback", () => {
 
 it("checks the decrypted bytes against the immutable upload scope", () => {
   const bytes = Buffer.from("reference fixture");
-  const hash = "453e5597b0230d421919767dcb7420064859ed53f1c3cbf5e7d523edb6f592f9";
+  const hash = "453e5597b0230d421919767dcb7420064859ed53f1c3cbf5e7d523edb6f592f9"; // pragma: allowlist secret
   const scope = {
     version: 1,
     recording: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", filename: "fixture.mp4", duration_sec: 10 },

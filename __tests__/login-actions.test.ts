@@ -130,7 +130,7 @@ describe("signInAction (password step)", () => {
 
   it("wrong password keeps the charged attempt and records LOGIN_FAILED", async () => {
     signInWithPassword.mockResolvedValue({ data: { user: null }, error: { message: "Invalid login credentials" } });
-    const to = await redirectOf(signInAction(form({ email: USER.email, password: "bad" })));
+    const to = await redirectOf(signInAction(form({ email: USER.email, password: "bad" }))); // pragma: allowlist secret
     expect(to).toBe("/login?error=invalid_credentials");
     expect(startLoginAttempt).toHaveBeenCalledWith({ ip: "203.0.113.7", email: USER.email });
     expect(release).not.toHaveBeenCalled();
@@ -139,7 +139,7 @@ describe("signInAction (password step)", () => {
 
   it("a locked account is refused before the password is tried", async () => {
     jest.mocked(startLoginAttempt).mockResolvedValue({ ok: false, reason: "email_locked", message: "later", release });
-    const to = await redirectOf(signInAction(form({ email: USER.email, password: "pw" })));
+    const to = await redirectOf(signInAction(form({ email: USER.email, password: "pw" }))); // pragma: allowlist secret
     expect(to).toBe("/login?error=too_many_attempts");
     expect(signInWithPassword).not.toHaveBeenCalled();
     expect(auditActions()).toEqual(["LOGIN_BLOCKED"]);
@@ -148,7 +148,7 @@ describe("signInAction (password step)", () => {
   it("success without TOTP refunds the attempt, pins the session and goes to a safe next", async () => {
     signInWithPassword.mockResolvedValue({ data: { user: USER }, error: null });
     profileRow = { id: USER.id, role: "viewer", totp_enabled: false, totp_secret: null };
-    const to = await redirectOf(signInAction(form({ email: USER.email, password: "pw", next: "/cameras" })));
+    const to = await redirectOf(signInAction(form({ email: USER.email, password: "pw", next: "/cameras" }))); // pragma: allowlist secret
     expect(to).toBe("/cameras");
     expect(release).toHaveBeenCalledTimes(1);
     expect(bindSessionPin).toHaveBeenCalledWith(USER.id);
@@ -160,7 +160,7 @@ describe("signInAction (password step)", () => {
     signInWithPassword.mockResolvedValue({ data: { user: USER }, error: null });
     profileRow = { id: USER.id, role: "viewer", totp_enabled: false, totp_secret: null };
     for (const next of ["/.//evil.example", "/.%2F%2Fevil.example", "/a/..//evil.example"]) {
-      const to = await redirectOf(signInAction(form({ email: USER.email, password: "pw", next })));
+      const to = await redirectOf(signInAction(form({ email: USER.email, password: "pw", next }))); // pragma: allowlist secret
       expect(to).toBe("/dashboard");
     }
   });
@@ -168,7 +168,7 @@ describe("signInAction (password step)", () => {
   it("TOTP user: signs out LOCALLY, sets the pre-TOTP cookie, goes to the TOTP step", async () => {
     signInWithPassword.mockResolvedValue({ data: { user: USER }, error: null });
     profileRow = { id: USER.id, role: "admin", totp_enabled: true, totp_secret: "S" };
-    const to = await redirectOf(signInAction(form({ email: USER.email, password: "pw", next: "/alerts" })));
+    const to = await redirectOf(signInAction(form({ email: USER.email, password: "pw", next: "/alerts" }))); // pragma: allowlist secret
     expect(to).toBe("/login?step=totp&next=%2Falerts");
     expect(signOut).toHaveBeenCalledWith({ scope: "local" });
     expect(setPreTotpCookie).toHaveBeenCalledWith(USER.id);
@@ -180,7 +180,7 @@ describe("signInAction (password step)", () => {
     signInWithPassword.mockResolvedValue({ data: { user: USER }, error: null });
     profileRow = { id: USER.id, role: "admin", totp_enabled: true, totp_secret: "S" };
     jest.mocked(setPreTotpCookie).mockRejectedValue(new Error("REAUTH_COOKIE_SECRET missing"));
-    const to = await redirectOf(signInAction(form({ email: USER.email, password: "pw" })));
+    const to = await redirectOf(signInAction(form({ email: USER.email, password: "pw" }))); // pragma: allowlist secret
     expect(to).toBe("/login?error=server_config");
     expect(auditActions()).toEqual(["LOGIN_CONFIG_ERROR"]);
   });
@@ -191,7 +191,7 @@ describe("verifyTotpAction (second factor)", () => {
     id: USER.id,
     email: USER.email,
     totp_enabled: true,
-    totp_secret: "SECRET",
+    totp_secret: "SECRET", // pragma: allowlist secret
     totp_recovery_codes: ["h1", "h2"],
   });
 

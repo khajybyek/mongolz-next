@@ -46,6 +46,7 @@ import numpy as np
 
 from crypto_utils import decrypt_bytes, master_key_candidates
 from face_masker import FaceMasker
+from ffmpeg_bin import ffmpeg
 from hierarchical_keys import unseal_at_index
 from privacy_protection import (
     ProtectedTimeline,
@@ -717,9 +718,9 @@ class RevealProcessor:
             )
 
         # FFmpeg encoder pipe (BGR raw → MP4 H.264)
-        encoder = subprocess.Popen(
+        encoder = subprocess.Popen(  # noqa: S603 — fixed argv, no shell
             [
-                "ffmpeg", "-y",
+                ffmpeg(), "-y",
                 "-f", "rawvideo", "-vcodec", "rawvideo",
                 "-pix_fmt", "bgr24",
                 "-s", f"{w}x{h}",

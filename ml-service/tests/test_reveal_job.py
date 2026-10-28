@@ -42,7 +42,7 @@ from reveal_job import RevealDataError, RevealProcessor, RevealRenderError  # no
 def _ffmpeg_available() -> bool:
     try:
         subprocess.run(
-            ["ffmpeg", "-version"],
+            ["ffmpeg", "-version"],  # noqa: S607 — availability probe
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=5,

@@ -107,12 +107,12 @@ export const BACKUP_TABLES: Record<string, TableSpec> = {
  */
 export const BACKUP_EXCLUDED_COLUMNS: Record<string, Record<string, string>> = {
   profiles: {
-    totp_secret: "TOTP seed — auth material",
+    totp_secret: "TOTP seed — auth material", // pragma: allowlist secret
     totp_recovery_codes: "recovery-code hashes — auth material",
   },
   webhooks: {
     url: "Slack/Discord bearer URL — credential",
-    signing_secret: "HMAC signing secret — credential",
+    signing_secret: "HMAC signing secret — credential", // pragma: allowlist secret
   },
   push_subscriptions: {
     endpoint: "push endpoint — credential",

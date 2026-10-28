@@ -2090,7 +2090,7 @@ export const T = {
   camd_type_usb: { mn: "USB (ML host-ын локал)", en: "USB (local to the ML host)", kr: "USB (ML 호스트 로컬)" },
   camd_type_webcam: { mn: "Webcam (browser)", en: "Webcam (browser)", kr: "웹캠 (브라우저)" },
   camd_type_demo: { mn: "Demo (суулгасан жишээ)", en: "Demo (built-in sample)", kr: "데모 (내장 샘플)" },
-  camd_ph_rtsp: { mn: "rtsp://user:pass@192.168.1.10:554/cam/realmonitor", en: "rtsp://user:pass@192.168.1.10:554/cam/realmonitor", kr: "rtsp://user:pass@192.168.1.10:554/cam/realmonitor" },
+  camd_ph_rtsp: { mn: "rtsp://user:pass@192.168.1.10:554/cam/realmonitor", en: "rtsp://user:pass@192.168.1.10:554/cam/realmonitor", kr: "rtsp://user:pass@192.168.1.10:554/cam/realmonitor" }, // pragma: allowlist secret
   camd_ph_http: { mn: "http://192.168.1.10/cgi-bin/snapshot.cgi", en: "http://192.168.1.10/cgi-bin/snapshot.cgi", kr: "http://192.168.1.10/cgi-bin/snapshot.cgi" },
   camd_ph_usb: { mn: "/dev/video0 эсвэл 0", en: "/dev/video0 or 0", kr: "/dev/video0 또는 0" },
   camd_ph_webcam: { mn: "browser", en: "browser", kr: "browser" },

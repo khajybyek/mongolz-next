@@ -33,8 +33,8 @@ interface SeedCamera {
 }
 
 const DEMO_CAMERAS: SeedCamera[] = [
-  { name: `${DEMO_PREFIX}Front Door (RTSP)`, cam_type: "rtsp", url: "rtsp://demo:demo@192.168.1.10:554/stream1" },
-  { name: `${DEMO_PREFIX}Lobby (RTSP)`, cam_type: "rtsp", url: "rtsp://demo:demo@192.168.1.11:554/stream1" },
+  { name: `${DEMO_PREFIX}Front Door (RTSP)`, cam_type: "rtsp", url: "rtsp://demo:demo@192.168.1.10:554/stream1" }, // pragma: allowlist secret
+  { name: `${DEMO_PREFIX}Lobby (RTSP)`, cam_type: "rtsp", url: "rtsp://demo:demo@192.168.1.11:554/stream1" }, // pragma: allowlist secret
   { name: `${DEMO_PREFIX}Parking Lot (HTTP)`, cam_type: "http", url: "http://192.168.1.20:8080/video" },
   { name: `${DEMO_PREFIX}Reception (USB)`, cam_type: "usb", url: "0" },
   // Built-in ML sample sources — these actually stream (synthetic looping

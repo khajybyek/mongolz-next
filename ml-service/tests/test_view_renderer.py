@@ -32,7 +32,7 @@ import view_renderer  # noqa: E402
 def _ffmpeg_available() -> bool:
     try:
         subprocess.run(
-            ["ffmpeg", "-version"],
+            ["ffmpeg", "-version"],  # noqa: S607 — availability probe
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=5,

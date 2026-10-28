@@ -26,10 +26,12 @@ import subprocess
 import tempfile
 import threading
 
+from ffmpeg_bin import ffmpeg
+
 log = logging.getLogger("mongolz-ml.demo")
 
 DEMO_SOURCES: frozenset[str] = frozenset({"lobby", "gate", "parking"})
-DEMO_DIR = os.getenv("DEMO_DIR", "/tmp/mongolz-demo")
+DEMO_DIR = os.getenv("DEMO_DIR", "/tmp/mongolz-demo")  # noqa: S108 — container-private /tmp
 DEMO_WIDTH, DEMO_HEIGHT, DEMO_FPS = 640, 360, 15
 # 3 clips × 8 s → ~24 s loop; long enough for the periodic ArcFace pass
 # (once per second) to see every face several times per cycle.
@@ -109,7 +111,7 @@ def build_ffmpeg_cmd(name: str, out_path: str) -> list[str]:
         chains.append(_clip_filter(idx, profile))
     concat = "".join(f"[v{i}]" for i in range(len(chains))) + f"concat=n={len(chains)}:v=1:a=0[out]"
     return [
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
         *inputs,
         "-filter_complex", ";".join(chains + [concat]),
         "-map", "[out]",
@@ -130,7 +132,7 @@ def _generate(name: str, out_path: str) -> None:
     fd, tmp_path = tempfile.mkstemp(prefix=f".{name}-", suffix=".mp4", dir=os.path.dirname(out_path))
     os.close(fd)
     try:
-        subprocess.run(
+        subprocess.run(  # noqa: S603 — fixed argv, no shell
             build_ffmpeg_cmd(name, tmp_path),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,

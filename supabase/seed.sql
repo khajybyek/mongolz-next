@@ -11,6 +11,6 @@
 
 -- Жишээ камерууд (RTSP demo)
 insert into public.cameras (name, url, cam_type, enabled) values
-  ('Гол хаалга', 'rtsp://admin:pass@192.168.0.15:554/cam/realmonitor?channel=1&subtype=0', 'rtsp', true),
-  ('Лобби',     'rtsp://admin:pass@192.168.0.16:554/cam/realmonitor?channel=1&subtype=0', 'rtsp', false)
+  ('Гол хаалга', 'rtsp://admin:pass@192.168.0.15:554/cam/realmonitor?channel=1&subtype=0', 'rtsp', true), -- pragma: allowlist secret
+  ('Лобби',     'rtsp://admin:pass@192.168.0.16:554/cam/realmonitor?channel=1&subtype=0', 'rtsp', false) -- pragma: allowlist secret
 on conflict do nothing;

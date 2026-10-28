@@ -49,7 +49,7 @@ afterEach(() => {
 describe("ticket helpers", () => {
   it("reads the expiry of a ticket issued by the server", async () => {
     jest.useRealTimers();
-    process.env.STREAM_TICKET_SECRET = "renewal-test-secret";
+    process.env.STREAM_TICKET_SECRET = "renewal-test-secret"; // pragma: allowlist secret
     const { issueStreamTicket } = await import("@/lib/stream-ticket");
     const before = Math.floor(Date.now() / 1000);
     const exp = readTicketExpiry(issueStreamTicket("user-1", "cam-1"));

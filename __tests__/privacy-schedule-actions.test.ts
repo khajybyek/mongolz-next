@@ -134,7 +134,7 @@ const windowForm = (mode: string) =>
   fd({ camera_id: CAMERA, window_mode: mode, starts_at: "09:00", ends_at: "18:00", weekdays: "62" });
 
 beforeAll(() => {
-  process.env.REAUTH_COOKIE_SECRET = "privacy-schedule-actions-test-secret";
+  process.env.REAUTH_COOKIE_SECRET = "privacy-schedule-actions-test-secret"; // pragma: allowlist secret
 });
 beforeEach(() => {
   ops.length = 0;

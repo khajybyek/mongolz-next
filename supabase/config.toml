@@ -32,7 +32,7 @@ enable_signup = false
 enable_signup = true
 double_confirm_changes = true
 enable_confirmations = true
-secure_password_change = true
+secure_password_change = true  # pragma: allowlist secret
 
 [auth.mfa]
 max_enrolled_factors = 10

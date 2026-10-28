@@ -40,7 +40,7 @@ from storage import CameraDesiredState, unseal_camera_url  # noqa: E402
 
 HEADERS = {"Authorization": "Bearer test-token"}
 CAM_UUID = "6f1a2b3c-4d5e-4f60-8a71-92b3c4d5e6f7"
-RTSP = "rtsp://admin:s3cret@192.168.0.15:554/h264"
+RTSP = "rtsp://admin:s3cret@192.168.0.15:554/h264"  # pragma: allowlist secret
 
 ENABLED = CameraDesiredState(known=True, camera_exists=True, enabled=True,
                              session_exists=True, auto_resume=True)
@@ -573,7 +573,7 @@ def test_entrypoint_status_note_round_trips_into_read_boot_status(tmp_path):
 
     target = tmp_path / "tailnet.status"
     subprocess.run(
-        ["bash", "-c", f'TS_STATUS_FILE="{target}"\n{func.group(0)}\n'
+        ["bash", "-c", f'TS_STATUS_FILE="{target}"\n{func.group(0)}\n'  # noqa: S607 — test runs the entrypoint function in bash
                        'ts_status up-failed "tailscale up exited 1"'],
         check=True, timeout=30,
     )

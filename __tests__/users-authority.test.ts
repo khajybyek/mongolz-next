@@ -186,7 +186,7 @@ const resetPassword = (user_id: string) =>
 
 const create = (extra: Record<string, string> = {}) =>
   createUserAction(
-    form({ email: "new@example.test", password: "correct horse", role: "admin", ...extra }),
+    form({ email: "new@example.test", password: "correct horse", role: "admin", ...extra }), // pragma: allowlist secret
   );
 
 function deniedAudits(action: string) {

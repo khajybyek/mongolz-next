@@ -58,7 +58,7 @@ jest.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     auth: {
       signInWithPassword: async ({ password }: { password: string }) =>
-        password === "correct-password" ? { error: null } : { error: { message: "Invalid login credentials" } },
+        password === "correct-password" ? { error: null } : { error: { message: "Invalid login credentials" } }, // pragma: allowlist secret
       signOut: async () => ({ error: null }),
     },
   }),
@@ -114,7 +114,7 @@ jest.mock("@/lib/supabase/server", () => {
 
 import { POST } from "@/app/api/gdpr/delete/route";
 
-function erase(body: Record<string, unknown> = { confirm: "DELETE MY ACCOUNT", password: "correct-password" }) {
+function erase(body: Record<string, unknown> = { confirm: "DELETE MY ACCOUNT", password: "correct-password" }) { // pragma: allowlist secret
   return POST(
     new NextRequest("https://app.test/api/gdpr/delete", {
       method: "POST",
@@ -260,7 +260,7 @@ describe("accounts without TOTP re-authenticate with the password", () => {
 
   it("refuses a wrong password, audits it, deletes nothing", async () => {
     state.profile = profile({ role: "auditor" });
-    const res = await erase({ confirm: "DELETE MY ACCOUNT", password: "guess" });
+    const res = await erase({ confirm: "DELETE MY ACCOUNT", password: "guess" }); // pragma: allowlist secret
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ code: "PASSWORD_INVALID" });
     expect(writes.audits).toEqual([

@@ -62,7 +62,7 @@ function setCookieValue(res: Response): string | null {
 
 const realSecret = process.env.REAUTH_COOKIE_SECRET;
 beforeEach(() => {
-  process.env.REAUTH_COOKIE_SECRET = "test-reauth-secret-0123456789";
+  process.env.REAUTH_COOKIE_SECRET = "test-reauth-secret-0123456789"; // pragma: allowlist secret
   mockJar.clear();
   mockCheckTotp.mockReset();
   mockSignIn.mockReset();
@@ -108,7 +108,7 @@ describe("POST /api/auth/reauth (password)", () => {
     const totp = buildReauthCookieValue(USER.id, new Date(Date.now() + 10 * 60_000), "totp");
     mockJar.set("mongolz-reauth", totp);
     mockSignIn.mockResolvedValue({ error: null });
-    const res = await passwordStepUp(req("/api/auth/reauth", { password: "correct" }));
+    const res = await passwordStepUp(req("/api/auth/reauth", { password: "correct" })); // pragma: allowlist secret
     expect(res.status).toBe(200);
     expect((await res.json()).factor).toBe("totp");
     expect(setCookieValue(res)).toBeNull();
@@ -116,13 +116,13 @@ describe("POST /api/auth/reauth (password)", () => {
 
   it("mints a password cookie when no TOTP step-up is live", async () => {
     mockSignIn.mockResolvedValue({ error: null });
-    const res = await passwordStepUp(req("/api/auth/reauth", { password: "correct" }));
+    const res = await passwordStepUp(req("/api/auth/reauth", { password: "correct" })); // pragma: allowlist secret
     expect(verifyReauthCookie(setCookieValue(res) ?? undefined, USER.id)?.factor).toBe("password");
   });
 
   it("a wrong password mints nothing", async () => {
     mockSignIn.mockResolvedValue({ error: { message: "Invalid login credentials" } });
-    const res = await passwordStepUp(req("/api/auth/reauth", { password: "wrong" }));
+    const res = await passwordStepUp(req("/api/auth/reauth", { password: "wrong" })); // pragma: allowlist secret
     expect(res.status).toBe(401);
     expect(setCookieValue(res)).toBeNull();
   });

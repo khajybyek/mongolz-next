@@ -66,7 +66,7 @@ const form = () => {
 };
 
 beforeAll(() => {
-  process.env.REAUTH_COOKIE_SECRET = "camera-add-step-up-test-secret";
+  process.env.REAUTH_COOKIE_SECRET = "camera-add-step-up-test-secret"; // pragma: allowlist secret
 });
 beforeEach(() => {
   ops.length = 0;

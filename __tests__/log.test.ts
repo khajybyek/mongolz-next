@@ -41,7 +41,7 @@ describe("structured logger", () => {
   it("redacts sensitive top-level keys", () => {
     log.info("login", {
       email: "a@b.test",
-      password: "supersecret-very-long-string",
+      password: "supersecret-very-long-string", // pragma: allowlist secret
       ml_service_token: "tok_abcdef123456",
     });
     const parsed = JSON.parse(lines[0]);
@@ -61,8 +61,8 @@ describe("structured logger", () => {
   it("redacts secret-shaped keys by substring (token/secret/password/jwt)", () => {
     log.info("ext", {
       access_token: "ya29.aaaaaaaaaaaaaaaa",
-      stripe_secret: "sk_live_bbbbbbbbbbbb",
-      user_password: "hunter2-very-long-value",
+      stripe_secret: "sk_live_bbbbbbbbbbbb", // pragma: allowlist secret
+      user_password: "hunter2-very-long-value", // pragma: allowlist secret
       id_jwt: "eyJhbGciOi.cccccccccccc",
       // not secret-shaped → must pass through untouched
       monkey: "keyboard-not-a-secret",

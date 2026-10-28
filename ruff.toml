@@ -1,0 +1,7 @@
+# Ruff is not run in CI; this config is for security scans (Ruff "S" rules,
+# e.g. `ruff check --select S`). Test suites use `assert`, fixture
+# credentials, /tmp fixture paths and helper processes on purpose.
+[lint.per-file-ignores]
+"**/tests/**" = ["S101", "S105", "S106", "S108", "S311", "S603", "S607"]
+# A standalone walkthrough script, not service code.
+"ml-service/demo_hierarchical_reveal.py" = ["S101"]

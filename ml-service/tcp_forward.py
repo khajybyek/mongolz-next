@@ -16,7 +16,7 @@ CAMERA_TAILNET_FWD env-ийн форматhybnyh:
     "5554:192.168.0.15:554;5555:..."  — олон forwarding (semicolon-аар хуваана)
 
 Жишээ ашиглалт:
-    rtsp://admin:pass@127.0.0.1:5554/...   ← Vercel /cameras-д
+    rtsp://{user}:{password}@127.0.0.1:5554/...   ← Vercel /cameras-д
 
 Readiness (``tunnel_status``)
 -----------------------------
@@ -177,7 +177,7 @@ def run_listener(fwd: Forward, proxy_host: str, proxy_port: int) -> None:
 # Never returns a host, port, URL or key: the health endpoint is public.
 
 # The entrypoint drops the reason `tailscale up` failed here (key=value).
-BOOT_STATUS_FILE = os.environ.get("TS_STATUS_FILE", "/tmp/mongolz-tailnet.status")
+BOOT_STATUS_FILE = os.environ.get("TS_STATUS_FILE", "/tmp/mongolz-tailnet.status")  # noqa: S108 — written by docker-entrypoint.sh
 _BOOT_STATUS_MAX_BYTES = 4096
 _REASON_MAX_CHARS = 200
 _SAFE_TEXT_RE = re.compile(r"[^\x20-\x7e]")
@@ -234,7 +234,7 @@ def read_boot_status(path: str | None = None) -> dict[str, str]:
 
 
 def _tailscale_socket() -> str | None:
-    sock = os.path.join(os.environ.get("TS_STATE_DIR", "/tmp/tailscale-state"), "tailscaled.sock")
+    sock = os.path.join(os.environ.get("TS_STATE_DIR", "/tmp/tailscale-state"), "tailscaled.sock")  # noqa: S108 — set by docker-entrypoint.sh
     return sock if os.path.exists(sock) else None
 
 
@@ -253,7 +253,7 @@ def probe_backend(timeout: float = _BACKEND_TIMEOUT_SEC) -> tuple[bool, str | No
         cmd += ["--socket", sock]
     cmd += ["status", "--json"]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)  # noqa: S603 — resolved tailscale binary, fixed argv
     except subprocess.TimeoutExpired:
         return False, None, "tailscale status timed out"
     except OSError as e:

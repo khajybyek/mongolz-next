@@ -70,8 +70,8 @@ export const loginCopy: Record<Lang, LoginCopy> = {
     signInHint: "Sign in to your account to continue.",
     accountHelp: "Need access? Contact your system administrator.",
     authorized: "Access is restricted to authorized personnel.",
-    showPassword: "Show password",
-    hidePassword: "Hide password",
+    showPassword: "Show password", // pragma: allowlist secret
+    hidePassword: "Hide password", // pragma: allowlist secret
     signingIn: "Signing in…",
     totpTitle: "Verify your sign-in",
     totpLabel: "Authentication or recovery code",

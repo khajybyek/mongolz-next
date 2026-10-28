@@ -46,13 +46,14 @@ from capture_integrity import close_encoder, validate_capture, SourceSampler
 from capture_journal import write_journal, check_capture_capacity
 from demo_source import is_demo_url, resolve_demo_source
 from face_masker import FaceMasker
+from ffmpeg_bin import ffmpeg
 from hierarchical_keys import key_at_index, encrypt_face as _seal_embedding
 from privacy_protection import PRIVACY_SCHEDULE_PAD_SEC
 from privacy_schedule import PrivacyScheduleCache, PrivacySpanNotFound, get_privacy_schedule_cache
 
 
 def redact_url(url: str | int) -> str:
-    """rtsp://user:pass@host/… → rtsp://***@host/… for logs (invariant 11)."""
+    """rtsp://{user}:{password}@host/… → rtsp://***@host/… for logs (invariant 11)."""
     if not isinstance(url, str) or "://" not in url:
         return str(url)
     try:
@@ -663,9 +664,9 @@ def _cubist_anonymize(
 
 def _ffmpeg_mp4_writer(out_path: str, width: int, height: int, fps: int) -> subprocess.Popen:
     """BGR raw → libx264 mp4 (fragmented, тасардсан ч хүчинтэй)."""
-    return subprocess.Popen(
+    return subprocess.Popen(  # noqa: S603 — fixed argv, no shell
         [
-            "ffmpeg", "-y",
+            ffmpeg(), "-y",
             "-f", "rawvideo", "-vcodec", "rawvideo",
             "-pix_fmt", "bgr24",
             "-s", f"{width}x{height}",
@@ -684,9 +685,9 @@ def _ffmpeg_mp4_writer(out_path: str, width: int, height: int, fps: int) -> subp
 
 def _ffmpeg_hls_writer(out_dir: str, width: int, height: int, fps: int) -> subprocess.Popen:
     """BGR raw → HLS m3u8 (live view-нд, low-latency)."""
-    return subprocess.Popen(
+    return subprocess.Popen(  # noqa: S603 — fixed argv, no shell
         [
-            "ffmpeg", "-y",
+            ffmpeg(), "-y",
             "-f", "rawvideo", "-vcodec", "rawvideo",
             "-pix_fmt", "bgr24",
             "-s", f"{width}x{height}",
@@ -954,7 +955,7 @@ class RecordingSession:
                         continue
                     tier = tier_raw if tier_raw in ("vip", "standard", "relaxed") else "standard"
                     cache.append((emb, tier))
-                except Exception:
+                except Exception:  # noqa: S112 — a malformed suspect row is skipped; the others still load
                     continue
             self.suspect_cache = cache
             log.info(
@@ -1070,7 +1071,7 @@ class RecordingSession:
             await asyncio.wait_for(asyncio.shield(task), timeout=2)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             task.cancel()
-        except Exception:  # noqa: BLE001 — already logged inside the task
+        except Exception:  # noqa: BLE001, S110 — already logged inside the task
             pass
 
     # ────────────────────────────────────────────

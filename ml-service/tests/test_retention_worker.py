@@ -30,7 +30,7 @@ def test_failed_storage_retains_retryable_paths():
     store, settled, _ = fixture(1, remove_error=True)
     assert drain_retention_queue(store) == {"settled": 0, "failed": 250}
     assert settled[0]["p_error"]
-    assert settled[0]["p_lease_token"] == "lease"
+    assert settled[0]["p_lease_token"] == "lease"  # noqa: S105 — test fixture
 
 
 def test_lost_lease_never_acknowledges_success():
