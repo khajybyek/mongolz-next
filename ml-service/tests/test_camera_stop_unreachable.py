@@ -147,7 +147,12 @@ def test_stop_of_never_opened_session_is_clean_and_start_replaces_it(tmp_path, m
         await mgr.start(CAM, "rtsp://10.0.0.9/live")
         second = mgr.sessions[CAM]
         assert second is not first
-        await asyncio.sleep(0.2)
+        # Wait for the first frame instead of a fixed sleep: a slow CI runner
+        # can take longer than 0.2 s to schedule the capture thread.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 5
+        while second.recorded_frames == 0 and not second.task.done() and loop.time() < deadline:
+            await asyncio.sleep(0.02)
         assert second.task is not None and not second.task.done(), second.exit_reason
         assert second.recorded_frames > 0
         second.stop_flag.set()
