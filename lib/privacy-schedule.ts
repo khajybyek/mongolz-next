@@ -90,6 +90,8 @@ export interface PrivacySpanRange {
   end: string | null;
   /** The schedule could not be read; the pipeline protected the footage anyway. */
   failClosed: boolean;
+  /** Capture happened while verified consent was still required. */
+  consent: boolean;
 }
 
 /**
@@ -103,6 +105,7 @@ export function privacySpanRanges(rows: readonly PrivacySpanRow[]): PrivacySpanR
       start: Number(r.start_offset_sec),
       end: r.end_offset_sec === null || r.end_offset_sec === undefined ? null : Number(r.end_offset_sec),
       failClosed: r.source === "fail_closed",
+      consent: r.source === "consent",
     }))
     .filter((r) => Number.isFinite(r.start) && r.start >= 0)
     .sort((a, b) => a.start - b.start)
@@ -110,6 +113,7 @@ export function privacySpanRanges(rows: readonly PrivacySpanRow[]): PrivacySpanR
       start: formatVideoOffset(r.start),
       end: r.end !== null && Number.isFinite(r.end) ? formatVideoOffset(r.end) : null,
       failClosed: r.failClosed,
+      consent: r.consent,
     }));
 }
 
@@ -169,6 +173,7 @@ interface ParsedWindow {
 export interface CameraPrivacySchedule {
   default: PrivacyMode;
   windows: readonly ParsedWindow[];
+  consentRequired: boolean;
 }
 
 function hhmmSeconds(value: unknown): number | null {
@@ -185,8 +190,9 @@ function hhmmSeconds(value: unknown): number | null {
 export function buildPrivacySchedule(
   privacyDefault: unknown,
   rows: readonly ScheduleWindowRow[],
+  consentRequired = false,
 ): CameraPrivacySchedule | null {
-  if (!isPrivacyMode(privacyDefault)) return null;
+  if (!isPrivacyMode(privacyDefault) || typeof consentRequired !== "boolean") return null;
   const windows: ParsedWindow[] = [];
   for (const r of rows) {
     const start = hhmmSeconds(r.starts_at);
@@ -196,7 +202,7 @@ export function buildPrivacySchedule(
     if (!Number.isInteger(r.weekdays) || r.weekdays < 1 || r.weekdays > 127) return null;
     windows.push({ mode: r.window_mode, start, end, weekdays: r.weekdays });
   }
-  return { default: privacyDefault, windows };
+  return { default: privacyDefault, windows, consentRequired };
 }
 
 /** Local (Asia/Seoul) day number, 0 = 1970-01-01 KST (a Thursday). */
@@ -216,6 +222,7 @@ function dayStartMs(day: number): number {
 /** The camera's mode at an instant (epoch ms). null schedule = no cameras row → standard. */
 export function privacyModeAt(schedule: CameraPrivacySchedule | null, ms: number): PrivacyMode {
   if (!schedule) return "standard";
+  if (schedule.consentRequired) return "private";
   const day = localDay(ms);
   const t = (ms - dayStartMs(day)) / 1000;
   const active = new Set<PrivacyMode>();
@@ -266,6 +273,7 @@ function windowInstances(schedule: CameraPrivacySchedule, mode: PrivacyMode, sta
 /** Merged [a, b) epoch-ms intervals within [start, end) during which the camera is private. */
 export function privateIntervalsMs(schedule: CameraPrivacySchedule | null, start: number, end: number): Ms[] {
   if (!schedule || !(start < end)) return [];
+  if (schedule.consentRequired) return [[start, end]];
   let priv = windowInstances(schedule, "private", start, end);
   if (schedule.default === "private") {
     const standard = mergeMs(clipMs(windowInstances(schedule, "standard", start, end), start, end));

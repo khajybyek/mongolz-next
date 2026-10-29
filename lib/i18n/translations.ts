@@ -330,9 +330,14 @@ export const T = {
   cameras_subtitle: { mn: "Бүртгэлтэй камерууд", en: "Registered cameras", kr: "등록된 카메라" },
   schedule: { mn: "Хуваарь", en: "Schedule", kr: "일정" },
   permissions: { mn: "Эрх", en: "Permissions", kr: "권한" },
-  consent_on: { mn: "✓ Зөвшөөрөл шаардлагатай — даран унтраах", en: "✓ Consent required — click to turn off", kr: "✓ 동의 필요 — 클릭하여 해제" },
-  consent_off: { mn: "○ Зөвшөөрөл шаардахгүй — асаах", en: "○ Consent not required — turn on", kr: "○ 동의 불필요 — 켜기" },
-  consent_badge: { mn: "Зөвшөөрөл шаардлагатай", en: "Consent required", kr: "동의 필요" },
+  consent_on: { mn: "✓ Танилт зогссон — шаардлагыг болиулах", en: "✓ Recognition paused — remove requirement", kr: "✓ 인식 중지 — 요구 해제" },
+  consent_off: { mn: "○ Зөвшөөрөл шаардаж, танилтыг зогсоох", en: "○ Require consent and pause recognition", kr: "○ 동의 요구 및 인식 중지" },
+  consent_badge: { mn: "Зөвшөөрөл хүлээгдэж байна · танилт зогссон", en: "Consent pending · recognition paused", kr: "동의 대기 · 인식 중지" },
+  consent_explain: {
+    mn: "Идэвхтэй үед нүүр таних, alert болон эх дүрсийг сэргээх үйлдэл зогсоно. Энд зөвшөөрөл баталгаажуулах бүртгэл байхгүй; шаардлагыг болиулах нь зөвшөөрөл авсны баталгаа биш.",
+    en: "When enabled, face recognition, alerts and original-footage reveal pause. This system has no verified consent ledger; removing the requirement does not prove consent.",
+    kr: "켜면 얼굴 인식, 알림 및 원본 영상 복원이 중지됩니다. 검증된 동의 기록은 없으며, 요구를 해제해도 동의를 얻었다는 증거는 아닙니다.",
+  },
 
   // ── Schedule page ──
   schedule_title_prefix: { mn: "Хуваарь —", en: "Schedule —", kr: "일정 —" },
@@ -2912,11 +2917,16 @@ export const T = {
     en: "schedule unreadable — protected anyway",
     kr: "일정을 읽지 못함 — 보호 적용",
   },
+  pb_privacy_consent: {
+    mn: "зөвшөөрөл хүлээгдсэн — танилт зогссон",
+    en: "consent pending — recognition paused",
+    kr: "동의 대기 — 인식 중지",
+  },
   privacy_mode_badge: { mn: "Нууцлалын горим", en: "Privacy mode", kr: "프라이버시 모드" },
   privacy_mode_badge_title: {
-    mn: "Хуваарийн дагуу нууцлалын горимд: нүүр таних, сэрэмжлүүлэг унтарсан, энэ үеийн бичлэгийг ил болгохгүй. Маск идэвхтэй.",
-    en: "Private by schedule: no face recognition or alerts, and footage captured now cannot be revealed. Masking stays on.",
-    kr: "일정에 따라 프라이버시 모드: 얼굴 인식과 알림이 꺼지고 지금 촬영되는 영상은 공개할 수 없습니다. 마스킹은 유지됩니다.",
+    mn: "Нууцлалын горимд: нүүр таних, сэрэмжлүүлэг унтарсан, энэ үеийн бичлэгийг ил болгохгүй. Хуваарь эсвэл зөвшөөрлийн шаардлага үүнийг идэвхжүүлж болно. Маск идэвхтэй.",
+    en: "Privacy mode: no face recognition or alerts, and footage captured now cannot be revealed. A schedule or pending consent requirement can activate it. Masking stays on.",
+    kr: "프라이버시 모드: 얼굴 인식과 알림이 꺼지고 지금 촬영되는 영상은 공개할 수 없습니다. 일정 또는 동의 요구로 활성화될 수 있습니다. 마스킹은 유지됩니다.",
   },
   privacy_mode_badge_fail_closed: { mn: "Таних түр зогссон", en: "Recognition paused", kr: "인식 일시 중지" },
   privacy_mode_badge_fail_closed_title: {

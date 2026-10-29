@@ -193,6 +193,17 @@ begin
   -- p_at defaults to now(): the default-private camera is private at any instant.
   got := public.effective_privacy_mode(current_setting('mongolz_test.cam_priv')::uuid);
   if got <> 'private' then raise exception 'p_at default: expected private, got %', got; end if;
+
+  -- An unsatisfied consent requirement wins over the standard default and
+  -- every standard window; removing it restores the normal schedule.
+  update public.cameras set consent_required = true
+    where id = current_setting('mongolz_test.cam_std')::uuid;
+  got := public.effective_privacy_mode(current_setting('mongolz_test.cam_std')::uuid);
+  if got <> 'private' then raise exception 'consent gate did not force private'; end if;
+  update public.cameras set consent_required = false
+    where id = current_setting('mongolz_test.cam_std')::uuid;
+  got := public.effective_privacy_mode(current_setting('mongolz_test.cam_std')::uuid);
+  if got <> 'standard' then raise exception 'consent gate removal did not restore schedule'; end if;
 end;
 $$;
 
@@ -336,6 +347,12 @@ begin
     raise exception 'recording_privacy_spans.source does not default to schedule';
   end if;
   update public.recording_privacy_spans set end_offset_sec = 0.5 where id=span_id;
+  delete from public.recording_privacy_spans where id=span_id;
+  insert into public.recording_privacy_spans(recording_id,start_offset_sec,end_offset_sec,source)
+    values (recording,0,0.5,'consent') returning id into span_id;
+  if (select source from public.recording_privacy_spans where id=span_id) <> 'consent' then
+    raise exception 'recording_privacy_spans rejected the consent source';
+  end if;
   delete from public.recording_privacy_spans where id=span_id;
 
   -- client_span_id: generated when omitted, unique, and the pipeline's upsert

@@ -88,6 +88,25 @@ export async function mlStopCamera(cameraId: string): Promise<void> {
   });
 }
 
+export async function mlHoldCameraPrivacy(cameraId: string): Promise<void> {
+  await mlFetch("/camera/privacy/hold", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ camera_id: cameraId }),
+  });
+}
+
+export async function mlRefreshCameraPrivacy(cameraId: string): Promise<{
+  privacy_mode: string; privacy_source: string; consent_confirmed: boolean;
+}> {
+  const res = await mlFetch("/camera/privacy/refresh", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ camera_id: cameraId }),
+  });
+  return (await res.json()) as { privacy_mode: string; privacy_source: string; consent_confirmed: boolean };
+}
+
 export interface ActiveCamera {
   camera_id: string;
   camera_name: string | null;
@@ -112,11 +131,12 @@ export interface ActiveCamera {
    */
   privacy_mode?: "standard" | "private" | null;
   /**
-   * Why: "schedule" (evaluated from the camera's schedule), "none" (no
+   * Why: "schedule" (evaluated from the camera's schedule), "consent"
+   * (consent requirement blocks identification), "none" (no
    * schedule applies) or "fail_closed" (the ML service could not read the
    * schedule, so recognition is paused whatever the schedule says).
    */
-  privacy_source?: "schedule" | "none" | "fail_closed" | null;
+  privacy_source?: "schedule" | "consent" | "none" | "fail_closed" | null;
 }
 
 /** Everything the ML supervisor knows: streaming cameras and cameras in backoff. */

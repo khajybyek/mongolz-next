@@ -28,6 +28,9 @@ supabase/tests/privacy_schedule.test.sql):
     ``standard`` window → standard; else the camera's ``privacy_default``;
     a camera id without a ``cameras`` row → standard.
   * The mode applies at CAPTURE time of a frame, not at viewing time.
+  * ``cameras.consent_required=true`` overrides all standard windows: no
+    consent-satisfaction ledger exists, so biometric processing pauses until
+    the gate is removed through the audited admin action.
 """
 
 from __future__ import annotations
@@ -127,6 +130,10 @@ class CameraSchedule:
     # the window that was removed, so late deliveries (edge frames captured
     # before a loosening) consult it to stay private.
     loosened_at: datetime | None = None
+    # An unsatisfied consent requirement overrides every standard window.
+    # There is no verified per-person consent ledger yet; a notice is not
+    # evidence that biometric processing is authorised.
+    consent_required: bool = False
 
     def __post_init__(self) -> None:
         if self.default not in MODES:
@@ -139,6 +146,8 @@ class CameraSchedule:
             if not isinstance(self.loosened_at, datetime):
                 raise ValueError(f"invalid loosened_at {self.loosened_at!r}")
             object.__setattr__(self, "loosened_at", _as_utc(self.loosened_at))
+        if not isinstance(self.consent_required, bool):
+            raise ValueError(f"invalid consent_required {self.consent_required!r}")
 
 
 def _parse_timestamp(value: Any) -> datetime | None:
@@ -153,7 +162,10 @@ def _parse_timestamp(value: Any) -> datetime | None:
     return _as_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
 
 
-def schedule_from_rows(privacy_default: Any, rows: Iterable[dict], loosened_at: Any = None) -> CameraSchedule:
+def schedule_from_rows(
+    privacy_default: Any, rows: Iterable[dict], loosened_at: Any = None,
+    consent_required: Any = False,
+) -> CameraSchedule:
     """Build a schedule from ``cameras.privacy_default`` (+ ``privacy_loosened_at``)
     + ``masking_schedules`` rows (``window_mode, starts_at, ends_at, weekdays``).
     Raises ValueError on anything the DB constraints would not have allowed."""
@@ -166,7 +178,10 @@ def schedule_from_rows(privacy_default: Any, rows: Iterable[dict], loosened_at: 
         )
         for row in rows
     )
-    return CameraSchedule(default=privacy_default, windows=windows, loosened_at=_parse_timestamp(loosened_at))
+    return CameraSchedule(
+        default=privacy_default, windows=windows,
+        loosened_at=_parse_timestamp(loosened_at), consent_required=consent_required,
+    )
 
 
 def _as_utc(at: datetime) -> datetime:
@@ -182,6 +197,8 @@ def mode_at(schedule: CameraSchedule | None, at: datetime) -> Mode:
     """
     if schedule is None:
         return "standard"
+    if schedule.consent_required:
+        return "private"
     local = _as_utc(at).astimezone(SCHEDULE_TZ)
     active = {w.mode for w in schedule.windows if w.active_at_local(local)}
     if "private" in active:
@@ -270,6 +287,8 @@ def private_intervals(schedule: CameraSchedule | None, start: datetime, end: dat
     start, end = _as_utc(start), _as_utc(end)
     if start >= end:
         return []
+    if schedule.consent_required:
+        return [(start, end)]
     private = _window_instances(schedule, "private", start, end)
     if schedule.default == "private":
         standard = _window_instances(schedule, "standard", start, end)
@@ -326,6 +345,7 @@ def normalize_camera_id(camera_id: Any) -> str | None:
 @dataclass
 class _Entry:
     schedule: CameraSchedule | None = None
+    private_hold: bool = False             # acknowledged before consent gate ON DB write
     loaded_at: float | None = None          # clock() of the last successful load
     initial: bool = True                    # first load attempt not finished yet
     forced: bool = False                    # invalidate() → refresh (and wait) next call
@@ -350,6 +370,10 @@ class PrivacyScheduleCache:
         schedule), so an edit reaches running cameras within ~``ttl_sec``;
       * older than ``max_stale_sec`` or never loaded → ``("private",
         "fail_closed")``: recognition stays off until the schedule is readable.
+
+    ``hold_private`` is the pre-write consent barrier: it pins the camera
+    private before the DB flag changes and survives refresh failure. A hold is
+    released only after a fresh DB read confirms consent_required=true.
 
     The only waits are bounded by ``wait_sec``: the very first load of a camera
     and the first load after ``invalidate()``. A failed refresh keeps the last
@@ -432,7 +456,7 @@ class PrivacyScheduleCache:
         return entry, now
 
     async def mode_at(self, camera_id: str | None, at: datetime) -> tuple[Mode, str]:
-        """``(mode, source)``; source ∈ ``"schedule"`` | ``"none"`` | ``"fail_closed"``."""
+        """``(mode, source)``; source is schedule, consent, none or fail_closed."""
         return await self.mode_during(camera_id, at, at)
 
     async def mode_during(self, camera_id: str | None, start: datetime, end: datetime) -> tuple[Mode, str]:
@@ -442,7 +466,15 @@ class PrivacyScheduleCache:
         entry, now = await self._fresh_entry(camera_id)
         if entry is None:
             return "standard", "none"
-        return self._evaluate(entry, now, lambda schedule: mode_during(schedule, start, end))
+        def decide(schedule: CameraSchedule) -> Mode:
+            # A policy was loosened after this frame may have been captured.
+            # The present schedule can no longer prove what protected it then.
+            earliest = min(_as_utc(start), _as_utc(end))
+            if schedule.loosened_at is not None and earliest < schedule.loosened_at:
+                return "private"
+            return mode_during(schedule, start, end)
+
+        return self._evaluate(entry, now, decide)
 
     async def edge_mode(
         self,
@@ -492,10 +524,19 @@ class PrivacyScheduleCache:
     def _evaluate(
         self, entry: _Entry, now: float, decide: Callable[[CameraSchedule], Mode]
     ) -> tuple[Mode, str]:
+        if entry.private_hold:
+            return "private", "consent"
+        # An admin changed a privacy control and asked for a fresh read. Never
+        # reuse a previously permissive schedule while that read is pending
+        # or failing: recognition must pause immediately.
+        if entry.forced:
+            return "private", "fail_closed"
         if entry.loaded_at is None or (now - entry.loaded_at) > self.max_stale_sec:
             return "private", "fail_closed"
         if entry.schedule is None:
             return "standard", "none"
+        if entry.schedule.consent_required:
+            return "private", "consent"
         return decide(entry.schedule), "schedule"
 
     def _ensure_refresh(self, cid: str, entry: _Entry, now: float) -> "asyncio.Task | None":
@@ -513,6 +554,7 @@ class PrivacyScheduleCache:
 
     async def _refresh(self, cid: str, entry: _Entry) -> None:
         generation = entry.forced_gen
+        loaded = False
         try:
             schedule = await asyncio.to_thread(self._load, cid)
         except asyncio.CancelledError:
@@ -531,6 +573,7 @@ class PrivacyScheduleCache:
                     else "failing closed: recognition off until it is readable",
                 )
         else:
+            loaded = True
             if entry.warned_at is not None:
                 log.info("camera %s: privacy schedule readable again", cid)
                 entry.warned_at = None
@@ -538,14 +581,15 @@ class PrivacyScheduleCache:
             entry.loaded_at = self._clock()
             entry.next_attempt_at = 0.0
         entry.initial = False
-        if entry.forced_gen == generation:
+        if loaded and entry.forced_gen == generation:
             entry.forced = False
 
     def invalidate(self, camera_id: str | None = None) -> None:
         """Force a refresh on the next ``mode_at`` (all cameras when None).
 
-        The next call waits (bounded by ``wait_sec``) for the fresh read; if it
-        fails, the last good schedule still applies until ``max_stale_sec``.
+        The next call waits (bounded by ``wait_sec``) for the fresh read; until
+        that read succeeds the camera is private (fail-closed), even when a
+        previously loaded schedule said standard.
         """
         if camera_id is None:
             entries = list(self._entries.values())
@@ -555,6 +599,31 @@ class PrivacyScheduleCache:
         for entry in entries:
             entry.forced = True
             entry.forced_gen += 1
+
+    def hold_private(self, camera_id: str) -> None:
+        """Pin one camera private before acknowledging a consent-tightening.
+
+        The web action performs the DB write only after the ML process has
+        installed this hold and drained its running capture session. The hold
+        survives refresh failures and cannot be lifted by a stale schedule.
+        """
+        cid = normalize_camera_id(camera_id)
+        if cid is None:
+            raise ValueError("consent hold requires a registered camera UUID")
+        entry = self._entries.setdefault(cid, _Entry())
+        entry.private_hold = True
+        self.invalidate(cid)
+
+    def release_hold_if_consented(self, camera_id: str) -> bool:
+        """Lift a pre-write hold only after a fresh read confirms the DB gate."""
+        cid = normalize_camera_id(camera_id)
+        entry = self._entries.get(cid) if cid is not None else None
+        if entry is None or entry.forced or entry.loaded_at is None:
+            return False
+        if entry.schedule is None or not entry.schedule.consent_required:
+            return False
+        entry.private_hold = False
+        return True
 
 
 _cache: PrivacyScheduleCache | None = None

@@ -678,6 +678,29 @@ class CameraStopReq(BaseModel):
     camera_id: str = Field(pattern=_CAMERA_ID_RE)
 
 
+@app.post("/camera/privacy/hold", dependencies=[Depends(require_token)])
+async def camera_privacy_hold(req: CameraStopReq):
+    """Pin private and drain capture before an admin enables consent_required.
+
+    The caller must not write the DB flag until this endpoint acknowledges.
+    Stopping with by_user=False preserves auto-resume; any new session starts
+    under the same process-wide private hold.
+    """
+    if not camera_manager:
+        raise HTTPException(503, "manager not ready")
+    cache = get_privacy_schedule_cache()
+    try:
+        cache.hold_private(req.camera_id)
+    except ValueError:
+        raise HTTPException(400, "registered camera UUID required")
+    try:
+        await camera_manager.stop(req.camera_id, by_user=False)
+    except Exception as exc:  # noqa: BLE001 — hold stays on, no acknowledgement
+        log.warning("camera %s: privacy hold drain failed (%s)", req.camera_id, type(exc).__name__)
+        raise HTTPException(503, "camera privacy hold not confirmed")
+    return {"ok": True, "privacy_mode": "private"}
+
+
 @app.post("/camera/stop", dependencies=[Depends(require_token)])
 async def camera_stop(req: CameraStopReq):
     if not camera_manager:
@@ -690,6 +713,21 @@ async def camera_stop(req: CameraStopReq):
         log.warning("camera %s: stop failed: %s", req.camera_id, type(e).__name__)
         raise HTTPException(502, "camera stop failed; retry")
     return {"ok": True}
+
+
+@app.post("/camera/privacy/refresh", dependencies=[Depends(require_token)])
+async def camera_privacy_refresh(req: CameraStopReq):
+    """Refresh a camera's capture/edge privacy policy after an admin edit.
+
+    Invalidation makes a stale permissive policy fail closed immediately;
+    the bounded read also reports whether the new policy was observed.
+    """
+    cache = get_privacy_schedule_cache()
+    cache.invalidate(req.camera_id)
+    mode, source = await cache.mode_at(req.camera_id, datetime.now(timezone.utc))
+    consent_confirmed = cache.release_hold_if_consented(req.camera_id)
+    return {"ok": True, "privacy_mode": mode, "privacy_source": source,
+            "consent_confirmed": consent_confirmed}
 
 
 @app.get("/camera/active", dependencies=[Depends(require_token)])
@@ -707,7 +745,7 @@ def camera_active():
 
     ``privacy_mode`` (ADR 0012) is ``"standard"`` | ``"private"`` as of the
     latest recognition tick, or null when not known yet / not capturing;
-    ``privacy_source`` says why (``"schedule"`` | ``"none"`` |
+    ``privacy_source`` says why (``"schedule"`` | ``"consent"`` | ``"none"`` |
     ``"fail_closed"`` — the schedule could not be read, so recognition is off
     whatever the schedule says)."""
     if not camera_manager:
@@ -939,6 +977,9 @@ async def reveal_run_endpoint(req: RevealRunReq):
 # unchanged (decrypt + selective-unblur via reveal_job.py).
 _VIEW_CACHE_DIR = "/tmp/mongolz-views"  # noqa: S108 — container-private /tmp
 os.makedirs(_VIEW_CACHE_DIR, exist_ok=True)
+# Bump when the view renderer's masking semantics change. A cached view is
+# reusable only under this renderer version AND the current recording policy.
+_VIEW_RENDERER_VERSION = "privacy-masked-v2"
 _view_locks: dict[str, asyncio.Lock] = {}
 _MAX_VIEW_LOCKS = 512  # bound the dict so a viewer can't grow it without limit
 _UUID_RE = re.compile(
@@ -985,9 +1026,8 @@ def _get_view_lock(recording_id: str) -> asyncio.Lock:
 async def render_view_endpoint(recording_id: str):
     """Derive the blurred playback view from the encrypted original MP4.
 
-    Result is cached at `/tmp/mongolz-views/{recording_id}.mp4`. Returns
-    `video/mp4`. On cache hit serves immediately; on cache miss generates
-    in-process (5–30s for typical clips) under a per-recording lock.
+    Result is cached at `/tmp/mongolz-views/{recording_id}.mp4`. A cache hit
+    still reads the current recording and privacy policy before serving it.
     """
     # UUID validation — also blocks `..` / path traversal via the cache key.
     if not _UUID_RE.match(recording_id):
@@ -997,31 +1037,111 @@ async def render_view_endpoint(recording_id: str):
 
     cache_path = os.path.join(_VIEW_CACHE_DIR, f"{recording_id}.mp4")
 
-    # Fast path — cache hit, but only while the recording row still exists:
-    # retention / GDPR deletions happen web-side and never reach this host,
-    # so a derived view used to outlive its recording by up to 24 h.
-    if os.path.exists(cache_path) and os.path.getsize(cache_path) > 1000:
-        try:
-            res = await asyncio.to_thread(
-                lambda: storage.client.table("recordings")
-                .select("id")
-                .eq("id", recording_id)
-                .maybe_single()
-                .execute()
-            )
-        except Exception as e:  # noqa: BLE001 — fail closed, never serve blind
-            log.warning("view: cache row check failed (%s): %s", recording_id[:8], type(e).__name__)
-            raise HTTPException(503, "recording lookup failed")
-        if not res or not res.data:
-            async with _get_view_lock(recording_id):
-                try:
-                    # cache_path is _VIEW_CACHE_DIR/<id>.mp4 with id matched by the anchored _UUID_RE above
-                    os.remove(cache_path)  # nosemgrep: python-tainted-request
-                except FileNotFoundError:
-                    pass
-            raise HTTPException(404, "recording not found")
-        return FileResponse(cache_path, media_type="video/mp4")  # nosemgrep: python-tainted-request — UUID-checked id, fixed directory
+    if _view_cache_matches(cache_path, None):
+        # There is a published cache entry. Re-read spans and the camera
+        # schedule, not just the recording row: privacy can tighten after the
+        # first render, and a previously cached view would then be unsafe.
+        _row, _protection, fingerprint = await _load_view_policy(recording_id)
+        if _view_cache_matches(cache_path, fingerprint):
+            return FileResponse(cache_path, media_type="video/mp4")
     return await _render_view_cold(recording_id, cache_path)
+
+
+def _view_cache_matches(cache_path: str, fingerprint: str | None) -> bool:
+    """Only a complete, current-policy cache entry may be served.
+
+    ``fingerprint=None`` just checks for a candidate, so the fast path need
+    not query privacy policy when no video exists. Legacy MP4s without the
+    metadata sidecar always miss once a fingerprint is supplied.
+    """
+    import json
+
+    try:
+        if os.path.getsize(cache_path) <= 1000:
+            return False
+        if fingerprint is None:
+            return True
+        with open(cache_path + ".json", encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        return metadata.get("fingerprint") == fingerprint and metadata.get("version") == _VIEW_RENDERER_VERSION
+    except (OSError, ValueError, AttributeError, TypeError):
+        return False
+
+
+def _view_policy_fingerprint(row: dict, protection: ProtectedTimeline) -> str:
+    """Stable hash of the source and every input to the effective protection.
+
+    The schedule is included as well as its precomputed intervals because
+    frames beyond the row's duration are evaluated against that schedule at
+    render time. No sensitive policy detail is written to the cache sidecar.
+    """
+    import json
+    from dataclasses import asdict
+
+    payload = {
+        "renderer": _VIEW_RENDERER_VERSION,
+        "source": {key: row.get(key) for key in (
+            "original_path", "has_original", "camera_id", "started_at", "duration_sec", "capture_status",
+        )},
+        "protection": asdict(protection),
+    }
+    encoded = json.dumps(payload, default=str, sort_keys=True, separators=(",", ":"), allow_nan=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+async def _load_view_policy(recording_id: str) -> tuple[dict, ProtectedTimeline, str]:
+    try:
+        result = await asyncio.to_thread(
+            lambda: storage.client.table("recordings")
+            .select("original_path, has_original, camera_id, started_at, duration_sec, capture_status")
+            .eq("id", recording_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001 — never serve a cache on lookup failure
+        log.warning("view: recording lookup failed (%s): %s", recording_id[:8], type(exc).__name__)
+        raise HTTPException(503, "recording lookup failed")
+    row = result.data if result else None
+    if not row:
+        raise HTTPException(404, "recording not found")
+    if not row.get("has_original") or not row.get("original_path"):
+        raise HTTPException(404, "no original available — cannot derive view")
+    protection = await asyncio.to_thread(_view_protection, recording_id, row)
+    return row, protection, _view_policy_fingerprint(row, protection)
+
+
+def _discard_view_cache(cache_path: str) -> None:
+    """Remove a stale video together with its policy metadata under the lock."""
+    for path in (cache_path + ".json", cache_path):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+
+
+def _publish_view_cache(cache_path: str, partial_path: str, fingerprint: str) -> None:
+    """Publish video + policy metadata; an interrupted publish always misses."""
+    import json
+
+    metadata_path = cache_path + ".json"
+    partial_metadata = metadata_path + ".part"
+    try:
+        with open(partial_metadata, "w", encoding="utf-8") as handle:
+            json.dump({"version": _VIEW_RENDERER_VERSION, "fingerprint": fingerprint}, handle)
+        # Remove the old metadata before replacing the video. A reader may
+        # see a miss during publication, but never a new video with old proof.
+        try:
+            os.unlink(metadata_path)
+        except FileNotFoundError:
+            pass
+        os.replace(partial_path, cache_path)
+        os.replace(partial_metadata, metadata_path)
+    finally:
+        for path in (partial_metadata, partial_path):
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
 
 
 def _view_protection(recording_id: str, row: dict) -> ProtectedTimeline:

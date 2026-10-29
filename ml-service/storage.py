@@ -990,7 +990,7 @@ class SupabaseStorage:
             raise RuntimeError("Supabase client is not configured")
         camera = (
             self.client.table("cameras")
-            .select("id, privacy_default, privacy_loosened_at")
+            .select("id, privacy_default, privacy_loosened_at, consent_required")
             .eq("id", camera_id)
             .limit(1)
             .execute()
@@ -1008,6 +1008,7 @@ class SupabaseStorage:
             rows[0].get("privacy_default"),
             self._privacy_rows(windows, "masking_schedules"),
             rows[0].get("privacy_loosened_at"),
+            rows[0].get("consent_required", False),
         )
 
     def open_privacy_span(
@@ -1029,7 +1030,7 @@ class SupabaseStorage:
         the pipeline keeps the span in memory and retries."""
         if not self.client:
             raise RuntimeError("Supabase client is not configured")
-        if source not in ("schedule", "fail_closed"):
+        if source not in ("schedule", "consent", "fail_closed"):
             raise ValueError(f"invalid privacy span source {source!r}")
         row = {
             "recording_id": recording_id,
@@ -1058,7 +1059,7 @@ class SupabaseStorage:
             raise RuntimeError("Supabase client is not configured")
         for span in spans:
             source = span.get("source")
-            if source not in ("schedule", "fail_closed"):
+            if source not in ("schedule", "consent", "fail_closed"):
                 raise ValueError(f"invalid privacy span source {source!r}")
             row = {
                 "recording_id": recording_id,

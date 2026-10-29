@@ -94,6 +94,17 @@ def _processor(schedule_storage: ScheduleStorage | None = None, spans: list[dict
     return RevealProcessor(Mock(), storage, privacy_cache=cache), storage
 
 
+def test_reveal_masker_blacks_out_bystanders_on_detector_outage():
+    class BrokenEngine:
+        def detect_all(self, _jpeg):
+            raise RuntimeError("detector offline")
+
+    processor = RevealProcessor(BrokenEngine(), SimpleNamespace(client=Mock()))
+    frame = np.full((120, 120, 3), 200, dtype=np.uint8)
+    output = processor._selective_blur(frame, keep_boxes=[(20, 20, 80, 80)])
+    assert not np.any(output)
+
+
 # ── 1. timeline arithmetic ─────────────────────────────────────────────
 class TestProtectedTimeline:
     def test_half_open_intervals_and_open_span(self):
@@ -145,6 +156,12 @@ class TestProtectedTimeline:
 
 # ── 2. loading the protected stretches ─────────────────────────────────
 class TestLoadProtection:
+    def test_current_consent_gate_protects_old_recording_without_capture_spans(self):
+        proc, _ = _processor(ScheduleStorage(CameraSchedule("standard", consent_required=True)))
+        timeline = proc._load_privacy_protection(RECORDING_ID, CAM, STARTED, 30.0)
+        assert timeline.intervals == ((0.0, 30.0),)
+        assert timeline.covers_range(0.0, 30.0)
+
     def test_upload_without_camera_uses_spans_only(self):
         schedules = ScheduleStorage(ALWAYS_PRIVATE)
         proc, storage = _processor(schedules, spans=[_span(1.0, 2.0), _span(5.0), _span(0.0, 1.0, recording_id="other")])

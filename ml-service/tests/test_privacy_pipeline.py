@@ -25,7 +25,7 @@ import pytest  # noqa: E402
 
 import recording_pipeline as rp  # noqa: E402
 from camera_worker import CameraManager, CameraSupervision  # noqa: E402
-from privacy_schedule import PrivacySpanNotFound  # noqa: E402
+from privacy_schedule import CameraSchedule, PrivacyScheduleCache, PrivacySpanNotFound  # noqa: E402
 from tests.test_capture_integrity import CaptureStorage, capture_spool  # noqa: E402,F401
 
 CAM = "7a2b3c4d-5e6f-4a71-8b82-a3c4d5e6f701"
@@ -196,6 +196,42 @@ def test_private_ticks_create_no_arcface_task_and_one_span(tmp_path):
     # Entered at tick 2 → opened at the previous tick (1.0); left at tick 4.
     assert storage.table() == [(s.recording_id, 1.0, 4.0, "schedule")]
     assert s.privacy_mode == "standard"
+
+
+def test_consent_toggle_pauses_recognition_and_persists_protection(tmp_path):
+    class Policies:
+        current = CameraSchedule("standard")
+
+        def load_privacy_schedule(self, _camera_id):
+            return self.current
+
+    policies = Policies()
+    cache = PrivacyScheduleCache(policies)
+    storage = SpanStorage()
+    s = _session(tmp_path, cache, storage)
+    mask_modes = []
+
+    def mask(frame):
+        mask_modes.append(s.masker.embeddings_allowed)
+        return np.full_like(frame, 7)
+
+    s.masker.mask = mask
+
+    async def run():
+        await _emit(s, 1)
+        policies.current = CameraSchedule("standard", consent_required=True)
+        cache.invalidate(CAM)
+        await _emit(s, 1, start=1)
+        policies.current = CameraSchedule("standard")
+        cache.invalidate(CAM)
+        await _emit(s, 1, start=2)
+        await s._settle_privacy_spans()
+
+    asyncio.run(run())
+    assert [c.kwargs["source_offset_sec"] for c in s._process_arcface.call_args_list] == [0.0, 2.0]
+    assert mask_modes == [True, False, True]
+    assert len(s.hls.stdin.frames) == len(s.original_writer.stdin.frames) == 3
+    assert storage.table() == [(s.recording_id, 0.0, 2.0, "consent")]
 
 
 def test_mode_reaches_the_masker_before_the_tick_frame_is_masked(tmp_path):

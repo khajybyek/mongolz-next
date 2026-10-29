@@ -289,6 +289,7 @@ export default async function CamerasPage() {
                       {c.consent_required ? t("consent_on") : t("consent_off")}
                     </button>
                   </StepUpForm>
+                  <p className="mt-1 max-w-sm text-[11px] leading-relaxed text-text-muted">{t("consent_explain")}</p>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
                   <Link

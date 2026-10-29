@@ -54,7 +54,7 @@ qualified DPO and conduct a full audit.
 
 | Article | Right / Obligation | Implementation |
 |---|---|---|
-| **Art. 15** Consent for collection | Documented basis per camera | Per-camera `consent_required` flag in DB |
+| **Art. 15** Consent for collection | Documented basis per camera | Per-camera `consent_required` flag pauses recognition, face rows and alerts while true; it does not record or prove any person's consent. A verified basis/consent ledger remains to be built |
 | **Art. 17** Provision to 3rd parties | None | The system does not share data outside its own boundaries |
 | **Art. 23** Sensitive info | Biometric requires separate consent | Operators must declare basis; UI to be added. A per-camera privacy schedule (ADR 0012) switches biometric processing off outside the hours it is justified |
 | **Art. 24-2** Resident registration numbers | Not collected | N/A |
@@ -197,7 +197,7 @@ State the limits with the control:
 - Browser uploads without a camera are always `standard`. The `/live` device and
   phone previews are not affected.
 
-**Live-stream caveat.** Since commit `1ff609b` (deployed 2026-09-20) every ML-captured live frame passes through the same `FaceMasker` as the playback view before it is written to HLS, so `/grid`, `/wall` and the `/live` CCTV tab show masked faces — for admins too. The masker is detection-based and best-effort: a face the detector misses is visible. If masking throws, the capture loop stops and the supervisor restarts it; no unmasked frame is written in its place. The `/live` device and phone tabs are local browser previews that never reach the ML service and are **not** masked. Unmasked pixels exist only in the encrypted original, reachable through the audited 4-eyes reveal. The access controls below stay as defence in depth against missed detections. Access to that feed is authenticated, recorded (`STREAM_VIEWED`, and `STREAM_DENIED` for refusals) and authorised per camera: the camera must be `enabled`, an admin always passes, and every other role needs an explicit `camera_permissions` row for that camera. `private.user_can_see_camera()` remains default-allow and is kept only as defence-in-depth mirroring RLS; the stricter rule is enforced in `app/api/ml/stream/[cameraId]/[segment]/route.ts`. Refusals return 403 with a machine-readable `code` (`camera_disabled`, `camera_not_authorized`, `permission_check_failed`) and are recorded as `STREAM_DENIED`. `camera_permissions` holds no rows in production, so at the time of writing no non-admin account can watch live video at all.
+**Live-stream caveat.** Since commit `1ff609b` (deployed 2026-09-20) every ML-captured live frame passes through the same `FaceMasker` as the playback view before it is written to HLS, so `/grid`, `/wall` and the `/live` CCTV tab show masked faces — for admins too. The masker is detection-based and best-effort: a face that healthy detectors miss may still be visible. Live capture now uses strict masking: if either detector is unavailable, the whole HLS frame is black until detection recovers. If masking throws unexpectedly, the capture loop stops and the supervisor restarts it; no unmasked frame is written in its place. The `/live` device and phone tabs are local browser previews that never reach the ML service and are **not** masked. The complete unmasked video is kept as an encrypted original, reachable through the audited reveal path; the live feed can still show a missed face. The access controls below stay as defence in depth against missed detections. Access to that feed is authenticated, recorded (`STREAM_VIEWED`, and `STREAM_DENIED` for refusals) and authorised per camera: the camera must be `enabled`, an admin always passes, and every other role needs an explicit `camera_permissions` row for that camera. `private.user_can_see_camera()` remains default-allow and is kept only as defence-in-depth mirroring RLS; the stricter rule is enforced in `app/api/ml/stream/[cameraId]/[segment]/route.ts`. Refusals return 403 with a machine-readable `code` (`camera_disabled`, `camera_not_authorized`, `permission_check_failed`) and are recorded as `STREAM_DENIED`. `camera_permissions` holds no rows in production, so at the time of writing no non-admin account can watch live video at all.
 
 ---
 
@@ -251,9 +251,19 @@ These are knowingly deferred — they would block a real production launch but a
   camera's schedule, 60 s margin) and masks protected frames with the detector
   alone and the VIP mask; an unreadable timeline masks the whole recording that
   way (ADR 0012)
-- [ ] **Enforce `cameras.consent_required`** (audit §6.4) — the flag is stored
-  and editable on `/cameras` but no processing component reads it yet; the PIPA
-  Art. 15 row above documents a basis, not an enforced control
+- [x] **Enforce `cameras.consent_required`** (audit §6.4) — a true flag now
+  overrides standard privacy windows in capture, edge inference, playback and
+  reveal. Recognition/embeddings/alerts pause; masked capture may continue;
+  consent-blocked capture is recorded as a durable, unrevealable privacy span.
+  The admin action installs an ML-side private hold and drains the active
+  session before enabling the DB flag, then confirms a fresh policy read.
+  Removing the flag requires TOTP step-up and stamps `privacy_loosened_at` so
+  delayed frames captured before removal stay private. This is a **block on
+  unverified processing**, not a consent collection mechanism: no verified
+  per-subject consent ledger exists, and removing the flag does not prove a
+  legal basis. The ML hold acknowledgment currently assumes a single active ML
+  process; multiple capture replicas need a shared distributed hold before
+  this admin control can claim immediate propagation.
 
 ---
 
