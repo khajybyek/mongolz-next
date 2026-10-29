@@ -77,7 +77,9 @@ describe("GET /api/recordings/[id]/view — byte ranges", () => {
     expect(res.headers.get("content-range")).toBe("bytes 0-1/4096");
     expect(res.headers.get("content-length")).toBe("2");
     expect(res.headers.get("accept-ranges")).toBe("bytes");
-    expect(res.headers.get("cache-control")).toBe("private, max-age=300");
+    // No browser cache: a tightened privacy policy (consent gate, schedule)
+    // must apply to the very next request, not after a cached copy expires.
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
     expect(recordAccess).toHaveBeenCalledTimes(1);
   });
 

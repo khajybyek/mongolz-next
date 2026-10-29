@@ -46,7 +46,7 @@ def test_manifest_requires_consent_and_in_root_local_media(tmp_path):
     assert load_manifest(_manifest(tmp_path, entry))[0].annotations[0] == ((1, 2, 30, 40),)
     with pytest.raises(ValueError, match="consent"):
         load_manifest(_manifest(tmp_path, entry, consent=False))
-    entry["path"] = "rtsp://camera:password@example.test/live"
+    entry["path"] = "rtsp://camera:password@example.test/live"  # pragma: allowlist secret
     with pytest.raises(ValueError, match="local relative"):
         load_manifest(_manifest(tmp_path, entry))
     entry["path"] = "/tmp/secret.png"

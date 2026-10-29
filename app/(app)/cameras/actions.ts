@@ -332,11 +332,16 @@ export async function toggleConsentAction(
   // A DB-first update would leave the ML cache using its old permissive
   // answer until refresh. Acknowledge an in-process private hold only after
   // the current capture (including in-flight ArcFace work) has drained.
+  // If the hold fails (ML down or erroring) the stricter setting is still
+  // saved: ML reads it on its next policy refresh or restart, whereas
+  // refusing would leave recognition allowed once ML is back.
+  let held = false;
   if (required) {
     try {
       await mlHoldCameraPrivacy(id);
+      held = true;
     } catch {
-      return { error: "ML service could not pause recognition; consent setting was not changed." };
+      held = false;
     }
   }
 
@@ -352,11 +357,12 @@ export async function toggleConsentAction(
     .eq("id", id)
     .eq("consent_required", camera.consent_required)
     .select("id");
+  const pausedNote = held ? " Recognition remains paused until ML restarts." : "";
   if (updateError) return { error: required
-    ? `Camera setting was not confirmed: ${updateError.message}. Recognition remains paused until ML restarts.`
+    ? `Camera setting was not confirmed: ${updateError.message}.${pausedNote}`
     : updateError.message };
   if (!updated?.length) return { error: required
-    ? "Camera setting changed; reload and try again. Recognition remains paused until ML restarts."
+    ? `Camera setting changed; reload and try again.${pausedNote}`
     : "Camera setting changed; reload and try again." };
 
   let enforcementError = false;
