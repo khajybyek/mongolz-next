@@ -82,7 +82,18 @@ def test_eval_bench_does_not_block_the_event_loop(monkeypatch):
     assert stall < _SlowEngine.BLOCK, stall
 
 
-def _view_client(tmp_path, monkeypatch, row):
+_VIEW_ROW = {
+    "id": REC,
+    "original_path": f"rec/{REC}_original.mp4",
+    "has_original": True,
+    "camera_id": "44444444-4444-4444-8444-444444444444",
+    "started_at": "2026-10-12T00:00:00+00:00",
+    "duration_sec": 10,
+    "capture_status": "complete",
+}
+
+
+def _view_client(tmp_path, monkeypatch, row, protection=None):
     query = Mock()
     query.select.return_value = query
     query.eq.return_value = query
@@ -90,30 +101,84 @@ def _view_client(tmp_path, monkeypatch, row):
     query.execute.return_value = SimpleNamespace(data=row) if row is not None else None
     db = Mock()
     db.table.return_value = query
+    db.storage.from_.return_value.download.return_value = b"original-mp4"
     monkeypatch.setattr(main, "storage", SimpleNamespace(client=db))
     monkeypatch.setattr(main, "ML_TOKEN", "test-token")
     monkeypatch.setattr(main, "_VIEW_CACHE_DIR", str(tmp_path))
+    timeline = protection or main.ProtectedTimeline()
+    monkeypatch.setattr(main, "_view_protection", lambda _rid, _row: timeline)
     cache = tmp_path / f"{REC}.mp4"
     cache.write_bytes(b"\0" * 4096)
     return TestClient(main.app), cache
 
 
+def _fingerprint(row, protection=None):
+    return main._view_policy_fingerprint(row, protection or main.ProtectedTimeline())
+
+
+def _sidecar(cache, fingerprint, version=None):
+    import json
+
+    (cache.parent / (cache.name + ".json")).write_text(
+        json.dumps({"version": version or main._VIEW_RENDERER_VERSION, "fingerprint": fingerprint})
+    )
+
+
+def _fake_render(monkeypatch, payload=b"\1" * 2048):
+    calls = []
+
+    def render(_in, out, _engine, _start, _end, protection):
+        calls.append(protection)
+        with open(out, "wb") as handle:
+            handle.write(payload)
+
+    monkeypatch.setattr(main, "render_blurred_view", render)
+    return calls
+
+
 def test_cached_view_of_a_deleted_recording_is_purged_not_served(tmp_path, monkeypatch):
     client, cache = _view_client(tmp_path, monkeypatch, row=None)
+    _sidecar(cache, "anything")
     r = client.get(f"/recording/{REC}/view", headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 404
-    assert not cache.exists()
+    assert not cache.exists() and not (tmp_path / f"{REC}.mp4.json").exists()
 
 
-def test_cached_view_is_served_while_the_row_exists(tmp_path, monkeypatch):
-    client, cache = _view_client(tmp_path, monkeypatch, row={"id": REC})
+def test_cached_view_is_served_while_its_policy_is_current(tmp_path, monkeypatch):
+    client, cache = _view_client(tmp_path, monkeypatch, row=dict(_VIEW_ROW))
+    _sidecar(cache, _fingerprint(_VIEW_ROW))
+    calls = _fake_render(monkeypatch)
     r = client.get(f"/recording/{REC}/view", headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 200 and len(r.content) == 4096
-    assert cache.exists()
+    assert calls == []
+
+
+def test_cached_view_from_an_older_policy_is_rendered_again(tmp_path, monkeypatch):
+    """Privacy can tighten after the first render (a new span, a consent
+    gate, a schedule edit): a cache whose sidecar no longer matches, or a
+    legacy cache without one, is never served."""
+    import json
+
+    tightened = main.ProtectedTimeline(intervals=((0.0, float("inf")),))
+    for stale in ("an-older-fingerprint", None):
+        client, cache = _view_client(tmp_path, monkeypatch, row=dict(_VIEW_ROW), protection=tightened)
+        sidecar = tmp_path / f"{REC}.mp4.json"
+        if stale:
+            _sidecar(cache, stale)
+        else:
+            sidecar.unlink(missing_ok=True)
+        calls = _fake_render(monkeypatch)
+        r = client.get(f"/recording/{REC}/view", headers={"Authorization": "Bearer test-token"})
+        assert r.status_code == 200 and r.content == b"\1" * 2048
+        assert calls == [tightened]
+        published = json.loads(sidecar.read_text())
+        assert published == {"version": main._VIEW_RENDERER_VERSION, "fingerprint": _fingerprint(_VIEW_ROW, tightened)}
+        assert not (tmp_path / f"{REC}.mp4.part").exists()
 
 
 def test_cached_view_fails_closed_when_the_row_check_fails(tmp_path, monkeypatch):
-    client, cache = _view_client(tmp_path, monkeypatch, row={"id": REC})
+    client, cache = _view_client(tmp_path, monkeypatch, row=dict(_VIEW_ROW))
+    _sidecar(cache, _fingerprint(_VIEW_ROW))
     main.storage.client.table.return_value.execute.side_effect = ConnectionError("db down")
     r = client.get(f"/recording/{REC}/view", headers={"Authorization": "Bearer test-token"})
     assert r.status_code == 503

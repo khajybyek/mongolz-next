@@ -1041,9 +1041,10 @@ async def render_view_endpoint(recording_id: str):
         # There is a published cache entry. Re-read spans and the camera
         # schedule, not just the recording row: privacy can tighten after the
         # first render, and a previously cached view would then be unsafe.
-        _row, _protection, fingerprint = await _load_view_policy(recording_id)
+        _row, _protection, fingerprint = await _load_view_policy_or_discard(recording_id, cache_path)
         if _view_cache_matches(cache_path, fingerprint):
-            return FileResponse(cache_path, media_type="video/mp4")
+            # cache_path is _VIEW_CACHE_DIR/<id>.mp4 with id matched by the anchored _UUID_RE above
+            return FileResponse(cache_path, media_type="video/mp4")  # nosemgrep: python-tainted-request
     return await _render_view_cold(recording_id, cache_path)
 
 
@@ -1117,6 +1118,23 @@ def _discard_view_cache(cache_path: str) -> None:
             os.unlink(path)
         except FileNotFoundError:
             pass
+
+
+async def _load_view_policy_or_discard(recording_id: str, cache_path: str) -> tuple[dict, ProtectedTimeline, str]:
+    """`_load_view_policy` for the fast path; drops the cached view of a recording that is gone.
+
+    Retention / GDPR deletions happen web-side and never reach this host, so
+    without this a derived view would outlive its recording until the sweep.
+    Not for use while holding the per-recording lock (asyncio.Lock is not
+    re-entrant): the cold path discards inline instead.
+    """
+    try:
+        return await _load_view_policy(recording_id)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            async with _get_view_lock(recording_id):
+                _discard_view_cache(cache_path)
+        raise
 
 
 def _publish_view_cache(cache_path: str, partial_path: str, fingerprint: str) -> None:
@@ -1267,31 +1285,20 @@ async def _render_view_cold(recording_id: str, cache_path: str):
     # Cold path — derive under per-recording lock so a thundering herd of
     # concurrent requests only does the work once.
     async with _get_view_lock(recording_id):
-        # Re-check after lock acquisition (sibling coroutine may have won)
-        if os.path.exists(cache_path) and os.path.getsize(cache_path) > 1000:
-            return FileResponse(cache_path, media_type="video/mp4")
-
-        # 1) Look up recording row → original_path
-        # Error detail is logged server-side only; the client gets a generic
-        # message so internal paths / stack detail never leak to a viewer.
+        # 1) Read the recording row and its privacy policy under the lock, so
+        # the sidecar published below describes exactly what this render used.
+        # Errors are logged server-side only (see _load_view_policy).
         try:
-            res = await asyncio.to_thread(
-                lambda: storage.client.table("recordings")
-                .select("original_path, has_original, camera_id, started_at, duration_sec")
-                .eq("id", recording_id)
-                .maybe_single()
-                .execute()
-            )
-        except Exception as e:
-            log.warning("view: recording lookup failed (%s): %s", recording_id[:8], e)
-            raise HTTPException(500, "recording lookup failed")
-        if not res or not res.data:
-            raise HTTPException(404, "recording not found")
-        if not res.data.get("has_original"):
-            raise HTTPException(404, "no original available — cannot derive view")
-        original_path = res.data.get("original_path")
-        if not original_path:
-            raise HTTPException(404, "original_path empty")
+            row, protection, fingerprint = await _load_view_policy(recording_id)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                _discard_view_cache(cache_path)
+            raise
+        # Re-check after lock acquisition: a sibling coroutine may already
+        # have rendered under this same policy. A stale entry is replaced below.
+        if _view_cache_matches(cache_path, fingerprint):
+            return FileResponse(cache_path, media_type="video/mp4")
+        original_path = row["original_path"]
 
         # 2) Download encrypted original + decrypt
         try:
@@ -1308,7 +1315,7 @@ async def _render_view_cold(recording_id: str, cache_path: str):
 
         # Frames captured in privacy mode (ADR 0012) are masked without any
         # embedding; unreadable protection masks the whole recording that way.
-        protection = await asyncio.to_thread(_view_protection, recording_id, res.data)
+        # `protection` was read in step 1 together with the fingerprint.
 
         # 3) Render via Haar + cubist (CPU-bound → off-loop thread).
         # Write to a `.part` sibling first then atomic-rename so partial
@@ -1340,7 +1347,7 @@ async def _render_view_cold(recording_id: str, cache_path: str):
             except OSError:
                 pass
             raise HTTPException(500, "render produced empty output")
-        os.replace(tmp_out, cache_path)
+        _publish_view_cache(cache_path, tmp_out, fingerprint)
 
         log.info(
             "view derived: recording=%s size=%dKB",
