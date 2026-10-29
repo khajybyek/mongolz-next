@@ -6,6 +6,7 @@ tier merging and IoU."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -106,3 +107,81 @@ def test_engine_failure_never_raises():
     m = FaceMasker(Broken(), insight_every_n=1, haar_neighbors=99)
     frame = _frame()
     assert m.mask(frame) is frame  # Haar-only path still runs
+
+
+def test_strict_masker_distinguishes_empty_scene_from_detector_outage(monkeypatch, caplog):
+    class Recovering:
+        calls = 0
+
+        def detect_all(self, _jpeg):
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("detector offline")
+            return []  # A successful, empty result is not a detector failure.
+
+    engine = Recovering()
+    m = FaceMasker(engine, insight_every_n=3, fail_closed=True)
+    monkeypatch.setattr(m, "_detect_haar", lambda _frame: [])
+    frame = _frame()
+
+    assert m.mask(frame) is frame  # Frame 1: both detectors returned no faces.
+    assert m.mask(frame) is frame  # Frame 2: InsightFace is not due yet.
+    for _ in range(3):
+        assert not np.any(m.mask(frame))  # Frames 3–5: outage persists.
+    assert m.mask(frame) is frame  # Frame 6: scheduled pass recovered.
+    assert engine.calls == 3
+    assert caplog.text.count("face detection unavailable; masking the full frame") == 1
+
+
+def test_strict_masker_blacks_out_when_engine_or_haar_is_unavailable(monkeypatch):
+    frame = _frame()
+    no_engine = FaceMasker(None, fail_closed=True)
+    monkeypatch.setattr(no_engine, "_detect_haar", lambda _frame: [])
+    assert not np.any(no_engine.mask(frame))
+
+    engine = _OneShotEngine()
+    no_haar = FaceMasker(engine, fail_closed=True)
+    no_haar.haar = SimpleNamespace(empty=lambda: True)
+    assert not np.any(no_haar.mask(frame))
+    assert engine.calls == 1
+
+
+def test_strict_masker_never_reveals_target_when_detector_is_unavailable(monkeypatch):
+    class Broken:
+        def detect_all(self, _jpeg):
+            raise RuntimeError("detector offline")
+
+    m = FaceMasker(Broken(), insight_every_n=1, fail_closed=True)
+    monkeypatch.setattr(m, "_detect_haar", lambda _frame: [])
+    frame = _frame()
+    assert not np.any(m.mask(frame, keep_boxes=[(40, 40, 120, 120)]))
+
+
+def test_strict_masker_treats_none_result_as_failure_not_an_empty_scene(monkeypatch):
+    class InvalidResult:
+        def detect_all(self, _jpeg):
+            return None
+
+    m = FaceMasker(InvalidResult(), fail_closed=True)
+    monkeypatch.setattr(m, "_detect_haar", lambda _frame: [])
+    assert not np.any(m.mask(_frame()))
+
+
+def test_strict_private_mode_blacks_out_without_computing_embeddings(monkeypatch):
+    class NoDetectorOnlyPass:
+        def detect_all(self, _jpeg):
+            raise AssertionError("private mode must not compute embeddings")
+
+    m = FaceMasker(NoDetectorOnlyPass(), fail_closed=True)
+    m.embeddings_allowed = False
+    monkeypatch.setattr(m, "_detect_haar", lambda _frame: [])
+    assert not np.any(m.mask(_frame()))
+
+
+def test_strict_masker_blacks_out_if_face_anonymization_fails(monkeypatch):
+    import recording_pipeline
+
+    m = FaceMasker(_OneShotEngine(), fail_closed=True)
+    monkeypatch.setattr(m, "_detect_haar", lambda _frame: [])
+    monkeypatch.setattr(recording_pipeline, "_cubist_anonymize", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("mask failed")))
+    assert not np.any(m.mask(_frame()))

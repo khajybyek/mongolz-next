@@ -119,6 +119,23 @@ def test_naive_datetimes_are_utc():
     assert all(a.tzinfo is not None for a, _ in spans)
 
 
+def test_consent_required_overrides_standard_windows_and_protects_the_whole_range():
+    schedule = CameraSchedule("standard", (Window("standard", "00:00", "24:00", 127),), consent_required=True)
+    start, end = utc("2026-09-28T00:00:00Z"), utc("2026-09-28T00:05:00Z")
+    assert mode_at(schedule, start) == "private"
+    assert mode_during(schedule, start, end) == "private"
+    assert private_intervals(schedule, start, end) == [(start, end)]
+
+    class Storage:
+        def load_privacy_schedule(self, _camera_id):
+            return schedule
+
+    cache = PrivacyScheduleCache(Storage())
+    assert asyncio.run(cache.mode_at(CAM, start)) == ("private", "consent")
+    assert asyncio.run(cache.edge_mode(CAM, start, end)) == ("private", "consent")
+    assert cache.schedule_strict(CAM) == schedule
+
+
 # ── private_intervals ─────────────────────────────────────────────────
 def test_intervals_clip_to_the_requested_range():
     schedule = build("standard", [("private", "09:00", "18:00", 127)])  # 00:00–09:00 UTC
@@ -462,6 +479,72 @@ def test_cache_invalidate_forces_a_fresh_read():
         clock.now += 1
         await cache.mode_at(CAM2, AT)
         assert storage.calls[-1] == CAM2
+
+    asyncio.run(run())
+
+
+def test_invalidation_pauses_recognition_until_the_new_policy_is_readable():
+    # A previously cached standard answer must never survive an admin
+    # tightening while the refresh times out or the database is offline.
+    class Policies:
+        current = CameraSchedule("standard")
+        offline = False
+
+        def load_privacy_schedule(self, _camera_id):
+            if self.offline:
+                raise ConnectionError("db down")
+            return self.current
+
+    policies = Policies()
+    cache = PrivacyScheduleCache(policies, retry_sec=0)
+
+    async def run():
+        assert await cache.mode_at(CAM, AT) == ("standard", "schedule")
+        policies.offline = True
+        cache.invalidate(CAM)
+        assert await cache.mode_at(CAM, AT) == ("private", "fail_closed")
+        assert await cache.mode_at(CAM, AT) == ("private", "fail_closed")
+        policies.offline = False
+        policies.current = CameraSchedule("standard", consent_required=True)
+        assert await cache.mode_at(CAM, AT) == ("private", "consent")
+
+    asyncio.run(run())
+
+
+def test_prewrite_hold_is_private_until_database_confirms_consent_gate():
+    class Policies:
+        current = CameraSchedule("standard")
+
+        def load_privacy_schedule(self, _camera_id):
+            return self.current
+
+    policies = Policies()
+    cache = PrivacyScheduleCache(policies)
+
+    async def run():
+        assert await cache.mode_at(CAM, AT) == ("standard", "schedule")
+        cache.hold_private(CAM)
+        # Even a fresh read of the still-standard DB policy cannot lift the
+        # hold before the web action has committed consent_required=true.
+        assert await cache.mode_at(CAM, AT) == ("private", "consent")
+        assert cache.release_hold_if_consented(CAM) is False
+        policies.current = CameraSchedule("standard", consent_required=True)
+        cache.invalidate(CAM)
+        assert await cache.mode_at(CAM, AT) == ("private", "consent")
+        assert cache.release_hold_if_consented(CAM) is True
+        assert await cache.mode_at(CAM, AT) == ("private", "consent")
+
+    asyncio.run(run())
+
+
+def test_live_buffered_frame_before_consent_gate_removal_stays_private():
+    loosened = utc("2026-09-28T03:00:00Z")
+    schedule = CameraSchedule("standard", loosened_at=loosened)
+    cache = PrivacyScheduleCache(ScriptedStorage(schedule))
+
+    async def run():
+        assert await cache.mode_during(CAM, loosened - timedelta(seconds=2), loosened + timedelta(seconds=1)) == ("private", "schedule")
+        assert await cache.mode_during(CAM, loosened + timedelta(seconds=1), loosened + timedelta(seconds=2)) == ("standard", "schedule")
 
     asyncio.run(run())
 

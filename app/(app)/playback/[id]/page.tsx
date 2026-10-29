@@ -122,11 +122,11 @@ export default async function PlaybackDetailPage({
   let scheduleRanges: ReturnType<typeof scheduleProtectedOffsets> = [];
   if (rec.camera_id) {
     const [{ data: cam }, { data: windows }] = await Promise.all([
-      supabase.from("cameras").select("privacy_default").eq("id", rec.camera_id).maybeSingle(),
+      supabase.from("cameras").select("privacy_default, consent_required").eq("id", rec.camera_id).maybeSingle(),
       supabase.from("masking_schedules").select("window_mode, starts_at, ends_at, weekdays").eq("camera_id", rec.camera_id),
     ]);
     if (cam && windows) {
-      const schedule = buildPrivacySchedule(cam.privacy_default, windows as ScheduleWindowRow[]);
+      const schedule = buildPrivacySchedule(cam.privacy_default, windows as ScheduleWindowRow[], cam.consent_required);
       scheduleRanges = scheduleProtectedOffsets(schedule, rec.started_at, rec.duration_sec);
     }
   }
@@ -307,11 +307,12 @@ export default async function PlaybackDetailPage({
                         // .badge is nowrap; a long fail-closed label must wrap
                         // inside the card instead of running past its border.
                         className={`badge bg-accent/15 text-accent font-mono max-w-full flex-wrap whitespace-normal text-left${span.failClosed ? " rounded-lg" : ""}`}
-                        title={span.failClosed ? t("pb_privacy_fail_closed") : undefined}
+                        title={span.failClosed ? t("pb_privacy_fail_closed") : span.consent ? t("pb_privacy_consent") : undefined}
                       >
                         {span.start}
                         {span.end !== null ? `–${span.end}` : <span className="font-sans"> – {t("pb_privacy_until_end")}</span>}
                         {span.failClosed && <span className="font-sans"> · {t("pb_privacy_fail_closed")}</span>}
+                        {span.consent && <span className="font-sans"> · {t("pb_privacy_consent")}</span>}
                       </li>
                     ))}
                   </ul>

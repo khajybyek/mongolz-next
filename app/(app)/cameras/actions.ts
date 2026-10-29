@@ -7,7 +7,7 @@ import { requireAdmin } from "@/lib/supabase/auth";
 import { protectCameraUrlForStorage , unwrapCameraUrlForRuntime } from "@/lib/camera-crypto";
 import { ensureFreshReauth } from "@/lib/auth/step-up";
 import { scheduleSecurityEvent } from "@/lib/notify";
-import { mlTestCamera, type CameraTestResult, mlStopCamera } from "@/lib/ml-client";
+import { mlTestCamera, type CameraTestResult, mlStopCamera, mlHoldCameraPrivacy, mlRefreshCameraPrivacy } from "@/lib/ml-client";
 import type { CameraType } from "@/lib/database.types";
 
 /**
@@ -305,6 +305,23 @@ export async function toggleConsentAction(
   const required = String(formData.get("required") ?? "false") === "true";
   if (!UUID_RE.test(id)) return { error: "missing id" };
 
+  const supabase = cameraWriter();
+  const { data: camera, error: readError } = await supabase
+    .from("cameras")
+    .select("consent_required")
+    .eq("id", id)
+    .maybeSingle();
+  if (readError || !camera) return { error: "Camera unavailable" };
+  if (camera.consent_required === required) {
+    if (!required) return { ok: true };
+    try {
+      const confirmed = await mlRefreshCameraPrivacy(id);
+      return confirmed.consent_confirmed ? { ok: true } : { error: "Consent gate is saved, but ML enforcement is not confirmed." };
+    } catch {
+      return { error: "Consent gate is saved, but ML enforcement is not confirmed." };
+    }
+  }
+
   // Dropping the consent requirement removes a privacy control — second
   // factor first. Switching it ON is the safe direction and needs none.
   if (!required) {
@@ -312,12 +329,48 @@ export async function toggleConsentAction(
     if (reauth) return reauth;
   }
 
-  const supabase = cameraWriter();
-  const { error: updateError } = await supabase
+  // A DB-first update would leave the ML cache using its old permissive
+  // answer until refresh. Acknowledge an in-process private hold only after
+  // the current capture (including in-flight ArcFace work) has drained.
+  if (required) {
+    try {
+      await mlHoldCameraPrivacy(id);
+    } catch {
+      return { error: "ML service could not pause recognition; consent setting was not changed." };
+    }
+  }
+
+  // Removing this gate can resume recognition. The timestamp makes delayed
+  // edge frames from before the change stay private even after the cache
+  // refreshes to the loosened policy.
+  const fields = required
+    ? { consent_required: true }
+    : { consent_required: false, privacy_loosened_at: new Date().toISOString() };
+  const { data: updated, error: updateError } = await supabase
     .from("cameras")
-    .update({ consent_required: required })
-    .eq("id", id);
-  if (updateError) return { error: updateError.message };
+    .update(fields)
+    .eq("id", id)
+    .eq("consent_required", camera.consent_required)
+    .select("id");
+  if (updateError) return { error: required
+    ? `Camera setting was not confirmed: ${updateError.message}. Recognition remains paused until ML restarts.`
+    : updateError.message };
+  if (!updated?.length) return { error: required
+    ? "Camera setting changed; reload and try again. Recognition remains paused until ML restarts."
+    : "Camera setting changed; reload and try again." };
+
+  let enforcementError = false;
+  // The pre-write hold stays private if this refresh fails. The DB flag is
+  // still saved, so report the unconfirmed read without issuing a user-stop
+  // that would disable the camera's auto-resume registry.
+  try {
+    const confirmed = await mlRefreshCameraPrivacy(id);
+    if (required && !confirmed.consent_confirmed) {
+      throw new Error("ML policy refresh did not confirm the consent gate");
+    }
+  } catch {
+    enforcementError = true;
+  }
 
   try {
     const svc = createServiceClient();
@@ -329,6 +382,16 @@ export async function toggleConsentAction(
     });
   } catch {}
 
+  if (!required) {
+    scheduleSecurityEvent({
+      action: "CAMERA_CONSENT_TOGGLE", actorId: user.id, actorEmail: user.email,
+      detail: `camera ${id}: consent gate removed; recognition may resume`,
+    });
+  }
+
   revalidatePath("/cameras");
+  if (enforcementError) {
+    return { error: "Setting saved, but ML enforcement could not be confirmed. Check or stop the active camera." };
+  }
   return { ok: true };
 }

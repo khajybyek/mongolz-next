@@ -374,7 +374,7 @@ _PRIVACY_CLOCK_LOG_EVERY_SEC = 300.0
 class PrivacySpan:
     recording_id: str
     start: float
-    source: str                 # 'schedule' | 'fail_closed'
+    source: str                 # 'schedule' | 'consent' | 'fail_closed'
     end: float | None = None
     db_id: int | None = None    # recording_privacy_spans.id once inserted
     close_saved: bool = False   # end_offset_sec persisted
@@ -407,7 +407,8 @@ class PrivacySpanLedger:
         tick's offset (0 at the segment start): the switch happened somewhere
         between the two ticks, so the boundary is covered conservatively;
       * standard while a span is open → close it at the current offset;
-      * a ``fail_closed`` tick inside a span makes the span ``fail_closed``;
+      * a stronger source inside a span retains that source for the protected
+        stretch (fail_closed > consent > schedule);
       * segment rotation / finalize → ``close_segment`` at the final offset;
         the next segment's first tick (offset 0) re-opens if still private.
 
@@ -464,17 +465,19 @@ class PrivacySpanLedger:
             # recording", which is where it really ended.
             self.open = span = None
         if mode == "private":
-            wanted = "fail_closed" if source == "fail_closed" else "schedule"
+            wanted = source if source in ("consent", "fail_closed") else "schedule"
             if span is None:
                 self.open = self._add(PrivacySpan(recording_id, start, wanted))
-            elif wanted == "fail_closed" and span.source != "fail_closed":
+            elif {"schedule": 0, "consent": 1, "fail_closed": 2}[wanted] > {
+                "schedule": 0, "consent": 1, "fail_closed": 2
+            }[span.source]:
                 if span.db_id is None and not span.in_flight:
-                    span.source = "fail_closed"
+                    span.source = wanted
                 else:
-                    # Already persisted as 'schedule': cover the whole stretch
-                    # with a fail_closed span and retire the old one here.
+                    # A persisted source cannot be silently changed. Cover the
+                    # whole prior stretch with the stronger source too.
                     self._close(span, offset)
-                    self.open = self._add(PrivacySpan(recording_id, span.start, "fail_closed"))
+                    self.open = self._add(PrivacySpan(recording_id, span.start, wanted))
         elif span is not None:
             self._close(span, offset)
             self.open = None
@@ -822,8 +825,8 @@ class RecordingSession:
         self._beat_task: asyncio.Task | None = None
 
         # Shared masker (Haar every frame + InsightFace every Nth + TTL
-        # persistence + tier-aware cubist) — identical to the view renderer
-        # and the reveal path, so no code path is weaker than another.
+        # persistence + tier-aware cubist). Live capture uses strict mode:
+        # detector outages blank the frame before it reaches HLS.
         self.masker = FaceMasker(
             engine,
             tier_for=self._resolve_tier,
@@ -834,6 +837,7 @@ class RecordingSession:
             insight_min_confidence=INSIGHTFACE_MIN_CONFIDENCE,
             persist_frames=BLUR_PERSIST_FRAMES,
             pad_ratio=BLUR_PAD_RATIO,
+            fail_closed=True,
         )
 
         # Pipes (lifespan-д init болно)
@@ -1107,7 +1111,7 @@ class RecordingSession:
             answers = [await cache.mode_at(camera_id, lower)]
             if upper != lower:
                 answers.append(await cache.mode_at(camera_id, upper))
-            for wanted in ("fail_closed", "schedule", "none"):
+            for wanted in ("fail_closed", "consent", "schedule", "none"):
                 for mode, source in answers:
                     if mode == "private" and source == wanted:
                         return mode, source

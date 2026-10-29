@@ -109,7 +109,7 @@ def test_load_privacy_schedule_reads_default_and_windows():
     )
     assert st.load_privacy_schedule(CAM) == CameraSchedule("private", (Window("standard", "08:00", "20:00", 62),))
     assert [(c[0], c[2]) for c in st.client.calls] == [
-        ("cameras", "id, privacy_default, privacy_loosened_at"),
+        ("cameras", "id, privacy_default, privacy_loosened_at, consent_required"),
         ("masking_schedules", "window_mode, starts_at, ends_at, weekdays"),
     ]
 
@@ -122,6 +122,14 @@ def test_load_privacy_schedule_reads_when_it_was_last_loosened():
     schedule = st.load_privacy_schedule(CAM)
     assert schedule.loosened_at == datetime(2026, 9, 15, 8, 0, tzinfo=timezone.utc)
     st = _storage(cameras=[{"id": CAM, "privacy_default": "standard", "privacy_loosened_at": 17}])
+    with pytest.raises(ValueError):
+        st.load_privacy_schedule(CAM)
+
+
+def test_consent_requirement_is_loaded_and_invalid_state_fails_closed():
+    st = _storage(cameras=[{"id": CAM, "privacy_default": "standard", "consent_required": True}], masking_schedules=[])
+    assert st.load_privacy_schedule(CAM) == CameraSchedule("standard", consent_required=True)
+    st = _storage(cameras=[{"id": CAM, "privacy_default": "standard", "consent_required": None}], masking_schedules=[])
     with pytest.raises(ValueError):
         st.load_privacy_schedule(CAM)
 
@@ -184,6 +192,20 @@ def test_span_open_close_and_list():
         st.close_privacy_span(99, 1.0)
     with pytest.raises(ValueError):
         st.open_privacy_span(REC, 0.0, "revealed")
+
+
+def test_consent_span_source_survives_live_write_and_spool_delivery():
+    st = _storage(recording_privacy_spans=[])
+    span_id = st.open_privacy_span(REC, 0.0, "consent", SPAN_KEY)
+    st.upsert_privacy_spans(REC, [{
+        "client_span_id": SPAN_KEY, "start_offset_sec": 0.0,
+        "end_offset_sec": 12.0, "source": "consent",
+    }])
+    assert st.client.tables["recording_privacy_spans"] == [{
+        "id": span_id, "end_offset_sec": 12.0,
+        "recording_id": REC, "start_offset_sec": 0.0,
+        "source": "consent", "client_span_id": SPAN_KEY,
+    }]
 
 
 SPAN_KEY = "5d0f5a52-8a3e-4b0e-9d7e-3c1f0b8f2a11"

@@ -19,6 +19,7 @@ from unittest.mock import Mock
 os.environ.setdefault("ML_ENCRYPTION_KEY", base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())
 os.environ.setdefault("ML_SERVICE_TOKEN", "test-token")
 
+import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
@@ -117,6 +118,30 @@ def test_evidence_frame_in_privacy_mode_uses_the_detector_alone(tmp_path):
     engine.calls.clear()
     view_renderer.render_blurred_frame(src, 0.5, engine, ProtectedTimeline(intervals=((1.0, 2.0),)))
     assert engine.calls == ["detect_all"]
+
+
+def test_detector_outage_blacks_out_playback_and_evidence(tmp_path):
+    """A failed detector cannot publish raw pixels via derived media."""
+    class BrokenEngine:
+        def detect_all(self, _jpeg):
+            raise RuntimeError("detector offline")
+
+    src, out = str(tmp_path / "in.mp4"), str(tmp_path / "out.mp4")
+    _make_synthetic_mp4(src, frames=8, fps=15)
+    engine = BrokenEngine()
+
+    assert view_renderer.render_blurred_view(src, out, engine) == 8
+    cap = cv2.VideoCapture(out)
+    try:
+        ok, frame = cap.read()
+        assert ok and frame is not None
+        assert int(frame.max()) <= 16
+    finally:
+        cap.release()
+
+    jpeg = view_renderer.render_blurred_frame(src, 0.0, engine)
+    decoded = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+    assert decoded is not None and int(decoded.max()) <= 16
 
 
 # ── the endpoints load the protection (and fail closed) ─────────────────

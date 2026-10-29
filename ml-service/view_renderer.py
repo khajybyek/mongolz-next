@@ -403,6 +403,7 @@ def _render(
         haar_neighbors=_HAAR_MIN_NEIGHBORS,
         haar_min_size=_HAAR_MIN_SIZE,
         pad_ratio=_PAD_RATIO,
+        fail_closed=True,
     )
     frame_count = 0
     blurred_count = 0
@@ -484,6 +485,7 @@ def render_blurred_frame(input_mp4: str, at_sec: float, engine=None, protection=
             haar_neighbors=_HAAR_MIN_NEIGHBORS,
             haar_min_size=_HAAR_MIN_SIZE,
             pad_ratio=_PAD_RATIO,
+            fail_closed=True,
         )
         if protection is not None:
             masker.embeddings_allowed = not protection.covers(at_sec)

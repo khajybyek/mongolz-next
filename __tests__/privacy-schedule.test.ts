@@ -217,6 +217,12 @@ describe("schedule evaluation (display copy of the ML rules)", () => {
     expect(scheduleProtectedOffsets(null, "2026-09-28T08:59:50Z", 60)).toEqual([]);
   });
 
+  it("shows a pending consent gate as private even across standard windows", () => {
+    const schedule = buildPrivacySchedule("standard", [W("standard", "00:00", "24:00", 127)], true);
+    expect(privacyModeAt(schedule, Date.parse("2026-09-28T00:00:00Z"))).toBe("private");
+    expect(scheduleProtectedOffsets(schedule, "2026-09-28T00:00:00Z", 30, 0)).toEqual([[0, 30]]);
+  });
+
   it("range arithmetic matches the reveal job's covers_range", () => {
     const ranges: Array<[number, number | null]> = [[0, 4], [4, 10], [12, 20]];
     expect(rangeCovered(ranges, 0, 10)).toBe(true);
@@ -356,12 +362,12 @@ describe("privacySpanRanges", () => {
     const ranges = privacySpanRanges([
       { start_offset_sec: 125, end_offset_sec: null, source: "schedule" },
       { start_offset_sec: "0", end_offset_sec: "61.5", source: "fail_closed" },
-      { start_offset_sec: 70, end_offset_sec: 90, source: "schedule" },
+      { start_offset_sec: 70, end_offset_sec: 90, source: "consent" },
     ]);
     expect(ranges).toEqual([
-      { start: "00:00", end: "01:01", failClosed: true },
-      { start: "01:10", end: "01:30", failClosed: false },
-      { start: "02:05", end: null, failClosed: false },
+      { start: "00:00", end: "01:01", failClosed: true, consent: false },
+      { start: "01:10", end: "01:30", failClosed: false, consent: true },
+      { start: "02:05", end: null, failClosed: false, consent: false },
     ]);
   });
 

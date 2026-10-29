@@ -129,7 +129,8 @@ def merge_offsets(intervals: Iterable[Offsets]) -> tuple[Offsets, ...]:
 
 def may_be_private(schedule: CameraSchedule | None) -> bool:
     return schedule is not None and (
-        schedule.default == "private" or any(w.mode == "private" for w in schedule.windows)
+        schedule.consent_required or schedule.default == "private"
+        or any(w.mode == "private" for w in schedule.windows)
     )
 
 

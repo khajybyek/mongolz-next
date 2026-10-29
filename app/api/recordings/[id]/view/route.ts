@@ -116,8 +116,9 @@ export async function GET(
   // The masked view of a recording is still personal data: record who watched
   // which recording. Written only after the ML service accepted the render —
   // the 404/502 branches above are refusals, not viewings. Collapsed to one
-  // row per operator per recording per window, matching the 5-minute browser
-  // cache below (inside it a re-watch may never reach this route at all).
+  // row per operator per recording per window; range requests and re-watches
+  // may reach this route repeatedly because privacy changes disable browser
+  // caching of the derived view.
   await recordAccess({
     action: READ_ACTIONS.RECORDING_VIEWED,
     detail: `recording=${id} · on-demand masked view`,
@@ -128,12 +129,12 @@ export async function GET(
   });
 
   // Stream the MP4 body straight through, keeping the upstream status (200 or
-  // 206) and the headers a media element needs to seek. Cache hint =
-  // "private" (per-user) because the URL is auth-gated; "max-age=300" gives
-  // the browser 5 min of local caching so seeking doesn't re-hit.
+  // 206) and the headers a media element needs to seek. The camera's consent
+  // and privacy policy can tighten while this page is open, so the browser
+  // must revalidate every request against the ML service's current policy.
   const responseHeaders = new Headers({
     "Content-Type": "video/mp4",
-    "Cache-Control": "private, max-age=300",
+    "Cache-Control": "private, no-store",
     "Accept-Ranges": "bytes",
   });
   for (const name of ["Content-Length", "Content-Range", "Accept-Ranges"]) {

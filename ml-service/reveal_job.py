@@ -1085,6 +1085,7 @@ class RevealProcessor:
                 haar_neighbors=3,
                 haar_min_size=(20, 20),
                 pad_ratio=0.35,
+                fail_closed=True,
             )
         self._masker.embeddings_allowed = identify
         return self._masker.mask(frame, keep_boxes)

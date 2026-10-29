@@ -154,6 +154,29 @@ def test_no_previous_masked_frame_means_mask_now(tmp_path, monkeypatch):
     assert s._should_hold(0.2, (8, 8, 3)) is False  # size changed → mask
 
 
+def test_detector_outage_never_reaches_live_hls_as_raw_pixels(tmp_path, monkeypatch):
+    """A broken face detector may interrupt the picture, but not expose it."""
+    class BrokenEngine:
+        def detect_all(self, _jpeg):
+            raise RuntimeError("detector unavailable")
+
+        @staticmethod
+        def cosine(_a, _b):
+            return 0.0
+
+    clock = [0.0]
+    s = _session(tmp_path, monkeypatch, clock)
+    s.masker.engine = BrokenEngine()
+    monkeypatch.setattr(s, "_draw_kst_timestamp", lambda *a, **k: None)
+    raw = np.full((64, 64, 3), 200, dtype=np.uint8)
+
+    asyncio.run(s._emit_frame(0.0, raw))
+
+    assert s.masker.fail_closed is True
+    assert s.hls.stdin.frames == [bytes(raw.size)]
+    assert s.original_writer.stdin.frames == [raw.tobytes()]
+
+
 def test_camera_clock_drift_does_not_freeze_the_stream(tmp_path, monkeypatch):
     """A camera whose PTS clock runs slow makes the measured lag grow even
     though frames arrive in real time. Holding cannot drain that, so the
