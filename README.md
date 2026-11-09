@@ -464,8 +464,6 @@ The code in this repository is released under the [MIT License](LICENSE).
 It does not cover material owned by others that the repository contains or
 uses:
 
-- `public/test/` — the driving-theory question bank, its translations and
-  images belong to 한국도로교통공단 (KoROAD).
 - `ml-service/samples/` — AI-generated sample faces used for demo cameras
   and tests.
 - `public/models/face_detect.onnx` — the browser face detector keeps its

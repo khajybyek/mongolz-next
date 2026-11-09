@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { allowsInsecureMedia, buildCsp } from "@/lib/csp";
-import { buildTestSiteCsp, isTestSiteHost, isTestSitePath, testSiteRewriteTarget } from "@/lib/test-site";
 
 // Next.js 16: "middleware" file-convention deprecated → "proxy" болсон.
 // Зөвхөн нэр өөрчлөгдсөн, ажиллагаа хэвээр (auth session refresh + cookie sync).
@@ -32,42 +31,8 @@ function reportToHeader(origin: string): string {
   });
 }
 
-/**
- * mongolz.dev/test is a static page in `public/test/` (lib/test-site.ts).
- * It is answered here before any session work: no Supabase call, no login
- * redirect, no role redirect — and its own hash-pinned CSP instead of the
- * console's nonce policy, which a static file cannot carry. Every other host
- * (aicctv.dev) gets a plain 404, so the page does not exist there.
- */
-function testSiteResponse(request: NextRequest, isDev: boolean): NextResponse {
-  const hosts = [request.headers.get("x-forwarded-host"), request.headers.get("host"), request.nextUrl.host];
-  if (!isTestSiteHost(hosts, isDev)) {
-    return new NextResponse("Not Found", {
-      status: 404,
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Cache-Control": "no-store",
-        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
-  }
-  const target = testSiteRewriteTarget(request.nextUrl.pathname);
-  const res = target ? NextResponse.rewrite(new URL(target, request.url)) : NextResponse.next();
-  res.headers.set("Content-Security-Policy", buildTestSiteCsp());
-  res.headers.set("Report-To", reportToHeader(request.nextUrl.origin));
-  res.headers.set("Reporting-Endpoints", REPORTING_ENDPOINTS_HEADER);
-  if (!isDev) {
-    res.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
-  }
-  res.headers.set("X-Content-Type-Options", "nosniff");
-  res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  return res;
-}
-
 export async function proxy(request: NextRequest) {
   const isDev = process.env.NODE_ENV !== "production";
-  if (isTestSitePath(request.nextUrl.pathname)) return testSiteResponse(request, isDev);
 
   const nonce = generateNonce();
   // `http:` images/video only where a hand-typed LAN webcam is rendered.
@@ -148,7 +113,5 @@ export const config = {
      *  - public файлууд
      */
     "/((?!_next/static|_next/image|favicon.ico|monitoring|models/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|onnx|wasm|mjs)$).*)",
-    // The static page's images are .webp — still gated by host (lib/test-site.ts).
-    "/test/:path*",
   ],
 };
